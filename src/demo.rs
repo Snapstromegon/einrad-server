@@ -24,7 +24,9 @@ use crate::{
         toml_date, toml_datetime_option,
     },
     gender::Gender,
-    groups, seed, utils,
+    groups,
+    rider_registration::{self, Pair, PartnerClubs},
+    seed,
 };
 
 #[derive(Debug, Deserialize)]
@@ -316,10 +318,9 @@ impl DemoData {
 
         let users = self.insert_users(db).await?;
         let starters = self.insert_clubs(db, &users).await?;
-        self.link_partners(db, &starters).await?;
+        self.register_starts(db, &starters).await?;
         self.insert_judges(db).await?;
 
-        utils::initialize_acts(db).await?;
         let group_ids = self.insert_groups(db, &starters).await?;
         self.update_acts(db, &starters, &group_ids, data_path)
             .await?;
@@ -459,8 +460,6 @@ impl DemoData {
                 }
                 let id = Uuid::now_v7();
                 let birthdate = starter.birthdate.midnight().assume_utc();
-                let single_male = starter.single == Some(Single::Male);
-                let single_female = starter.single == Some(Single::Female);
                 let checked_in_at = starter.checked_in_at.map(utc);
                 if starter.single.is_some()
                     && starter.gender.is_some_and(|g| Some(g) != starter.single)
@@ -474,10 +473,9 @@ impl DemoData {
                 sqlx::query!(
                     r#"
                     INSERT INTO starter (
-                        id, club_id, firstname, lastname, birthdate, gender,
-                        single_male, single_female, pair, partner_name, checked_in_at,
+                        id, club_id, firstname, lastname, birthdate, gender, checked_in_at,
                         fee_waiver
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                     id,
                     club_id,
@@ -485,10 +483,6 @@ impl DemoData {
                     starter.lastname,
                     birthdate,
                     gender,
-                    single_male,
-                    single_female,
-                    starter.pair,
-                    starter.partner_name,
                     checked_in_at,
                     starter.fee_waiver,
                 )
@@ -560,7 +554,9 @@ impl DemoData {
         Ok(())
     }
 
-    async fn link_partners(
+    /// Registers the singles, linked pairs and pair requests with the same
+    /// rules as the API.
+    async fn register_starts(
         &self,
         db: &sqlx::SqlitePool,
         starters: &StarterIds<'_>,
@@ -600,19 +596,37 @@ impl DemoData {
             partners.insert(partner, name);
         }
 
-        for (name, partner) in partners {
+        let mut transaction = db.begin().await.map_err(|e| e.to_string())?;
+        for (&name, &partner) in &partners {
+            // Each pair once.
+            if name > partner {
+                continue;
+            }
             let partner_id = starters.id(partner, name)?;
             let id = starters.id(name, name)?;
-            sqlx::query!(
-                "UPDATE starter SET partner_id = ?, partner_name = ? WHERE id = ?",
-                partner_id,
-                partner,
-                id
-            )
-            .execute(db)
-            .await
-            .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
+            rider_registration::link_pair(&mut transaction, id, partner_id, PartnerClubs::Any)
+                .await
+                .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
         }
+        for (id, starter) in &starters.all {
+            let name = starter.full_name();
+            if starter.single.is_some() {
+                rider_registration::set_single(&mut transaction, *id, true)
+                    .await
+                    .map_err(|e| format!("Couldn't add the single of {name}: {e}"))?;
+            }
+            // Riders named as `partner` by their partner are linked above.
+            if starter.pair && !partners.contains_key(name.as_str()) {
+                rider_registration::request_pair(
+                    &mut transaction,
+                    *id,
+                    starter.partner_name.as_deref(),
+                )
+                .await
+                .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
+            }
+        }
+        transaction.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -714,9 +728,16 @@ impl DemoData {
                 }
                 (None, Some(starter), Some(act_type)) => {
                     let starter_id = starters.id(starter, "[[acts]]")?;
-                    let act_id = utils::get_act_id_for_starter_id(db, starter_id, act_type)
-                        .await?
-                        .ok_or_else(|| {
+                    let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
+                    let starts = rider_registration::starts(&mut conn, starter_id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    let act_id = match (act_type, starts.pair) {
+                        (ActType::Single, _) => starts.single,
+                        (ActType::Pair, Pair::Linked { act_id, .. }) => Some(act_id),
+                        _ => None,
+                    }
+                    .ok_or_else(|| {
                             format!(
                                 "[[acts]]: {starter} has no {} act. Singles need `single`, pairs a linked `partner`.",
                                 act_type.as_str()
@@ -808,10 +829,13 @@ fn utc(datetime: OffsetDateTime) -> OffsetDateTime {
 #[derive(Default)]
 struct StarterIds<'a> {
     by_name: HashMap<String, Option<(Uuid, &'a DemoStarter)>>,
+    /// Every starter, also those with an ambiguous name.
+    all: Vec<(Uuid, &'a DemoStarter)>,
 }
 
 impl<'a> StarterIds<'a> {
     fn insert(&mut self, name: String, id: Uuid, starter: &'a DemoStarter) {
+        self.all.push((id, starter));
         self.by_name
             .entry(name)
             .and_modify(|entry| *entry = None)
@@ -980,15 +1004,24 @@ mod tests {
         ] {
             assert!(count(&db, sql).await > 0, "no {what}");
         }
-        // Partner links are symmetric.
+        // Pairs have two riders.
         assert_eq!(
             count(
                 &db,
-                "SELECT COUNT(*) FROM starter s JOIN starter p ON p.id = s.partner_id WHERE p.partner_id IS NOT s.id"
+                "SELECT COUNT(*) FROM acts WHERE act_type = 'pair' AND (SELECT COUNT(*) FROM act_participants p WHERE p.act_id = acts.id) != 2"
             )
             .await,
             0
         );
+        for (what, sql) in [
+            (
+                "linked pair",
+                "SELECT COUNT(*) FROM acts WHERE act_type = 'pair'",
+            ),
+            ("pair request", "SELECT COUNT(*) FROM pair_requests"),
+        ] {
+            assert!(count(&db, sql).await > 0, "no {what}");
+        }
         let songs: Vec<String> =
             sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file IS NOT NULL")
                 .fetch_all(&db)

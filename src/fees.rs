@@ -116,9 +116,10 @@ async fn fees(
         .collect())
 }
 
-/// Start fees per club. Each single, pair and group start counts; the
-/// starter's club pays, at most the cap per rider. With `waivers`, a waived
-/// club or rider pays nothing and a waived act's start doesn't count. The
+/// Start fees per club. Each start in an act counts, and a pair request (a
+/// rider waiting for a partner) counts as one; the starter's club pays, at
+/// most the cap per rider. With `waivers`, a waived club or rider pays
+/// nothing and a waived act's start doesn't count. The
 /// same rule as `getStarterPrice` in the frontend, which still prices single
 /// starters in the forms.
 async fn start_fees_by_club(
@@ -139,13 +140,8 @@ async fn start_fees_by_club(
                 OR (SELECT fee_waiver FROM clubs WHERE clubs.id = starter.club_id) IS NOT NULL
             ) THEN 0 ELSE MAX(
                 0,
-                starter.single_male + starter.single_female + starter.pair
-                + (
-                    SELECT COUNT(*) FROM act_participants
-                    JOIN acts ON acts.id = act_participants.act_id
-                    WHERE act_participants.starter_id = starter.id
-                        AND acts.act_type IN ('group_small', 'group_large')
-                )
+                (SELECT COUNT(*) FROM act_participants WHERE act_participants.starter_id = starter.id)
+                + EXISTS (SELECT 1 FROM pair_requests WHERE pair_requests.starter_id = starter.id)
                 - (
                     SELECT COUNT(*) FROM act_participants
                     JOIN acts ON acts.id = act_participants.act_id

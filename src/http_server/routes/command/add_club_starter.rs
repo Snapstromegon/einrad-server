@@ -1,18 +1,18 @@
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    act_type::ActType,
     gender::Gender,
-    groups::{ensure_club_access, ensure_partner_in_club},
+    groups::ensure_club_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     people::{self, Person},
-    reloadable_sqlite::ReloadableSqlite,
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    rider_registration::{self, PartnerClubs},
+    roles::Permission,
     system_status::Capabilities,
-    utils::{check_single_start, set_act},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -67,83 +67,29 @@ pub async fn add_club_starter(
     if !capabilities.can_register_starter {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    check_single_start(body.single_male, body.single_female).map_err(HttpError::ErrorMessages)?;
+    let (single, gender) = single_from_flags(body.single_male, body.single_female, body.gender)?;
+    let gender = gender
+        .ok_or_else(|| HttpError::ErrorMessages("Bitte gib das Geschlecht an.".to_string()))?;
     people::trim_name(&mut body.firstname);
     people::trim_name(&mut body.lastname);
-    Gender::check_single(body.gender, body.single_male, body.single_female)
-        .map_err(HttpError::ErrorMessages)?;
-    let gender = body
-        .gender
-        .or(Gender::of_single(body.single_male, body.single_female))
-        .ok_or_else(|| HttpError::ErrorMessages("Bitte gib das Geschlecht an.".to_string()))?;
     let db = db.get().await.clone();
-    {
-        let mut conn = db.acquire().await?;
-        ensure_club_access(&mut conn, &auth, body.club_id).await?;
-        people::ensure_name_is_free(
-            &mut conn,
-            Person::Rider,
-            body.club_id,
-            &body.firstname,
-            &body.lastname,
-            None,
-        )
-        .await?;
-        if let Some(partner_id) = body.partner_id {
-            ensure_partner_in_club(&mut conn, &auth, partner_id, body.club_id).await?;
-        }
-    }
+    let mut transaction = begin_write(&db).await?;
+    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
+    people::ensure_name_is_free(
+        &mut transaction,
+        Person::Rider,
+        body.club_id,
+        &body.firstname,
+        &body.lastname,
+        None,
+    )
+    .await?;
+
     let starter_id = Uuid::now_v7();
-
-    let self_name = format!("{} {}", body.firstname, body.lastname);
-
-    // Find potential partner
-    let partner_id = if let Some(partner_id) = body.partner_id {
-        Some(partner_id)
-    } else {
-        let rows = sqlx::query!(
-            r#"
-            SELECT id as "id!: Uuid" FROM starter WHERE concat_ws(" ", firstname, lastname) = ? AND pair = TRUE AND club_id = ?
-            "#,
-            body.partner_name,
-            body.club_id,
-        )
-        .fetch_all(&db)
-        .await?;
-        if rows.len() != 1 {
-            None
-        } else {
-            Some(rows[0].id)
-        }
-    };
-    info!("Found partner_id: {:?}", partner_id);
-    if let Some(partner_id) = partner_id {
-        sqlx::query!(
-            r#"
-                UPDATE starter SET partner_id = NULL, partner_name = NULL WHERE partner_id = ?
-                "#,
-            partner_id,
-        )
-        .execute(&db)
-        .await?;
-    }
-
-    info!("Inserting starter {:?}", starter_id);
     sqlx::query!(
         r#"
-        INSERT INTO starter (
-          id,
-          club_id,
-          firstname,
-          lastname,
-          birthdate,
-          gender,
-          single_male,
-          single_female,
-          pair,
-          partner_id,
-          partner_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        INSERT INTO starter (id, club_id, firstname, lastname, birthdate, gender)
+        VALUES (?, ?, ?, ?, ?, ?);
         "#,
         starter_id,
         body.club_id,
@@ -151,41 +97,76 @@ pub async fn add_club_starter(
         body.lastname,
         body.birthdate,
         gender,
-        body.single_male,
-        body.single_female,
-        body.pair,
-        partner_id,
-        body.partner_name,
     )
-    .execute(&db)
+    .execute(&mut *transaction)
     .await
     .map_err(|e| people::map_duplicate(e, &body.firstname, &body.lastname))?;
 
-    if body.single_female || body.single_male {
-        set_act(&db, "", &[starter_id], None, ActType::Single)
-            .await
-            .map_err(HttpError::ErrorMessages)?;
+    if single {
+        rider_registration::set_single(&mut transaction, starter_id, true).await?;
+    }
+    if body.pair {
+        match body.partner_id {
+            Some(partner_id) => {
+                rider_registration::link_pair(
+                    &mut transaction,
+                    starter_id,
+                    partner_id,
+                    partner_clubs(&auth),
+                )
+                .await?;
+            }
+            None => {
+                rider_registration::request_pair(
+                    &mut transaction,
+                    starter_id,
+                    body.partner_name.as_deref(),
+                )
+                .await?;
+            }
+        }
     }
 
-    if let Some(partner_id) = partner_id {
-        set_act(&db, "", &[starter_id, partner_id], None, ActType::Pair)
-            .await
-            .map_err(HttpError::ErrorMessages)?;
-        info!(
-            "Updating partner {:?} to link to starter {:?}",
-            partner_id, starter_id
-        );
-        sqlx::query!(
-            r#"
-                UPDATE starter SET partner_id = ?, partner_name = ? WHERE id = ?
-                "#,
-            starter_id,
-            self_name,
-            partner_id,
-        )
-        .execute(&db)
-        .await?;
-    }
-
+    transaction.commit().await?;
     Ok(Json(AddClubStarterResponse { starter_id }))
+}
+
+/// Whose riders the user can pair a rider with: clubs their own, the
+/// organizer any.
+pub(super) fn partner_clubs(auth: &Auth) -> PartnerClubs {
+    if auth.can(Permission::ManageRegistrations) {
+        PartnerClubs::Any
+    } else {
+        PartnerClubs::Same
+    }
+}
+
+/// The single from the API's `single_male` / `single_female` flags and the
+/// rider's gender. A single is Einzel weiblich or männlich by the gender, so
+/// the flag must match it; without a gender it gives one.
+pub(super) fn single_from_flags(
+    single_male: bool,
+    single_female: bool,
+    gender: Option<Gender>,
+) -> Result<(bool, Option<Gender>), HttpError> {
+    let single_gender = match (single_male, single_female) {
+        (true, true) => {
+            return Err(HttpError::ErrorMessages(
+                "Ein Fahrer kann nur in einer Einzelkür starten (Einzel M oder Einzel W)."
+                    .to_string(),
+            ));
+        }
+        (true, false) => Some(Gender::Male),
+        (false, true) => Some(Gender::Female),
+        (false, false) => None,
+    };
+    match (gender, single_gender) {
+        (Some(gender), Some(single)) if gender != single => {
+            Err(HttpError::ErrorMessages(match gender {
+                Gender::Female => "Eine Fahrerin startet in Einzel weiblich.".to_string(),
+                Gender::Male => "Ein Fahrer startet in Einzel männlich.".to_string(),
+            }))
+        }
+        _ => Ok((single_gender.is_some(), gender.or(single_gender))),
+    }
 }

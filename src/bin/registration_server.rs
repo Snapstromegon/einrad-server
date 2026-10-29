@@ -11,7 +11,7 @@ use nrw_freestyle_cup_registration::{
     player::PlayerHub,
     reloadable_sqlite::{self, ReloadableSqlite},
     roles::Role,
-    seed, utils,
+    seed,
 };
 use password_auth::generate_hash;
 use sqlx::migrate;
@@ -81,9 +81,6 @@ async fn main() -> eyre::Result<()> {
         info!("Inserting admin user with email: {}", admin.email);
         insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
     }
-
-    info!("Initializing acts");
-    utils::initialize_acts(&db).await.unwrap();
 
     info!("Build JWT config");
     let jwt_algorithm = jsonwebtoken::Algorithm::HS512;

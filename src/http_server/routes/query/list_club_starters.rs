@@ -20,10 +20,14 @@ pub struct ClubStarter {
     /// Decides whether the single is Einzel weiblich or männlich. Missing for
     /// riders registered before it was asked.
     gender: Option<Gender>,
+    /// Has a single, by `gender` Einzel weiblich or männlich.
     single_male: bool,
     single_female: bool,
+    /// Is in a pair act or waits for a partner (a pair request).
     pair: bool,
+    /// The partner of the pair act.
     partner_id: Option<Uuid>,
+    /// The name of the requested partner, or of the pair act's partner.
     partner_name: Option<String>,
     resolved_partner_name: Option<String>,
     resolved_partner_club: Option<String>,
@@ -77,11 +81,23 @@ pub async fn list_club_starters(
             starter.lastname,
             starter.birthdate,
             starter.gender as "gender: Gender",
-            starter.single_male,
-            starter.single_female,
-            starter.pair,
-            starter.partner_id as "partner_id: Uuid",
-            starter.partner_name,
+            (starter.gender = 'male' AND EXISTS (
+              SELECT 1 FROM act_participants
+              JOIN acts ON acts.id = act_participants.act_id
+              WHERE act_participants.starter_id = starter.id AND acts.act_type = 'single'
+            )) as "single_male!: bool",
+            (starter.gender = 'female' AND EXISTS (
+              SELECT 1 FROM act_participants
+              JOIN acts ON acts.id = act_participants.act_id
+              WHERE act_participants.starter_id = starter.id AND acts.act_type = 'single'
+            )) as "single_female!: bool",
+            (request.starter_id IS NOT NULL OR EXISTS (
+              SELECT 1 FROM act_participants
+              JOIN acts ON acts.id = act_participants.act_id
+              WHERE act_participants.starter_id = starter.id AND acts.act_type = 'pair'
+            )) as "pair!: bool",
+            partner.id as "partner_id: Uuid",
+            CASE WHEN partner.id IS NULL THEN request.partner_name ELSE partner.firstname || ' ' || partner.lastname END as "partner_name: String",
             NULLIF(concat_ws(" ", partner.firstname, partner.lastname), '') as "resolved_partner_name: String",
             partner_club.name as resolved_partner_club,
             (
@@ -97,7 +113,15 @@ pub async fn list_club_starters(
                 AND acts.fee_waiver IS NOT NULL
             ) as "waived_count!: i64",
             starter.fee_waiver IS NOT NULL as "fee_waived!: bool"
-        FROM starter LEFT JOIN starter as partner ON partner.id = starter.partner_id LEFT JOIN clubs as partner_club ON partner_club.id = partner.club_id
+        FROM starter
+          LEFT JOIN pair_requests as request ON request.starter_id = starter.id
+          LEFT JOIN starter as partner ON partner.id = (
+            SELECT other.starter_id FROM act_participants own
+              JOIN acts ON acts.id = own.act_id AND acts.act_type = 'pair'
+              JOIN act_participants other ON other.act_id = own.act_id AND other.starter_id != own.starter_id
+            WHERE own.starter_id = starter.id
+          )
+          LEFT JOIN clubs as partner_club ON partner_club.id = partner.club_id
         WHERE starter.club_id = ?
         "#,
         club_id

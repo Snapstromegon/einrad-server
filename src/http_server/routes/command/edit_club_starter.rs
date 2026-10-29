@@ -4,15 +4,15 @@ use tracing::instrument;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::add_club_starter::{partner_clubs, single_from_flags};
 use crate::{
-    act_type::ActType,
     gender::Gender,
-    groups::{ensure_partner_in_club, ensure_starter_access},
+    groups::ensure_starter_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     people::{self, Person},
-    reloadable_sqlite::ReloadableSqlite,
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    rider_registration::{self, Pair},
     system_status::Capabilities,
-    utils::{check_single_start, delete_act, get_act_id_for_starter_id, set_act},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -39,7 +39,9 @@ pub struct EditClubStarterBody {
 ///
 /// Only the starter's club (or an admin) can edit them. A newly chosen
 /// `partner_id` must be a starter of the same club; admins can also link
-/// partners of other clubs.
+/// partners of other clubs. A linked partner is kept while the body names
+/// them (by `partner_id` or `partner_name`); another `partner_name` ends the
+/// pair and asks for that partner instead.
 #[utoipa::path(
     post,
     tags=["command", "club"],
@@ -64,226 +66,101 @@ pub async fn edit_club_starter(
     if !capabilities.can_register_starter {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    check_single_start(body.single_male, body.single_female).map_err(HttpError::ErrorMessages)?;
+    let (single, gender) = single_from_flags(body.single_male, body.single_female, body.gender)?;
     people::trim_name(&mut body.firstname);
     people::trim_name(&mut body.lastname);
     let db = db.get().await.clone();
-    let club_id = {
-        let mut conn = db.acquire().await?;
-        let club_id = ensure_starter_access(&mut conn, &auth, body.starter_id).await?;
-        people::ensure_name_is_free(
-            &mut conn,
-            Person::Rider,
-            club_id,
-            &body.firstname,
-            &body.lastname,
-            Some(body.starter_id),
-        )
-        .await?;
-        club_id
-    };
+    let mut transaction = begin_write(&db).await?;
+    let club_id = ensure_starter_access(&mut transaction, &auth, body.starter_id).await?;
+    people::ensure_name_is_free(
+        &mut transaction,
+        Person::Rider,
+        club_id,
+        &body.firstname,
+        &body.lastname,
+        Some(body.starter_id),
+    )
+    .await?;
 
+    // Clients without the field (the admin's starter table) keep the gender;
+    // a single of the other gender then changes it.
     let stored_gender = sqlx::query_scalar!(
         r#"SELECT gender as "gender: Gender" FROM starter WHERE id = ?"#,
         body.starter_id,
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *transaction)
     .await?;
-    // Clients without the field (the admin's starter table) keep the gender;
-    // a single of the other gender then changes it.
-    let gender = match body.gender {
-        Some(gender) => Some(gender),
-        None => Gender::of_single(body.single_male, body.single_female).or(stored_gender),
-    };
-    Gender::check_single(gender, body.single_male, body.single_female)
-        .map_err(HttpError::ErrorMessages)?;
-
-    let self_name = format!("{} {}", body.firstname, body.lastname);
-
-    let existing_partner_name = sqlx::query!(
-        r#"
-        SELECT partner_name FROM starter WHERE id = ?
-        "#,
-        body.starter_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .partner_name;
-
-    if existing_partner_name != body.partner_name || !body.pair {
-        body.partner_id = None;
-    }
-
-    // A partner linked before (possibly by an admin, across clubs) is kept;
-    // a newly chosen one must be from the same club.
-    if let Some(partner_id) = body.partner_id {
-        let mut conn = db.acquire().await?;
-        let existing_partner_id = sqlx::query_scalar!(
-            r#"SELECT partner_id as "partner_id: Uuid" FROM starter WHERE id = ?"#,
-            body.starter_id,
-        )
-        .fetch_one(&mut *conn)
-        .await?;
-        if existing_partner_id != Some(partner_id) {
-            ensure_partner_in_club(&mut conn, &auth, partner_id, club_id).await?;
-        }
-    }
-
-    // Find potential partner
-    let partner_id = if let Some(partner_id) = body.partner_id {
-        Some(partner_id)
-    } else {
-        let self_club_id = sqlx::query!(
-            r#"
-            SELECT club_id as "club_id: Uuid" FROM starter WHERE id = ?
-            "#,
-            body.starter_id,
-        )
-        .fetch_one(&db)
-        .await?
-        .club_id;
-        let rows = sqlx::query!(
-            r#"
-            SELECT id as "id!: Uuid" FROM starter WHERE concat_ws(" ", firstname, lastname) = ? AND pair = TRUE AND club_id = ?
-            "#,
-            body.partner_name,
-            self_club_id,
-        )
-        .fetch_all(&db)
-        .await?;
-        if rows.len() != 1 {
-            None
-        } else {
-            Some(rows[0].id)
-        }
-    };
-
-    let existing_partner_id = sqlx::query!(
-        r#"
-        SELECT partner_id as "partner_id: Uuid" FROM starter WHERE id = ?
-        "#,
-        body.starter_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .partner_id;
-
-    if existing_partner_id != partner_id {
-        // Partner checks
-        if let Some(real_partner_id) = partner_id {
-            // Check that you don't pair with yourself
-            if body.starter_id == real_partner_id {
-                return Err(HttpError::ErrorMessages(
-                    "Fahrer und Partner sind die selbe Person!".to_string(),
-                ));
-            }
-        }
-
-        // Reset partner of partner; the pair act of the old pair goes with it.
-        if let Some(existing_partner_id) = existing_partner_id {
-            if let Some(own_act_id) = get_act_id_for_starter_id(&db, body.starter_id, ActType::Pair)
-                .await
-                .map_err(HttpError::ErrorMessages)?
-            {
-                delete_act(&db, own_act_id)
-                    .await
-                    .map_err(HttpError::ErrorMessages)?;
-            }
-            sqlx::query!(
-                r#"
-                UPDATE starter SET partner_id = NULL, partner_name = NULL WHERE id = ?
-                "#,
-                existing_partner_id,
-            )
-            .execute(&db)
-            .await?;
-        }
-
-        if let Some(partner_id) = partner_id {
-            sqlx::query!(
-                r#"
-                UPDATE starter SET partner_id = NULL, partner_name = NULL WHERE partner_id = ?
-                "#,
-                partner_id,
-            )
-            .execute(&db)
-            .await?;
-            sqlx::query!(
-                r#"
-                UPDATE starter SET partner_id = ?, partner_name = ? WHERE id = ?
-                "#,
-                body.starter_id,
-                self_name,
-                partner_id,
-            )
-            .execute(&db)
-            .await?;
-
-            // Reset act
-            if let Some(own_act_id) = get_act_id_for_starter_id(&db, body.starter_id, ActType::Pair)
-                .await
-                .map_err(HttpError::ErrorMessages)?
-            {
-                delete_act(&db, own_act_id)
-                    .await
-                    .map_err(HttpError::ErrorMessages)?;
-            }
-            if let Some(partner_act_id) = get_act_id_for_starter_id(&db, partner_id, ActType::Pair)
-                .await
-                .map_err(HttpError::ErrorMessages)?
-            {
-                delete_act(&db, partner_act_id)
-                    .await
-                    .map_err(HttpError::ErrorMessages)?;
-            }
-
-            set_act(&db, "", &[body.starter_id, partner_id], None, ActType::Pair)
-                .await
-                .map_err(HttpError::ErrorMessages)?;
-        }
-    }
-
+    let gender = gender.or(stored_gender);
     sqlx::query!(
         r#"
-        UPDATE starter SET
-          firstname = ?,
-          lastname = ?,
-          birthdate = ?,
-          gender = ?,
-          single_male = ?,
-          single_female = ?,
-          pair = ?,
-          partner_name = ?,
-          partner_id = ?
+        UPDATE starter SET firstname = ?, lastname = ?, birthdate = ?, gender = ?
         WHERE id = ?
         "#,
         body.firstname,
         body.lastname,
         body.birthdate,
         gender,
-        body.single_male,
-        body.single_female,
-        body.pair,
-        body.partner_name,
-        partner_id,
         body.starter_id,
     )
-    .execute(&db)
+    .execute(&mut *transaction)
     .await
     .map_err(|e| people::map_duplicate(e, &body.firstname, &body.lastname))?;
 
-    let existing_act = get_act_id_for_starter_id(&db, body.starter_id, ActType::Single)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    if (body.single_female || body.single_male) && existing_act.is_none() {
-        set_act(&db, "", &[body.starter_id], None, ActType::Single)
-            .await
-            .map_err(HttpError::ErrorMessages)?;
-    } else if (!body.single_female && !body.single_male) && existing_act.is_some() {
-        delete_act(&db, existing_act.unwrap())
-            .await
-            .map_err(HttpError::ErrorMessages)?;
+    rider_registration::set_single(&mut transaction, body.starter_id, single).await?;
+
+    let partner_name = body
+        .partner_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    let starts = rider_registration::starts(&mut transaction, body.starter_id).await?;
+    let linked = match starts.pair {
+        Pair::Linked { partner, .. } => partner,
+        Pair::None | Pair::Requested { .. } => None,
+    };
+    let linked_name = match linked {
+        Some(partner) => Some(
+            sqlx::query_scalar!(
+                r#"SELECT concat_ws(' ', firstname, lastname) as "name!: String" FROM starter WHERE id = ?"#,
+                partner,
+            )
+            .fetch_one(&mut *transaction)
+            .await?,
+        ),
+        None => None,
+    };
+    let keeps_partner = linked.is_some()
+        && match body.partner_id {
+            Some(partner_id) if Some(partner_id) == linked => {
+                partner_name.is_none() || partner_name == linked_name.as_deref()
+            }
+            Some(_) => false,
+            None => partner_name.is_some() && partner_name == linked_name.as_deref(),
+        };
+    if !body.pair {
+        rider_registration::leave_pair(&mut transaction, body.starter_id).await?;
+    } else if !keeps_partner {
+        match body.partner_id.filter(|id| Some(*id) != linked) {
+            Some(partner_id) => {
+                rider_registration::leave_pair(&mut transaction, body.starter_id).await?;
+                rider_registration::link_pair(
+                    &mut transaction,
+                    body.starter_id,
+                    partner_id,
+                    partner_clubs(&auth),
+                )
+                .await?;
+            }
+            None => {
+                if linked.is_some() {
+                    rider_registration::leave_pair(&mut transaction, body.starter_id).await?;
+                }
+                rider_registration::request_pair(&mut transaction, body.starter_id, partner_name)
+                    .await?;
+            }
+        }
     }
 
+    transaction.commit().await?;
     Ok(Json(EditClubStarterResponse {}))
 }

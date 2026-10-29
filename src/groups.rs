@@ -147,34 +147,6 @@ pub async fn ensure_starter_access(
     Ok(club_id)
 }
 
-/// Checks an explicitly chosen pair partner of a starter of `club_id`: clubs
-/// can only link starters of their own club. Pairs across clubs are linked by
-/// the organizer, so admins can link any starter.
-pub async fn ensure_partner_in_club(
-    conn: &mut SqliteConnection,
-    auth: &Auth,
-    partner_id: Uuid,
-    club_id: Uuid,
-) -> Result<(), HttpError> {
-    if auth.can(Permission::ManageRegistrations) {
-        return Ok(());
-    }
-    let partner_club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: Uuid" FROM starter WHERE id = ?"#,
-        partner_id
-    )
-    .fetch_optional(&mut *conn)
-    .await?;
-    if partner_club_id == Some(club_id) {
-        Ok(())
-    } else {
-        Err(HttpError::ErrorMessages(
-            "Die Paarkür-PartnerIn muss aus dem eigenen Verein sein. Vereinsübergreifende Paare verbindet der Veranstalter."
-                .to_string(),
-        ))
-    }
-}
-
 /// Checks that the user may change the act (title, description, song):
 /// admins and users with access to the club of one of its riders or, for
 /// groups, to the club that created it.

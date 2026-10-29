@@ -18,6 +18,7 @@ pub mod people;
 pub mod photos;
 pub mod player;
 pub mod reloadable_sqlite;
+pub mod rider_registration;
 pub mod roles;
 pub mod seed;
 pub mod system_status;
