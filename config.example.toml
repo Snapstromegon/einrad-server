@@ -76,8 +76,8 @@ registration_end = 2027-04-30T23:59:59+02:00
 music_upload_end = 2027-05-15T23:59:59+02:00
 # Fee per start in €. Each single, pair and group start counts once.
 fee_per_start = 15
-# Maximum fee per starter in €, so only the first three starts are charged.
-max_fee_per_starter = 45
+# Maximum fee per rider in €, so only the first three starts are charged.
+max_fee_per_rider = 45
 # Optional, shown to clubs on their page.
 venue = "Sporthalle Musterstadt, Musterstraße 1, 12345 Musterstadt"
 contact_email = "info@example.org"

@@ -377,7 +377,7 @@ export default class CupTimeplan extends LitElement {
    * `null`: the parent provides them, but hasn't loaded them yet.
    */
   @property({ attribute: false }) acts?: Act[] | null;
-  /** Check-in time per starter id (admin only). */
+  /** Check-in time per rider id (admin only). */
   @property({ attribute: false }) checkIns?: CheckInMap | null;
   @property({ attribute: "include-past", type: Boolean }) includePast = false;
   @property({ attribute: "include-active-act", type: Boolean })
@@ -831,11 +831,11 @@ export default class CupTimeplan extends LitElement {
   }
 
   /** ✓/○ before a rider's name, only with check-in data. */
-  private marker(starterId: string) {
+  private marker(riderId: string) {
     if (!this.isAdmin || !this.checkIns) {
       return nothing;
     }
-    const checkedIn = !!this.checkIns.get(starterId);
+    const checkedIn = !!this.checkIns.get(riderId);
     return html`<span
       class=${classMap({ ci: true, yes: checkedIn, no: !checkedIn })}
       title=${checkedIn ? "eingecheckt" : "nicht eingecheckt"}

@@ -4,7 +4,7 @@ import {
   type ClubData,
   hasStart,
   paymentState,
-  starterName,
+  riderName,
 } from "../../../club-data";
 import { buildEpcPayload, paymentReference } from "../../../epc";
 import { iconStyles, resetStyles } from "../../../styles/base";
@@ -15,7 +15,7 @@ import {
   countStarts,
   formatDate,
   formatMoney,
-  getStarterPrice,
+  getRiderPrice,
 } from "../../../utils";
 import "../cup-payment-qr.js";
 import { loadPref, savePref } from "./prefs";
@@ -229,19 +229,19 @@ export default class CupClubStepPayment extends LitElement {
 
   /** The riders and acts whose fees are waived, without amounts. */
   renderWaived() {
-    const riders = this.data.starters.filter((s) => s.fee_waived);
+    const riders = this.data.riders.filter((s) => s.fee_waived);
     const acts = this.data.acts.filter((a) => a.fee_waived);
     if (!riders.length && !acts.length) {
       return nothing;
     }
-    const riderItems = riders.map((s) => html`<li>${starterName(s)}</li>`);
+    const riderItems = riders.map((s) => html`<li>${riderName(s)}</li>`);
     const actItems = acts.map(
       (a) =>
         html`<li>
           ${a.name ? `${a.name} – ` : ""}${
             a.group_name ??
             a.participants
-              .map((p) => `${p.starter_firstname} ${p.starter_lastname}`)
+              .map((p) => `${p.rider_firstname} ${p.rider_lastname}`)
               .join(" & ")
           }
           <span class="muted">(${actTypeLabels[a.act_type]})</span>
@@ -383,14 +383,14 @@ export default class CupClubStepPayment extends LitElement {
 
   renderBreakdown(amount: number) {
     const competition = this.competition;
-    const max = competition?.max_fee_per_starter;
-    const riders = this.data.starters.filter(hasStart);
+    const max = competition?.max_fee_per_rider;
+    const riders = this.data.riders.filter(hasStart);
     const groups = (count: number) => (count ? String(count) : "–");
     const rows = riders.map((s) => {
-      const fee = getStarterPrice(s, competition);
+      const fee = getRiderPrice(s, competition);
       const full = (competition?.fee_per_start ?? 0) * countStarts(s);
       return html`<tr>
-          <td>${starterName(s)}</td>
+          <td>${riderName(s)}</td>
           <td class="num">
             ${s.single_female ? "W" : s.single_male ? "M" : "–"}
           </td>

@@ -38,20 +38,20 @@ import {
 
 type Act = schemas.Act;
 type ClubOverview = schemas.ClubOverview;
-type Starter = schemas.Starter;
+type Rider = schemas.Rider;
 type User = schemas.User;
 
 interface DashboardData {
   clubs: ClubOverview[];
   users: User[];
-  starters: Starter[];
+  riders: Rider[];
   acts: Act[];
 }
 
 /** One line of the club table. */
 interface ClubRow {
   club: ClubOverview;
-  starters: Starter[];
+  riders: Rider[];
   em: number;
   ew: number;
   p: number;
@@ -70,7 +70,7 @@ interface ClubRow {
 type SortKey =
   | "name"
   | "contact"
-  | "starters"
+  | "riders"
   | "em"
   | "ew"
   | "p"
@@ -102,8 +102,8 @@ const sortValue = (row: ClubRow, key: SortKey): number | string => {
       return row.club.name;
     case "contact":
       return row.club.contacts?.contact_name ?? "";
-    case "starters":
-      return row.starters.length;
+    case "riders":
+      return row.riders.length;
     case "acts":
       return row.acts.length;
     case "music":
@@ -111,7 +111,7 @@ const sortValue = (row: ClubRow, key: SortKey): number | string => {
     case "checked":
       return ratio(row.checked, row.music);
     case "checkedIn":
-      return ratio(row.checkedIn, row.starters.length);
+      return ratio(row.checkedIn, row.riders.length);
     default:
       return row[key];
   }
@@ -142,7 +142,7 @@ const buildClubRows = (
       club.id,
       {
         club,
-        starters: [],
+        riders: [],
         em: 0,
         ew: 0,
         p: 0,
@@ -158,16 +158,16 @@ const buildClubRows = (
       },
     ]),
   );
-  for (const starter of data.starters) {
-    const row = rows.get(starter.club_id);
+  for (const rider of data.riders) {
+    const row = rows.get(rider.club_id);
     if (!row) {
       continue;
     }
-    row.starters.push(starter);
-    row.em += Number(starter.single_male);
-    row.ew += Number(starter.single_female);
-    row.p += Number(starter.pair);
-    if (checkIns ? checkIns.get(starter.id) : starter.checked_in_at) {
+    row.riders.push(rider);
+    row.em += Number(rider.single_male);
+    row.ew += Number(rider.single_female);
+    row.p += Number(rider.pair);
+    if (checkIns ? checkIns.get(rider.id) : rider.checked_in_at) {
       row.checkedIn += 1;
     }
   }
@@ -238,7 +238,7 @@ const buildIssues = (
   const now = Date.now();
   const issues: Issue[] = [];
 
-  const unresolved = data.starters.filter(
+  const unresolved = data.riders.filter(
     (s) => s.partner_name && !s.resolved_partner_name,
   );
   issues.push({
@@ -573,15 +573,15 @@ export default class CupViewAdmin extends LitElement {
 
   data = new Task(this, {
     task: async () => {
-      const [clubs, users, starters, acts, checkIns] = await Promise.all([
+      const [clubs, users, riders, acts, checkIns] = await Promise.all([
         unwrap(client.listClubs()),
         unwrap(client.listUsers()),
-        unwrap(client.listStarters()),
+        unwrap(client.listRiders()),
         unwrap(client.listActs()),
         unwrap(client.listCheckIns()),
       ]);
       this.checkIns = checkInMap(checkIns);
-      return { clubs, users, starters, acts } satisfies DashboardData;
+      return { clubs, users, riders, acts } satisfies DashboardData;
     },
     args: () => [],
     onComplete: (value) => {
@@ -770,9 +770,9 @@ export default class CupViewAdmin extends LitElement {
         .filter((act) => act.act_type === type)
         .reduce((total, act) => total + act.participants.length, 0);
     const starts = {
-      em: data.starters.filter((s) => s.single_male).length,
-      ew: data.starters.filter((s) => s.single_female).length,
-      p: data.starters.filter((s) => s.pair).length,
+      em: data.riders.filter((s) => s.single_male).length,
+      ew: data.riders.filter((s) => s.single_female).length,
+      p: data.riders.filter((s) => s.pair).length,
       kg: groupStarts("group_small"),
       gg: groupStarts("group_large"),
     };
@@ -785,7 +785,7 @@ export default class CupViewAdmin extends LitElement {
     ).length;
     const withMusic = data.acts.filter((act) => act.song_file);
     const checked = withMusic.filter((act) => act.song_checked).length;
-    const checkedIn = data.starters.filter((s) =>
+    const checkedIn = data.riders.filter((s) =>
       this.checkIns ? this.checkIns.get(s.id) : s.checked_in_at,
     ).length;
     const due = sum((row) => row.due);
@@ -801,8 +801,8 @@ export default class CupViewAdmin extends LitElement {
             : nothing
         }</span
       >
-      <a class="kpi" href="/admin-starters"
-        ><b>${data.starters.length}</b> FahrerInnen</a
+      <a class="kpi" href="/admin-riders"
+        ><b>${data.riders.length}</b> FahrerInnen</a
       >
       <span
         class="kpi"
@@ -829,7 +829,7 @@ export default class CupViewAdmin extends LitElement {
         <b>${checked}/${withMusic.length}</b></span
       >
       <a class="kpi" href="/admin-check-in"
-        >Eingecheckt <b>${checkedIn}/${data.starters.length}</b></a
+        >Eingecheckt <b>${checkedIn}/${data.riders.length}</b></a
       >
       ${this.renderJuryKpi(data)}
       <a class="kpi" href="/admin-payments"
@@ -905,7 +905,7 @@ export default class CupViewAdmin extends LitElement {
    * their rider with the other's name; an admin links them here.
    */
   renderUnconfirmedPairs(data: DashboardData) {
-    const pairs = unconfirmedPairs(data.starters);
+    const pairs = unconfirmedPairs(data.riders);
     if (!pairs.length) {
       return html`<details class="block">
         <summary>
@@ -919,27 +919,26 @@ export default class CupViewAdmin extends LitElement {
       exact: "Name passt einseitig",
       similar: "ähnlicher Name",
     };
-    const rows = pairs.map(({ starter, partner, candidates }) => {
-      const chosenId =
-        this.pairChoice.get(starter.id) ?? partner?.starter.id ?? "";
-      const chosen = candidates.find((c) => c.starter.id === chosenId);
-      const busy = this.linking.has(starter.id);
-      const suggested = new Set(candidates.map((c) => c.starter.id));
-      const nameOf = (s: Starter) => `${s.firstname} ${s.lastname}`;
-      const detail = (s: Starter) =>
+    const rows = pairs.map(({ rider, partner, candidates }) => {
+      const chosenId = this.pairChoice.get(rider.id) ?? partner?.rider.id ?? "";
+      const chosen = candidates.find((c) => c.rider.id === chosenId);
+      const busy = this.linking.has(rider.id);
+      const suggested = new Set(candidates.map((c) => c.rider.id));
+      const nameOf = (s: Rider) => `${s.firstname} ${s.lastname}`;
+      const detail = (s: Rider) =>
         `(${s.club_name})${s.partner_name ? ` – nennt ${s.partner_name}` : ""}`;
       // The suggestions first; then everyone without a linked partner, for
       // pairs the names don't give away (e.g. first names only).
       const options: PickerOption[] = [
         ...candidates.map((c) => ({
-          value: c.starter.id,
-          label: nameOf(c.starter),
-          detail: detail(c.starter),
+          value: c.rider.id,
+          label: nameOf(c.rider),
+          detail: detail(c.rider),
           group: "Vorschläge",
         })),
-        ...data.starters
+        ...data.riders
           .filter(
-            (s) => s.id !== starter.id && !s.partner_id && !suggested.has(s.id),
+            (s) => s.id !== rider.id && !s.partner_id && !suggested.has(s.id),
           )
           .sort(
             (a, b) =>
@@ -955,23 +954,23 @@ export default class CupViewAdmin extends LitElement {
       ];
       return html`<tr>
         <td>
-          <a href="/?club=${encodeURIComponent(starter.club_id)}#kueren"
-            >${starter.firstname} ${starter.lastname}</a
+          <a href="/?club=${encodeURIComponent(rider.club_id)}#kueren"
+            >${rider.firstname} ${rider.lastname}</a
           >
-          <span class="muted">(${starter.club_name})</span>
+          <span class="muted">(${rider.club_name})</span>
         </td>
         <td>
           ${
-            starter.partner_name
-              ? starter.partner_name
+            rider.partner_name
+              ? rider.partner_name
               : html`<span class="chip warn">kein Partner angegeben</span>`
           }
         </td>
         <td>
           <cup-rider-picker
-            label="Partner für ${nameOf(starter)}"
+            label="Partner für ${nameOf(rider)}"
             placeholder="Partner suchen…"
-            data-id=${starter.id}
+            data-id=${rider.id}
             .options=${options}
             .value=${chosenId}
             @change=${this.onPairChoice}
@@ -992,7 +991,7 @@ export default class CupViewAdmin extends LitElement {
         <td class="actions">
           <button
             class="btn small ${chosen?.match === "mutual" ? "primary" : ""}"
-            data-id=${starter.id}
+            data-id=${rider.id}
             ?disabled=${!chosenId || busy}
             @click=${this.onConfirmPair}
           >
@@ -1039,18 +1038,18 @@ export default class CupViewAdmin extends LitElement {
   async onConfirmPair(e: Event) {
     const id = (e.currentTarget as HTMLElement).dataset.id!;
     const data = this.data.value ?? this.lastData;
-    const starter = data?.starters.find((s) => s.id === id);
+    const rider = data?.riders.find((s) => s.id === id);
     const pair =
-      data && unconfirmedPairs(data.starters).find((p) => p.starter.id === id);
-    const partnerId = this.pairChoice.get(id) ?? pair?.partner?.starter.id;
-    const partner = data?.starters.find((s) => s.id === partnerId);
-    if (!starter || !partner || !data) {
+      data && unconfirmedPairs(data.riders).find((p) => p.rider.id === id);
+    const partnerId = this.pairChoice.get(id) ?? pair?.partner?.rider.id;
+    const partner = data?.riders.find((s) => s.id === partnerId);
+    if (!rider || !partner || !data) {
       return;
     }
     this.linking = new Set(this.linking).add(id);
     try {
       // Also pairs riders who aren't registered for a pair yet.
-      await linkPartners(starter, partner, data.starters);
+      await linkPartners(rider, partner, data.riders);
       const choice = new Map(this.pairChoice);
       choice.delete(id);
       this.pairChoice = choice;
@@ -1097,7 +1096,7 @@ export default class CupViewAdmin extends LitElement {
     const acts = new Map(rows.flatMap((row) => row.acts.map((a) => [a.id, a])));
     const totalMusic = [...acts.values()].filter((a) => a.song_file);
     const totalChecked = totalMusic.filter((a) => a.song_checked).length;
-    const totalStarters = sum((row) => row.starters.length);
+    const totalRiders = sum((row) => row.riders.length);
     const open = sum((row) => Math.max(0, row.open));
     const overpaid = sum((row) => Math.max(0, -row.open));
     const competition = this.systemStatus?.competition;
@@ -1112,7 +1111,7 @@ export default class CupViewAdmin extends LitElement {
         <tr>
           ${this.renderSortHeader("name", "Verein")}
           ${this.renderSortHeader("contact", "Kontakt")}
-          ${this.renderSortHeader("starters", "FahrerInnen", "num")}
+          ${this.renderSortHeader("riders", "FahrerInnen", "num")}
           ${this.renderSortHeader("em", "EM", "num", "Einzel männlich")}
           ${this.renderSortHeader("ew", "EW", "num", "Einzel weiblich")}
           ${this.renderSortHeader("p", "P", "num", "Paar")}
@@ -1145,7 +1144,7 @@ export default class CupViewAdmin extends LitElement {
       <tfoot>
         <tr>
           <td colspan="2">${plural(rows.length, "Verein", "Vereine")}</td>
-          <td class="num">${totalStarters}</td>
+          <td class="num">${totalRiders}</td>
           <td class="num">${sum((row) => row.em)}</td>
           <td class="num">${sum((row) => row.ew)}</td>
           <td class="num">${sum((row) => row.p)}</td>
@@ -1161,7 +1160,7 @@ export default class CupViewAdmin extends LitElement {
           <td class="num">
             ${fraction(
               sum((row) => row.checkedIn),
-              totalStarters,
+              totalRiders,
               "",
               "text-ok",
             )}
@@ -1225,7 +1224,7 @@ export default class CupViewAdmin extends LitElement {
                   >`
           }
         </td>
-        <td class="num">${count(row.starters.length)}</td>
+        <td class="num">${count(row.riders.length)}</td>
         <td class="num">${count(row.em)}</td>
         <td class="num">${count(row.ew)}</td>
         <td class="num">${count(row.p)}</td>
@@ -1235,7 +1234,7 @@ export default class CupViewAdmin extends LitElement {
         <td class="num">${fraction(row.music, row.acts.length, musicTone)}</td>
         <td class="num">${fraction(row.checked, row.music, "text-warn")}</td>
         <td class="num">
-          ${fraction(row.checkedIn, row.starters.length, "", "text-ok")}
+          ${fraction(row.checkedIn, row.riders.length, "", "text-ok")}
         </td>
         <td class="num">
           ${row.due ? formatMoney(row.due) : html`<span class="zero">${formatMoney(0)}</span>`}${

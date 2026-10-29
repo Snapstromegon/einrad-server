@@ -24,8 +24,8 @@ pub struct Competition {
     #[serde(with = "time::serde::rfc3339")]
     pub music_upload_end: OffsetDateTime,
     pub fee_per_start: f64,
-    /// Maximum fee per starter; `None` means no cap.
-    pub max_fee_per_starter: Option<f64>,
+    /// Maximum fee per rider; `None` means no cap.
+    pub max_fee_per_rider: Option<f64>,
     /// Where the event takes place.
     pub venue: Option<String>,
     /// Contact for clubs, e.g. about overpayments.
@@ -84,7 +84,7 @@ impl Competition {
                 registration_end as "registration_end: OffsetDateTime",
                 music_upload_end as "music_upload_end: OffsetDateTime",
                 fee_per_start,
-                max_fee_per_starter,
+                max_fee_per_rider,
                 venue,
                 contact_email,
                 announcement_url,
@@ -132,7 +132,7 @@ impl Competition {
                 registration_end: row.registration_end,
                 music_upload_end: row.music_upload_end,
                 fee_per_start: row.fee_per_start,
-                max_fee_per_starter: row.max_fee_per_starter,
+                max_fee_per_rider: row.max_fee_per_rider,
                 venue: row.venue,
                 contact_email: row.contact_email,
                 announcement_url: row.announcement_url,
@@ -177,7 +177,7 @@ pub async fn upsert_competition(
         INSERT INTO competition (
             id, name, location, start_date, end_date, determining_day,
             registration_start, registration_end, music_upload_end,
-            fee_per_start, max_fee_per_starter, venue, contact_email, announcement_url, photos_url,
+            fee_per_start, max_fee_per_rider, venue, contact_email, announcement_url, photos_url,
             payment_deadline, payment_account_holder, payment_iban, payment_bic, payment_reference,
             jury_min_age, jury_deployments_per_two_acts, jury_missing_deployment_fee,
             jury_registration_end
@@ -192,7 +192,7 @@ pub async fn upsert_competition(
             registration_end = excluded.registration_end,
             music_upload_end = excluded.music_upload_end,
             fee_per_start = excluded.fee_per_start,
-            max_fee_per_starter = excluded.max_fee_per_starter,
+            max_fee_per_rider = excluded.max_fee_per_rider,
             venue = excluded.venue,
             contact_email = excluded.contact_email,
             announcement_url = excluded.announcement_url,
@@ -217,7 +217,7 @@ pub async fn upsert_competition(
         config.registration_end,
         config.music_upload_end,
         config.fee_per_start,
-        config.max_fee_per_starter,
+        config.max_fee_per_rider,
         config.venue,
         config.contact_email,
         config.announcement_url,

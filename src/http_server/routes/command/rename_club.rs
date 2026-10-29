@@ -42,7 +42,7 @@ pub async fn rename_club(
     capabilities: Capabilities,
     Json(body): Json<RenameClubBody>,
 ) -> Result<Json<RenameClubResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();

@@ -10,14 +10,14 @@ import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
 import { failureText } from "../../../api";
 import {
-  actsOfStarter,
+  actsOfRider,
   ageOnDeterminingDay,
   type ClubData,
-  type ClubStarter,
+  type ClubRider,
   formatEuro,
   hasStart,
   isPendingPair,
-  starterName,
+  riderName,
 } from "../../../club-data";
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
@@ -26,12 +26,12 @@ import {
   actTypeShort,
   type Competition,
   dateInputValue,
-  getStarterPrice,
+  getRiderPrice,
 } from "../../../utils";
 import {
-  addStarter,
-  deleteStarter,
-  editStarter,
+  addRider,
+  deleteRider,
+  editRider,
   type Gender,
   genderLabels,
   hasSingle,
@@ -253,7 +253,7 @@ export default class CupClubStepRiders extends LitElement {
   }
 
   override render() {
-    const starters = this.filtered();
+    const riders = this.filtered();
     return html`<div class="step-intro">
         <h2>2. FahrerInnen</h2>
         <p>
@@ -296,11 +296,11 @@ export default class CupClubStepRiders extends LitElement {
       <section class="card">
         <header>
           <h3>
-            ${this.data.starters.length}
-            ${this.data.starters.length === 1 ? "FahrerIn" : "FahrerInnen"}
+            ${this.data.riders.length}
+            ${this.data.riders.length === 1 ? "FahrerIn" : "FahrerInnen"}
           </h3>
           ${
-            this.data.starters.length > 8
+            this.data.riders.length > 8
               ? html`<input
                   type="search"
                   placeholder="Suchen…"
@@ -312,13 +312,13 @@ export default class CupClubStepRiders extends LitElement {
           }
         </header>
         ${
-          this.data.starters.length === 0
+          this.data.riders.length === 0
             ? html`<div class="empty">
                 <i class="material-icon">person_add</i>
                 <strong>Noch keine FahrerInnen</strong>
                 <span>Fügt oben eure erste FahrerIn hinzu.</span>
               </div>`
-            : starters.length === 0
+            : riders.length === 0
               ? html`<p class="muted">Keine FahrerIn passt zur Suche.</p>`
               : html`<table>
                   <thead>
@@ -332,7 +332,7 @@ export default class CupClubStepRiders extends LitElement {
                   </thead>
                   <tbody>
                     ${repeat(
-                      starters,
+                      riders,
                       (s) => s.id,
                       (s) =>
                         this.edit?.id === s.id
@@ -347,7 +347,7 @@ export default class CupClubStepRiders extends LitElement {
       <div class="next-step">
         <button
           class="btn blue"
-          ?disabled=${this.data.starters.length === 0}
+          ?disabled=${this.data.riders.length === 0}
           @click=${this.goToActs}
         >
           Weiter: Küren anlegen <i class="material-icon">arrow_forward</i>
@@ -416,10 +416,10 @@ export default class CupClubStepRiders extends LitElement {
       .split(/\s+/)
       .filter(Boolean);
     if (!words.length) {
-      return this.data.starters;
+      return this.data.riders;
     }
-    return this.data.starters.filter((s) => {
-      const name = starterName(s).toLocaleLowerCase("de");
+    return this.data.riders.filter((s) => {
+      const name = riderName(s).toLocaleLowerCase("de");
       return words.every((w) => name.includes(w));
     });
   }
@@ -481,32 +481,32 @@ export default class CupClubStepRiders extends LitElement {
     </section>`;
   }
 
-  renderRow(starter: ClubStarter) {
-    const busy = this.busy.has(starter.id);
+  renderRow(rider: ClubRider) {
+    const busy = this.busy.has(rider.id);
     return html`<tr
-      data-id=${starter.id}
-      class=${classMap({ target: this.target === starter.id })}
+      data-id=${rider.id}
+      class=${classMap({ target: this.target === rider.id })}
     >
-      <td class="name">${starterName(starter)}</td>
+      <td class="name">${riderName(rider)}</td>
       <td class="birth">
-        ${new Date(starter.birthdate).toLocaleDateString("de-DE")}
+        ${new Date(rider.birthdate).toLocaleDateString("de-DE")}
         <span class="muted"
-          >(${ageOnDeterminingDay(starter.birthdate, this.competition)})</span
+          >(${ageOnDeterminingDay(rider.birthdate, this.competition)})</span
         >
         ·
         ${
-          starter.gender
-            ? genderLabels[starter.gender]
+          rider.gender
+            ? genderLabels[rider.gender]
             : html`<span class="chip warn">Geschlecht fehlt</span>`
         }
       </td>
-      <td class="acts-col">${this.renderActs(starter)}</td>
+      <td class="acts-col">${this.renderActs(rider)}</td>
       <td class="num">
         ${
           // A waived club's riders pay nothing.
           this.data.club.fee_waived
             ? html`<span class="muted">erlassen</span>`
-            : formatEuro(getStarterPrice(starter, this.competition))
+            : formatEuro(getRiderPrice(rider, this.competition))
         }
       </td>
       <td class="actions-col">
@@ -515,11 +515,11 @@ export default class CupClubStepRiders extends LitElement {
             ? html`<button
                   class="icon-btn primary"
                   title="Bearbeiten"
-                  aria-label="${starterName(starter)} bearbeiten"
+                  aria-label="${riderName(rider)} bearbeiten"
                   ?disabled=${busy}
                   @click=${
                     // eslint-disable-next-line lit/no-template-arrow
-                    () => this.startEdit(starter)
+                    () => this.startEdit(rider)
                   }
                 >
                   edit
@@ -527,11 +527,11 @@ export default class CupClubStepRiders extends LitElement {
                 <button
                   class="icon-btn danger"
                   title="Löschen"
-                  aria-label="${starterName(starter)} löschen"
+                  aria-label="${riderName(rider)} löschen"
                   ?disabled=${busy}
                   @click=${
                     // eslint-disable-next-line lit/no-template-arrow
-                    () => this.deleteRider(starter)
+                    () => this.deleteRider(rider)
                   }
                 >
                   delete
@@ -542,15 +542,15 @@ export default class CupClubStepRiders extends LitElement {
     </tr>`;
   }
 
-  renderActs(starter: ClubStarter) {
-    const acts = actsOfStarter(this.data.acts, starter.id);
-    if (!hasStart(starter)) {
+  renderActs(rider: ClubRider) {
+    const acts = actsOfRider(this.data.acts, rider.id);
+    if (!hasStart(rider)) {
       return html`<button
         class="chip warn"
         style="border:none;cursor:pointer"
         @click=${
           // eslint-disable-next-line lit/no-template-arrow
-          () => navigateTo(this, { step: "kueren", target: starter.id })
+          () => navigateTo(this, { step: "kueren", target: rider.id })
         }
       >
         noch keine Kür
@@ -558,7 +558,7 @@ export default class CupClubStepRiders extends LitElement {
     }
     const chips = acts.map((act) => {
       const replacement = act.participants.find(
-        (p) => p.id === starter.id,
+        (p) => p.id === rider.id,
       )?.is_replacement;
       const label =
         act.act_type === "single"
@@ -566,8 +566,8 @@ export default class CupClubStepRiders extends LitElement {
           : act.act_type === "pair"
             ? `Paar mit ${
                 act.participants
-                  .filter((p) => p.id !== starter.id)
-                  .map((p) => `${p.starter_firstname} ${p.starter_lastname}`)
+                  .filter((p) => p.id !== rider.id)
+                  .map((p) => `${p.rider_firstname} ${p.rider_lastname}`)
                   .join(", ") || "?"
               }`
             : `${actTypeShort[act.act_type]} ${act.group_name ?? ""}`;
@@ -582,10 +582,10 @@ export default class CupClubStepRiders extends LitElement {
     return html`<span class="acts">
       ${chips}
       ${
-        isPendingPair(starter)
+        isPendingPair(rider)
           ? html`<span class="chip warn" title="Wartet auf Bestätigung"
               ><i class="material-icon">hourglass_top</i> Paar mit
-              ${starter.partner_name || "?"}</span
+              ${rider.partner_name || "?"}</span
             >`
           : nothing
       }
@@ -686,7 +686,7 @@ export default class CupClubStepRiders extends LitElement {
     }
     this.adding = true;
     try {
-      await addStarter(
+      await addRider(
         this.data.club.id,
         this.draft.firstname,
         this.draft.lastname,
@@ -708,20 +708,20 @@ export default class CupClubStepRiders extends LitElement {
     }
   }
 
-  startEdit(starter: ClubStarter) {
+  startEdit(rider: ClubRider) {
     this.edit = {
-      id: starter.id,
-      firstname: starter.firstname,
-      lastname: starter.lastname,
-      birthdate: dateInputValue(starter.birthdate),
-      gender: starter.gender ?? "",
+      id: rider.id,
+      firstname: rider.firstname,
+      lastname: rider.lastname,
+      birthdate: dateInputValue(rider.birthdate),
+      gender: rider.gender ?? "",
     };
   }
 
   async saveEdit() {
     const edit = this.edit;
-    const starter = this.data.starters.find((s) => s.id === edit?.id);
-    if (!edit || !starter) {
+    const rider = this.data.riders.find((s) => s.id === edit?.id);
+    if (!edit || !rider) {
       return;
     }
     const invalid = validate(edit);
@@ -731,22 +731,22 @@ export default class CupClubStepRiders extends LitElement {
       this.error = invalid;
       return;
     }
-    await this.run(starter, async () => {
-      await editStarter(starter, {
+    await this.run(rider, async () => {
+      await editRider(rider, {
         firstname: edit.firstname,
         lastname: edit.lastname,
         birthdate: birthdate.toISOString(),
         gender,
         // The single follows the gender (Einzel weiblich or männlich).
-        ...singleFlags(hasSingle(starter), gender),
+        ...singleFlags(hasSingle(rider), gender),
       });
       this.edit = null;
     });
   }
 
-  async deleteRider(starter: ClubStarter) {
-    const acts = actsOfStarter(this.data.acts, starter.id).length;
-    const name = starterName(starter);
+  async deleteRider(rider: ClubRider) {
+    const acts = actsOfRider(this.data.acts, rider.id).length;
+    const name = riderName(rider);
     if (
       !confirm(
         `${name} wirklich löschen?${
@@ -758,11 +758,11 @@ export default class CupClubStepRiders extends LitElement {
     ) {
       return;
     }
-    await this.run(starter, () => deleteStarter(starter));
+    await this.run(rider, () => deleteRider(rider));
   }
 
-  async run(starter: ClubStarter, action: () => Promise<unknown>) {
-    this.busy = new Set(this.busy).add(starter.id);
+  async run(rider: ClubRider, action: () => Promise<unknown>) {
+    this.busy = new Set(this.busy).add(rider.id);
     try {
       await action();
       this.error = null;
@@ -771,7 +771,7 @@ export default class CupClubStepRiders extends LitElement {
       this.error = failureText("Fehler beim Speichern", error);
     } finally {
       const busy = new Set(this.busy);
-      busy.delete(starter.id);
+      busy.delete(rider.id);
       this.busy = busy;
     }
   }

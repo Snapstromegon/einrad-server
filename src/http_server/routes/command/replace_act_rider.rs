@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    groups::ensure_starter_access,
+    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     rider_registration,
@@ -20,9 +20,9 @@ pub struct ReplaceActRiderResponse {}
 pub struct ReplaceActRiderBody {
     act_id: Uuid,
     /// The rider leaving the act.
-    starter_id: Uuid,
+    rider_id: Uuid,
     /// The rider taking their place, of the same club.
-    new_starter_id: Uuid,
+    new_rider_id: Uuid,
 }
 
 /// Replace a rider of a single or pair, keeping the act with its title,
@@ -54,7 +54,7 @@ pub async fn replace_act_rider(
     capabilities: Capabilities,
     Json(body): Json<ReplaceActRiderBody>,
 ) -> Result<Json<ReplaceActRiderResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
@@ -73,8 +73,8 @@ pub async fn replace_act_rider(
         ));
     }
 
-    let club_id = ensure_starter_access(&mut transaction, &auth, body.starter_id).await?;
-    let new_club_id = ensure_starter_access(&mut transaction, &auth, body.new_starter_id).await?;
+    let club_id = ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
+    let new_club_id = ensure_rider_access(&mut transaction, &auth, body.new_rider_id).await?;
     if club_id != new_club_id && !auth.can(Permission::ManageRegistrations) {
         return Err(HttpError::ErrorMessages(
             "Der neue Fahrer muss aus demselben Verein sein.".to_string(),
@@ -82,15 +82,15 @@ pub async fn replace_act_rider(
     }
 
     let participants = sqlx::query_scalar!(
-        r#"SELECT starter_id as "starter_id!: Uuid" FROM act_participants WHERE act_id = ?"#,
+        r#"SELECT rider_id as "rider_id!: Uuid" FROM act_participants WHERE act_id = ?"#,
         body.act_id,
     )
     .fetch_all(&mut *transaction)
     .await?;
-    if !participants.contains(&body.starter_id) {
+    if !participants.contains(&body.rider_id) {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
-    if participants.contains(&body.new_starter_id) {
+    if participants.contains(&body.new_rider_id) {
         return Err(HttpError::ErrorMessages(
             "Der Fahrer fährt diese Kür schon.".to_string(),
         ));
@@ -99,8 +99,8 @@ pub async fn replace_act_rider(
     rider_registration::replace_rider(
         &mut transaction,
         body.act_id,
-        body.starter_id,
-        body.new_starter_id,
+        body.rider_id,
+        body.new_rider_id,
     )
     .await?;
 

@@ -170,7 +170,7 @@ export default class CupActParticipants extends LitElement {
 
   /** The act; only `act_type`, `group_name` and `participants` are used. */
   @property({ attribute: false }) act?: ActLike | null;
-  /** Check-in time per starter id. Without it, no markers are shown. */
+  /** Check-in time per rider id. Without it, no markers are shown. */
   @property({ attribute: false }) checkIns?: CheckInMap | null;
   @property({ reflect: true }) layout: "inline" | "list" = "inline";
 

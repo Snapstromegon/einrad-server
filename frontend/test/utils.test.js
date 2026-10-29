@@ -28,7 +28,7 @@ import {
   formatSlotGroups,
   parseSlotGroups,
   formatTime,
-  getStarterPrice,
+  getRiderPrice,
   groupSizeWarning,
   actSizeWarning,
   isGroupActType,
@@ -183,7 +183,7 @@ describe("startsByFee", () => {
     group_count: Math.max(0, starts - 2),
     waived_count,
   });
-  const fees = { fee_per_start: 15, max_fee_per_starter: 45 };
+  const fees = { fee_per_start: 15, max_fee_per_rider: 45 };
 
   test("starts up to the cap are paid, the rest is free", () => {
     assert.deepEqual(startsByFee(rider(2), fees), { paid: 2, free: 0 });
@@ -198,16 +198,16 @@ describe("startsByFee", () => {
   test("a waived rider's starts are neither paid nor free", () => {
     const waived = { ...rider(4), fee_waived: true };
     assert.deepEqual(startsByFee(waived, fees), { paid: 0, free: 0 });
-    assert.equal(getStarterPrice(waived, fees), 0);
+    assert.equal(getRiderPrice(waived, fees), 0);
   });
 
   test("a cap between two starts pays the start it cuts", () => {
-    const cap40 = { fee_per_start: 15, max_fee_per_starter: 40 };
+    const cap40 = { fee_per_start: 15, max_fee_per_rider: 40 };
     assert.deepEqual(startsByFee(rider(4), cap40), { paid: 3, free: 1 });
   });
 
   test("without a cap or a competition every start is paid", () => {
-    const noCap = { fee_per_start: 15, max_fee_per_starter: null };
+    const noCap = { fee_per_start: 15, max_fee_per_rider: null };
     assert.deepEqual(startsByFee(rider(5), noCap), { paid: 5, free: 0 });
     assert.deepEqual(startsByFee(rider(2), null), { paid: 0, free: 0 });
   });
@@ -538,73 +538,73 @@ describe("breaks inside a block", () => {
   });
 });
 
-describe("getStarterPrice", () => {
-  const starter = (single_male, single_female, pair) => ({
+describe("getRiderPrice", () => {
+  const rider = (single_male, single_female, pair) => ({
     single_male,
     single_female,
     pair,
   });
-  const competition = { fee_per_start: 15, max_fee_per_starter: 45 };
+  const competition = { fee_per_start: 15, max_fee_per_rider: 45 };
 
   test("charges the fee per start", () => {
-    assert.equal(getStarterPrice(starter(false, false, false), competition), 0);
-    assert.equal(getStarterPrice(starter(false, true, false), competition), 15);
-    assert.equal(getStarterPrice(starter(true, false, true), competition), 30);
+    assert.equal(getRiderPrice(rider(false, false, false), competition), 0);
+    assert.equal(getRiderPrice(rider(false, true, false), competition), 15);
+    assert.equal(getRiderPrice(rider(true, false, true), competition), 30);
   });
 
   test("caps the fee at the maximum", () => {
-    const cheap = { fee_per_start: 20, max_fee_per_starter: 35 };
-    assert.equal(getStarterPrice(starter(true, false, true), cheap), 35);
+    const cheap = { fee_per_start: 20, max_fee_per_rider: 35 };
+    assert.equal(getRiderPrice(rider(true, false, true), cheap), 35);
     // Three starts at 15 € reach exactly the 45 € cap.
-    assert.equal(getStarterPrice(starter(true, true, true), competition), 45);
+    assert.equal(getRiderPrice(rider(true, true, true), competition), 45);
   });
 
   test("has no cap without a maximum", () => {
-    const uncapped = { fee_per_start: 20, max_fee_per_starter: null };
-    assert.equal(getStarterPrice(starter(true, true, true), uncapped), 60);
+    const uncapped = { fee_per_start: 20, max_fee_per_rider: null };
+    assert.equal(getRiderPrice(rider(true, true, true), uncapped), 60);
   });
 
   test("is free without a competition", () => {
-    assert.equal(getStarterPrice(starter(true, false, true), null), 0);
+    assert.equal(getRiderPrice(rider(true, false, true), null), 0);
   });
 
   test("doesn't charge waived starts", () => {
-    const waived = { ...starter(true, false, true), group_count: 2 };
+    const waived = { ...rider(true, false, true), group_count: 2 };
     // 4 starts, capped at 45 €; one waived start leaves 3 billable ones.
     assert.equal(
-      getStarterPrice({ ...waived, waived_count: 1 }, competition),
+      getRiderPrice({ ...waived, waived_count: 1 }, competition),
       45,
     );
     assert.equal(
-      getStarterPrice({ ...waived, waived_count: 2 }, competition),
+      getRiderPrice({ ...waived, waived_count: 2 }, competition),
       30,
     );
     assert.equal(countStarts({ ...waived, waived_count: 2 }), 4);
   });
 
   test("countStarts counts every registered start", () => {
-    assert.equal(countStarts(starter(true, false, true)), 2);
+    assert.equal(countStarts(rider(true, false, true)), 2);
   });
 
   const withGroups = (group_count, ...starts) => ({
-    ...starter(...starts),
+    ...rider(...starts),
     group_count,
   });
 
   test("charges every group membership as a start", () => {
     assert.equal(
-      getStarterPrice(withGroups(1, false, false, false), competition),
+      getRiderPrice(withGroups(1, false, false, false), competition),
       15,
     );
     assert.equal(
-      getStarterPrice(withGroups(2, false, false, false), competition),
+      getRiderPrice(withGroups(2, false, false, false), competition),
       30,
     );
   });
 
   test("caps the fee including groups", () => {
     assert.equal(
-      getStarterPrice(withGroups(2, true, false, true), competition),
+      getRiderPrice(withGroups(2, true, false, true), competition),
       45,
     );
   });
@@ -612,7 +612,7 @@ describe("getStarterPrice", () => {
   test("treats a missing or null group_count as no groups", () => {
     assert.equal(countStarts(withGroups(null, true, false, false)), 1);
     assert.equal(countStarts(withGroups(undefined, true, false, false)), 1);
-    assert.equal(countStarts(starter(true, false, false)), 1);
+    assert.equal(countStarts(rider(true, false, false)), 1);
   });
 
   test("countStarts counts groups", () => {
@@ -987,11 +987,11 @@ describe("act participants", () => {
     assert.deepEqual(actClubNames({ participants: [] }), []);
   });
 
-  test("checkInMap maps starter ids to check-in times", () => {
+  test("checkInMap maps rider ids to check-in times", () => {
     const map = checkInMap([
-      { starter_id: "a", checked_in_at: "2027-06-05T08:00:00Z" },
-      { starter_id: "b", checked_in_at: null },
-      { starter_id: "c" },
+      { rider_id: "a", checked_in_at: "2027-06-05T08:00:00Z" },
+      { rider_id: "b", checked_in_at: null },
+      { rider_id: "c" },
     ]);
     assert.equal(map.get("a"), "2027-06-05T08:00:00Z");
     assert.equal(map.get("b"), null);

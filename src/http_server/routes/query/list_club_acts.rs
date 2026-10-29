@@ -40,8 +40,8 @@ pub struct ClubAct {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubActParticipant {
     id: Uuid,
-    starter_firstname: String,
-    starter_lastname: String,
+    rider_firstname: String,
+    rider_lastname: String,
     club_id: Uuid,
     club_name: String,
     /// Replacement riders (Ersatzfahrer) of a group.
@@ -104,8 +104,8 @@ pub async fn list_club_acts(
         WHERE acts.owner_club_id = ?1
             OR EXISTS (
                 SELECT 1 FROM act_participants
-                JOIN starter ON act_participants.starter_id = starter.id
-                WHERE act_participants.act_id = acts.id AND starter.club_id = ?1
+                JOIN rider ON act_participants.rider_id = rider.id
+                WHERE act_participants.act_id = acts.id AND rider.club_id = ?1
             )
         ORDER BY acts.id
         "#,
@@ -119,18 +119,18 @@ pub async fn list_club_acts(
         let participants = sqlx::query!(
             r#"
             SELECT
-                starter.id as "id!: Uuid",
-                starter.firstname,
-                starter.lastname,
-                starter.club_id as "club_id!: Uuid",
+                rider.id as "id!: Uuid",
+                rider.firstname,
+                rider.lastname,
+                rider.club_id as "club_id!: Uuid",
                 clubs.name as club_name,
                 act_participants.is_replacement,
-                starter.birthdate
+                rider.birthdate
             FROM act_participants
-            JOIN starter ON act_participants.starter_id = starter.id
-            JOIN clubs ON clubs.id = starter.club_id
+            JOIN rider ON act_participants.rider_id = rider.id
+            JOIN clubs ON clubs.id = rider.club_id
             WHERE act_participants.act_id = ?
-            ORDER BY act_participants.is_replacement, starter.lastname, starter.firstname
+            ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
             "#,
             act.id
         )
@@ -157,8 +157,8 @@ pub async fn list_club_acts(
                 .into_iter()
                 .map(|participant| ClubActParticipant {
                     id: participant.id,
-                    starter_firstname: participant.firstname,
-                    starter_lastname: participant.lastname,
+                    rider_firstname: participant.firstname,
+                    rider_lastname: participant.lastname,
                     club_id: participant.club_id,
                     club_name: participant.club_name,
                     is_replacement: participant.is_replacement,

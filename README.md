@@ -79,7 +79,7 @@ Give player logins (web player, `cup-player`) only the Musiksteuerung role.
 
 With `METRICS_TOKEN` (or `[server] metrics_token`) set, `GET /metrics` serves
 Prometheus metrics in the OpenMetrics format; without a token the endpoint
-doesn't exist. The database counts (users, clubs, starters, acts, music,
+doesn't exist. The database counts (users, clubs, riders, acts, music,
 payments, fees, the live timeplan and its delay) are read on every scrape;
 HTTP requests, mails and normalization jobs are counted as they happen. All
 metrics start with `cup_`.
@@ -173,7 +173,7 @@ Event day setup:
 `cargo run --bin seed_demo` (or `make demo`) **deletes the configured database**
 and recreates it with the demo data from [`demo-data.toml`](demo-data.toml):
 users in every state, clubs with full, partial, missing and excess payments,
-starters in single and pair starts (incl. partners across clubs and
+riders in single and pair starts (incl. partners across clubs and
 unregistered partners), groups (a small group across clubs with a replacement
 rider, a large group and an incomplete group without category), acts with
 names, songs and orders, a final, a timeplan that is partly run and a check-in in

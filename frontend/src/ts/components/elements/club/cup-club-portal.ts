@@ -16,7 +16,7 @@ import {
   visibleSteps,
   type StepId,
   type StepState,
-  sortStarters,
+  sortRiders,
   stepSummaries,
 } from "../../../club-data";
 import {
@@ -478,7 +478,7 @@ export default class CupClubPortal extends LitElement {
   @property({ type: Boolean }) foreign = false;
 
   @state() step: StepId = "verein";
-  /** An act, group or starter to scroll to after navigating. */
+  /** An act, group or rider to scroll to after navigating. */
   @state() target?: string;
   /** Whether the step was chosen (hash or click) rather than defaulted. */
   private stepChosen = false;
@@ -498,22 +498,22 @@ export default class CupClubPortal extends LitElement {
       const query = { query: { club_id: clubId } };
       const [
         club,
-        starters,
+        riders,
         acts,
         groups,
         allGroups,
-        allStarters,
+        allRiders,
         judges,
         juryCategories,
         juryPlan,
       ] = await Promise.all([
         unwrap(client.getClub(query)),
-        unwrap(client.listClubStarters(query)),
+        unwrap(client.listClubRiders(query)),
         unwrap(client.listClubActs(query)),
         unwrap(client.listClubGroups(query)),
         unwrap(client.listGroups()).catch(() => []),
         // Admins pick riders of any club.
-        admin ? unwrap(client.listStarters()) : Promise.resolve(undefined),
+        admin ? unwrap(client.listRiders()) : Promise.resolve(undefined),
         jury
           ? unwrap(client.listClubJudges(query))
           : Promise.resolve(undefined),
@@ -522,11 +522,11 @@ export default class CupClubPortal extends LitElement {
       ]);
       return {
         club,
-        starters: sortStarters(starters),
+        riders: sortRiders(riders),
         acts,
         groups,
         allGroups,
-        allStarters,
+        allRiders,
         judges,
         juryCategories,
         juryPlan,
@@ -885,7 +885,7 @@ export default class CupClubPortal extends LitElement {
     const common = {
       data,
       competition: this.systemStatus?.competition ?? null,
-      canRegister: !!this.systemStatus?.can_register_starter,
+      canRegister: !!this.systemStatus?.can_register_rider,
       canUpload: !!this.systemStatus?.can_upload_music,
     };
     const step =

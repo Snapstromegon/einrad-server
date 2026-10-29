@@ -57,8 +57,8 @@ pub async fn list_groups(
             (
                 SELECT json_group_array(name) FROM (
                     SELECT DISTINCT clubs.name FROM act_participants
-                    JOIN starter ON starter.id = act_participants.starter_id
-                    JOIN clubs ON clubs.id = starter.club_id
+                    JOIN rider ON rider.id = act_participants.rider_id
+                    JOIN clubs ON clubs.id = rider.club_id
                     WHERE act_participants.act_id = view_act.id
                     ORDER BY clubs.name
                 )

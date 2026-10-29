@@ -7,7 +7,7 @@ mod common;
 use std::collections::{BTreeSet, HashMap};
 
 use axum::http::StatusCode;
-use common::{TestApp, TestResponse, starter_body};
+use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -41,10 +41,10 @@ async fn list_club_acts(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value
     response.body.as_array().unwrap().clone()
 }
 
-async fn list_club_starters(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_club_riders(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
     let response = app
         .get(
-            &format!("/api/query/list_club_starters?club_id={club_id}"),
+            &format!("/api/query/list_club_riders?club_id={club_id}"),
             Some(cookie),
         )
         .await;
@@ -69,7 +69,7 @@ async fn list_club_groups(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Val
     response.body.as_array().unwrap().clone()
 }
 
-/// Adds a starter without single or pair start, born on `birthdate`.
+/// Adds a rider without single or pair start, born on `birthdate`.
 async fn add_rider_born(
     app: &TestApp,
     cookie: &str,
@@ -77,9 +77,9 @@ async fn add_rider_born(
     firstname: &str,
     birthdate: &str,
 ) -> Uuid {
-    let mut body = starter_body(club_id, firstname, false, false);
+    let mut body = rider_body(club_id, firstname, false, false);
     body["birthdate"] = json!(birthdate);
-    app.add_starter(cookie, body).await
+    app.add_rider(cookie, body).await
 }
 
 fn assert_status(response: &TestResponse, status: StatusCode) {
@@ -684,10 +684,7 @@ async fn owner_cannot_delete_a_group_while_other_clubs_have_riders(db: SqlitePoo
         .await;
     assert_ok(&response);
     assert!(list_groups(&app, &owner).await.is_empty());
-    assert_eq!(
-        list_club_starters(&app, &guest, guest_club_id).await.len(),
-        2
-    );
+    assert_eq!(list_club_riders(&app, &guest, guest_club_id).await.len(), 2);
 }
 
 #[sqlx::test]
@@ -928,12 +925,12 @@ async fn a_shared_large_group_can_be_built_one_club_at_a_time(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn deleting_a_starter_only_removes_them_from_the_group(db: SqlitePool) {
+async fn deleting_a_rider_only_removes_them_from_the_group(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut riders = app.add_riders(&cookie, club_id, "R", 8).await;
     let solo = app
-        .add_starter(&cookie, starter_body(club_id, "Solo", true, false))
+        .add_rider(&cookie, rider_body(club_id, "Solo", true, false))
         .await;
     riders.push(solo);
     let group = app.create_large_group(&cookie, club_id, "Neun").await;
@@ -945,8 +942,8 @@ async fn deleting_a_starter_only_removes_them_from_the_group(db: SqlitePool) {
 
     let response = app
         .post(
-            "/api/command/delete_club_starter",
-            json!({ "starter_id": solo }),
+            "/api/command/delete_rider",
+            json!({ "rider_id": solo }),
             Some(&cookie),
         )
         .await;
@@ -958,15 +955,15 @@ async fn deleting_a_starter_only_removes_them_from_the_group(db: SqlitePool) {
     assert_eq!(act["act_type"], "group_large");
     assert_eq!(act["category"], "GGU15");
     assert_eq!(participant_ids(&act), id_set(&riders[..8]));
-    assert_eq!(list_club_starters(&app, &cookie, club_id).await.len(), 8);
-    // The starter's single act is gone with them.
+    assert_eq!(list_club_riders(&app, &cookie, club_id).await.len(), 8);
+    // The rider's single act is gone with them.
     let acts = list_acts(&app).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["id"], group.to_string());
 }
 
 #[sqlx::test]
-async fn deleting_a_starter_leaves_their_small_and_large_group(db: SqlitePool) {
+async fn deleting_a_rider_leaves_their_small_and_large_group(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 10).await;
@@ -983,8 +980,8 @@ async fn deleting_a_starter_leaves_their_small_and_large_group(db: SqlitePool) {
 
     let response = app
         .post(
-            "/api/command/delete_club_starter",
-            json!({ "starter_id": r[8] }),
+            "/api/command/delete_rider",
+            json!({ "rider_id": r[8] }),
             Some(&cookie),
         )
         .await;
@@ -1001,9 +998,9 @@ async fn deleting_a_starter_leaves_their_small_and_large_group(db: SqlitePool) {
     assert_eq!(act["category"], "GGU15");
     assert_eq!(act["type_conflict"], false);
     assert_eq!(participant_ids(&act), id_set(&r[..8]));
-    let starters = list_club_starters(&app, &cookie, club_id).await;
-    assert_eq!(starters.len(), 9);
-    assert!(starters.iter().all(|s| s["id"] != r[8].to_string()));
+    let riders = list_club_riders(&app, &cookie, club_id).await;
+    assert_eq!(riders.len(), 9);
+    assert!(riders.iter().all(|s| s["id"] != r[8].to_string()));
 }
 
 #[sqlx::test]
@@ -1023,18 +1020,18 @@ async fn other_clubs_cannot_remove_or_change_riders_of_a_shared_group(db: Sqlite
 
     let response = app
         .post(
-            "/api/command/delete_club_starter",
-            json!({ "starter_id": a[0] }),
+            "/api/command/delete_rider",
+            json!({ "rider_id": a[0] }),
             Some(&guest),
         )
         .await;
     assert_status(&response, StatusCode::FORBIDDEN);
-    let mut older = starter_body(club_id, "A1", false, false);
+    let mut older = rider_body(club_id, "A1", false, false);
     older.as_object_mut().unwrap().remove("club_id");
-    older["starter_id"] = json!(a[0]);
+    older["rider_id"] = json!(a[0]);
     older["birthdate"] = json!("1990-01-01T00:00:00.000Z");
     let response = app
-        .post("/api/command/edit_club_starter", older, Some(&guest))
+        .post("/api/command/edit_rider", older, Some(&guest))
         .await;
     assert_status(&response, StatusCode::FORBIDDEN);
 
@@ -1045,8 +1042,8 @@ async fn other_clubs_cannot_remove_or_change_riders_of_a_shared_group(db: Sqlite
     // A club deletes its own rider of the shared group.
     let response = app
         .post(
-            "/api/command/delete_club_starter",
-            json!({ "starter_id": b[0] }),
+            "/api/command/delete_rider",
+            json!({ "rider_id": b[0] }),
             Some(&guest),
         )
         .await;
@@ -1072,12 +1069,12 @@ async fn a_new_birthdate_moves_the_group_to_another_age_group(db: SqlitePool) {
         ("1990-01-01T00:00:00.000Z", "KG15+"),
         ("2015-05-01T00:00:00.000Z", "KGU15"),
     ] {
-        let mut body = starter_body(club_id, "R1", false, false);
+        let mut body = rider_body(club_id, "R1", false, false);
         body.as_object_mut().unwrap().remove("club_id");
-        body["starter_id"] = json!(r[0]);
+        body["rider_id"] = json!(r[0]);
         body["birthdate"] = json!(birthdate);
         let response = app
-            .post("/api/command/edit_club_starter", body, Some(&cookie))
+            .post("/api/command/edit_rider", body, Some(&cookie))
             .await;
         assert_ok(&response);
 
@@ -1091,12 +1088,12 @@ async fn a_new_birthdate_moves_the_group_to_another_age_group(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn deleting_a_group_keeps_its_starters(db: SqlitePool) {
+async fn deleting_a_group_keeps_its_riders(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut riders = app.add_riders(&cookie, club_id, "R", 2).await;
     let solo = app
-        .add_starter(&cookie, starter_body(club_id, "Solo", true, false))
+        .add_rider(&cookie, rider_body(club_id, "Solo", true, false))
         .await;
     riders.push(solo);
     let group = app.create_group(&cookie, club_id, "Kurzlebig").await;
@@ -1114,12 +1111,9 @@ async fn deleting_a_group_keeps_its_starters(db: SqlitePool) {
         .await;
     assert_ok(&response);
 
-    let starters = list_club_starters(&app, &cookie, club_id).await;
-    assert_eq!(starters.len(), 3);
-    assert!(
-        starters.iter().all(|s| s["group_count"] == 0),
-        "{starters:?}"
-    );
+    let riders = list_club_riders(&app, &cookie, club_id).await;
+    assert_eq!(riders.len(), 3);
+    assert!(riders.iter().all(|s| s["group_count"] == 0), "{riders:?}");
     let acts = list_acts(&app).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["act_type"], "single");
@@ -1139,13 +1133,13 @@ async fn single_pair_and_group_starts_of_a_rider_are_all_listed(db: SqlitePool) 
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
-        .add_starter(&cookie, starter_body(club_id, "Anna", true, true))
+        .add_rider(&cookie, rider_body(club_id, "Anna", true, true))
         .await;
-    let mut berta = starter_body(club_id, "Berta", false, true);
+    let mut berta = rider_body(club_id, "Berta", false, true);
     berta["partner_id"] = json!(anna);
-    let berta = app.add_starter(&cookie, berta).await;
+    let berta = app.add_rider(&cookie, berta).await;
     let carla = app
-        .add_starter(&cookie, starter_body(club_id, "Carla", false, false))
+        .add_rider(&cookie, rider_body(club_id, "Carla", false, false))
         .await;
     let group = app.create_group(&cookie, club_id, "Trio").await;
     assert_ok(
@@ -1188,8 +1182,8 @@ async fn single_pair_and_group_starts_of_a_rider_are_all_listed(db: SqlitePool) 
     assert_eq!(club_group["group_name"], "Trio");
     assert_eq!(club_group["participants"].as_array().unwrap().len(), 3);
 
-    let starters = list_club_starters(&app, &cookie, club_id).await;
-    let anna = starters.iter().find(|s| s["id"] == anna_id).unwrap();
+    let riders = list_club_riders(&app, &cookie, club_id).await;
+    let anna = riders.iter().find(|s| s["id"] == anna_id).unwrap();
     assert_eq!(anna["single_female"], true);
     assert_eq!(anna["pair"], true);
     assert_eq!(anna["group_count"], 1);
@@ -1362,7 +1356,7 @@ async fn group_count_counts_group_starts_including_replacements(db: SqlitePool) 
     let admin = app.create_admin().await;
     let r = app.add_riders(&cookie, club_id, "R", 9).await;
     let solo = app
-        .add_starter(&cookie, starter_body(club_id, "Solo", true, false))
+        .add_rider(&cookie, rider_body(club_id, "Solo", true, false))
         .await;
     let small = app.create_group(&cookie, club_id, "Klein").await;
     assert_ok(
@@ -1382,15 +1376,15 @@ async fn group_count_counts_group_starts_including_replacements(db: SqlitePool) 
         (r[4].to_string(), 1),
         (solo.to_string(), 0),
     ]);
-    let club_starters = list_club_starters(&app, &cookie, club_id).await;
-    let response = app.get("/api/query/list_starters", Some(&admin)).await;
+    let club_riders = list_club_riders(&app, &cookie, club_id).await;
+    let response = app.get("/api/query/list_riders", Some(&admin)).await;
     assert_status(&response, StatusCode::OK);
-    let all_starters = response.body.as_array().unwrap().clone();
-    for starters in [club_starters, all_starters] {
-        assert_eq!(starters.len(), 10);
+    let all_riders = response.body.as_array().unwrap().clone();
+    for riders in [club_riders, all_riders] {
+        assert_eq!(riders.len(), 10);
         for (id, count) in &expected {
-            let starter = starters.iter().find(|s| s["id"] == *id).unwrap();
-            assert_eq!(starter["group_count"], *count, "{starter}");
+            let rider = riders.iter().find(|s| s["id"] == *id).unwrap();
+            assert_eq!(rider["group_count"], *count, "{rider}");
         }
     }
 }
@@ -1496,7 +1490,7 @@ async fn group_commands_need_open_registration_unless_admin(db: SqlitePool) {
             json!({
                 "club_id": club_id,
                 "act_id": group,
-                "members": [{ "starter_id": r[3], "is_replacement": true }],
+                "members": [{ "rider_id": r[3], "is_replacement": true }],
             }),
         ),
         (

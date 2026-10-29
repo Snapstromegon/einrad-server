@@ -10,7 +10,7 @@ import {
   MIN_GROUP_SIZE,
 } from "./utils";
 
-export type ClubStarter = schemas.ClubStarter;
+export type ClubRider = schemas.ClubRider;
 export type ClubAct = schemas.ClubAct;
 export type ClubGroup = schemas.ClubGroup;
 export type GroupSummary = schemas.GroupSummary;
@@ -18,20 +18,20 @@ export type Club = schemas.Club;
 export type ClubJudge = schemas.ClubJudge;
 export type JuryCategory = schemas.JuryCategory;
 export type JuryPlan = schemas.JuryPlan;
-/** A starter of any club, as admins list them. */
-export type AnyStarter = schemas.Starter;
+/** A rider of any club, as admins list them. */
+export type AnyRider = schemas.Rider;
 
 /** Everything the portal loads for a club. */
 export interface ClubData {
   club: Club;
   /** Sorted by last name, then first name. */
-  starters: ClubStarter[];
+  riders: ClubRider[];
   acts: ClubAct[];
   groups: ClubGroup[];
   /** All groups of the competition, to join one of another club. */
   allGroups: GroupSummary[];
-  /** For admins: the starters of all clubs, to pick riders of any club. */
-  allStarters?: AnyStarter[];
+  /** For admins: the riders of all clubs, to pick riders of any club. */
+  allRiders?: AnyRider[];
   /** With the jury registration: the club's judges and what they can pick. */
   judges?: ClubJudge[];
   juryCategories?: JuryCategory[];
@@ -58,11 +58,11 @@ export const isStepId = (id: string): id is StepId =>
   STEPS.some((step) => step.id === id);
 
 /** "Anna Muster". */
-export const starterName = (starter: { firstname: string; lastname: string }) =>
-  `${starter.firstname} ${starter.lastname}`;
+export const riderName = (rider: { firstname: string; lastname: string }) =>
+  `${rider.firstname} ${rider.lastname}`;
 
-export const sortStarters = (starters: ClubStarter[]) =>
-  [...starters].sort(
+export const sortRiders = (riders: ClubRider[]) =>
+  [...riders].sort(
     (a, b) =>
       a.lastname.localeCompare(b.lastname, "de") ||
       a.firstname.localeCompare(b.firstname, "de"),
@@ -76,34 +76,34 @@ export const ACT_TYPE_ORDER: ActType[] = [
   "group_large",
 ];
 
-/** The acts a starter rides in (as regular or replacement rider). */
-export const actsOfStarter = (acts: ClubAct[], starterId: string) =>
-  acts.filter((act) => act.participants.some((p) => p.id === starterId));
+/** The acts a rider rides in (as regular or replacement rider). */
+export const actsOfRider = (acts: ClubAct[], riderId: string) =>
+  acts.filter((act) => act.participants.some((p) => p.id === riderId));
 
-/** The act of a starter's single or pair, if it exists. */
+/** The act of a rider's single or pair, if it exists. */
 export const actOfType = (
   acts: ClubAct[],
-  starterId: string,
+  riderId: string,
   type: "single" | "pair",
 ) =>
   acts.find(
     (act) =>
-      act.act_type === type && act.participants.some((p) => p.id === starterId),
+      act.act_type === type && act.participants.some((p) => p.id === riderId),
   );
 
 /**
  * A pair whose partner isn't linked (yet): the partner rides for another
  * club and the organizer still has to confirm them, or no partner is named.
  */
-export const isPendingPair = (starter: ClubStarter) =>
-  starter.pair && !starter.partner_id;
+export const isPendingPair = (rider: ClubRider) =>
+  rider.pair && !rider.partner_id;
 
-/** Whether a starter is registered for anything. */
-export const hasStart = (starter: ClubStarter) =>
-  starter.single_male ||
-  starter.single_female ||
-  starter.pair ||
-  starter.group_count > 0;
+/** Whether a rider is registered for anything. */
+export const hasStart = (rider: ClubRider) =>
+  rider.single_male ||
+  rider.single_female ||
+  rider.pair ||
+  rider.group_count > 0;
 
 /** Regular riders and replacements of an act or group. */
 export const riderCounts = (participants: { is_replacement: boolean }[]) => {
@@ -149,7 +149,7 @@ export interface Issue {
   level: IssueLevel;
   step: StepId;
   text: string;
-  /** Optional act or starter to jump to. */
+  /** Optional act or rider to jump to. */
   target?: string;
 }
 
@@ -162,35 +162,35 @@ export const clubIssues = (
   { musicOpen = true }: { musicOpen?: boolean } = {},
 ): Issue[] => {
   const issues: Issue[] = [];
-  if (data.starters.length === 0) {
+  if (data.riders.length === 0) {
     issues.push({
       level: "info",
       step: "fahrer",
       text: "Noch keine FahrerInnen angelegt.",
     });
   }
-  for (const starter of data.starters) {
-    if (!hasStart(starter)) {
+  for (const rider of data.riders) {
+    if (!hasStart(rider)) {
       issues.push({
         level: "warn",
         step: "kueren",
-        text: `${starterName(starter)} ist noch in keiner Kür.`,
-        target: starter.id,
+        text: `${riderName(rider)} ist noch in keiner Kür.`,
+        target: rider.id,
       });
     }
-    if (starter.pair && !starter.partner_name) {
+    if (rider.pair && !rider.partner_name) {
       issues.push({
         level: "error",
         step: "kueren",
-        text: `${starterName(starter)}: Paarkür ohne Partner.`,
-        target: starter.id,
+        text: `${riderName(rider)}: Paarkür ohne Partner.`,
+        target: rider.id,
       });
-    } else if (isPendingPair(starter)) {
+    } else if (isPendingPair(rider)) {
       issues.push({
         level: "info",
         step: "kueren",
-        text: `Paarkür ${starterName(starter)} & ${starter.partner_name}: wartet auf Bestätigung durch den Veranstalter.`,
-        target: starter.id,
+        text: `Paarkür ${riderName(rider)} & ${rider.partner_name}: wartet auf Bestätigung durch den Veranstalter.`,
+        target: rider.id,
       });
     }
   }
@@ -285,12 +285,12 @@ export const stepSummaries = (
     issues.some((issue) => issue.step === step && issue.level !== "info");
   const { amount, open } = paymentState(data);
   // A pair with an unconfirmed partner has no act yet, but counts as one.
-  const acts = data.acts.length + data.starters.filter(isPendingPair).length;
+  const acts = data.acts.length + data.riders.filter(isPendingPair).length;
   return {
     verein: { state: "done", summary: data.club.name },
     fahrer: {
-      state: data.starters.length ? "done" : "todo",
-      summary: count(data.starters.length, "FahrerIn", "FahrerInnen"),
+      state: data.riders.length ? "done" : "todo",
+      summary: count(data.riders.length, "FahrerIn", "FahrerInnen"),
     },
     kueren: {
       state: acts === 0 ? "todo" : blocking("kueren") ? "open" : "done",

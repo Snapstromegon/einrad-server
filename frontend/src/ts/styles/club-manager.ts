@@ -1,7 +1,7 @@
 import { css } from "lit";
 
 /**
- * Shared look of the club managers (starters, groups, acts) on the club page
+ * Shared look of the club managers (riders, groups, acts) on the club page
  * and in the admin's club view. Use after the reset:
  * `static override styles = [resetStyles, iconStyles, clubManagerStyles, css\`…\`]`.
  *

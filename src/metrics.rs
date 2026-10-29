@@ -62,9 +62,9 @@ pub struct Metrics {
     // Registration
     users: GaugeFamily,
     clubs: Gauge,
-    starters: Gauge,
-    starters_by_club: GaugeFamily,
-    starters_checked_in: Gauge,
+    riders: Gauge,
+    riders_by_club: GaugeFamily,
+    riders_checked_in: Gauge,
     registration_open: Gauge,
     music_upload_open: Gauge,
     registration_end: Gauge,
@@ -97,9 +97,9 @@ impl Metrics {
             registry: Registry::default(),
             users: GaugeFamily::default(),
             clubs: Gauge::default(),
-            starters: Gauge::default(),
-            starters_by_club: GaugeFamily::default(),
-            starters_checked_in: Gauge::default(),
+            riders: Gauge::default(),
+            riders_by_club: GaugeFamily::default(),
+            riders_checked_in: Gauge::default(),
             registration_open: Gauge::default(),
             music_upload_open: Gauge::default(),
             registration_end: Gauge::default(),
@@ -129,20 +129,20 @@ impl Metrics {
         );
         registry.register("users", "Registered users", m.users.clone());
         registry.register("clubs", "Registered clubs", m.clubs.clone());
-        registry.register("starters", "Registered starters", m.starters.clone());
+        registry.register("riders", "Registered riders", m.riders.clone());
         registry.register(
-            "starters_by_club",
-            "Registered starters per club",
-            m.starters_by_club.clone(),
+            "riders_by_club",
+            "Registered riders per club",
+            m.riders_by_club.clone(),
         );
         registry.register(
-            "starters_checked_in",
-            "Starters checked in on competition day",
-            m.starters_checked_in.clone(),
+            "riders_checked_in",
+            "Riders checked in on competition day",
+            m.riders_checked_in.clone(),
         );
         registry.register(
             "registration_open",
-            "1 while clubs can register starters",
+            "1 while clubs can register riders",
             m.registration_open.clone(),
         );
         registry.register(
@@ -283,29 +283,29 @@ impl Metrics {
                 .fetch_one(db)
                 .await?,
         );
-        self.starters.set(
-            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM starter"#)
+        self.riders.set(
+            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM rider"#)
                 .fetch_one(db)
                 .await?,
         );
-        self.starters_checked_in.set(
+        self.riders_checked_in.set(
             sqlx::query_scalar!(
-                r#"SELECT COUNT(*) as "count!: i64" FROM starter WHERE checked_in_at IS NOT NULL"#
+                r#"SELECT COUNT(*) as "count!: i64" FROM rider WHERE checked_in_at IS NOT NULL"#
             )
             .fetch_one(db)
             .await?,
         );
         let by_club = sqlx::query!(
             r#"
-            SELECT clubs.name, COUNT(starter.id) as "count!: i64"
-            FROM clubs LEFT JOIN starter ON starter.club_id = clubs.id
+            SELECT clubs.name, COUNT(rider.id) as "count!: i64"
+            FROM clubs LEFT JOIN rider ON rider.club_id = clubs.id
             GROUP BY clubs.id
             "#
         )
         .fetch_all(db)
         .await?;
         set(
-            &self.starters_by_club,
+            &self.riders_by_club,
             by_club
                 .into_iter()
                 .map(|r| (labels([("club", &r.name)]), r.count))
@@ -319,7 +319,7 @@ impl Metrics {
         self.registration_open.set(
             capabilities
                 .as_ref()
-                .is_some_and(|c| c.can_register_starter)
+                .is_some_and(|c| c.can_register_rider)
                 .into(),
         );
         self.music_upload_open

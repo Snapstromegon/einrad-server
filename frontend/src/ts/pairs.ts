@@ -4,7 +4,7 @@
 // the unit tests can import it without a DOM.
 import type { schemas } from "./apiClient";
 
-type Starter = schemas.Starter;
+type Rider = schemas.Rider;
 
 /** A name for comparing: lower case, without accents, ß → ss, ä → a. */
 export const normalizeName = (name: string) =>
@@ -34,7 +34,7 @@ export const editDistance = (a: string, b: string) => {
   return previous[b.length];
 };
 
-const fullName = (s: Pick<Starter, "firstname" | "lastname">) =>
+const fullName = (s: Pick<Rider, "firstname" | "lastname">) =>
   `${s.firstname} ${s.lastname}`;
 
 /** How well a name matches: 0 exact, 1 similar, `null` not at all. */
@@ -54,10 +54,10 @@ const nameMatch = (wanted: string | null | undefined, name: string) => {
 };
 
 /** Whether a rider waits for a partner of another club. */
-export const isUnconfirmedPair = (s: Starter) => s.pair && !s.partner_id;
+export const isUnconfirmedPair = (s: Rider) => s.pair && !s.partner_id;
 
 export interface PairCandidate {
-  starter: Starter;
+  rider: Rider;
   /**
    * "mutual": both name each other exactly. "exact": the name matches one
    * way. "similar": the names are spelled a bit differently.
@@ -67,16 +67,16 @@ export interface PairCandidate {
 
 /** The unconfirmed riders of other clubs, best match first. */
 export const pairCandidates = (
-  starter: Starter,
-  starters: Starter[],
+  rider: Rider,
+  riders: Rider[],
 ): PairCandidate[] => {
   const ranked: (PairCandidate & { score: number })[] = [];
-  for (const other of starters) {
-    if (other.club_id === starter.club_id || !isUnconfirmedPair(other)) {
+  for (const other of riders) {
+    if (other.club_id === rider.club_id || !isUnconfirmedPair(other)) {
       continue;
     }
-    const there = nameMatch(starter.partner_name, fullName(other));
-    const back = nameMatch(other.partner_name, fullName(starter));
+    const there = nameMatch(rider.partner_name, fullName(other));
+    const back = nameMatch(other.partner_name, fullName(rider));
     if (there === null && back === null) {
       continue;
     }
@@ -87,18 +87,18 @@ export const pairCandidates = (
           ? "exact"
           : "similar";
     ranked.push({
-      starter: other,
+      rider: other,
       match,
       score: (there ?? 2) + (back ?? 2),
     });
   }
   return ranked
     .sort((a, b) => a.score - b.score)
-    .map(({ starter, match }) => ({ starter, match }));
+    .map(({ rider, match }) => ({ rider, match }));
 };
 
 export interface UnconfirmedPair {
-  starter: Starter;
+  rider: Rider;
   /** The likely partner, if any; the other options in `candidates`. */
   partner: PairCandidate | null;
   candidates: PairCandidate[];
@@ -108,8 +108,8 @@ export interface UnconfirmedPair {
  * Every unconfirmed pair rider, sorted by name. Riders who are each other's
  * best match are listed once, as one pair.
  */
-export const unconfirmedPairs = (starters: Starter[]): UnconfirmedPair[] => {
-  const waiting = starters
+export const unconfirmedPairs = (riders: Rider[]): UnconfirmedPair[] => {
+  const waiting = riders
     .filter(isUnconfirmedPair)
     .sort((a, b) =>
       `${a.lastname} ${a.firstname}`.localeCompare(
@@ -119,20 +119,20 @@ export const unconfirmedPairs = (starters: Starter[]): UnconfirmedPair[] => {
     );
   const listed = new Set<string>();
   const pairs: UnconfirmedPair[] = [];
-  for (const starter of waiting) {
-    if (listed.has(starter.id)) {
+  for (const rider of waiting) {
+    if (listed.has(rider.id)) {
       continue;
     }
-    const candidates = pairCandidates(starter, starters);
+    const candidates = pairCandidates(rider, riders);
     const partner = candidates[0] ?? null;
-    listed.add(starter.id);
+    listed.add(rider.id);
     if (
       partner &&
-      pairCandidates(partner.starter, starters)[0]?.starter.id === starter.id
+      pairCandidates(partner.rider, riders)[0]?.rider.id === rider.id
     ) {
-      listed.add(partner.starter.id);
+      listed.add(partner.rider.id);
     }
-    pairs.push({ starter, partner, candidates });
+    pairs.push({ rider, partner, candidates });
   }
   return pairs;
 };

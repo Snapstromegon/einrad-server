@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetCheckedInResponse {
-    /// The check-in time set for starters that weren't checked in yet. Starters
+    /// The check-in time set for riders that weren't checked in yet. Riders
     /// that already were keep their earlier time. `null` when checking out.
     #[serde(with = "time::serde::iso8601::option")]
     checked_in_at: Option<OffsetDateTime>,
@@ -23,14 +23,14 @@ pub struct SetCheckedInResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetCheckedInBody {
-    starter_ids: Vec<Uuid>,
+    rider_ids: Vec<Uuid>,
     checked_in: bool,
 }
 
-/// Check starters in (or out) on competition day.
+/// Check riders in (or out) on competition day.
 ///
 /// Check-in and music control. Works after registration closed. Fails as a
-/// whole if one of the starters doesn't exist.
+/// whole if one of the riders doesn't exist.
 #[utoipa::path(
     post,
     tags=["command", "check-in"],
@@ -55,24 +55,24 @@ pub async fn set_checked_in(
 
     let checked_in_at = body.checked_in.then(OffsetDateTime::now_utc);
     info!(
-        "Setting check-in of {} starters to {:?}",
-        body.starter_ids.len(),
+        "Setting check-in of {} riders to {:?}",
+        body.rider_ids.len(),
         checked_in_at
     );
-    let starter_ids: HashSet<Uuid> = body.starter_ids.into_iter().collect();
-    for starter_id in starter_ids {
+    let rider_ids: HashSet<Uuid> = body.rider_ids.into_iter().collect();
+    for rider_id in rider_ids {
         let result = if let Some(checked_in_at) = checked_in_at {
             sqlx::query!(
-                "UPDATE starter SET checked_in_at = COALESCE(checked_in_at, ?) WHERE id = ?",
+                "UPDATE rider SET checked_in_at = COALESCE(checked_in_at, ?) WHERE id = ?",
                 checked_in_at,
-                starter_id,
+                rider_id,
             )
             .execute(&mut *transaction)
             .await?
         } else {
             sqlx::query!(
-                "UPDATE starter SET checked_in_at = NULL WHERE id = ?",
-                starter_id
+                "UPDATE rider SET checked_in_at = NULL WHERE id = ?",
+                rider_id
             )
             .execute(&mut *transaction)
             .await?

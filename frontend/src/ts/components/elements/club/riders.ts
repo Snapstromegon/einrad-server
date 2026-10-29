@@ -1,11 +1,11 @@
 // The riders the pickers of the club portal offer: the club's own and, for
 // admins, those of all other clubs.
-import type { AnyStarter, ClubData, ClubStarter } from "../../../club-data";
+import type { AnyRider, ClubData, ClubRider } from "../../../club-data";
 import type { PickerOption } from "../cup-rider-picker";
 
 /** A rider of any club, with what the pickers need. */
 export type Rider = Omit<
-  ClubStarter,
+  ClubRider,
   "resolved_partner_club" | "resolved_partner_name"
 > & {
   club_name: string;
@@ -20,16 +20,16 @@ const byFirstname = (a: Rider, b: Rider) =>
  * the others, each by first name.
  */
 export const ridersOf = (data: ClubData, admin: boolean): Rider[] => {
-  const own: Rider[] = data.starters.map((s) => ({
+  const own: Rider[] = data.riders.map((s) => ({
     ...s,
     club_name: data.club.name,
   }));
   own.sort(byFirstname);
-  if (!admin || !data.allStarters) {
+  if (!admin || !data.allRiders) {
     return own;
   }
-  const others = data.allStarters
-    .filter((s: AnyStarter) => s.club_id !== data.club.id)
+  const others = data.allRiders
+    .filter((s: AnyRider) => s.club_id !== data.club.id)
     .map((s): Rider => ({
       id: s.id,
       club_id: s.club_id,

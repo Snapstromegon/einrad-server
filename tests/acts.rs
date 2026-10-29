@@ -3,7 +3,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{TestApp, closed_registration, starter_body};
+use common::{TestApp, closed_registration, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -31,11 +31,11 @@ async fn club_with_acts(app: &TestApp) -> (String, Uuid, Uuid) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let single = app.add_single_act(&cookie, club_id, "Anna").await;
     let berta = app
-        .add_starter(&cookie, starter_body(club_id, "Berta", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
         .await;
-    let mut carla = starter_body(club_id, "Carla", false, true);
+    let mut carla = rider_body(club_id, "Carla", false, true);
     carla["partner_id"] = json!(berta);
-    let carla = app.add_starter(&cookie, carla).await;
+    let carla = app.add_rider(&cookie, carla).await;
     let pair = app.act_of(carla).await;
     (cookie, single, pair)
 }
@@ -67,12 +67,12 @@ async fn get_act_returns_category_and_participants(db: SqlitePool) {
     assert_eq!(act["participants"].as_array().unwrap().len(), 2);
 }
 
-/// Category of the act of the given type the starter takes part in.
-async fn category_of(app: &TestApp, starter_id: Uuid, act_type: &str) -> Value {
+/// Category of the act of the given type the rider takes part in.
+async fn category_of(app: &TestApp, rider_id: Uuid, act_type: &str) -> Value {
     let act_id: Uuid = sqlx::query_scalar(
-        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE starter_id = ? AND act_type = ?",
+        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
     )
-    .bind(starter_id)
+    .bind(rider_id)
     .bind(act_type)
     .fetch_one(&app.db)
     .await
@@ -84,8 +84,8 @@ async fn category_of(app: &TestApp, starter_id: Uuid, act_type: &str) -> Value {
 async fn categories_follow_gender_and_age(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let starter = |name: &str, birthdate: &str, male: bool, female: bool, pair: bool| {
-        let mut body = starter_body(club_id, name, female, pair);
+    let rider = |name: &str, birthdate: &str, male: bool, female: bool, pair: bool| {
+        let mut body = rider_body(club_id, name, female, pair);
         body["single_male"] = json!(male);
         if male {
             // The gender follows from the single.
@@ -97,15 +97,15 @@ async fn categories_follow_gender_and_age(db: SqlitePool) {
 
     // Same age, different gender.
     let max = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Max", "2015-05-01T00:00:00.000Z", true, false, false),
+            rider("Max", "2015-05-01T00:00:00.000Z", true, false, false),
         )
         .await;
     let mia = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Mia", "2015-05-01T00:00:00.000Z", false, true, false),
+            rider("Mia", "2015-05-01T00:00:00.000Z", false, true, false),
         )
         .await;
     assert_eq!(category_of(&app, max, "single").await, "EMU13");
@@ -113,38 +113,38 @@ async fn categories_follow_gender_and_age(db: SqlitePool) {
 
     // Turning 17 on the determining day counts as U19, one day later as U17.
     let older = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Olga", "2010-06-01T00:00:00.000Z", false, true, false),
+            rider("Olga", "2010-06-01T00:00:00.000Z", false, true, false),
         )
         .await;
     let younger = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Yara", "2010-06-02T00:00:00.000Z", false, true, false),
+            rider("Yara", "2010-06-02T00:00:00.000Z", false, true, false),
         )
         .await;
     assert_eq!(category_of(&app, older, "single").await, "EWU19");
     assert_eq!(category_of(&app, younger, "single").await, "EWU17");
 
     let senior = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Sepp", "1950-01-01T00:00:00.000Z", true, false, false),
+            rider("Sepp", "1950-01-01T00:00:00.000Z", true, false, false),
         )
         .await;
     assert_eq!(category_of(&app, senior, "single").await, "EM70+");
 
     // Pairs aren't split by gender, even if both riders also start in a male single.
     let ben = app
-        .add_starter(
+        .add_rider(
             &cookie,
-            starter("Ben", "2015-05-01T00:00:00.000Z", true, false, true),
+            rider("Ben", "2015-05-01T00:00:00.000Z", true, false, true),
         )
         .await;
-    let mut tom = starter("Tom", "2015-05-01T00:00:00.000Z", true, false, true);
+    let mut tom = rider("Tom", "2015-05-01T00:00:00.000Z", true, false, true);
     tom["partner_id"] = json!(ben);
-    app.add_starter(&cookie, tom).await;
+    app.add_rider(&cookie, tom).await;
     assert_eq!(category_of(&app, ben, "pair").await, "PU13");
 }
 

@@ -602,7 +602,7 @@ pub async fn obligations(
                             -- A pair across clubs (only admins link those)
                             -- counts for one of them.
                             SELECT MIN(s.club_id) FROM act_participants p
-                            JOIN starter s ON s.id = p.starter_id
+                            JOIN rider s ON s.id = p.rider_id
                             WHERE p.act_id = a.id AND NOT p.is_replacement
                         )
                     ) = clubs.id

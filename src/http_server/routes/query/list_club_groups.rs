@@ -39,7 +39,7 @@ pub struct ClubGroup {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubGroupMember {
-    starter_id: Uuid,
+    rider_id: Uuid,
     firstname: String,
     lastname: String,
     club_id: Uuid,
@@ -100,8 +100,8 @@ pub async fn list_club_groups(
                 view_act.owner_club_id = ?1
                 OR EXISTS (
                     SELECT 1 FROM act_participants
-                    JOIN starter ON starter.id = act_participants.starter_id
-                    WHERE act_participants.act_id = view_act.id AND starter.club_id = ?1
+                    JOIN rider ON rider.id = act_participants.rider_id
+                    WHERE act_participants.act_id = view_act.id AND rider.club_id = ?1
                 )
             )
         "#,
@@ -115,27 +115,27 @@ pub async fn list_club_groups(
         r#"
         SELECT
             act_participants.act_id as "act_id!: Uuid",
-            starter.id as "starter_id!: Uuid",
-            starter.firstname,
-            starter.lastname,
-            starter.club_id as "club_id!: Uuid",
+            rider.id as "rider_id!: Uuid",
+            rider.firstname,
+            rider.lastname,
+            rider.club_id as "club_id!: Uuid",
             clubs.name as club_name,
             act_participants.is_replacement,
-            starter.birthdate
+            rider.birthdate
         FROM act_participants
         JOIN acts ON acts.id = act_participants.act_id
-        JOIN starter ON starter.id = act_participants.starter_id
-        JOIN clubs ON clubs.id = starter.club_id
+        JOIN rider ON rider.id = act_participants.rider_id
+        JOIN clubs ON clubs.id = rider.club_id
         WHERE acts.group_name IS NOT NULL
             AND (
                 acts.owner_club_id = ?1
                 OR EXISTS (
                     SELECT 1 FROM act_participants own
-                    JOIN starter own_starter ON own_starter.id = own.starter_id
-                    WHERE own.act_id = acts.id AND own_starter.club_id = ?1
+                    JOIN rider own_rider ON own_rider.id = own.rider_id
+                    WHERE own.act_id = acts.id AND own_rider.club_id = ?1
                 )
             )
-        ORDER BY act_participants.is_replacement, starter.lastname, starter.firstname
+        ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
         "#,
         query.club_id
     )
@@ -148,7 +148,7 @@ pub async fn list_club_groups(
             .entry(member.act_id)
             .or_default()
             .push(ClubGroupMember {
-                starter_id: member.starter_id,
+                rider_id: member.rider_id,
                 firstname: member.firstname,
                 lastname: member.lastname,
                 club_id: member.club_id,

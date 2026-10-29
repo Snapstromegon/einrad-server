@@ -26,12 +26,12 @@ import {
 
 type Act = schemas.Act;
 type Category = schemas.Category;
-type Starter = schemas.Starter;
+type Rider = schemas.Rider;
 
-/** One starter in one section of the starter table. */
+/** One rider in one section of the rider table. */
 interface Row {
-  starter: Starter;
-  /** The act this row is about; `null` for starters without such an act. */
+  rider: Rider;
+  /** The act this row is about; `null` for riders without such an act. */
   act: Act | null;
   /** The act type a row without act is about (e.g. a pair without partner). */
   actType: ActType | null;
@@ -51,7 +51,7 @@ type SortKey = "name" | "club" | "age";
 const NO_CATEGORY = "none";
 
 /** Single act types are split by gender in chips: EM / EW. */
-const singleLabel = (starter: Starter) => (starter.single_male ? "EM" : "EW");
+const singleLabel = (rider: Rider) => (rider.single_male ? "EM" : "EW");
 
 const compareText = (a: string, b: string) => a.localeCompare(b, "de");
 
@@ -72,8 +72,8 @@ const conflictReason = (act: Act, acts: Act[]) => {
   return `FahrerIn auch in ${others.join(", ") || "einer anderen Gruppe"} – nur eine ${actTypeLabels[act.act_type]} je FahrerIn`;
 };
 
-@customElement("cup-view-admin-starters")
-export default class CupViewAdminStarters extends LitElement {
+@customElement("cup-view-admin-riders")
+export default class CupViewAdminRiders extends LitElement {
   static override styles = [
     resetStyles,
     iconStyles,
@@ -121,7 +121,7 @@ export default class CupViewAdminStarters extends LitElement {
     `,
   ];
 
-  @state() private starters: Starter[] = [];
+  @state() private riders: Rider[] = [];
   @state() private acts: Act[] = [];
   @state() private categories: Category[] = [];
   @state() private checkIns: CheckInMap = new Map();
@@ -151,17 +151,17 @@ export default class CupViewAdminStarters extends LitElement {
 
   private async load(signal?: AbortSignal) {
     try {
-      const [starters, acts, categories] = await Promise.all([
-        unwrap(client.listStarters({ signal })),
+      const [riders, acts, categories] = await Promise.all([
+        unwrap(client.listRiders({ signal })),
         unwrap(client.listActs({ signal })),
         unwrap(client.listCategories({ signal })),
       ]);
-      this.starters = starters;
+      this.riders = riders;
       this.acts = acts;
       this.categories = categories;
       this.checkIns = checkInMap(
-        this.starters.map((s) => ({
-          starter_id: s.id,
+        this.riders.map((s) => ({
+          rider_id: s.id,
           checked_in_at: s.checked_in_at,
         })),
       );
@@ -188,7 +188,7 @@ export default class CupViewAdminStarters extends LitElement {
 
   // ---------- Derived data ----------
 
-  private actsByStarter() {
+  private actsByRider() {
     const map = new Map<string, Act[]>();
     for (const act of this.acts) {
       for (const p of act.participants) {
@@ -199,15 +199,15 @@ export default class CupViewAdminStarters extends LitElement {
   }
 
   /** One section per category (in category order), then "Ohne Kategorie". */
-  private sections(actsByStarter: Map<string, Act[]>): Section[] {
-    const starterById = new Map(this.starters.map((s) => [s.id, s]));
+  private sections(actsByRider: Map<string, Act[]>): Section[] {
+    const riderById = new Map(this.riders.map((s) => [s.id, s]));
     const rowsOf = (act: Act, note?: string): Row[] =>
       act.participants.flatMap((p) => {
-        const starter = starterById.get(p.id);
-        return starter
+        const rider = riderById.get(p.id);
+        return rider
           ? [
               {
-                starter,
+                rider,
                 act,
                 actType: act.act_type,
                 isReplacement: p.is_replacement,
@@ -228,21 +228,21 @@ export default class CupViewAdminStarters extends LitElement {
     const uncategorized: Row[] = this.acts
       .filter((act) => !act.category)
       .flatMap((act) => rowsOf(act, this.uncategorizedReason(act)));
-    for (const starter of this.starters) {
-      const acts = actsByStarter.get(starter.id) ?? [];
-      if (starter.pair && !acts.some((act) => act.act_type === "pair")) {
+    for (const rider of this.riders) {
+      const acts = actsByRider.get(rider.id) ?? [];
+      if (rider.pair && !acts.some((act) => act.act_type === "pair")) {
         uncategorized.push({
-          starter,
+          rider,
           act: null,
           actType: "pair",
           isReplacement: false,
-          note: starter.partner_name
-            ? `Paarpartner „${starter.partner_name}“ nicht zugeordnet`
+          note: rider.partner_name
+            ? `Paarpartner „${rider.partner_name}“ nicht zugeordnet`
             : "Paarpartner fehlt",
         });
       } else if (acts.length === 0) {
         uncategorized.push({
-          starter,
+          rider,
           act: null,
           actType: null,
           isReplacement: false,
@@ -299,7 +299,7 @@ export default class CupViewAdminStarters extends LitElement {
     ) {
       return false;
     }
-    if (this.onlyMissingCheckIn && this.checkIns.get(row.starter.id)) {
+    if (this.onlyMissingCheckIn && this.checkIns.get(row.rider.id)) {
       return false;
     }
     const needle = this.search.trim().toLocaleLowerCase("de");
@@ -307,8 +307,8 @@ export default class CupViewAdminStarters extends LitElement {
       return true;
     }
     return [
-      `${row.starter.firstname} ${row.starter.lastname}`,
-      row.starter.club_name,
+      `${row.rider.firstname} ${row.rider.lastname}`,
+      row.rider.club_name,
       row.act?.group_name ?? "",
     ].some((text) => text.toLocaleLowerCase("de").includes(needle));
   }
@@ -316,18 +316,18 @@ export default class CupViewAdminStarters extends LitElement {
   private sortRows(rows: Row[]) {
     const { key, desc } = this.sort;
     const byName = (a: Row, b: Row) =>
-      compareText(a.starter.lastname, b.starter.lastname) ||
-      compareText(a.starter.firstname, b.starter.firstname);
+      compareText(a.rider.lastname, b.rider.lastname) ||
+      compareText(a.rider.firstname, b.rider.firstname);
     const compare = (a: Row, b: Row) => {
       switch (key) {
         case "name":
           return byName(a, b);
         case "club":
-          return compareText(a.starter.club_name, b.starter.club_name);
+          return compareText(a.rider.club_name, b.rider.club_name);
         case "age":
           return (
-            (a.starter.age_on_competition ?? 0) -
-            (b.starter.age_on_competition ?? 0)
+            (a.rider.age_on_competition ?? 0) -
+            (b.rider.age_on_competition ?? 0)
           );
       }
     };
@@ -358,8 +358,8 @@ export default class CupViewAdminStarters extends LitElement {
         }
       </div>`;
     }
-    const actsByStarter = this.actsByStarter();
-    const sections = this.sections(actsByStarter);
+    const actsByRider = this.actsByRider();
+    const sections = this.sections(actsByRider);
     return html`<div class="page-pad">
       ${this.renderHead(sections)}
       ${
@@ -378,20 +378,20 @@ export default class CupViewAdminStarters extends LitElement {
           : nothing
       }
       ${this.renderToolbar(sections)}
-      ${this.renderStarters(sections, actsByStarter)}
+      ${this.renderRiders(sections, actsByRider)}
       ${this.renderGroups()}
     </div>`;
   }
 
   private renderHead(sections: Section[]) {
-    const starters = this.starters;
-    const clubs = new Set(starters.map((s) => s.club_id)).size;
+    const riders = this.riders;
+    const clubs = new Set(riders.map((s) => s.club_id)).size;
     const groupRiders = (type: ActType) =>
       this.acts
         .filter((act) => act.act_type === type)
         .reduce((sum, act) => sum + act.participants.length, 0);
-    const starts = starters.reduce((sum, s) => sum + countStarts(s), 0);
-    const checkedIn = starters.filter((s) => this.checkIns.get(s.id)).length;
+    const starts = riders.reduce((sum, s) => sum + countStarts(s), 0);
+    const checkedIn = riders.filter((s) => this.checkIns.get(s.id)).length;
     const uncategorized =
       sections.find((s) => s.category === null)?.rows.length ?? 0;
     const groups = this.acts.filter((act) => isGroupActType(act.act_type));
@@ -400,14 +400,14 @@ export default class CupViewAdminStarters extends LitElement {
     return html`<div class="head">
       <h1>FahrerInnen</h1>
       <div class="kpis">
-        <span class="kpi"><b>${starters.length}</b> FahrerInnen</span>
+        <span class="kpi"><b>${riders.length}</b> FahrerInnen</span>
         <span class="kpi"><b>${clubs}</b> Vereine</span>
         <span class="kpi" title="Starts, Gruppen inklusive Ersatzfahrer"
           ><b>${starts}</b> Starts
           <span class="small"
-            >(EM ${starters.filter((s) => s.single_male).length} · EW
-            ${starters.filter((s) => s.single_female).length} · P
-            ${starters.filter((s) => s.pair).length} · KG
+            >(EM ${riders.filter((s) => s.single_male).length} · EW
+            ${riders.filter((s) => s.single_female).length} · P
+            ${riders.filter((s) => s.pair).length} · KG
             ${groupRiders("group_small")} · GG
             ${groupRiders("group_large")})</span
           ></span
@@ -422,9 +422,9 @@ export default class CupViewAdminStarters extends LitElement {
           }</span
         >
         <span
-          class="kpi ${checkedIn === starters.length ? "ok" : ""}"
+          class="kpi ${checkedIn === riders.length ? "ok" : ""}"
           title="Eingecheckte FahrerInnen"
-          >Eingecheckt <b>${checkedIn}/${starters.length}</b></span
+          >Eingecheckt <b>${checkedIn}/${riders.length}</b></span
         >
         ${
           uncategorized
@@ -440,8 +440,8 @@ export default class CupViewAdminStarters extends LitElement {
   }
 
   private renderToolbar(sections: Section[]) {
-    // Only categories with starters can be filtered for.
-    const withStarters = new Set(
+    // Only categories with riders can be filtered for.
+    const withRiders = new Set(
       sections.filter((s) => s.rows.length > 0).map((s) => s.key),
     );
     const types = [...new Set(this.categories.map((c) => c.act_type))];
@@ -474,8 +474,7 @@ export default class CupViewAdminStarters extends LitElement {
         <optgroup label="Kategorie">
           ${repeat(
             this.categories.filter(
-              (c) =>
-                withStarters.has(c.name) || this.filter === `cat:${c.name}`,
+              (c) => withRiders.has(c.name) || this.filter === `cat:${c.name}`,
             ),
             (c) => c.name,
             (c) =>
@@ -516,10 +515,7 @@ export default class CupViewAdminStarters extends LitElement {
     </div>`;
   }
 
-  private renderStarters(
-    sections: Section[],
-    actsByStarter: Map<string, Act[]>,
-  ) {
+  private renderRiders(sections: Section[], actsByRider: Map<string, Act[]>) {
     const visible = sections
       .filter((section) => this.sectionVisible(section))
       .map((section) => ({
@@ -563,8 +559,8 @@ export default class CupViewAdminStarters extends LitElement {
             ${this.renderSectionHead(section, rows.length)}
             ${repeat(
               rows,
-              (row) => `${row.starter.id}/${row.act?.id ?? row.actType}`,
-              (row, i) => this.renderRow(row, i, actsByStarter),
+              (row) => `${row.rider.id}/${row.act?.id ?? row.actType}`,
+              (row, i) => this.renderRow(row, i, actsByRider),
             )}
           </tbody>`,
         )}
@@ -588,9 +584,9 @@ export default class CupViewAdminStarters extends LitElement {
 
   private renderSectionHead(section: Section, visibleRows: number) {
     const all = section.rows;
-    const acts = new Set(all.map((row) => row.act?.id ?? row.starter.id)).size;
+    const acts = new Set(all.map((row) => row.act?.id ?? row.rider.id)).size;
     const checkedIn = all.filter((row) =>
-      this.checkIns.get(row.starter.id),
+      this.checkIns.get(row.rider.id),
     ).length;
     const category = section.category;
     const size =
@@ -627,8 +623,8 @@ export default class CupViewAdminStarters extends LitElement {
     </tr>`;
   }
 
-  private renderRow(row: Row, i: number, actsByStarter: Map<string, Act[]>) {
-    const s = row.starter;
+  private renderRow(row: Row, i: number, actsByRider: Map<string, Act[]>) {
+    const s = row.rider;
     const checkedInAt = this.checkIns.get(s.id);
     return html`<tr class=${row.note ? "warn" : ""}>
       <td class="num muted">${i + 1}</td>
@@ -636,7 +632,7 @@ export default class CupViewAdminStarters extends LitElement {
       <td class="trunc" title=${s.club_name}>${s.club_name}</td>
       <td class="num">${s.birthdate ? formatDate(s.birthdate) : "–"}</td>
       <td class="num">${formatAge(s.age_on_competition)}</td>
-      <td>${this.renderStarts(s, row.act, actsByStarter.get(s.id) ?? [])}</td>
+      <td>${this.renderStarts(s, row.act, actsByRider.get(s.id) ?? [])}</td>
       <td class="trunc">${this.renderPartner(row)}</td>
       <td class="c">
         <span
@@ -652,7 +648,7 @@ export default class CupViewAdminStarters extends LitElement {
   }
 
   /** EM/EW/P/KG/GG chips of all starts; the row's own start is highlighted. */
-  private renderStarts(starter: Starter, current: Act | null, acts: Act[]) {
+  private renderStarts(rider: Rider, current: Act | null, acts: Act[]) {
     const chips: {
       key: string;
       label: string;
@@ -662,18 +658,18 @@ export default class CupViewAdminStarters extends LitElement {
     const tone = (act: Act | undefined, problem: boolean) =>
       act && act === current ? "current" : problem ? "warn" : "";
 
-    if (starter.single_male || starter.single_female) {
+    if (rider.single_male || rider.single_female) {
       const act = acts.find((a) => a.act_type === "single");
       chips.push({
         key: "single",
-        label: singleLabel(starter),
-        title: starter.single_male ? "Einzel männlich" : "Einzel weiblich",
+        label: singleLabel(rider),
+        title: rider.single_male ? "Einzel männlich" : "Einzel weiblich",
         tone: tone(act, !act?.category),
       });
     }
-    if (starter.pair) {
+    if (rider.pair) {
       const act = acts.find((a) => a.act_type === "pair");
-      const partners = act?.participants.filter((p) => p.id !== starter.id);
+      const partners = act?.participants.filter((p) => p.id !== rider.id);
       chips.push({
         key: "pair",
         label: act ? "P" : "P ⚠",
@@ -685,7 +681,7 @@ export default class CupViewAdminStarters extends LitElement {
     }
     for (const act of acts.filter((a) => isGroupActType(a.act_type))) {
       const replacement = act.participants.find(
-        (p) => p.id === starter.id,
+        (p) => p.id === rider.id,
       )?.is_replacement;
       chips.push({
         key: act.id,
@@ -715,7 +711,7 @@ export default class CupViewAdminStarters extends LitElement {
   }
 
   private renderPartner(row: Row) {
-    const { act, starter } = row;
+    const { act, rider } = row;
     if (!act) {
       return html`<span class="chip warn">⚠ ${row.note}</span>`;
     }
@@ -728,10 +724,10 @@ export default class CupViewAdminStarters extends LitElement {
         }${row.note ? html` <span class="chip warn">⚠ ${row.note}</span>` : nothing}</span
       >`;
     }
-    const others = act.participants.filter((p) => p.id !== starter.id);
+    const others = act.participants.filter((p) => p.id !== rider.id);
     const names = others
       .map((p) =>
-        p.club_id === starter.club_id
+        p.club_id === rider.club_id
           ? participantName(p)
           : `${participantName(p)} (${p.club_name})`,
       )

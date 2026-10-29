@@ -11,7 +11,7 @@ use crate::{
 pub struct Capabilities {
     pub can_register: bool,
     pub can_create_club: bool,
-    pub can_register_starter: bool,
+    pub can_register_rider: bool,
     pub can_upload_music: bool,
     /// Clubs can add, change and remove judges.
     pub can_register_judge: bool,
@@ -29,7 +29,7 @@ pub struct StatusOptions {
 impl StatusOptions {
     /// Computes which actions are currently allowed based on the configured dates.
     ///
-    /// Registration (users, clubs, starters) is possible between
+    /// Registration (users, clubs, riders) is possible between
     /// `start_register_date` and `end_register_date` (both inclusive); music
     /// uploads are possible until `end_music_upload_date`, judges from
     /// `start_register_date` until `end_judge_register_date`.
@@ -59,7 +59,7 @@ impl StatusOptions {
         Capabilities {
             can_register: in_register_period,
             can_create_club: in_register_period,
-            can_register_starter: in_register_period,
+            can_register_rider: in_register_period,
             can_upload_music: now <= self.end_music_upload_date,
             can_register_judge: now >= self.start_register_date
                 && now
@@ -75,7 +75,7 @@ impl Capabilities {
     pub const CLOSED: Capabilities = Capabilities {
         can_register: false,
         can_create_club: false,
-        can_register_starter: false,
+        can_register_rider: false,
         can_upload_music: false,
         can_register_judge: false,
     };
@@ -95,7 +95,7 @@ where
             return Ok(Capabilities {
                 can_register: true,
                 can_create_club: true,
-                can_register_starter: true,
+                can_register_rider: true,
                 can_upload_music: true,
                 can_register_judge: true,
             });
@@ -131,7 +131,7 @@ mod tests {
     fn assert_registration(capabilities: Capabilities, open: bool) {
         assert_eq!(capabilities.can_register, open);
         assert_eq!(capabilities.can_create_club, open);
-        assert_eq!(capabilities.can_register_starter, open);
+        assert_eq!(capabilities.can_register_rider, open);
     }
 
     #[test]

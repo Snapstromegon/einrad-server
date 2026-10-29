@@ -15,7 +15,7 @@ use crate::{
 /// What a club owes, split into its parts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct AmountDue {
-    /// `fee_per_start` per start, at most `max_fee_per_starter` per starter.
+    /// `fee_per_start` per start, at most `max_fee_per_rider` per rider.
     pub start_fees: f64,
     /// For missing jury deployments; 0 without the jury registration.
     pub jury_fee: f64,
@@ -32,7 +32,7 @@ pub struct ClubFees {
     pub jury: Option<JuryObligation>,
 }
 
-/// The fees of every club. Clubs without starters and jury obligation owe
+/// The fees of every club. Clubs without riders and jury obligation owe
 /// nothing and may be missing from the map.
 pub async fn fees_by_club(
     db: &sqlx::SqlitePool,
@@ -117,11 +117,11 @@ async fn fees(
 }
 
 /// Start fees per club. Each start in an act counts, and a pair request (a
-/// rider waiting for a partner) counts as one; the starter's club pays, at
+/// rider waiting for a partner) counts as one; the rider's club pays, at
 /// most the cap per rider. With `waivers`, a waived club or rider pays
 /// nothing and a waived act's start doesn't count. The
-/// same rule as `getStarterPrice` in the frontend, which still prices single
-/// starters in the forms.
+/// same rule as `getRiderPrice` in the frontend, which still prices single
+/// riders in the forms.
 async fn start_fees_by_club(
     db: &sqlx::SqlitePool,
     competition: Option<&Competition>,
@@ -131,26 +131,26 @@ async fn start_fees_by_club(
     let Some(competition) = competition else {
         return Ok(HashMap::new());
     };
-    let starters = sqlx::query!(
+    let riders = sqlx::query!(
         r#"
         SELECT
-            starter.club_id as "club_id!: Uuid",
+            rider.club_id as "club_id!: Uuid",
             CASE WHEN ?2 AND (
-                starter.fee_waiver IS NOT NULL
-                OR (SELECT fee_waiver FROM clubs WHERE clubs.id = starter.club_id) IS NOT NULL
+                rider.fee_waiver IS NOT NULL
+                OR (SELECT fee_waiver FROM clubs WHERE clubs.id = rider.club_id) IS NOT NULL
             ) THEN 0 ELSE MAX(
                 0,
-                (SELECT COUNT(*) FROM act_participants WHERE act_participants.starter_id = starter.id)
-                + EXISTS (SELECT 1 FROM pair_requests WHERE pair_requests.starter_id = starter.id)
+                (SELECT COUNT(*) FROM act_participants WHERE act_participants.rider_id = rider.id)
+                + EXISTS (SELECT 1 FROM pair_requests WHERE pair_requests.rider_id = rider.id)
                 - (
                     SELECT COUNT(*) FROM act_participants
                     JOIN acts ON acts.id = act_participants.act_id
-                    WHERE act_participants.starter_id = starter.id
+                    WHERE act_participants.rider_id = rider.id
                         AND ?2 AND acts.fee_waiver IS NOT NULL
                 )
             ) END as "starts!: i64"
-        FROM starter
-        WHERE ?1 IS NULL OR starter.club_id = ?1
+        FROM rider
+        WHERE ?1 IS NULL OR rider.club_id = ?1
         "#,
         club_id,
         waivers
@@ -158,12 +158,12 @@ async fn start_fees_by_club(
     .fetch_all(db)
     .await?;
     let mut fees = HashMap::new();
-    for starter in starters {
-        let fee = starter.starts as f64 * competition.fee_per_start;
+    for rider in riders {
+        let fee = rider.starts as f64 * competition.fee_per_start;
         let fee = competition
-            .max_fee_per_starter
+            .max_fee_per_rider
             .map_or(fee, |max| fee.min(max));
-        *fees.entry(starter.club_id).or_insert(0.0) += fee;
+        *fees.entry(rider.club_id).or_insert(0.0) += fee;
     }
     Ok(fees)
 }

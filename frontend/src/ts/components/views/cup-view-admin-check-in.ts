@@ -32,7 +32,7 @@ import {
   countRiders,
 } from "../../utils";
 
-type Starter = schemas.Starter;
+type Rider = schemas.Rider;
 type Act = schemas.Act;
 type ClubOverview = schemas.ClubOverview;
 type Timeplan = schemas.Timeplan;
@@ -47,15 +47,15 @@ const STATIC_BAR = "(max-width: 640px), (max-height: 500px)";
 
 type StatusFilter = "all" | "open" | "in";
 
-/** One start of a starter, as shown in the "Starts" column. */
+/** One start of a rider, as shown in the "Starts" column. */
 interface Start {
-  /** `null` while the acts aren't loaded (derived from the starter). */
+  /** `null` while the acts aren't loaded (derived from the rider). */
   act: Act | null;
   /** "EM", "EW", "P", "KG", "GG". */
   short: string;
   /** Partner name for pairs, group name for groups. */
   label: string;
-  /** The pair partner, if registered as a starter (for the ✓/○ marker). */
+  /** The pair partner, if registered as a rider (for the ✓/○ marker). */
   partnerId: string | null;
   replacement: boolean;
   /** Predicted start (ms), if the act is in the timeplan. */
@@ -68,7 +68,7 @@ interface Start {
 }
 
 interface Row {
-  starter: Starter;
+  rider: Rider;
   starts: Start[];
   /**
    * The earliest start in the timeplan that hasn't ended yet, not counting
@@ -86,7 +86,7 @@ interface Row {
 interface ClubBlock {
   id: string;
   name: string;
-  /** All starters of the club, by name. */
+  /** All riders of the club, by name. */
   rows: Row[];
 }
 
@@ -148,12 +148,12 @@ const sameCheckIns = (a: CheckInMap, b: CheckInMap) => {
   return true;
 };
 
-/** "Anna Müller" or "Anna Müller (Verein)" for a starter. */
-const starterLabel = (starter: Starter, withClub = false) =>
-  `${starter.firstname} ${starter.lastname}${withClub ? ` (${starter.club_name})` : ""}`;
+/** "Anna Müller" or "Anna Müller (Verein)" for a rider. */
+const riderLabel = (rider: Rider, withClub = false) =>
+  `${rider.firstname} ${rider.lastname}${withClub ? ` (${rider.club_name})` : ""}`;
 
 /**
- * Check-in desk on competition day: find a starter, check them in with one
+ * Check-in desk on competition day: find a rider, check them in with one
  * click or Enter, see who of a club is still missing, who starts soon and
  * which clubs still owe fees. Several desks stay in sync by polling.
  */
@@ -405,7 +405,7 @@ export default class CupViewAdminCheckIn extends LitElement {
         }
       }
 
-      /* Touch screens: big enough targets, still one line per starter. */
+      /* Touch screens: big enough targets, still one line per rider. */
       @media (pointer: coarse) {
         button.toggle {
           min-height: 36px;
@@ -453,8 +453,8 @@ export default class CupViewAdminCheckIn extends LitElement {
     return can(this.user, "view_birthdates");
   }
 
-  @state() private starters: Starter[] | null = null;
-  @state() private startersError: string | null = null;
+  @state() private riders: Rider[] | null = null;
+  @state() private ridersError: string | null = null;
   @state() private acts: Act[] | null = null;
   @state() private actsError: string | null = null;
   @state() private timeplan: Timeplan | null = null;
@@ -462,9 +462,9 @@ export default class CupViewAdminCheckIn extends LitElement {
   @state() private clubInfos: ClubOverview[] | null = null;
   @state() private clubInfosError: string | null = null;
 
-  /** Check-in time per starter id (null: not checked in). */
+  /** Check-in time per rider id (null: not checked in). */
   @state() private checkIns: CheckInMap = new Map();
-  /** Starters with a check-in command in flight. */
+  /** Riders with a check-in command in flight. */
   @state() private pending: ReadonlySet<string> = new Set();
   /** Last failed poll, shown until a poll succeeds again. */
   @state() private syncError: string | null = null;
@@ -491,9 +491,9 @@ export default class CupViewAdminCheckIn extends LitElement {
    * bump while it was running may carry stale data and is dropped.
    */
   private epoch = 0;
-  private loadingStarters = false;
-  /** When a poll last reloaded the starters because the ids differed. */
-  private lastStarterReload = 0;
+  private loadingRiders = false;
+  /** When a poll last reloaded the riders because the ids differed. */
+  private lastRiderReload = 0;
   private scrollToActive = false;
   /**
    * Rows toggled by click stay visible although the status filters no longer
@@ -512,7 +512,7 @@ export default class CupViewAdminCheckIn extends LitElement {
   );
   // Predicted start times shift during the day; payments may come in.
   readonly slowPoll = new PollController(this, 60000, () =>
-    this.starters
+    this.riders
       ? Promise.all([
           this.loadActs(),
           this.loadTimeplan(),
@@ -557,7 +557,7 @@ export default class CupViewAdminCheckIn extends LitElement {
 
   override willUpdate(changed: PropertyValues) {
     if (
-      changed.has("starters") ||
+      changed.has("riders") ||
       changed.has("acts") ||
       changed.has("timeplan") ||
       changed.has("systemStatus")
@@ -800,10 +800,10 @@ export default class CupViewAdminCheckIn extends LitElement {
     if (target) {
       const more = rows.length > 1 ? html` · ${rows.length} Treffer` : nothing;
       return this.isIn(target)
-        ? html`${starterLabel(target.starter, true)} ist
+        ? html`${riderLabel(target.rider, true)} ist
             <b>bereits eingecheckt</b> · <kbd>⇧</kbd>+<kbd>Enter</kbd>
             checkt aus${more}`
-        : html`<kbd>Enter</kbd>: ${starterLabel(target.starter, true)}
+        : html`<kbd>Enter</kbd>: ${riderLabel(target.rider, true)}
             <b>einchecken</b>${more}`;
     }
     return html`${rows.length} Treffer – mit <kbd>↑</kbd>/<kbd>↓</kbd>
@@ -811,12 +811,12 @@ export default class CupViewAdminCheckIn extends LitElement {
   }
 
   private renderTable(visible: { club: ClubBlock; rows: Row[] }[]) {
-    if (!this.starters) {
-      return this.startersError
+    if (!this.riders) {
+      return this.ridersError
         ? html`<div class="error-banner" role="alert">
             <span
               >FahrerInnen konnten nicht geladen werden:
-              ${this.startersError}</span
+              ${this.ridersError}</span
             >
             <button class="btn small" @click=${this.onReload}>
               Erneut versuchen
@@ -824,15 +824,15 @@ export default class CupViewAdminCheckIn extends LitElement {
           </div>`
         : html`<p class="empty">Lade FahrerInnen …</p>`;
     }
-    if (this.starters.length === 0) {
+    if (this.riders.length === 0) {
       return html`<p class="empty">Es sind keine FahrerInnen angemeldet.</p>`;
     }
     const activeId = this.activeId ?? this.singleMatchId(visible);
     return html`<div class="table-wrap">
       ${
-        this.startersError
+        this.ridersError
           ? html`<div class="error-banner">
-            Aktualisieren fehlgeschlagen: ${this.startersError}
+            Aktualisieren fehlgeschlagen: ${this.ridersError}
           </div>`
           : nothing
       }
@@ -887,7 +887,7 @@ export default class CupViewAdminCheckIn extends LitElement {
     const filtered = rows.length < total;
     const scope = filtered ? rows : club.rows;
     const open = scope.filter((row) => !this.isIn(row)).length;
-    const busy = scope.some((row) => this.pending.has(row.starter.id));
+    const busy = scope.some((row) => this.pending.has(row.rider.id));
     const which = filtered ? "Angezeigte" : "Alle";
     return html`<tbody>
       <tr class="group-head">
@@ -944,8 +944,8 @@ export default class CupViewAdminCheckIn extends LitElement {
       </tr>
       ${repeat(
         rows,
-        (row) => row.starter.id,
-        (row) => this.renderRow(row, row.starter.id === activeId),
+        (row) => row.rider.id,
+        (row) => this.renderRow(row, row.rider.id === activeId),
       )}
     </tbody>`;
   }
@@ -978,15 +978,15 @@ export default class CupViewAdminCheckIn extends LitElement {
   }
 
   private renderRow(row: Row, active: boolean) {
-    const starter = row.starter;
-    const at = this.checkIns.get(starter.id);
+    const rider = row.rider;
+    const at = this.checkIns.get(rider.id);
     const checkedIn = !!at;
-    const pending = this.pending.has(starter.id);
+    const pending = this.pending.has(rider.id);
     const minutes = this.minutesUntil(row.next);
     // Missing replacement riders are less urgent: amber at most.
     const replacementSoon =
       this.minutesUntil(row.nextReplacement) <= SOON_MINUTES;
-    const name = starterLabel(starter);
+    const name = riderLabel(rider);
     return html`<tr
       class=${classMap({
         muted: checkedIn,
@@ -998,7 +998,7 @@ export default class CupViewAdminCheckIn extends LitElement {
         active,
       })}
     >
-      <td class="ci-cell" data-id=${starter.id} @click=${this.onToggleClick}>
+      <td class="ci-cell" data-id=${rider.id} @click=${this.onToggleClick}>
         <button
           class=${classMap({ toggle: true, yes: checkedIn, no: !checkedIn })}
           aria-pressed=${checkedIn ? "true" : "false"}
@@ -1015,14 +1015,14 @@ export default class CupViewAdminCheckIn extends LitElement {
           ><span class="txt">${checkedIn ? "eingecheckt" : "offen"}</span>
         </button>
       </td>
-      <td class="last">${starter.lastname}</td>
-      <td>${starter.firstname}</td>
+      <td class="last">${rider.lastname}</td>
+      <td>${rider.firstname}</td>
       ${
         this.birthdates
           ? html`<td class="num opt">
-                ${starter.birthdate ? formatDate(starter.birthdate) : "–"}
+                ${rider.birthdate ? formatDate(rider.birthdate) : "–"}
               </td>
-              <td class="num opt">${formatAge(starter.age_on_competition)}</td>`
+              <td class="num opt">${formatAge(rider.age_on_competition)}</td>`
           : nothing
       }
       <td class="wrap">
@@ -1141,7 +1141,7 @@ export default class CupViewAdminCheckIn extends LitElement {
       `${actTypeLabels[act.act_type]}${act.category ? ` ${act.category}` : " – ohne Kategorie"}`,
     ];
     if (act.act_type === "pair") {
-      const partner = act.participants.find((p) => p.id !== row.starter.id);
+      const partner = act.participants.find((p) => p.id !== row.rider.id);
       lines.push(
         partner
           ? `mit ${participantName(partner)} (${partner.club_name}) – ${
@@ -1167,7 +1167,7 @@ export default class CupViewAdminCheckIn extends LitElement {
         `${countRiders(regular.length)}${replacements ? ` + ${replacements} Ersatz` : ""} · ${actClubNames(act).join(", ")}`,
       );
       if (start.replacement) {
-        lines.push(`${row.starter.firstname} ist Ersatzfahrer:in`);
+        lines.push(`${row.rider.firstname} ist Ersatzfahrer:in`);
       }
       const stats = checkInStats(act.participants, this.checkIns);
       lines.push(
@@ -1194,7 +1194,7 @@ export default class CupViewAdminCheckIn extends LitElement {
   // ---------- Derived data ----------
 
   private buildClubs(): ClubBlock[] {
-    if (!this.starters) {
+    if (!this.riders) {
       return [];
     }
     const times = new Map<
@@ -1210,27 +1210,27 @@ export default class CupViewAdminCheckIn extends LitElement {
         });
       }
     }
-    const actsByStarter = new Map<string, Act[]>();
+    const actsByRider = new Map<string, Act[]>();
     for (const act of this.acts ?? []) {
       for (const p of act.participants) {
-        const list = actsByStarter.get(p.id);
+        const list = actsByRider.get(p.id);
         if (list) {
           list.push(act);
         } else {
-          actsByStarter.set(p.id, [act]);
+          actsByRider.set(p.id, [act]);
         }
       }
     }
     const clubs = new Map<string, ClubBlock>();
-    for (const starter of this.starters) {
+    for (const rider of this.riders) {
       const starts = this.acts
-        ? (actsByStarter.get(starter.id) ?? []).map((act) =>
-            this.toStart(starter, act, times.get(act.id)),
+        ? (actsByRider.get(rider.id) ?? []).map((act) =>
+            this.toStart(rider, act, times.get(act.id)),
           )
-        : this.flagStarts(starter);
+        : this.flagStarts(rider);
       if (
         this.acts &&
-        starter.pair &&
+        rider.pair &&
         !starts.some((s) => s.act?.act_type === "pair")
       ) {
         // Registered for pairs, but the partner was never matched: there is
@@ -1239,8 +1239,8 @@ export default class CupViewAdminCheckIn extends LitElement {
           act: null,
           short: "P",
           label:
-            starter.resolved_partner_name ??
-            starter.partner_name ??
+            rider.resolved_partner_name ??
+            rider.partner_name ??
             "Partner fehlt",
           partnerId: null,
           replacement: false,
@@ -1266,28 +1266,28 @@ export default class CupViewAdminCheckIn extends LitElement {
         .filter((s) => s.act && isGroupActType(s.act.act_type))
         .map((s) => s.label);
       const row: Row = {
-        starter,
+        rider,
         starts,
         next: upcoming.find((s) => !s.replacement) ?? null,
         nextReplacement: upcoming.find((s) => s.replacement) ?? null,
         first: timed[0] ?? null,
         haystack: fold(
           [
-            starter.firstname,
-            starter.lastname,
-            starter.club_name,
+            rider.firstname,
+            rider.lastname,
+            rider.club_name,
             ...groupNames,
           ].join(" "),
         ),
       };
-      let club = clubs.get(starter.club_id);
+      let club = clubs.get(rider.club_id);
       if (!club) {
         club = {
-          id: starter.club_id,
-          name: starter.club_name,
+          id: rider.club_id,
+          name: rider.club_name,
           rows: [],
         };
-        clubs.set(starter.club_id, club);
+        clubs.set(rider.club_id, club);
       }
       club.rows.push(row);
     }
@@ -1295,19 +1295,19 @@ export default class CupViewAdminCheckIn extends LitElement {
     for (const club of result) {
       club.rows.sort(
         (a, b) =>
-          byName(a.starter.lastname, b.starter.lastname) ||
-          byName(a.starter.firstname, b.starter.firstname),
+          byName(a.rider.lastname, b.rider.lastname) ||
+          byName(a.rider.firstname, b.rider.firstname),
       );
     }
     return result;
   }
 
   private toStart(
-    starter: Starter,
+    rider: Rider,
     act: Act,
     timing: { time: number | null; status: TimeplanItemStatus } | undefined,
   ): Start {
-    const self = act.participants.find((p) => p.id === starter.id);
+    const self = act.participants.find((p) => p.id === rider.id);
     const start: Start = {
       act,
       short: actTypeShort[act.act_type],
@@ -1318,18 +1318,18 @@ export default class CupViewAdminCheckIn extends LitElement {
       status: timing?.status ?? null,
     };
     if (act.act_type === "single") {
-      start.short = starter.single_male
+      start.short = rider.single_male
         ? "EM"
-        : starter.single_female
+        : rider.single_female
           ? "EW"
           : start.short;
     } else if (act.act_type === "pair") {
-      const partner = act.participants.find((p) => p.id !== starter.id);
+      const partner = act.participants.find((p) => p.id !== rider.id);
       start.partnerId = partner?.id ?? null;
       start.label = partner
         ? participantName(partner)
-        : (starter.resolved_partner_name ??
-          starter.partner_name ??
+        : (rider.resolved_partner_name ??
+          rider.partner_name ??
           "Partner fehlt");
     } else {
       start.label = act.group_name ?? "Gruppe";
@@ -1337,8 +1337,8 @@ export default class CupViewAdminCheckIn extends LitElement {
     return start;
   }
 
-  /** Starts from the starter's own flags, while the acts aren't loaded. */
-  private flagStarts(starter: Starter): Start[] {
+  /** Starts from the rider's own flags, while the acts aren't loaded. */
+  private flagStarts(rider: Rider): Start[] {
     const start = (short: string, label = ""): Start => ({
       act: null,
       short,
@@ -1349,19 +1349,19 @@ export default class CupViewAdminCheckIn extends LitElement {
       status: null,
     });
     const starts: Start[] = [];
-    if (starter.single_male) {
+    if (rider.single_male) {
       starts.push(start("EM"));
     }
-    if (starter.single_female) {
+    if (rider.single_female) {
       starts.push(start("EW"));
     }
-    if (starter.pair) {
+    if (rider.pair) {
       starts.push(
-        start("P", starter.resolved_partner_name ?? starter.partner_name ?? ""),
+        start("P", rider.resolved_partner_name ?? rider.partner_name ?? ""),
       );
     }
-    if (starter.group_count > 0) {
-      starts.push(start("Gruppe", `${starter.group_count}×`));
+    if (rider.group_count > 0) {
+      starts.push(start("Gruppe", `${rider.group_count}×`));
     }
     return starts;
   }
@@ -1381,7 +1381,7 @@ export default class CupViewAdminCheckIn extends LitElement {
     if (!tokens.every((token) => row.haystack.includes(token))) {
       return false;
     }
-    if (this.keepVisible.has(row.starter.id)) {
+    if (this.keepVisible.has(row.rider.id)) {
       return true;
     }
     const checkedIn = this.isIn(row);
@@ -1404,7 +1404,7 @@ export default class CupViewAdminCheckIn extends LitElement {
   }
 
   private isIn(row: Row) {
-    return !!this.checkIns.get(row.starter.id);
+    return !!this.checkIns.get(row.rider.id);
   }
 
   private countIn(club: ClubBlock) {
@@ -1455,7 +1455,7 @@ export default class CupViewAdminCheckIn extends LitElement {
       return null;
     }
     const rows = visible.flatMap((block) => block.rows);
-    return rows.length === 1 ? rows[0].starter.id : null;
+    return rows.length === 1 ? rows[0].rider.id : null;
   }
 
   /** The row Enter acts on: the only match, or the one picked with ↑/↓. */
@@ -1463,7 +1463,7 @@ export default class CupViewAdminCheckIn extends LitElement {
     if (rows.length === 1) {
       return rows[0];
     }
-    return rows.find((row) => row.starter.id === this.activeId) ?? null;
+    return rows.find((row) => row.rider.id === this.activeId) ?? null;
   }
 
   private currentTime() {
@@ -1474,32 +1474,32 @@ export default class CupViewAdminCheckIn extends LitElement {
 
   private loadAll() {
     return Promise.all([
-      this.loadStarters(),
+      this.loadRiders(),
       this.loadActs(),
       this.loadTimeplan(),
       this.loadClubInfos(),
     ]);
   }
 
-  private async loadStarters() {
-    if (this.loadingStarters) {
+  private async loadRiders() {
+    if (this.loadingRiders) {
       return;
     }
-    this.loadingStarters = true;
+    this.loadingRiders = true;
     const epoch = this.epoch;
     try {
-      const starters = await unwrap(client.listStarters());
+      const riders = await unwrap(client.listRiders());
       if (epoch === this.epoch) {
         this.mergeCheckIns(
-          new Map(starters.map((s) => [s.id, s.checked_in_at ?? null])),
+          new Map(riders.map((s) => [s.id, s.checked_in_at ?? null])),
         );
       }
-      this.starters = starters;
-      this.startersError = null;
+      this.riders = riders;
+      this.ridersError = null;
     } catch (error) {
-      this.startersError = errorMessage(error);
+      this.ridersError = errorMessage(error);
     } finally {
-      this.loadingStarters = false;
+      this.loadingRiders = false;
     }
   }
 
@@ -1541,7 +1541,7 @@ export default class CupViewAdminCheckIn extends LitElement {
       // Too old to undo by accident.
       this.notice = { ...this.notice, undo: undefined };
     }
-    if (!this.starters) {
+    if (!this.riders) {
       return;
     }
     const epoch = this.epoch;
@@ -1558,18 +1558,18 @@ export default class CupViewAdminCheckIn extends LitElement {
       return;
     }
     const next = new Map(
-      checkIns.map((c) => [c.starter_id, c.checked_in_at ?? null]),
+      checkIns.map((c) => [c.rider_id, c.checked_in_at ?? null]),
     );
     this.mergeCheckIns(next);
-    // Starters were added or deleted elsewhere: reload them.
-    const starters = this.starters;
+    // Riders were added or deleted elsewhere: reload them.
+    const riders = this.riders;
     if (
-      (next.size !== starters.length ||
-        starters.some((starter) => !next.has(starter.id))) &&
-      Date.now() - this.lastStarterReload > 20000
+      (next.size !== riders.length ||
+        riders.some((rider) => !next.has(rider.id))) &&
+      Date.now() - this.lastRiderReload > 20000
     ) {
-      this.lastStarterReload = Date.now();
-      await Promise.all([this.loadStarters(), this.loadActs()]);
+      this.lastRiderReload = Date.now();
+      await Promise.all([this.loadRiders(), this.loadActs()]);
     }
   }
 
@@ -1584,7 +1584,7 @@ export default class CupViewAdminCheckIn extends LitElement {
   }
 
   /**
-   * Checks the starters in or out, optimistically: the rows change at once
+   * Checks the riders in or out, optimistically: the rows change at once
    * and are rolled back if the server rejects it. Returns whether it worked.
    */
   private async setCheckedIn(ids: string[], checkedIn: boolean, label: string) {
@@ -1600,7 +1600,7 @@ export default class CupViewAdminCheckIn extends LitElement {
     try {
       const result = await unwrap(
         client.setCheckedIn({
-          body: { starter_ids: ids, checked_in: checkedIn },
+          body: { rider_ids: ids, checked_in: checkedIn },
         }),
       );
       const next = new Map(this.checkIns);
@@ -1649,16 +1649,16 @@ export default class CupViewAdminCheckIn extends LitElement {
     return ok;
   }
 
-  private toggleStarter(starter: Starter) {
-    const checkedIn = !this.checkIns.get(starter.id);
-    const label = `„${starterLabel(starter)}“`;
-    const name = starterLabel(starter, true);
-    return this.changeWithNotice([starter.id], checkedIn, label, {
+  private toggleRider(rider: Rider) {
+    const checkedIn = !this.checkIns.get(rider.id);
+    const label = `„${riderLabel(rider)}“`;
+    const name = riderLabel(rider, true);
+    return this.changeWithNotice([rider.id], checkedIn, label, {
       text: checkedIn
         ? `✓ ${name} eingecheckt um ${formatTime(new Date())}`
         : `○ ${name} ausgecheckt`,
       tone: checkedIn ? "ok" : "warn",
-      undo: { ids: [starter.id], checkedIn: !checkedIn, label },
+      undo: { ids: [rider.id], checkedIn: !checkedIn, label },
       createdAt: Date.now(),
     });
   }
@@ -1667,12 +1667,12 @@ export default class CupViewAdminCheckIn extends LitElement {
 
   private onToggleClick(e: Event) {
     const id = (e.currentTarget as HTMLElement).dataset.id;
-    const starter = this.starters?.find((s) => s.id === id);
-    if (!starter || this.pending.has(starter.id)) {
+    const rider = this.riders?.find((s) => s.id === id);
+    if (!rider || this.pending.has(rider.id)) {
       return;
     }
-    this.keepVisible.add(starter.id);
-    this.toggleStarter(starter);
+    this.keepVisible.add(rider.id);
+    this.toggleRider(rider);
     // After a real mouse click (not Enter/Space on the button), the search
     // takes the next typed name right away; the clicked toggle is disabled
     // while the command runs and would drop the focus anyway.
@@ -1707,14 +1707,14 @@ export default class CupViewAdminCheckIn extends LitElement {
     ) {
       return;
     }
-    // Starters that are checked in already keep their time on the server.
-    const ids = rows.map((row) => row.starter.id);
+    // Riders that are checked in already keep their time on the server.
+    const ids = rows.map((row) => row.rider.id);
     if (ids.some((id) => this.pending.has(id))) {
       return;
     }
     const changed = rows
       .filter((row) => this.isIn(row) !== checkedIn)
-      .map((row) => row.starter.id);
+      .map((row) => row.rider.id);
     const label = `${club.name} (${countRiders(ids.length)})`;
     this.changeWithNotice(ids, checkedIn, label, {
       text: `${checkedIn ? "✓" : "○"} ${changed.length} ${
@@ -1772,7 +1772,7 @@ export default class CupViewAdminCheckIn extends LitElement {
         return;
       }
       e.preventDefault();
-      const index = rows.findIndex((row) => row.starter.id === this.activeId);
+      const index = rows.findIndex((row) => row.rider.id === this.activeId);
       const step = e.key === "ArrowDown" ? 1 : -1;
       const next =
         index === -1
@@ -1780,7 +1780,7 @@ export default class CupViewAdminCheckIn extends LitElement {
             ? 0
             : rows.length - 1
           : (index + step + rows.length) % rows.length;
-      this.activeId = rows[next].starter.id;
+      this.activeId = rows[next].rider.id;
       this.scrollToActive = true;
       return;
     }
@@ -1791,15 +1791,15 @@ export default class CupViewAdminCheckIn extends LitElement {
     const rows = this.visibleClubs().flatMap((block) => block.rows);
     const target =
       this.search.trim() || this.activeId ? this.enterTarget(rows) : null;
-    if (!target || this.pending.has(target.starter.id)) {
+    if (!target || this.pending.has(target.rider.id)) {
       return;
     }
     // Enter only checks in: typing a name to make sure must not check out a
     // rider checked in at another desk. Shift+Enter toggles.
     if (this.isIn(target) && !e.shiftKey) {
-      const at = this.checkIns.get(target.starter.id);
+      const at = this.checkIns.get(target.rider.id);
       this.notice = {
-        text: `✓ ${starterLabel(target.starter, true)} ist bereits eingecheckt${
+        text: `✓ ${riderLabel(target.rider, true)} ist bereits eingecheckt${
           at ? ` (${formatClock(new Date(at).getTime(), this.now)})` : ""
         } – Shift+Enter checkt aus`,
         tone: "ok",
@@ -1810,12 +1810,12 @@ export default class CupViewAdminCheckIn extends LitElement {
       return;
     }
     const checkingIn = !this.isIn(target);
-    this.toggleStarter(target.starter);
+    this.toggleRider(target.rider);
     if (rows.length > 1) {
       // Several hits (a group or club arriving together): keep the list and
       // go on with the next open one, instead of making the operator type
       // the search again. A check-out stays on its row.
-      this.keepVisible.add(target.starter.id);
+      this.keepVisible.add(target.rider.id);
       const index = rows.indexOf(target);
       const nextOpen = checkingIn
         ? [...rows.slice(index + 1), ...rows.slice(0, index)].find(
@@ -1823,7 +1823,7 @@ export default class CupViewAdminCheckIn extends LitElement {
           )
         : target;
       if (nextOpen) {
-        this.activeId = nextOpen.starter.id;
+        this.activeId = nextOpen.rider.id;
         this.scrollToActive = true;
         this.requestUpdate();
         return;

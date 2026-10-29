@@ -3,9 +3,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod add_category;
 mod add_club_judge;
-mod add_club_starter;
 mod add_final;
 mod add_jury_category;
+mod add_rider;
 mod add_timeplan_entry;
 mod assign_judge;
 mod create_booking;
@@ -15,17 +15,17 @@ mod delete_booking;
 mod delete_category;
 mod delete_club_group;
 mod delete_club_judge;
-mod delete_club_starter;
 mod delete_final;
 mod delete_jury_category;
+mod delete_rider;
 mod delete_timeplan_entry;
 mod edit_booking;
 mod edit_category;
 mod edit_club_act;
 mod edit_club_judge;
-mod edit_club_starter;
 mod edit_final;
 mod edit_jury_category;
+mod edit_rider;
 mod edit_timeplan_entry;
 mod login;
 mod logout;
@@ -93,9 +93,9 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(delete_timeplan_entry::delete_timeplan_entry))
         .routes(routes!(create_club::create_club))
         .routes(routes!(rename_club::rename_club))
-        .routes(routes!(add_club_starter::add_club_starter))
-        .routes(routes!(delete_club_starter::delete_club_starter))
-        .routes(routes!(edit_club_starter::edit_club_starter))
+        .routes(routes!(add_rider::add_rider))
+        .routes(routes!(delete_rider::delete_rider))
+        .routes(routes!(edit_rider::edit_rider))
         .routes(routes!(create_club_group::create_club_group))
         .routes(routes!(set_club_group_members::set_club_group_members))
         .routes(routes!(set_club_group_type::set_club_group_type))

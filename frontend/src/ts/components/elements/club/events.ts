@@ -4,7 +4,7 @@ import type { StepId } from "../../../club-data";
 /** Where a step or an issue wants to go: a step, optionally an item in it. */
 export interface NavigateDetail {
   step: StepId;
-  /** The id of an act, group or starter to scroll to. */
+  /** The id of an act, group or rider to scroll to. */
   target?: string;
 }
 

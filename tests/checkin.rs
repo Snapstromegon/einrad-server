@@ -1,47 +1,47 @@
 //! Integration tests for the admin tools of the competition day: the check-in
-//! of starters and the club overview.
+//! of riders and the club overview.
 
 mod common;
 
 use std::collections::HashMap;
 
 use axum::http::StatusCode;
-use common::{TestApp, TestResponse, starter_body};
+use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// A club with Anna (single), Berta and Carla (pair). Returns the owner's
-/// cookie, the club id and the starter ids.
-async fn club_with_starters(app: &TestApp) -> (String, Uuid, [Uuid; 3]) {
+/// cookie, the club id and the rider ids.
+async fn club_with_riders(app: &TestApp) -> (String, Uuid, [Uuid; 3]) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
-        .add_starter(&cookie, starter_body(club_id, "Anna", true, false))
+        .add_rider(&cookie, rider_body(club_id, "Anna", true, false))
         .await;
     let berta = app
-        .add_starter(&cookie, starter_body(club_id, "Berta", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
         .await;
-    let mut carla = starter_body(club_id, "Carla", false, true);
+    let mut carla = rider_body(club_id, "Carla", false, true);
     carla["partner_id"] = json!(berta);
-    let carla = app.add_starter(&cookie, carla).await;
+    let carla = app.add_rider(&cookie, carla).await;
     (cookie, club_id, [anna, berta, carla])
 }
 
 async fn set_checked_in(
     app: &TestApp,
     cookie: Option<&str>,
-    starter_ids: &[Uuid],
+    rider_ids: &[Uuid],
     checked_in: bool,
 ) -> TestResponse {
     app.post(
         "/api/command/set_checked_in",
-        json!({ "starter_ids": starter_ids, "checked_in": checked_in }),
+        json!({ "rider_ids": rider_ids, "checked_in": checked_in }),
         cookie,
     )
     .await
 }
 
-/// The check-in time of every starter (`null` if not checked in), by id.
+/// The check-in time of every rider (`null` if not checked in), by id.
 async fn check_ins(app: &TestApp, admin: &str) -> HashMap<Uuid, Value> {
     let response = app.get("/api/query/list_check_ins", Some(admin)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
@@ -52,14 +52,14 @@ async fn check_ins(app: &TestApp, admin: &str) -> HashMap<Uuid, Value> {
         .iter()
         .map(|c| {
             (
-                c["starter_id"].as_str().unwrap().parse().unwrap(),
+                c["rider_id"].as_str().unwrap().parse().unwrap(),
                 c["checked_in_at"].clone(),
             )
         })
         .collect()
 }
 
-/// Ids of the starters that are checked in.
+/// Ids of the riders that are checked in.
 async fn checked_in(app: &TestApp, admin: &str) -> Vec<Uuid> {
     let mut ids: Vec<_> = check_ins(app, admin)
         .await
@@ -80,7 +80,7 @@ fn sorted(ids: &[Uuid]) -> Vec<Uuid> {
 #[sqlx::test]
 async fn check_in_is_admin_only(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (owner, _, [anna, ..]) = club_with_starters(&app).await;
+    let (owner, _, [anna, ..]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
 
     let response = set_checked_in(&app, Some(&owner), &[anna], true).await;
@@ -101,12 +101,12 @@ async fn check_in_is_admin_only(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn starters_are_checked_in_and_out_one_by_one_and_in_bulk(db: SqlitePool) {
+async fn riders_are_checked_in_and_out_one_by_one_and_in_bulk(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (_, _, [anna, berta, carla]) = club_with_starters(&app).await;
+    let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
 
-    // Every starter is listed, none checked in yet.
+    // Every rider is listed, none checked in yet.
     let all = check_ins(&app, &admin).await;
     assert_eq!(all.len(), 3);
     assert!(all.values().all(Value::is_null), "{all:?}");
@@ -137,7 +137,7 @@ async fn starters_are_checked_in_and_out_one_by_one_and_in_bulk(db: SqlitePool) 
 #[sqlx::test]
 async fn checking_in_again_keeps_the_first_time(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (_, _, [anna, berta, carla]) = club_with_starters(&app).await;
+    let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
 
     set_checked_in(&app, Some(&admin), &[anna], true).await;
@@ -151,7 +151,7 @@ async fn checking_in_again_keeps_the_first_time(db: SqlitePool) {
     assert_eq!(all[&anna], first);
     assert_eq!(all[&berta], *second);
 
-    // Listing a starter twice does no harm.
+    // Listing a rider twice does no harm.
     let response = set_checked_in(&app, Some(&admin), &[carla, carla], true).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(
@@ -161,9 +161,9 @@ async fn checking_in_again_keeps_the_first_time(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn unknown_starters_fail_the_whole_call(db: SqlitePool) {
+async fn unknown_riders_fail_the_whole_call(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (_, _, [anna, berta, _]) = club_with_starters(&app).await;
+    let (_, _, [anna, berta, _]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
     let unknown = Uuid::now_v7();
 
@@ -183,18 +183,18 @@ async fn unknown_starters_fail_the_whole_call(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn list_starters_shows_the_check_in(db: SqlitePool) {
+async fn list_riders_shows_the_check_in(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (_, _, [anna, berta, carla]) = club_with_starters(&app).await;
+    let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
     set_checked_in(&app, Some(&admin), &[anna], true).await;
     let anna_at = check_ins(&app, &admin).await[&anna].clone();
 
-    let response = app.get("/api/query/list_starters", Some(&admin)).await;
+    let response = app.get("/api/query/list_riders", Some(&admin)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let starters = response.body.as_array().unwrap();
+    let riders = response.body.as_array().unwrap();
     let checked_in_at = |id: Uuid| {
-        starters.iter().find(|s| s["id"] == id.to_string()).unwrap()["checked_in_at"].clone()
+        riders.iter().find(|s| s["id"] == id.to_string()).unwrap()["checked_in_at"].clone()
     };
     assert_eq!(checked_in_at(anna), anna_at);
     assert_eq!(checked_in_at(berta), Value::Null);
@@ -204,15 +204,15 @@ async fn list_starters_shows_the_check_in(db: SqlitePool) {
 #[sqlx::test]
 async fn check_in_works_after_registration_closed(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (owner, club_id, [anna, ..]) = club_with_starters(&app).await;
+    let (owner, club_id, [anna, ..]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
     app.close_registration().await;
 
     // Clubs can't change anything any more …
     let response = app
         .post(
-            "/api/command/add_club_starter",
-            starter_body(club_id, "Dora", true, false),
+            "/api/command/add_rider",
+            rider_body(club_id, "Dora", true, false),
             Some(&owner),
         )
         .await;
@@ -226,18 +226,18 @@ async fn check_in_works_after_registration_closed(db: SqlitePool) {
 #[sqlx::test]
 async fn public_endpoints_do_not_expose_the_check_in(db: SqlitePool) {
     let app = TestApp::new(db).await;
-    let (owner, club_id, starters) = club_with_starters(&app).await;
+    let (owner, club_id, riders) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
-    let riders = app.add_riders(&owner, club_id, "R", 3).await;
+    let group_riders = app.add_riders(&owner, club_id, "R", 3).await;
     let group = app.create_group(&owner, club_id, "Wirbelwind").await;
     let response = app
-        .set_group_members(&owner, club_id, group, &riders, &[])
+        .set_group_members(&owner, club_id, group, &group_riders, &[])
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let all: Vec<Uuid> = starters.iter().chain(&riders).copied().collect();
+    let all: Vec<Uuid> = riders.iter().chain(&group_riders).copied().collect();
     let response = set_checked_in(&app, Some(&admin), &all, true).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let single = app.act_of(starters[0]).await;
+    let single = app.act_of(riders[0]).await;
 
     let public = [
         "/api/query/list_acts".to_string(),
@@ -250,7 +250,7 @@ async fn public_endpoints_do_not_expose_the_check_in(db: SqlitePool) {
         "/api/query/list_groups".to_string(),
         format!("/api/query/list_club_groups?club_id={club_id}"),
         format!("/api/query/list_club_acts?club_id={club_id}"),
-        format!("/api/query/list_club_starters?club_id={club_id}"),
+        format!("/api/query/list_club_riders?club_id={club_id}"),
     ];
     let requests = public
         .iter()

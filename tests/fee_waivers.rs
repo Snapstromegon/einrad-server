@@ -3,7 +3,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{TestApp, starter_body};
+use common::{TestApp, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -73,7 +73,7 @@ async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club(db: S
     let (rsv_owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let (esv_owner, esv) = app.create_club_owner("Erika", "ESV").await;
     let anna = app
-        .add_starter(&rsv_owner, starter_body(rsv, "Anna", true, false))
+        .add_rider(&rsv_owner, rider_body(rsv, "Anna", true, false))
         .await;
     let rsv_riders = app.add_riders(&rsv_owner, rsv, "R", 2).await;
     let esv_riders = app.add_riders(&esv_owner, esv, "E", 1).await;
@@ -101,16 +101,11 @@ async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club(db: S
     assert_eq!(start_fees(&app, &kasse, esv).await, 0.0);
     assert_eq!(club(&app, &kasse, esv).await["amount_due"]["waived"], 15.0);
 
-    waive(
-        &app,
-        &kasse,
-        json!({ "starter_id": anna, "reason": "Gast" }),
-    )
-    .await;
+    waive(&app, &kasse, json!({ "rider_id": anna, "reason": "Gast" })).await;
     assert_eq!(start_fees(&app, &kasse, rsv).await, 0.0);
 
-    let starters = app.get("/api/query/list_starters", Some(&kasse)).await;
-    let anna = starters
+    let riders = app.get("/api/query/list_riders", Some(&kasse)).await;
+    let anna = riders
         .body
         .as_array()
         .unwrap()
@@ -119,7 +114,7 @@ async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club(db: S
         .unwrap();
     assert_eq!(anna["fee_waived"], true);
     assert_eq!(anna["fee_waiver"], "Gast");
-    let r1 = starters
+    let r1 = riders
         .body
         .as_array()
         .unwrap()
@@ -134,11 +129,11 @@ async fn the_cap_applies_to_the_starts_left_after_act_waivers(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let dora = app
-        .add_starter(&owner, starter_body(rsv, "Dora", false, true))
+        .add_rider(&owner, rider_body(rsv, "Dora", false, true))
         .await;
-    let mut clara = starter_body(rsv, "Clara", true, true);
+    let mut clara = rider_body(rsv, "Clara", true, true);
     clara["partner_id"] = json!(dora);
-    let clara = app.add_starter(&owner, clara).await;
+    let clara = app.add_rider(&owner, clara).await;
     let small = app.create_group(&owner, rsv, "Klein").await;
     let large = app.create_large_group(&owner, rsv, "Groß").await;
     for group in [small, large] {
@@ -229,7 +224,7 @@ async fn granting_needs_a_reason_revoking_doesnt(db: SqlitePool) {
     let unknown = app
         .post(
             "/api/command/set_fee_waived",
-            json!({ "starter_id": Uuid::now_v7(), "reason": "x" }),
+            json!({ "rider_id": Uuid::now_v7(), "reason": "x" }),
             Some(&kasse),
         )
         .await;
@@ -256,7 +251,7 @@ async fn each_grant_and_revoke_writes_one_log_entry(db: SqlitePool) {
     let (rsv_owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let (esv_owner, esv) = app.create_club_owner("Erika", "ESV").await;
     let anna = app
-        .add_starter(&rsv_owner, starter_body(rsv, "Anna", true, false))
+        .add_rider(&rsv_owner, rider_body(rsv, "Anna", true, false))
         .await;
     let rsv_riders = app.add_riders(&rsv_owner, rsv, "R", 2).await;
     let esv_riders = app.add_riders(&esv_owner, esv, "E", 1).await;
@@ -281,12 +276,7 @@ async fn each_grant_and_revoke_writes_one_log_entry(db: SqlitePool) {
         json!({ "club_id": rsv, "reason": "Veranstalter" }),
     )
     .await;
-    waive(
-        &app,
-        &kasse,
-        json!({ "starter_id": anna, "reason": "Gast" }),
-    )
-    .await;
+    waive(&app, &kasse, json!({ "rider_id": anna, "reason": "Gast" })).await;
     waive(
         &app,
         &kasse,
@@ -347,7 +337,7 @@ async fn clubs_see_what_is_waived_but_not_why(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let anna = app
-        .add_starter(&owner, starter_body(rsv, "Anna", true, false))
+        .add_rider(&owner, rider_body(rsv, "Anna", true, false))
         .await;
     let act = app.act_of(anna).await;
     let kasse = treasurer(&app).await;
@@ -418,12 +408,13 @@ async fn the_migration_keeps_waived_acts_with_a_reason(db: SqlitePool) {
         .await
         .unwrap();
     let mut acts = Vec::new();
+    // The schema before the fee waivers still calls riders starters.
     for (firstname, waived) in [("Anna", true), ("Berta", false)] {
-        let starter = Uuid::now_v7();
+        let rider = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO starter (id, firstname, lastname, birthdate, club_id, single_male, single_female, pair) VALUES (?, ?, 'Muster', '2010-01-01', ?, false, true, false)",
         )
-        .bind(starter)
+        .bind(rider)
         .bind(firstname)
         .bind(rsv)
         .execute(&db)
@@ -440,7 +431,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason(db: SqlitePool) {
         .unwrap();
         sqlx::query("INSERT INTO act_participants (act_id, starter_id) VALUES (?, ?)")
             .bind(act)
-            .bind(starter)
+            .bind(rider)
             .execute(&db)
             .await
             .unwrap();

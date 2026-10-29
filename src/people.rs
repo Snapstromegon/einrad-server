@@ -43,7 +43,7 @@ pub async fn ensure_name_is_free(
 ) -> Result<(), HttpError> {
     let names: Vec<(String, String)> = match person {
         Person::Rider => sqlx::query_as(
-            "SELECT firstname, lastname FROM starter WHERE club_id = ? AND id IS NOT ?",
+            "SELECT firstname, lastname FROM rider WHERE club_id = ? AND id IS NOT ?",
         ),
         Person::Judge => sqlx::query_as(
             "SELECT firstname, lastname FROM judge WHERE club_id = ? AND id IS NOT ?",
@@ -85,10 +85,7 @@ mod tests {
 
     #[test]
     fn names_match_ignoring_case_and_spaces() {
-        assert_eq!(
-            person_key(" Max ", "MÜLLER"),
-            person_key("max", "müller")
-        );
+        assert_eq!(person_key(" Max ", "MÜLLER"), person_key("max", "müller"));
         assert_ne!(person_key("Max", "Muller"), person_key("Max", "Müller"));
     }
 }

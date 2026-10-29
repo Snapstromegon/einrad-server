@@ -3,7 +3,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{METRICS_TOKEN, TestApp, starter_body};
+use common::{METRICS_TOKEN, TestApp, rider_body};
 use serde_json::json;
 use sqlx::SqlitePool;
 
@@ -44,11 +44,11 @@ async fn metrics_count_registrations_acts_and_money(db: SqlitePool) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     app.add_single_act(&cookie, club_id, "Anna").await;
     let berta = app
-        .add_starter(&cookie, starter_body(club_id, "Berta", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
         .await;
-    let mut carla = starter_body(club_id, "Carla", true, true);
+    let mut carla = rider_body(club_id, "Carla", true, true);
     carla["partner_id"] = json!(berta);
-    app.add_starter(&cookie, carla).await;
+    app.add_rider(&cookie, carla).await;
     let admin = app.create_admin().await;
     app.post(
         "/api/command/create_booking",
@@ -60,9 +60,9 @@ async fn metrics_count_registrations_acts_and_money(db: SqlitePool) {
     let body = scrape(&app).await;
 
     assert!(has_line(&body, "cup_clubs 1"), "{body}");
-    assert!(has_line(&body, "cup_starters 3"), "{body}");
+    assert!(has_line(&body, "cup_riders 3"), "{body}");
     assert!(
-        has_line(&body, r#"cup_starters_by_club{club="RSV"} 3"#),
+        has_line(&body, r#"cup_riders_by_club{club="RSV"} 3"#),
         "{body}"
     );
     assert!(

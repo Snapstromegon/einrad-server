@@ -53,7 +53,7 @@ async fn judges_follow_the_registration_window_unless_the_jury_has_its_own(db: S
         .unwrap();
     let status = system_status(&app, None).await;
     assert_eq!(status["can_register_judge"], true);
-    assert_eq!(status["can_register_starter"], false);
+    assert_eq!(status["can_register_rider"], false);
 }
 
 #[sqlx::test]
@@ -568,13 +568,13 @@ async fn club(app: &TestApp, cookie: &str) -> Value {
     response.body
 }
 
-/// A club with `singles` single starters, so as many Küren.
+/// A club with `singles` single riders, so as many Küren.
 async fn club_with_singles(app: &TestApp, singles: usize) -> (String, Uuid) {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     for i in 0..singles {
-        app.add_starter(
+        app.add_rider(
             &owner,
-            common::starter_body(club_id, &format!("Fahrerin{i}"), true, false),
+            common::rider_body(club_id, &format!("Fahrerin{i}"), true, false),
         )
         .await;
     }

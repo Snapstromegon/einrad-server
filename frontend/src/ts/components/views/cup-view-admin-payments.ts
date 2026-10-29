@@ -36,14 +36,14 @@ import {
 } from "../../utils";
 
 type ClubOverview = schemas.ClubOverview;
-type Starter = schemas.Starter;
+type Rider = schemas.Rider;
 type ListedBooking = schemas.ListedBooking;
 type BookingLogEntry = schemas.BookingLogEntry;
 type Act = schemas.Act;
 
 interface PaymentsData {
   clubs: ClubOverview[];
-  starters: Starter[];
+  riders: Rider[];
   /** Newest first. */
   bookings: ListedBooking[];
   /** The payment log, newest first. */
@@ -79,7 +79,7 @@ const IGNORED = "ignored";
 /** One line of the payment table. */
 interface PaymentRow {
   club: ClubOverview;
-  starters: number;
+  riders: number;
   starts: number;
   /** Starts that cost the start fee, and those free beyond the cap. */
   paidStarts: number;
@@ -104,7 +104,7 @@ interface PaymentRow {
 type SortKey =
   | "name"
   | "contact"
-  | "starters"
+  | "riders"
   | "starts"
   | "paidStarts"
   | "freeStarts"
@@ -152,7 +152,7 @@ const samePayment = (
 ) => Math.abs((a ?? 0) - (b ?? 0)) < CENT;
 
 /**
- * Fees per club: what each club has to pay for its starters (group
+ * Fees per club: what each club has to pay for its riders (group
  * memberships included), what it has paid and what is still open. The paid
  * amount is edited in place.
  */
@@ -373,14 +373,14 @@ export default class CupViewAdminPayments extends LitElement {
 
   data = new Task(this, {
     task: async (): Promise<PaymentsData> => {
-      const [clubs, starters, bookings, log, acts] = await Promise.all([
+      const [clubs, riders, bookings, log, acts] = await Promise.all([
         unwrap(client.listClubs()),
-        unwrap(client.listStarters()),
+        unwrap(client.listRiders()),
         unwrap(client.listBookings()),
         unwrap(client.listBookingLog()),
         unwrap(client.listActs()),
       ]);
-      return { clubs, starters, bookings, log, acts };
+      return { clubs, riders, bookings, log, acts };
     },
     args: () => [],
     onComplete: (value) => {
@@ -426,14 +426,14 @@ export default class CupViewAdminPayments extends LitElement {
     </div>`;
   }
 
-  buildRows(clubs: ClubOverview[], starters: Starter[]): PaymentRow[] {
+  buildRows(clubs: ClubOverview[], riders: Rider[]): PaymentRow[] {
     const competition = this.systemStatus?.competition;
     const rows = new Map<string, PaymentRow>(
       clubs.map((club) => [
         club.id,
         {
           club,
-          starters: 0,
+          riders: 0,
           starts: 0,
           paidStarts: 0,
           freeStarts: 0,
@@ -450,23 +450,23 @@ export default class CupViewAdminPayments extends LitElement {
         },
       ]),
     );
-    for (const starter of starters) {
-      const row = rows.get(starter.club_id);
+    for (const rider of riders) {
+      const row = rows.get(rider.club_id);
       if (!row) {
         continue;
       }
-      row.starters += 1;
-      row.starts += countStarts(starter);
+      row.riders += 1;
+      row.starts += countStarts(rider);
       // A waived club's starts cost nothing.
       if (!row.club.fee_waiver) {
-        const { paid, free } = startsByFee(starter, competition);
+        const { paid, free } = startsByFee(rider, competition);
         row.paidStarts += paid;
         row.freeStarts += free;
       }
-      row.em += Number(starter.single_male);
-      row.ew += Number(starter.single_female);
-      row.p += Number(starter.pair);
-      row.groups += starter.group_count;
+      row.em += Number(rider.single_male);
+      row.ew += Number(rider.single_female);
+      row.p += Number(rider.pair);
+      row.groups += rider.group_count;
     }
     for (const row of rows.values()) {
       row.open = row.due - row.paid;
@@ -475,9 +475,9 @@ export default class CupViewAdminPayments extends LitElement {
   }
 
   renderPayments(data: PaymentsData) {
-    const { clubs, starters } = data;
+    const { clubs, riders } = data;
     const competition = this.systemStatus?.competition;
-    const allRows = this.buildRows(clubs, starters);
+    const allRows = this.buildRows(clubs, riders);
     const needle = this.search.trim().toLowerCase();
     const rows = allRows.filter(
       (row) =>
@@ -560,11 +560,11 @@ export default class CupViewAdminPayments extends LitElement {
             competition
               ? html`<span class="kpi"
                   >${formatMoney(competition.fee_per_start)} je Start${
-                    competition.max_fee_per_starter === null ||
-                    competition.max_fee_per_starter === undefined
+                    competition.max_fee_per_rider === null ||
+                    competition.max_fee_per_rider === undefined
                       ? nothing
                       : html`, max. ${formatMoney(
-                          competition.max_fee_per_starter,
+                          competition.max_fee_per_rider,
                         )} je FahrerIn`
                   }</span
                 >`
@@ -656,7 +656,7 @@ export default class CupViewAdminPayments extends LitElement {
                 <tr>
                   ${this.renderSortHeader("name", "Verein")}
                   ${this.renderSortHeader("contact", "Kontakt")}
-                  ${this.renderSortHeader("starters", "FahrerInnen", "num")}
+                  ${this.renderSortHeader("riders", "FahrerInnen", "num")}
                   ${this.renderSortHeader(
                     "starts",
                     "Starts",
@@ -719,7 +719,7 @@ export default class CupViewAdminPayments extends LitElement {
                         : `${rows.length} von ${clubCount(allRows.length)}`
                     }
                   </td>
-                  <td class="num">${sum(rows, (r) => r.starters)}</td>
+                  <td class="num">${sum(rows, (r) => r.riders)}</td>
                   <td class="num">
                     ${sum(rows, (r) => r.starts)}
                   </td>
@@ -779,7 +779,7 @@ export default class CupViewAdminPayments extends LitElement {
       </td>
       <td class="contact">${renderContact(club.contacts)}</td>
       <td class="num">
-        ${row.starters || html`<span class="zero">0</span>`}
+        ${row.riders || html`<span class="zero">0</span>`}
       </td>
       <td
         class="num"
@@ -916,7 +916,7 @@ export default class CupViewAdminPayments extends LitElement {
    * riders start in, each with a button to waive or charge again.
    */
   renderWaivers(club: ClubOverview, data: PaymentsData) {
-    const riders = data.starters
+    const riders = data.riders
       .filter((s) => s.club_id === club.id)
       .sort((a, b) =>
         `${a.firstname} ${a.lastname}`.localeCompare(
@@ -1863,14 +1863,14 @@ export default class CupViewAdminPayments extends LitElement {
       level === "club"
         ? { club_id: id }
         : level === "rider"
-          ? { starter_id: id }
+          ? { rider_id: id }
           : { act_id: id };
     // The clubs whose amount due changes.
     const clubIds =
       level === "club"
         ? [id]
         : level === "rider"
-          ? [data.starters.find((s) => s.id === id)?.club_id]
+          ? [data.riders.find((s) => s.id === id)?.club_id]
           : (data.acts
               .find((a) => a.id === id)
               ?.participants.map((p) => p.club_id) ?? []);

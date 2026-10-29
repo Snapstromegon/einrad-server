@@ -18,10 +18,10 @@ const CLUB = "club-1";
 const competition = {
   determining_day: "2027-06-01",
   fee_per_start: 15,
-  max_fee_per_starter: 45,
+  max_fee_per_rider: 45,
 };
 
-const starter = (id, fields = {}) => ({
+const rider = (id, fields = {}) => ({
   id,
   club_id: CLUB,
   firstname: id,
@@ -41,8 +41,8 @@ const participant = (id, fields = {}) => ({
   id,
   club_id: CLUB,
   club_name: "RSV",
-  starter_firstname: id,
-  starter_lastname: "Muster",
+  rider_firstname: id,
+  rider_lastname: "Muster",
   is_replacement: false,
   ...fields,
 });
@@ -68,7 +68,7 @@ const group = (id, members, fields = {}) => ({
   is_owner: true,
   owner_club_id: CLUB,
   members: members.map((m) => ({
-    starter_id: m,
+    rider_id: m,
     club_id: CLUB,
     club_name: "RSV",
     firstname: m,
@@ -90,7 +90,7 @@ const club = (paid, due = 0) => ({
 
 const data = (fields = {}) => ({
   club: club(0),
-  starters: [],
+  riders: [],
   acts: [],
   groups: [],
   allGroups: [],
@@ -154,13 +154,13 @@ describe("club data", () => {
   });
 
   test("hasStart and pending pairs", () => {
-    assert.ok(!hasStart(starter("a")));
-    assert.ok(hasStart(starter("a", { group_count: 1 })));
-    assert.ok(isPendingPair(starter("a", { pair: true, partner_name: "X" })));
-    assert.ok(!isPendingPair(starter("a", { pair: true, partner_id: "b" })));
+    assert.ok(!hasStart(rider("a")));
+    assert.ok(hasStart(rider("a", { group_count: 1 })));
+    assert.ok(isPendingPair(rider("a", { pair: true, partner_name: "X" })));
+    assert.ok(!isPendingPair(rider("a", { pair: true, partner_id: "b" })));
   });
 
-  test("actOfType finds a starter's single", () => {
+  test("actOfType finds a rider's single", () => {
     const acts = [act("s", "single", [participant("a")])];
     assert.equal(actOfType(acts, "a", "single")?.id, "s");
     assert.equal(actOfType(acts, "a", "pair"), undefined);
@@ -172,7 +172,7 @@ describe("club data", () => {
         ...club(20),
         amount_due: { start_fees: 60, jury_fee: 14, total: 74 },
       },
-      starters: [starter("b", { single_male: true })],
+      riders: [rider("b", { single_male: true })],
     });
     assert.deepEqual(paymentState(d), {
       startFees: 60,
@@ -190,7 +190,7 @@ describe("club data", () => {
         fee_waived: true,
         amount_due: { start_fees: 0, jury_fee: 0, total: 0, waived: 45 },
       },
-      starters: [starter("b", { single_male: true })],
+      riders: [rider("b", { single_male: true })],
     });
     assert.equal(paymentState(d).open, 0);
     const issues = clubIssues(d);
@@ -232,7 +232,7 @@ describe("club data", () => {
   test("clubIssues reports riders without act, incomplete groups and missing music", () => {
     const d = data({
       club: club(0, 15),
-      starters: [starter("a", { group_count: 1 }), starter("b")],
+      riders: [rider("a", { group_count: 1 }), rider("b")],
       acts: [act("g", "group_small", [participant("a")], { song_file: null })],
       groups: [group("g", ["a"])],
     });
@@ -246,7 +246,7 @@ describe("club data", () => {
 
   test("clubIssues skips missing music once uploads are closed", () => {
     const d = data({
-      starters: [starter("a", { single_female: true })],
+      riders: [rider("a", { single_female: true })],
       acts: [act("s", "single", [participant("a")], { song_file: null })],
     });
     assert.ok(
@@ -257,7 +257,7 @@ describe("club data", () => {
   test("clubIssues ignores music of other clubs' groups", () => {
     const d = data({
       club: club(15, 15),
-      starters: [starter("a", { group_count: 1 })],
+      riders: [rider("a", { group_count: 1 })],
       acts: [
         act("g", "group_small", [participant("a")], {
           song_file: null,
@@ -272,7 +272,7 @@ describe("club data", () => {
   test("stepSummaries marks finished steps", () => {
     const d = data({
       club: club(15, 15),
-      starters: [starter("a", { single_female: true })],
+      riders: [rider("a", { single_female: true })],
       acts: [act("s", "single", [participant("a")])],
     });
     const summaries = stepSummaries(d, clubIssues(d));
@@ -284,7 +284,7 @@ describe("club data", () => {
 
   test("stepSummaries counts open points of the acts step", () => {
     const d = data({
-      starters: [starter("a", { group_count: 1 }), starter("b")],
+      riders: [rider("a", { group_count: 1 }), rider("b")],
       acts: [act("g", "group_small", [participant("a")])],
       groups: [group("g", ["a"])],
     });
@@ -295,7 +295,7 @@ describe("club data", () => {
 
   test("stepSummaries counts a pending pair as an act", () => {
     const d = data({
-      starters: [starter("a", { pair: true, partner_name: "X Y" })],
+      riders: [rider("a", { pair: true, partner_name: "X Y" })],
     });
     const summaries = stepSummaries(d, clubIssues(d));
     assert.equal(summaries.kueren.summary, "1 Kür");

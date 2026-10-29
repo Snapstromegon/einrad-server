@@ -51,7 +51,7 @@ pub async fn set_club_group_type(
     capabilities: Capabilities,
     Json(body): Json<SetClubGroupTypeBody>,
 ) -> Result<Json<SetClubGroupTypeResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();

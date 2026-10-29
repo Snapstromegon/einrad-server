@@ -3,7 +3,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{TestApp, TestResponse, starter_body};
+use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
@@ -305,11 +305,11 @@ async fn timeplan_forward_and_backward_walk_through_acts(db: SqlitePool) {
     }
     // A pair act for the second category.
     let carla = app
-        .add_starter(&owner, starter_body(club_id, "Carla", false, true))
+        .add_rider(&owner, rider_body(club_id, "Carla", false, true))
         .await;
-    let mut dora = starter_body(club_id, "Dora", false, true);
+    let mut dora = rider_body(club_id, "Dora", false, true);
     dora["partner_id"] = json!(carla);
-    app.add_starter(&owner, dora).await;
+    app.add_rider(&owner, dora).await;
     replace_timeplan(
         &app,
         &admin,
@@ -436,11 +436,11 @@ async fn empty_blocks_are_skipped_in_one_step_and_restored(db: SqlitePool) {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     app.add_single_act(&owner, club_id, "Anna").await;
     let carla = app
-        .add_starter(&owner, starter_body(club_id, "Carla", false, true))
+        .add_rider(&owner, rider_body(club_id, "Carla", false, true))
         .await;
-    let mut dora = starter_body(club_id, "Dora", false, true);
+    let mut dora = rider_body(club_id, "Dora", false, true);
     dora["partner_id"] = json!(carla);
-    app.add_starter(&owner, dora).await;
+    app.add_rider(&owner, dora).await;
     replace_timeplan(
         &app,
         &admin,
@@ -597,12 +597,12 @@ async fn single(
     male: bool,
     born: &str,
 ) -> Uuid {
-    let mut body = starter_body(club_id, name, true, false);
+    let mut body = rider_body(club_id, name, true, false);
     body["single_male"] = json!(male);
     body["single_female"] = json!(!male);
     body["birthdate"] = json!(format!("{born}-05-01T00:00:00.000Z"));
-    let starter = app.add_starter(owner, body).await;
-    app.act_of(starter).await
+    let rider = app.add_rider(owner, body).await;
+    app.act_of(rider).await
 }
 
 async fn predicted_items(app: &TestApp) -> Vec<Value> {
@@ -905,7 +905,7 @@ async fn new_blocks_without_category_and_entries_in_between(db: SqlitePool) {
     .await;
     let first = ids(&list_timeplan(&app).await)[0];
 
-    // A late starters' block right after the first block.
+    // A late riders' block right after the first block.
     let response = app
         .post(
             "/api/command/add_timeplan_entry",
@@ -1172,16 +1172,15 @@ async fn late_acts_join_their_home_block_and_deleted_acts_leave(db: SqlitePool) 
         [a2, a1, a3].map(|id| id.to_string()).to_vec()
     );
 
-    let starter: Uuid =
-        sqlx::query_scalar("SELECT starter_id FROM act_participants WHERE act_id = ?")
-            .bind(a1)
-            .fetch_one(&app.db)
-            .await
-            .unwrap();
+    let rider: Uuid = sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = ?")
+        .bind(a1)
+        .fetch_one(&app.db)
+        .await
+        .unwrap();
     let response = app
         .post(
-            "/api/command/delete_club_starter",
-            json!({ "starter_id": starter }),
+            "/api/command/delete_rider",
+            json!({ "rider_id": rider }),
             Some(&owner),
         )
         .await;

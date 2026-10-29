@@ -1,21 +1,17 @@
 // Changes the club portal makes. Singles and pairs aren't acts of their own in
-// the API: they are flags of a starter (`single_male`, `single_female`, `pair`
+// the API: they are flags of a rider (`single_male`, `single_female`, `pair`
 // with `partner_name`), and the server creates or deletes the act. These
 // helpers turn "add a single", "pair two riders" etc. into those edits.
 import { ApiError, unwrap } from "../../../api";
 import { client, type schemas } from "../../../apiClient";
-import {
-  type ClubGroup,
-  type ClubStarter,
-  starterName,
-} from "../../../club-data";
+import { type ClubGroup, type ClubRider, riderName } from "../../../club-data";
 
 /**
- * The fields of a starter that an edit sends. Riders of other clubs come
+ * The fields of a rider that an edit sends. Riders of other clubs come
  * with a birthdate only for who manages registrations.
  */
-type StarterFields = Pick<
-  ClubStarter,
+type RiderFields = Pick<
+  ClubRider,
   | "firstname"
   | "lastname"
   | "gender"
@@ -26,24 +22,24 @@ type StarterFields = Pick<
   | "partner_id"
 > & { birthdate?: string | null };
 
-/** A starter of the own club or (for admins) of any club. */
-export type StarterLike = StarterFields & { id: string };
+/** A rider of the own club or (for admins) of any club. */
+export type RiderLike = RiderFields & { id: string };
 
-/** Saves a starter with `changes`, keeping everything else as it is. */
-export const editStarter = async (
-  starter: StarterLike,
-  changes: Partial<StarterFields>,
+/** Saves a rider with `changes`, keeping everything else as it is. */
+export const editRider = async (
+  rider: RiderLike,
+  changes: Partial<RiderFields>,
 ) => {
-  const next = { ...starter, ...changes };
+  const next = { ...rider, ...changes };
   if (!next.birthdate) {
     throw new Error(
       `Das Geburtsdatum von ${next.firstname} ist nicht bekannt.`,
     );
   }
   await unwrap(
-    client.editClubStarter({
+    client.editRider({
       body: {
-        starter_id: starter.id,
+        rider_id: rider.id,
         firstname: next.firstname.trim(),
         lastname: next.lastname.trim(),
         birthdate: new Date(next.birthdate).toISOString(),
@@ -58,7 +54,7 @@ export const editStarter = async (
   );
 };
 
-export const addStarter = async (
+export const addRider = async (
   clubId: string,
   firstname: string,
   lastname: string,
@@ -66,7 +62,7 @@ export const addStarter = async (
   gender: Gender,
 ) => {
   await unwrap(
-    client.addClubStarter({
+    client.addRider({
       body: {
         club_id: clubId,
         firstname: firstname.trim(),
@@ -83,10 +79,10 @@ export const addStarter = async (
   );
 };
 
-export const deleteStarter = async (starter: ClubStarter) => {
+export const deleteRider = async (rider: ClubRider) => {
   await unwrap(
-    client.deleteClubStarter({
-      body: { starter_id: starter.id },
+    client.deleteRider({
+      body: { rider_id: rider.id },
     }),
   );
 };
@@ -98,12 +94,12 @@ export const genderLabels: Record<Gender, string> = {
   male: "männlich",
 };
 
-/** Whether the starter rides a single. */
-export const hasSingle = (starter: StarterLike) =>
-  starter.single_female || starter.single_male;
+/** Whether the rider rides a single. */
+export const hasSingle = (rider: RiderLike) =>
+  rider.single_female || rider.single_male;
 
 /**
- * The single flags for a starter of `gender`: a single counts as Einzel
+ * The single flags for a rider of `gender`: a single counts as Einzel
  * weiblich or männlich by the rider's gender.
  */
 export const singleFlags = (
@@ -114,14 +110,14 @@ export const singleFlags = (
   single_male: single && gender === "male",
 });
 
-/** Registers (or removes) a starter's single, by their gender. */
-export const setSingle = (starter: StarterLike, single: boolean) => {
-  if (single && !starter.gender) {
+/** Registers (or removes) a rider's single, by their gender. */
+export const setSingle = (rider: RiderLike, single: boolean) => {
+  if (single && !rider.gender) {
     throw new Error(
-      `Bitte gib zuerst das Geschlecht von ${starterName(starter)} an (Schritt FahrerInnen).`,
+      `Bitte gib zuerst das Geschlecht von ${riderName(rider)} an (Schritt FahrerInnen).`,
     );
   }
-  return editStarter(starter, singleFlags(single, starter.gender));
+  return editRider(rider, singleFlags(single, rider.gender));
 };
 
 /**
@@ -130,37 +126,34 @@ export const setSingle = (starter: StarterLike, single: boolean) => {
  */
 export const replaceRider = async (
   actId: string,
-  starterId: string,
-  newStarterId: string,
+  riderId: string,
+  newRiderId: string,
 ) => {
   await unwrap(
     client.replaceActRider({
       body: {
         act_id: actId,
-        starter_id: starterId,
-        new_starter_id: newStarterId,
+        rider_id: riderId,
+        new_rider_id: newRiderId,
       },
     }),
   );
 };
 
 /**
- * Ends a starter's pair. A partner of the own club leaves the pair too, so
+ * Ends a rider's pair. A partner of the own club leaves the pair too, so
  * nobody is left registered for a pair without partner.
  */
-export const leavePair = async (
-  starter: StarterLike,
-  starters: StarterLike[],
-) => {
-  const partner = starters.find((s) => s.id === starter.partner_id);
-  await editStarter(starter, {
+export const leavePair = async (rider: RiderLike, riders: RiderLike[]) => {
+  const partner = riders.find((s) => s.id === rider.partner_id);
+  await editRider(rider, {
     pair: false,
     partner_name: null,
     partner_id: null,
   });
   if (partner?.pair) {
     // The server already unlinked the partner; only the flag is left.
-    await editStarter(partner, {
+    await editRider(partner, {
       pair: false,
       partner_name: null,
       partner_id: null,
@@ -174,27 +167,27 @@ export const leavePair = async (
  * first one names the second, which links both and creates the act.
  */
 export const pairRiders = async (
-  a: StarterLike,
-  b: StarterLike,
-  starters: StarterLike[],
+  a: RiderLike,
+  b: RiderLike,
+  riders: RiderLike[],
 ) => {
   if (a.partner_id === b.id) {
     return;
   }
   for (const rider of [a, b]) {
     if (rider.pair) {
-      await leavePair(rider, starters);
+      await leavePair(rider, riders);
     }
   }
   // Fresh copies: leaving a pair changed the flags.
-  const plain = (s: StarterLike): StarterLike => ({
+  const plain = (s: RiderLike): RiderLike => ({
     ...s,
     pair: false,
     partner_id: null,
     partner_name: null,
   });
-  await editStarter(plain(b), { pair: true, partner_name: starterName(a) });
-  await editStarter(plain(a), { pair: true, partner_name: starterName(b) });
+  await editRider(plain(b), { pair: true, partner_name: riderName(a) });
+  await editRider(plain(a), { pair: true, partner_name: riderName(b) });
 };
 
 /**
@@ -202,15 +195,15 @@ export const pairRiders = async (
  * partner later; until then the pair is pending.
  */
 export const pairWithOtherClub = async (
-  starter: StarterLike,
+  rider: RiderLike,
   partnerName: string,
-  starters: StarterLike[],
+  riders: RiderLike[],
 ) => {
-  if (starter.pair && starter.partner_id) {
-    await leavePair(starter, starters);
+  if (rider.pair && rider.partner_id) {
+    await leavePair(rider, riders);
   }
-  await editStarter(
-    { ...starter, pair: false, partner_id: null, partner_name: null },
+  await editRider(
+    { ...rider, pair: false, partner_id: null, partner_name: null },
     { pair: true, partner_name: partnerName.trim() },
   );
 };
@@ -221,35 +214,35 @@ export const pairWithOtherClub = async (
  * which the server only accepts from admins.
  */
 export const linkPartners = async (
-  a: StarterLike & { club_id: string },
-  b: StarterLike & { club_id: string },
-  starters: StarterLike[],
+  a: RiderLike & { club_id: string },
+  b: RiderLike & { club_id: string },
+  riders: RiderLike[],
 ) => {
   if (a.club_id === b.club_id) {
-    return pairRiders(a, b, starters);
+    return pairRiders(a, b, riders);
   }
   if (a.partner_id === b.id) {
     return;
   }
   for (const rider of [a, b]) {
     if (rider.partner_id) {
-      await leavePair(rider, starters);
+      await leavePair(rider, riders);
     }
   }
-  const named = (s: StarterLike, partner: StarterLike): StarterLike => ({
+  const named = (s: RiderLike, partner: RiderLike): RiderLike => ({
     ...s,
     pair: true,
     partner_id: null,
-    partner_name: starterName(partner),
+    partner_name: riderName(partner),
   });
-  await editStarter(named(b, a), {});
-  await editStarter(named(a, b), {});
+  await editRider(named(b, a), {});
+  await editRider(named(a, b), {});
   // The partner name is unchanged now, so the server takes the partner.
-  await editStarter(named(a, b), { partner_id: b.id });
+  await editRider(named(a, b), { partner_id: b.id });
 };
 
 export interface GroupMember {
-  starter_id: string;
+  rider_id: string;
   is_replacement: boolean;
 }
 
@@ -261,7 +254,7 @@ export const ownGroupMembers = (
   group.members
     .filter((m) => m.club_id === clubId)
     .map((m) => ({
-      starter_id: m.starter_id,
+      rider_id: m.rider_id,
       is_replacement: m.is_replacement,
     }));
 
@@ -359,13 +352,13 @@ export const editAct = async (
 };
 
 /**
- * The act of a starter's single or pair. The server creates it when the
- * starter's flags change, without returning it.
+ * The act of a rider's single or pair. The server creates it when the
+ * rider's flags change, without returning it.
  */
 export const findActOf = async (
   clubId: string,
   type: "single" | "pair",
-  starterId: string,
+  riderId: string,
 ) => {
   const acts = await unwrap(
     client.listClubActs({
@@ -374,6 +367,6 @@ export const findActOf = async (
   );
   return acts.find(
     (act) =>
-      act.act_type === type && act.participants.some((p) => p.id === starterId),
+      act.act_type === type && act.participants.some((p) => p.id === riderId),
   )?.id;
 };

@@ -65,7 +65,7 @@ pub async fn get_act(
                 AND EXISTS (
                     SELECT 1 FROM act_participants own
                     JOIN act_participants theirs
-                        ON theirs.starter_id = own.starter_id AND theirs.act_id != own.act_id
+                        ON theirs.rider_id = own.rider_id AND theirs.act_id != own.act_id
                     JOIN acts other ON other.id = theirs.act_id AND other.act_type = view_act.act_type
                     WHERE own.act_id = view_act.id
                 )

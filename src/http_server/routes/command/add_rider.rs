@@ -16,12 +16,12 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct AddClubStarterResponse {
-    starter_id: Uuid,
+pub struct AddRiderResponse {
+    rider_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct AddClubStarterBody {
+pub struct AddRiderBody {
     club_id: Uuid,
     firstname: String,
     lastname: String,
@@ -38,18 +38,18 @@ pub struct AddClubStarterBody {
     partner_name: Option<String>,
 }
 
-/// Add a starter to a club.
+/// Add a rider to a club.
 ///
-/// Only the club (or an admin) can add starters to it. An explicit
-/// `partner_id` must be a starter of the same club; admins can also link
+/// Only the club (or an admin) can add riders to it. An explicit
+/// `partner_id` must be a rider of the same club; admins can also link
 /// partners of other clubs.
 #[utoipa::path(
     post,
     tags=["command", "club"],
-    path="/add_club_starter",
-    request_body=AddClubStarterBody,
+    path="/add_rider",
+    request_body=AddRiderBody,
     responses(
-        (status=200, content_type="application/json", body=AddClubStarterResponse),
+        (status=200, content_type="application/json", body=AddRiderResponse),
         (status=400, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
@@ -58,13 +58,13 @@ pub struct AddClubStarterBody {
 )]
 #[instrument(skip(db))]
 #[axum::debug_handler]
-pub async fn add_club_starter(
+pub async fn add_rider(
     Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     capabilities: Capabilities,
-    Json(mut body): Json<AddClubStarterBody>,
-) -> Result<Json<AddClubStarterResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    Json(mut body): Json<AddRiderBody>,
+) -> Result<Json<AddRiderResponse>, HttpError> {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let (single, gender) = single_from_flags(body.single_male, body.single_female, body.gender)?;
@@ -85,13 +85,13 @@ pub async fn add_club_starter(
     )
     .await?;
 
-    let starter_id = Uuid::now_v7();
+    let rider_id = Uuid::now_v7();
     sqlx::query!(
         r#"
-        INSERT INTO starter (id, club_id, firstname, lastname, birthdate, gender)
+        INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender)
         VALUES (?, ?, ?, ?, ?, ?);
         "#,
-        starter_id,
+        rider_id,
         body.club_id,
         body.firstname,
         body.lastname,
@@ -103,14 +103,14 @@ pub async fn add_club_starter(
     .map_err(|e| people::map_duplicate(e, &body.firstname, &body.lastname))?;
 
     if single {
-        rider_registration::set_single(&mut transaction, starter_id, true).await?;
+        rider_registration::set_single(&mut transaction, rider_id, true).await?;
     }
     if body.pair {
         match body.partner_id {
             Some(partner_id) => {
                 rider_registration::link_pair(
                     &mut transaction,
-                    starter_id,
+                    rider_id,
                     partner_id,
                     partner_clubs(&auth),
                 )
@@ -119,7 +119,7 @@ pub async fn add_club_starter(
             None => {
                 rider_registration::request_pair(
                     &mut transaction,
-                    starter_id,
+                    rider_id,
                     body.partner_name.as_deref(),
                 )
                 .await?;
@@ -128,7 +128,7 @@ pub async fn add_club_starter(
     }
 
     transaction.commit().await?;
-    Ok(Json(AddClubStarterResponse { starter_id }))
+    Ok(Json(AddRiderResponse { rider_id }))
 }
 
 /// Whose riders the user can pair a rider with: clubs their own, the

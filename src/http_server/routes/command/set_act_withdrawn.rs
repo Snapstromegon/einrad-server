@@ -25,7 +25,7 @@ pub struct SetActWithdrawnBody {
 /// startlist and the timeplan. Its riders still pay for it unless the fee
 /// is waived (`set_fee_waived`; the announcement refunds only with a medical
 /// certificate); withdrawing doesn't change a waiver.
-/// Before the deadline, clubs simply delete their starters instead.
+/// Before the deadline, clubs simply delete their riders instead.
 #[utoipa::path(
     post,
     tags=["command", "admin"],

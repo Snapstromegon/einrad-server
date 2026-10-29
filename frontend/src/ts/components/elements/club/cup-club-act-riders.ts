@@ -6,7 +6,7 @@ import {
   type ClubAct,
   type ClubData,
   type ClubGroup,
-  type ClubStarter,
+  type ClubRider,
   riderCounts,
 } from "../../../club-data";
 import { iconStyles, resetStyles } from "../../../styles/base";
@@ -17,7 +17,7 @@ import {
   MIN_GROUP_SIZE,
 } from "../../../utils";
 import {
-  editStarter,
+  editRider,
   genderLabels,
   hasSingle,
   leavePair,
@@ -166,7 +166,7 @@ export default class CupClubActRiders extends LitElement {
   @property({ attribute: false }) act?: ClubAct;
   @property({ attribute: false }) group?: ClubGroup;
   /** A pair waiting for its partner of another club: it has no act yet. */
-  @property({ attribute: false }) pending?: ClubStarter;
+  @property({ attribute: false }) pending?: ClubRider;
   @property({ type: Boolean, attribute: "can-register" }) canRegister = false;
   /** Admins connect pairs and fill groups with riders of any club. */
   @property({ type: Boolean }) admin = false;
@@ -277,7 +277,7 @@ export default class CupClubActRiders extends LitElement {
       // any club (like connecting a pair).
       if (!own && !this.admin) {
         return html`<span class="fixed"
-          >${p.starter_firstname} ${p.starter_lastname} (${p.club_name})</span
+          >${p.rider_firstname} ${p.rider_lastname} (${p.club_name})</span
         >`;
       }
       const other = act.participants.find((o) => o.id !== p.id);
@@ -301,25 +301,25 @@ export default class CupClubActRiders extends LitElement {
     return html`${slots[0]}<span class="and">&</span>${slots[1] ?? nothing}`;
   }
 
-  renderPendingSlots(starter: ClubStarter) {
-    const own = this.ownRiders.filter((r) => r.id === starter.id || !r.pair);
+  renderPendingSlots(rider: ClubRider) {
+    const own = this.ownRiders.filter((r) => r.id === rider.id || !r.pair);
     // The partner: a free rider of the club, or for admins any rider
     // without a linked partner (e.g. one waiting in another club).
     const partners = this.riders.filter(
       (r) =>
-        r.id !== starter.id &&
+        r.id !== rider.id &&
         !r.partner_id &&
         (r.club_id === this.data.club.id ? !r.pair : this.admin),
     );
     return html`<cup-rider-picker
         label="Eigene FahrerIn der Paarkür"
         .options=${riderOptions(this.data, own)}
-        .value=${starter.id}
+        .value=${rider.id}
         ?disabled=${!this.canRegister}
         @change=${
           // eslint-disable-next-line lit/no-template-arrow
           (e: CustomEvent<{ value: string }>) =>
-            this.replacePendingRider(starter, e.detail.value)
+            this.replacePendingRider(rider, e.detail.value)
         }
       ></cup-rider-picker>
       <span class="and">&</span>
@@ -327,11 +327,11 @@ export default class CupClubActRiders extends LitElement {
         type="text"
         aria-label="Partner aus anderem Verein"
         placeholder="Name des Partners"
-        .value=${starter.partner_name ?? ""}
+        .value=${rider.partner_name ?? ""}
         ?disabled=${!this.canRegister}
         @change=${
           // eslint-disable-next-line lit/no-template-arrow
-          (e: Event) => this.renamePendingPartner(starter, e)
+          (e: Event) => this.renamePendingPartner(rider, e)
         }
       />
       ${
@@ -346,7 +346,7 @@ export default class CupClubActRiders extends LitElement {
               @change=${
                 // eslint-disable-next-line lit/no-template-arrow
                 (e: CustomEvent<{ value: string }>) =>
-                  this.pairPending(starter, e.detail.value)
+                  this.pairPending(rider, e.detail.value)
               }
             ></cup-rider-picker>`
           : nothing
@@ -360,7 +360,7 @@ export default class CupClubActRiders extends LitElement {
     for (const other of this.data.groups) {
       if (other.id !== group.id && other.act_type === group.act_type) {
         for (const m of other.members) {
-          elsewhere.set(m.starter_id, other.group_name);
+          elsewhere.set(m.rider_id, other.group_name);
         }
       }
     }
@@ -372,7 +372,7 @@ export default class CupClubActRiders extends LitElement {
           >${name} (${m.club_name})${m.is_replacement ? " · Ersatz" : ""}</span
         >`;
       }
-      const conflict = elsewhere.get(m.starter_id);
+      const conflict = elsewhere.get(m.rider_id);
       return html`<span
         class=${classMap({
           member: true,
@@ -395,7 +395,7 @@ export default class CupClubActRiders extends LitElement {
           @click=${
             // eslint-disable-next-line lit/no-template-arrow
             () =>
-              this.setMember(group, m.starter_id, m.club_id, !m.is_replacement)
+              this.setMember(group, m.rider_id, m.club_id, !m.is_replacement)
           }
         >
           E
@@ -408,7 +408,7 @@ export default class CupClubActRiders extends LitElement {
                 aria-label="${name} aus ${group.group_name} entfernen"
                 @click=${
                   // eslint-disable-next-line lit/no-template-arrow
-                  () => this.setMember(group, m.starter_id, m.club_id, null)
+                  () => this.setMember(group, m.rider_id, m.club_id, null)
                 }
               >
                 close
@@ -418,7 +418,7 @@ export default class CupClubActRiders extends LitElement {
       </span>`;
     });
     const candidates = this.riders.filter(
-      (r) => !group.members.some((m) => m.starter_id === r.id),
+      (r) => !group.members.some((m) => m.rider_id === r.id),
     );
     return html`${
       members.length
@@ -472,41 +472,39 @@ export default class CupClubActRiders extends LitElement {
     return this.riders.find((r) => r.id === id);
   }
 
-  replacePendingRider(starter: ClubStarter, id: string) {
+  replacePendingRider(pending: ClubRider, id: string) {
     const rider = this.find(id);
-    if (!rider || rider.id === starter.id) {
+    if (!rider || rider.id === pending.id) {
       return;
     }
-    const partner = starter.partner_name ?? "";
+    const partner = pending.partner_name ?? "";
     this.run(async () => {
-      await leavePair(starter, this.data.starters);
-      await pairWithOtherClub(rider, partner, this.data.starters);
+      await leavePair(pending, this.data.riders);
+      await pairWithOtherClub(rider, partner, this.data.riders);
     });
   }
 
-  renamePendingPartner(starter: ClubStarter, e: Event) {
+  renamePendingPartner(rider: ClubRider, e: Event) {
     const name = (e.target as HTMLInputElement).value.trim();
-    if (name === (starter.partner_name ?? "")) {
+    if (name === (rider.partner_name ?? "")) {
       return;
     }
     if (!name) {
       this.error = "Bitte gib den Namen des Partners an.";
       return;
     }
-    this.run(() =>
-      editStarter(starter, { partner_name: name, partner_id: null }),
-    );
+    this.run(() => editRider(rider, { partner_name: name, partner_id: null }));
   }
 
   /** Pairs a waiting rider with a rider of the club or (admins) any club. */
-  pairPending(starter: ClubStarter, id: string) {
+  pairPending(rider: ClubRider, id: string) {
     const partner = this.find(id);
     if (!partner) {
       return;
     }
     this.run(() =>
       linkPartners(
-        { ...starter, club_id: this.data.club.id },
+        { ...rider, club_id: this.data.club.id },
         partner,
         this.riders,
       ),
@@ -526,15 +524,15 @@ export default class CupClubActRiders extends LitElement {
    */
   setMember(
     group: ClubGroup,
-    starterId: string,
+    riderId: string,
     clubId: string,
     replacement: boolean | null,
   ) {
     const members = ownGroupMembers(group, clubId).filter(
-      (m) => m.starter_id !== starterId,
+      (m) => m.rider_id !== riderId,
     );
     if (replacement !== null) {
-      members.push({ starter_id: starterId, is_replacement: replacement });
+      members.push({ rider_id: riderId, is_replacement: replacement });
     }
     if (
       members.length === 0 &&

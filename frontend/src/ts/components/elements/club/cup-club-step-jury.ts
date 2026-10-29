@@ -8,7 +8,7 @@ import {
   type ClubData,
   type ClubJudge,
   type JuryCategory,
-  starterName,
+  riderName,
 } from "../../../club-data";
 import {
   ageOnStart,
@@ -749,7 +749,7 @@ export default class CupClubStepJury extends LitElement {
       const category = categories.get(a.jury_category_id);
       const judge = judges.get(a.judge_id);
       return html`<tr>
-        <td>${judge ? starterName(judge) : "?"}</td>
+        <td>${judge ? riderName(judge) : "?"}</td>
         <td>
           ${category?.name ?? "?"}
           ${
@@ -910,7 +910,7 @@ export default class CupClubStepJury extends LitElement {
     }
     return html`<tr>
       <td class="name">
-        ${starterName(judge)}
+        ${riderName(judge)}
         ${
           judge.note
             ? html`<small class="muted">${judge.note}</small>`
@@ -964,7 +964,7 @@ export default class CupClubStepJury extends LitElement {
             ? html`<button
                   class="icon-btn"
                   title="Bearbeiten"
-                  aria-label="${starterName(judge)} bearbeiten"
+                  aria-label="${riderName(judge)} bearbeiten"
                   data-id=${judge.id}
                   ?disabled=${this.editing !== null || this.saving}
                   @click=${this.onEditClick}
@@ -974,7 +974,7 @@ export default class CupClubStepJury extends LitElement {
                 <button
                   class="icon-btn"
                   title="Entfernen"
-                  aria-label="${starterName(judge)} entfernen"
+                  aria-label="${riderName(judge)} entfernen"
                   data-id=${judge.id}
                   ?disabled=${this.editing !== null || this.saving}
                   @click=${this.onDeleteClick}
@@ -1254,7 +1254,7 @@ export default class CupClubStepJury extends LitElement {
 
   private async onDeleteClick(e: Event) {
     const judge = this.judgeOf(e);
-    if (!judge || !confirm(`${starterName(judge)} als JurorIn entfernen?`)) {
+    if (!judge || !confirm(`${riderName(judge)} als JurorIn entfernen?`)) {
       return;
     }
     await this.change(

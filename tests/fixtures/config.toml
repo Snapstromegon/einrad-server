@@ -12,7 +12,7 @@ registration_start = 2026-12-01T00:00:00+01:00
 registration_end = 2027-04-30T23:59:59+02:00
 music_upload_end = 2027-05-15T23:59:59+02:00
 fee_per_start = 15
-max_fee_per_starter = 45
+max_fee_per_rider = 45
 
 [competition.payment]
 deadline = 2027-05-15

@@ -48,7 +48,7 @@ pub async fn set_club_responsible(
     capabilities: Capabilities,
     Json(body): Json<SetClubResponsibleBody>,
 ) -> Result<Json<SetClubResponsibleResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let name = non_empty(body.name);

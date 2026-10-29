@@ -306,56 +306,56 @@ interface Starts {
 }
 
 /** The starts that cost a fee, before the cap. */
-const billableStarts = (starter: Starts) =>
-  starter.fee_waived
+const billableStarts = (rider: Starts) =>
+  rider.fee_waived
     ? 0
-    : Math.max(0, countStarts(starter) - (starter.waived_count ?? 0));
+    : Math.max(0, countStarts(rider) - (rider.waived_count ?? 0));
 
-/** Number of starts a starter is registered for, groups included. */
-export const countStarts = (starter: Starts) =>
-  Number(starter.single_male) +
-  Number(starter.single_female) +
-  Number(starter.pair) +
-  (starter.group_count ?? 0);
+/** Number of starts a rider is registered for, groups included. */
+export const countStarts = (rider: Starts) =>
+  Number(rider.single_male) +
+  Number(rider.single_female) +
+  Number(rider.pair) +
+  (rider.group_count ?? 0);
 
 /**
- * Registration fee of one starter: `fee_per_start` per start, capped at
- * `max_fee_per_starter`. Withdrawn starts still cost; waived acts and a
+ * Registration fee of one rider: `fee_per_start` per start, capped at
+ * `max_fee_per_rider`. Withdrawn starts still cost; waived acts and a
  * waived rider cost nothing. Without a competition there is nothing to pay.
  */
-export const getStarterPrice = (
-  starter: Starts,
+export const getRiderPrice = (
+  rider: Starts,
   competition:
-    | Pick<Competition, "fee_per_start" | "max_fee_per_starter">
+    | Pick<Competition, "fee_per_start" | "max_fee_per_rider">
     | null
     | undefined,
 ) => {
   if (!competition) {
     return 0;
   }
-  const billable = billableStarts(starter);
+  const billable = billableStarts(rider);
   const price = billable * competition.fee_per_start;
-  const max = competition.max_fee_per_starter;
+  const max = competition.max_fee_per_rider;
   return max === null || max === undefined ? price : Math.min(price, max);
 };
 
 /**
- * A starter's starts that cost a fee (`paid`) and those beyond
- * `max_fee_per_starter` (`free`). Waived starts are neither. A cap between
+ * A rider's starts that cost a fee (`paid`) and those beyond
+ * `max_fee_per_rider` (`free`). Waived starts are neither. A cap between
  * two starts pays the start it cuts into.
  */
 export const startsByFee = (
-  starter: Starts,
+  rider: Starts,
   competition:
-    | Pick<Competition, "fee_per_start" | "max_fee_per_starter">
+    | Pick<Competition, "fee_per_start" | "max_fee_per_rider">
     | null
     | undefined,
 ) => {
   if (!competition) {
     return { paid: 0, free: 0 };
   }
-  const billable = billableStarts(starter);
-  const max = competition.max_fee_per_starter;
+  const billable = billableStarts(rider);
+  const max = competition.max_fee_per_rider;
   const paid =
     max === null || max === undefined || competition.fee_per_start <= 0
       ? billable
@@ -563,8 +563,8 @@ export const competitionName = (competition: Competition | null | undefined) =>
   competition?.name ?? "Einradevent";
 
 /**
- * Whether clubs can register and change starters at `now` (ms), as the
- * backend decides it for clubs. Unlike `SystemStatus.can_register_starter`
+ * Whether clubs can register and change riders at `now` (ms), as the
+ * backend decides it for clubs. Unlike `SystemStatus.can_register_rider`
  * this ignores the admins' override, which always reports `true`.
  */
 export const isRegistrationOpen = (
@@ -749,14 +749,14 @@ export const actMatchesSearch = (
   ].some((text) => text.toLocaleLowerCase("de").includes(needle));
 };
 
-/** Check-in time per starter id; a missing or empty entry means not checked in. */
+/** Check-in time per rider id; a missing or empty entry means not checked in. */
 export type CheckInMap = ReadonlyMap<string, string | null | undefined>;
 
 /** Builds a `CheckInMap` from the result of `list_check_ins`. */
 export const checkInMap = (
-  checkIns: { starter_id: string; checked_in_at?: string | null }[],
+  checkIns: { rider_id: string; checked_in_at?: string | null }[],
 ): CheckInMap =>
-  new Map(checkIns.map((c) => [c.starter_id, c.checked_in_at ?? null]));
+  new Map(checkIns.map((c) => [c.rider_id, c.checked_in_at ?? null]));
 
 /**
  * Check-in state of an act's participants. Replacement riders count towards

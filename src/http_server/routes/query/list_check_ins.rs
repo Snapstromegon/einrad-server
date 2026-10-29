@@ -10,13 +10,13 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CheckIn {
-    starter_id: Uuid,
-    /// `null` if the starter hasn't checked in yet.
+    rider_id: Uuid,
+    /// `null` if the rider hasn't checked in yet.
     #[serde(with = "time::serde::iso8601::option")]
     checked_in_at: Option<time::OffsetDateTime>,
 }
 
-/// The check-in state of every starter. Check-in and music control.
+/// The check-in state of every rider. Check-in and music control.
 ///
 /// Small enough to poll during the competition.
 #[utoipa::path(
@@ -39,9 +39,9 @@ pub async fn list_check_ins(
         CheckIn,
         r#"
         SELECT
-            id as "starter_id!: Uuid",
+            id as "rider_id!: Uuid",
             checked_in_at as "checked_in_at: time::OffsetDateTime"
-        FROM starter
+        FROM rider
         "#
     )
     .fetch_all(&db)

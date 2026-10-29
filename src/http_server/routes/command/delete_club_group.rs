@@ -44,7 +44,7 @@ pub async fn delete_club_group(
     capabilities: Capabilities,
     Json(body): Json<DeleteClubGroupBody>,
 ) -> Result<Json<DeleteClubGroupResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
@@ -58,8 +58,8 @@ pub async fn delete_club_group(
             r#"
             SELECT COUNT(*) as "count!: i64"
             FROM act_participants
-            JOIN starter ON starter.id = act_participants.starter_id
-            WHERE act_participants.act_id = ? AND starter.club_id IS NOT ?
+            JOIN rider ON rider.id = act_participants.rider_id
+            WHERE act_participants.act_id = ? AND rider.club_id IS NOT ?
             "#,
             group.id,
             group.owner_club_id,

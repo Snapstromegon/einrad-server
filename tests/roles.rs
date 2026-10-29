@@ -4,7 +4,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{TestApp, email_for, starter_body};
+use common::{TestApp, email_for, rider_body};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -223,11 +223,11 @@ async fn each_role_reaches_its_own_commands_only(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
     let rider = app
-        .add_starter(&owner, starter_body(club_id, "Anna", true, false))
+        .add_rider(&owner, rider_body(club_id, "Anna", true, false))
         .await;
     let act_id = app.act_of(rider).await;
     let payment = || json!({ "club_id": club_id, "amount": 20.0, "date": "2027-03-01" });
-    let check_in = || json!({ "starter_ids": [rider], "checked_in": true });
+    let check_in = || json!({ "rider_ids": [rider], "checked_in": true });
     let song = || json!({ "act_id": act_id, "checked": true });
     let order = || json!({ "act_id": act_id, "order": 1 });
 
@@ -303,7 +303,7 @@ async fn each_role_reaches_its_own_commands_only(db: SqlitePool) {
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        app.get("/api/query/list_starters", Some(&jury_lead))
+        app.get("/api/query/list_riders", Some(&jury_lead))
             .await
             .status,
         StatusCode::FORBIDDEN
@@ -326,23 +326,23 @@ async fn each_role_reaches_its_own_commands_only(db: SqlitePool) {
 async fn the_check_in_but_not_the_treasurer_sees_birthdates(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
-    app.add_starter(&owner, starter_body(club_id, "Anna", true, false))
+    app.add_rider(&owner, rider_body(club_id, "Anna", true, false))
         .await;
 
     let treasurer = member(&app, "Kasse", &["treasurer"]).await;
-    let starters = app.get("/api/query/list_starters", Some(&treasurer)).await;
-    assert_eq!(starters.status, StatusCode::OK, "{:?}", starters.body);
-    assert_eq!(starters.body[0]["firstname"], "Anna");
-    assert_eq!(starters.body[0]["birthdate"], Value::Null);
-    assert_eq!(starters.body[0]["age_on_competition"], Value::Null);
+    let riders = app.get("/api/query/list_riders", Some(&treasurer)).await;
+    assert_eq!(riders.status, StatusCode::OK, "{:?}", riders.body);
+    assert_eq!(riders.body[0]["firstname"], "Anna");
+    assert_eq!(riders.body[0]["birthdate"], Value::Null);
+    assert_eq!(riders.body[0]["age_on_competition"], Value::Null);
     let acts = app.get("/api/query/list_acts", Some(&treasurer)).await;
     assert_eq!(acts.body[0]["max_age"], Value::Null);
 
     // For the ID and age check at the desk.
     let desk = member(&app, "Desk", &["check_in"]).await;
-    let starters = app.get("/api/query/list_starters", Some(&desk)).await;
-    assert_ne!(starters.body[0]["birthdate"], Value::Null);
-    assert_ne!(starters.body[0]["age_on_competition"], Value::Null);
+    let riders = app.get("/api/query/list_riders", Some(&desk)).await;
+    assert_ne!(riders.body[0]["birthdate"], Value::Null);
+    assert_ne!(riders.body[0]["age_on_competition"], Value::Null);
     let acts = app.get("/api/query/list_acts", Some(&desk)).await;
     assert_ne!(acts.body[0]["max_age"], Value::Null);
 }
@@ -351,7 +351,7 @@ async fn the_check_in_but_not_the_treasurer_sees_birthdates(db: SqlitePool) {
 async fn check_in_sees_club_balances_but_not_contacts(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
-    app.add_starter(&owner, starter_body(club_id, "Anna", true, false))
+    app.add_rider(&owner, rider_body(club_id, "Anna", true, false))
         .await;
     let admin = app.create_admin().await;
     app.post(
@@ -394,9 +394,9 @@ async fn a_role_doesnt_open_other_clubs(db: SqlitePool) {
         .await;
     let clubs = app.get("/api/query/list_clubs", Some(&treasurer)).await;
     assert_eq!(clubs.body[0]["name"], "SSV");
-    let add = starter_body(club_id, "Eva", true, false);
+    let add = rider_body(club_id, "Eva", true, false);
     assert_eq!(
-        status(&app, "/api/command/add_club_starter", add, &treasurer).await,
+        status(&app, "/api/command/add_rider", add, &treasurer).await,
         StatusCode::FORBIDDEN
     );
     let admin = app.create_admin().await;
@@ -411,7 +411,7 @@ async fn only_registration_managers_edit_after_the_meldeschluss(db: SqlitePool) 
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Clara", "SSV").await;
     app.close_registration().await;
-    let status_of = |body: &Value| body["can_register_starter"].clone();
+    let status_of = |body: &Value| body["can_register_rider"].clone();
 
     let jury_lead = member(&app, "Jury", &["jury_lead"]).await;
     let response = app
@@ -422,9 +422,9 @@ async fn only_registration_managers_edit_after_the_meldeschluss(db: SqlitePool) 
     let admin = app.create_admin().await;
     let response = app.get("/api/query/get_system_status", Some(&admin)).await;
     assert_eq!(status_of(&response.body), true);
-    let add = starter_body(club_id, "Eva", true, false);
+    let add = rider_body(club_id, "Eva", true, false);
     assert_eq!(
-        status(&app, "/api/command/add_club_starter", add, &admin).await,
+        status(&app, "/api/command/add_rider", add, &admin).await,
         StatusCode::OK
     );
 }

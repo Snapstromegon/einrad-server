@@ -127,18 +127,18 @@ pub async fn ensure_club_access(
     }
 }
 
-/// Loads the club of a starter and checks that the user may manage it (see
+/// Loads the club of a rider and checks that the user may manage it (see
 /// [`ensure_club_access`]). Returns the club's id.
 ///
-/// Fails with 404 for an unknown starter and 403 without access.
-pub async fn ensure_starter_access(
+/// Fails with 404 for an unknown rider and 403 without access.
+pub async fn ensure_rider_access(
     conn: &mut SqliteConnection,
     auth: &Auth,
-    starter_id: Uuid,
+    rider_id: Uuid,
 ) -> Result<Uuid, HttpError> {
     let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: Uuid" FROM starter WHERE id = ?"#,
-        starter_id
+        r#"SELECT club_id as "club_id!: Uuid" FROM rider WHERE id = ?"#,
+        rider_id
     )
     .fetch_optional(&mut *conn)
     .await?
@@ -164,8 +164,8 @@ pub async fn ensure_act_access(
             WHERE (clubs.owner_id = ?2 OR clubs.id = ?3)
                 AND (
                     clubs.id IN (
-                        SELECT starter.club_id FROM act_participants
-                        JOIN starter ON starter.id = act_participants.starter_id
+                        SELECT rider.club_id FROM act_participants
+                        JOIN rider ON rider.id = act_participants.rider_id
                         WHERE act_participants.act_id = acts.id
                     )
                     OR clubs.id = acts.owner_club_id
@@ -291,20 +291,20 @@ pub async fn type_conflict_message(
     let conflicts = sqlx::query!(
         r#"
         SELECT
-            starter.firstname,
-            starter.lastname,
+            rider.firstname,
+            rider.lastname,
             clubs.name as club_name,
             this.act_type as "act_type!: ActType",
             other.group_name
         FROM act_participants own
         JOIN acts this ON this.id = own.act_id
         JOIN act_participants theirs
-            ON theirs.starter_id = own.starter_id AND theirs.act_id != own.act_id
+            ON theirs.rider_id = own.rider_id AND theirs.act_id != own.act_id
         JOIN acts other ON other.id = theirs.act_id AND other.act_type = this.act_type
-        JOIN starter ON starter.id = own.starter_id
-        JOIN clubs ON clubs.id = starter.club_id
+        JOIN rider ON rider.id = own.rider_id
+        JOIN clubs ON clubs.id = rider.club_id
         WHERE own.act_id = ? AND this.act_type IN ('group_small', 'group_large')
-        ORDER BY starter.lastname, starter.firstname, other.group_name
+        ORDER BY rider.lastname, rider.firstname, other.group_name
         "#,
         act_id
     )

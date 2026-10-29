@@ -53,7 +53,7 @@ pub async fn starts(conn: &mut SqliteConnection, rider: Uuid) -> sqlx::Result<St
         Some(act_id) => Pair::Linked {
             act_id,
             partner: sqlx::query_scalar!(
-                r#"SELECT starter_id as "starter_id!: Uuid" FROM act_participants WHERE act_id = ? AND starter_id != ?"#,
+                r#"SELECT rider_id as "rider_id!: Uuid" FROM act_participants WHERE act_id = ? AND rider_id != ?"#,
                 act_id,
                 rider,
             )
@@ -61,7 +61,7 @@ pub async fn starts(conn: &mut SqliteConnection, rider: Uuid) -> sqlx::Result<St
             .await?,
         },
         None => match sqlx::query_scalar!(
-            "SELECT partner_name FROM pair_requests WHERE starter_id = ?",
+            "SELECT partner_name FROM pair_requests WHERE rider_id = ?",
             rider
         )
         .fetch_optional(&mut *conn)
@@ -114,8 +114,8 @@ pub async fn request_pair(
     }
     sqlx::query!(
         r#"
-        INSERT INTO pair_requests (starter_id, partner_name) VALUES (?, ?)
-        ON CONFLICT (starter_id) DO UPDATE SET partner_name = excluded.partner_name
+        INSERT INTO pair_requests (rider_id, partner_name) VALUES (?, ?)
+        ON CONFLICT (rider_id) DO UPDATE SET partner_name = excluded.partner_name
         "#,
         rider.id,
         partner_name,
@@ -128,11 +128,11 @@ pub async fn request_pair(
     };
     let candidates = sqlx::query_scalar!(
         r#"
-        SELECT starter.id as "id!: Uuid"
-        FROM pair_requests JOIN starter ON starter.id = pair_requests.starter_id
-        WHERE starter.club_id = ?
-            AND starter.id != ?
-            AND concat_ws(' ', starter.firstname, starter.lastname) = ?
+        SELECT rider.id as "id!: Uuid"
+        FROM pair_requests JOIN rider ON rider.id = pair_requests.rider_id
+        WHERE rider.club_id = ?
+            AND rider.id != ?
+            AND concat_ws(' ', rider.firstname, rider.lastname) = ?
             AND (pair_requests.partner_name IS NULL OR pair_requests.partner_name = ?)
         "#,
         rider.club_id,
@@ -180,7 +180,7 @@ pub async fn leave_pair(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), 
     match starts(conn, rider).await?.pair {
         Pair::None => {}
         Pair::Requested { .. } => {
-            sqlx::query!("DELETE FROM pair_requests WHERE starter_id = ?", rider)
+            sqlx::query!("DELETE FROM pair_requests WHERE rider_id = ?", rider)
                 .execute(&mut *conn)
                 .await?;
         }
@@ -188,7 +188,7 @@ pub async fn leave_pair(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), 
             delete_act(conn, act_id).await?;
             if let Some(partner) = partner {
                 sqlx::query!(
-                    "INSERT INTO pair_requests (starter_id, partner_name) VALUES (?, NULL)",
+                    "INSERT INTO pair_requests (rider_id, partner_name) VALUES (?, NULL)",
                     partner
                 )
                 .execute(&mut *conn)
@@ -230,7 +230,7 @@ pub async fn replace_rider(
         }
         ActType::Pair => {
             ensure_not_in_pair(conn, &new).await?;
-            sqlx::query!("DELETE FROM pair_requests WHERE starter_id = ?", new.id)
+            sqlx::query!("DELETE FROM pair_requests WHERE rider_id = ?", new.id)
                 .execute(&mut *conn)
                 .await?;
         }
@@ -241,7 +241,7 @@ pub async fn replace_rider(
         }
     }
     let replaced = sqlx::query!(
-        "UPDATE act_participants SET starter_id = ? WHERE act_id = ? AND starter_id = ?",
+        "UPDATE act_participants SET rider_id = ? WHERE act_id = ? AND rider_id = ?",
         new.id,
         act_id,
         old,
@@ -260,10 +260,10 @@ pub async fn delete_rider(conn: &mut SqliteConnection, rider: Uuid) -> Result<()
     set_single(conn, rider, false).await?;
     leave_pair(conn, rider).await?;
     // Groups stay with their other riders and keep their type.
-    sqlx::query!("DELETE FROM act_participants WHERE starter_id = ?", rider)
+    sqlx::query!("DELETE FROM act_participants WHERE rider_id = ?", rider)
         .execute(&mut *conn)
         .await?;
-    sqlx::query!("DELETE FROM starter WHERE id = ?", rider)
+    sqlx::query!("DELETE FROM rider WHERE id = ?", rider)
         .execute(&mut *conn)
         .await?;
     Ok(())
@@ -286,7 +286,7 @@ impl Rider {
                 club_id as "club_id!: Uuid",
                 concat_ws(' ', firstname, lastname) as "name!: String",
                 gender as "gender: Gender"
-            FROM starter WHERE id = ?
+            FROM rider WHERE id = ?
             "#,
             id
         )
@@ -328,7 +328,7 @@ async fn ensure_not_in_pair(conn: &mut SqliteConnection, rider: &Rider) -> Resul
 /// The pair act of two riders without one; their pair requests are fulfilled.
 async fn link(conn: &mut SqliteConnection, rider: Uuid, partner: Uuid) -> sqlx::Result<Uuid> {
     sqlx::query!(
-        "DELETE FROM pair_requests WHERE starter_id IN (?, ?)",
+        "DELETE FROM pair_requests WHERE rider_id IN (?, ?)",
         rider,
         partner
     )
@@ -347,7 +347,7 @@ async fn act_of(
         r#"
         SELECT act_id as "act_id!: Uuid"
         FROM act_participants JOIN acts ON acts.id = act_participants.act_id
-        WHERE act_participants.starter_id = ? AND acts.act_type = ?
+        WHERE act_participants.rider_id = ? AND acts.act_type = ?
         "#,
         rider,
         act_type
@@ -371,7 +371,7 @@ async fn insert_act(
     .await?;
     for rider in riders {
         sqlx::query!(
-            "INSERT INTO act_participants (act_id, starter_id) VALUES (?, ?)",
+            "INSERT INTO act_participants (act_id, rider_id) VALUES (?, ?)",
             id,
             rider
         )
@@ -421,7 +421,7 @@ mod tests {
         let (firstname, lastname) = name.split_once(' ').unwrap();
         let id = Uuid::now_v7();
         sqlx::query(
-            "INSERT INTO starter (id, club_id, firstname, lastname, birthdate, gender) VALUES (?, ?, ?, ?, '2012-05-01T00:00:00Z', 'female')",
+            "INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender) VALUES (?, ?, ?, ?, '2012-05-01T00:00:00Z', 'female')",
         )
         .bind(id)
         .bind(club_id)
@@ -702,7 +702,7 @@ mod tests {
             pair_of(&db, berta).await,
             Pair::Requested { partner_name: None }
         );
-        let riders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM starter")
+        let riders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rider")
             .fetch_one(&db)
             .await
             .unwrap();

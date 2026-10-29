@@ -269,7 +269,7 @@ export default class CupViewInfoBoard extends LitElement {
       }
     }
 
-    .starters {
+    .riders {
       display: flex;
       flex-direction: row;
       display: grid;
@@ -280,7 +280,7 @@ export default class CupViewInfoBoard extends LitElement {
       text-align: center;
     }
 
-    .starter.group h3 {
+    .rider.group h3 {
       text-wrap: balance;
     }
 
@@ -383,19 +383,19 @@ export default class CupViewInfoBoard extends LitElement {
       return nothing;
     }
     if (isGroupActType(act.act_type)) {
-      return html`<div class="starters">
-        <div class="starter group">
+      return html`<div class="riders">
+        <div class="rider group">
           <h2>${actParticipantsLabel(act)}</h2>
           <h3>${actClubNames(act).join(" · ")}</h3>
         </div>
       </div>`;
     }
-    return html`<div class="starters">
+    return html`<div class="riders">
       ${repeat(
         act.participants,
         (p) => p.id,
         (p) => html`
-          <div class="starter">
+          <div class="rider">
             <h2>${participantName(p)}</h2>
             <h3>${p.club_name}</h3>
           </div>

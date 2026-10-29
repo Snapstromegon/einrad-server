@@ -30,7 +30,7 @@ interface NavLink {
 const adminLinks: NavLink[] = [
   { href: "/admin", label: "Übersicht" },
   { href: "/admin-check-in", label: "Check-In" },
-  { href: "/admin-starters", label: "FahrerInnen" },
+  { href: "/admin-riders", label: "FahrerInnen" },
   { href: "/admin-payments", label: "Zahlungen" },
   { href: "/admin-acts-overview", label: "Küren" },
   { href: "/admin-categories", label: "Kategorien" },
@@ -391,7 +391,7 @@ export default class CupAdminShell extends LitElement {
     if (!this.systemStatus) {
       return nothing;
     }
-    // Not `can_register_starter`/`can_upload_music`: they are always true for
+    // Not `can_register_rider`/`can_upload_music`: they are always true for
     // admins, but these chips show what the clubs can do.
     const competition = this.systemStatus.competition;
     const registration = isRegistrationOpen(competition);

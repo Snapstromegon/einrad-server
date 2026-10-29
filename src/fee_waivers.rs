@@ -100,7 +100,7 @@ pub async fn set_waiver(
                 .await?
         }
         Target::Rider(_) => {
-            sqlx::query_scalar!("SELECT fee_waiver FROM starter WHERE id = ?", id)
+            sqlx::query_scalar!("SELECT fee_waiver FROM rider WHERE id = ?", id)
                 .fetch_optional(&mut *tx)
                 .await?
         }
@@ -121,7 +121,7 @@ pub async fn set_waiver(
                 .await?;
         }
         Target::Rider(_) => {
-            sqlx::query!("UPDATE starter SET fee_waiver = ? WHERE id = ?", reason, id)
+            sqlx::query!("UPDATE rider SET fee_waiver = ? WHERE id = ?", reason, id)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -156,12 +156,14 @@ async fn name_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Stri
                 .fetch_one(tx)
                 .await
         }
-        Target::Rider(_) => sqlx::query_scalar!(
-            r#"SELECT firstname || ' ' || lastname as "name!: String" FROM starter WHERE id = ?"#,
-            id
-        )
-        .fetch_one(tx)
-        .await,
+        Target::Rider(_) => {
+            sqlx::query_scalar!(
+                r#"SELECT firstname || ' ' || lastname as "name!: String" FROM rider WHERE id = ?"#,
+                id
+            )
+            .fetch_one(tx)
+            .await
+        }
         Target::Act(_) => {
             sqlx::query_scalar!(
                 r#"
@@ -170,7 +172,7 @@ async fn name_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Stri
                     acts.group_name,
                     (
                         SELECT group_concat(s.firstname || ' ' || s.lastname, ' & ')
-                        FROM act_participants p JOIN starter s ON s.id = p.starter_id
+                        FROM act_participants p JOIN rider s ON s.id = p.rider_id
                         WHERE p.act_id = acts.id
                     ),
                     ''
@@ -202,8 +204,8 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
                 WaiverClub,
                 r#"
                 SELECT clubs.id as "id!: Uuid", clubs.name
-                FROM starter JOIN clubs ON clubs.id = starter.club_id
-                WHERE starter.id = ?
+                FROM rider JOIN clubs ON clubs.id = rider.club_id
+                WHERE rider.id = ?
                 "#,
                 id
             )
@@ -216,7 +218,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
                 r#"
                 SELECT DISTINCT clubs.id as "id!: Uuid", clubs.name
                 FROM act_participants p
-                JOIN starter s ON s.id = p.starter_id
+                JOIN rider s ON s.id = p.rider_id
                 JOIN clubs ON clubs.id = s.club_id
                 WHERE p.act_id = ?
                 ORDER BY clubs.name

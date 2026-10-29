@@ -450,7 +450,7 @@ export default class CupClubActManager extends LitElement {
         (p) => p.id,
         (p) =>
           html`<li class=${p.is_replacement ? "replacement" : ""}>
-            ${p.starter_firstname} ${p.starter_lastname}${
+            ${p.rider_firstname} ${p.rider_lastname}${
               p.club_id === this.club?.id
                 ? nothing
                 : html` <span class="muted">(${p.club_name})</span>`

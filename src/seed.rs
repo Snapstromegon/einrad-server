@@ -882,7 +882,7 @@ mod tests {
             "timeplan",
             "users",
             "clubs",
-            "starter",
+            "rider",
             "acts",
         ] {
             assert_eq!(count(&db, table).await, 0, "{table}");
@@ -895,7 +895,7 @@ mod tests {
 
         let competition = Competition::current(&db).await.unwrap().unwrap();
         assert_eq!(competition.determining_day, DAY);
-        assert_eq!(competition.max_fee_per_starter, None);
+        assert_eq!(competition.max_fee_per_rider, None);
         let categories: Vec<(String, i64)> =
             sqlx::query_as(r#"SELECT name, "order" FROM categories ORDER BY "order""#)
                 .fetch_all(&db)

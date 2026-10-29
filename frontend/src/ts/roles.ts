@@ -53,7 +53,7 @@ export type Permission = schemas.Permission;
 const PAGES: Record<string, readonly (readonly Permission[])[]> = {
   "/admin": [["manage_users"]],
   "/admin-check-in": [["check_in", "view_riders"]],
-  "/admin-starters": [["manage_registrations"]],
+  "/admin-riders": [["manage_registrations"]],
   "/admin-payments": [["manage_payments"]],
   "/admin-acts-overview": [["plan_competition"], ["check_songs"]],
   // The jury lead places the finals there.

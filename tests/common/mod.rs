@@ -401,50 +401,46 @@ impl TestApp {
         (cookie, club_id)
     }
 
-    /// Adds a starter via the API and returns its id.
-    pub async fn add_starter(&self, cookie: &str, body: Value) -> Uuid {
+    /// Adds a rider via the API and returns its id.
+    pub async fn add_rider(&self, cookie: &str, body: Value) -> Uuid {
         let response = self
-            .post("/api/command/add_club_starter", body, Some(cookie))
+            .post("/api/command/add_rider", body, Some(cookie))
             .await;
         assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-        response.body["starter_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap()
+        response.body["rider_id"].as_str().unwrap().parse().unwrap()
     }
 
-    /// Adds a single starter and returns the id of their generated act.
+    /// Adds a single rider and returns the id of their generated act.
     pub async fn add_single_act(&self, cookie: &str, club_id: Uuid, firstname: &str) -> Uuid {
-        let starter_id = self
-            .add_starter(cookie, starter_body(club_id, firstname, true, false))
+        let rider_id = self
+            .add_rider(cookie, rider_body(club_id, firstname, true, false))
             .await;
-        self.act_of(starter_id).await
+        self.act_of(rider_id).await
     }
 
-    /// Returns the id of the (single) act the starter participates in.
-    pub async fn act_of(&self, starter_id: Uuid) -> Uuid {
-        sqlx::query_scalar("SELECT act_id FROM act_participants WHERE starter_id = ?")
-            .bind(starter_id)
+    /// Returns the id of the (single) act the rider participates in.
+    pub async fn act_of(&self, rider_id: Uuid) -> Uuid {
+        sqlx::query_scalar("SELECT act_id FROM act_participants WHERE rider_id = ?")
+            .bind(rider_id)
             .fetch_one(&self.db)
             .await
             .unwrap()
     }
 
-    /// Returns the id of the act of `act_type` the starter takes part in.
+    /// Returns the id of the act of `act_type` the rider takes part in.
     /// Unlike [`TestApp::act_of`] this stays unambiguous for riders in groups.
-    pub async fn act_of_type(&self, starter_id: Uuid, act_type: &str) -> Uuid {
+    pub async fn act_of_type(&self, rider_id: Uuid, act_type: &str) -> Uuid {
         sqlx::query_scalar(
-            "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE starter_id = ? AND act_type = ?",
+            "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
         )
-        .bind(starter_id)
+        .bind(rider_id)
         .bind(act_type)
         .fetch_one(&self.db)
         .await
         .unwrap()
     }
 
-    /// Adds `count` starters without single or pair starts, named
+    /// Adds `count` riders without single or pair starts, named
     /// `{prefix}1 Muster`, `{prefix}2 Muster`, …, and returns their ids.
     pub async fn add_riders(
         &self,
@@ -455,8 +451,8 @@ impl TestApp {
     ) -> Vec<Uuid> {
         let mut ids = Vec::with_capacity(count);
         for i in 1..=count {
-            let body = starter_body(club_id, &format!("{prefix}{i}"), false, false);
-            ids.push(self.add_starter(cookie, body).await);
+            let body = rider_body(club_id, &format!("{prefix}{i}"), false, false);
+            ids.push(self.add_rider(cookie, body).await);
         }
         ids
     }
@@ -506,11 +502,11 @@ impl TestApp {
     ) -> TestResponse {
         let members: Vec<Value> = regular
             .iter()
-            .map(|id| json!({ "starter_id": id, "is_replacement": false }))
+            .map(|id| json!({ "rider_id": id, "is_replacement": false }))
             .chain(
                 replacements
                     .iter()
-                    .map(|id| json!({ "starter_id": id, "is_replacement": true })),
+                    .map(|id| json!({ "rider_id": id, "is_replacement": true })),
             )
             .collect();
         self.post(
@@ -548,9 +544,9 @@ pub fn email_for(name: &str) -> String {
     format!("{}@cup.test", name.to_lowercase().replace(' ', "."))
 }
 
-/// Body for `add_club_starter`. The birthdate places single female starters in
+/// Body for `add_rider`. The birthdate places single female riders in
 /// the seeded `EWU13` category (12 years old on the determining day 2027-06-01).
-pub fn starter_body(club_id: Uuid, firstname: &str, single: bool, pair: bool) -> Value {
+pub fn rider_body(club_id: Uuid, firstname: &str, single: bool, pair: bool) -> Value {
     // A single implies the gender; everyone else needs one.
     let gender = if single { Value::Null } else { json!("female") };
     json!({

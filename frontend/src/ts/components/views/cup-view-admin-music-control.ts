@@ -1721,7 +1721,7 @@ export default class CupViewAdminMusicControl extends LitElement {
     try {
       await unwrap(
         client.setCheckedIn({
-          body: { starter_ids: ids, checked_in: true },
+          body: { rider_ids: ids, checked_in: true },
         }),
       );
       await this.reload();

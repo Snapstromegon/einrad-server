@@ -14,14 +14,14 @@ mod list_check_ins;
 mod list_club_acts;
 mod list_club_groups;
 mod list_club_judges;
-mod list_club_starters;
+mod list_club_riders;
 mod list_clubs;
 mod list_finals;
 mod list_groups;
 mod list_judges;
 mod list_jury_categories;
 mod list_jury_plan;
-mod list_starters;
+mod list_riders;
 mod list_timeplan;
 mod list_users;
 pub(crate) mod predict_timeplan;
@@ -34,12 +34,12 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(get_club::get_club))
         .routes(routes!(get_photos::get_photos))
         .routes(routes!(get_playback::get_playback))
-        .routes(routes!(list_club_starters::list_club_starters))
+        .routes(routes!(list_club_riders::list_club_riders))
         .routes(routes!(list_jury_categories::list_jury_categories))
         .routes(routes!(list_users::list_users))
         .routes(routes!(whoami::whoami))
         .routes(routes!(get_system_status::get_system_status))
-        .routes(routes!(list_starters::list_starters))
+        .routes(routes!(list_riders::list_riders))
         .routes(routes!(list_club_acts::list_club_acts))
         .routes(routes!(list_acts::list_acts))
         .routes(routes!(list_categories::list_categories))

@@ -201,7 +201,9 @@ pub struct CompetitionConfig {
     #[serde(deserialize_with = "toml_datetime")]
     pub music_upload_end: OffsetDateTime,
     pub fee_per_start: f64,
-    pub max_fee_per_starter: Option<f64>,
+    /// Formerly `max_fee_per_starter`, which older config files still use.
+    #[serde(alias = "max_fee_per_starter")]
+    pub max_fee_per_rider: Option<f64>,
     /// Where the event takes place, e.g. the hall's name and address.
     #[serde(default)]
     pub venue: Option<String>,
@@ -722,7 +724,7 @@ mod tests {
             registration_end = 2027-04-30T23:59:59+02:00
             music_upload_end = 2027-05-20T23:59:59+02:00
             fee_per_start = 15
-            max_fee_per_starter = 45
+            max_fee_per_rider = 45
 
             [competition.payment]
             deadline = 2027-05-15

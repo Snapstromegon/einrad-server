@@ -142,7 +142,7 @@ export default class CupClubStepClub extends LitElement {
   override render() {
     const competition = this.competition;
     // The guide is open until the club starts or hides it.
-    const howOpen = this.howOpen ?? this.data.starters.length === 0;
+    const howOpen = this.howOpen ?? this.data.riders.length === 0;
     return html`<div class="step-intro">
         <h2>1. Verein</h2>
         <p>
@@ -363,7 +363,7 @@ export default class CupClubStepClub extends LitElement {
   }
 
   renderRules(competition: Competition) {
-    const max = competition.max_fee_per_starter;
+    const max = competition.max_fee_per_rider;
     return html`<details
       class="card"
       ?open=${this.rulesOpen}

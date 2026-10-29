@@ -194,25 +194,21 @@ async fn admin_cannot_demote_themselves_even_when_another_admin_exists(db: Sqlit
 }
 
 #[sqlx::test]
-async fn list_starters_is_admin_only(db: SqlitePool) {
+async fn list_riders_is_admin_only(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
 
     assert_eq!(
-        app.get("/api/query/list_starters", Some(&admin))
-            .await
-            .status,
+        app.get("/api/query/list_riders", Some(&admin)).await.status,
         StatusCode::OK
     );
     assert_eq!(
-        app.get("/api/query/list_starters", Some(&user))
-            .await
-            .status,
+        app.get("/api/query/list_riders", Some(&user)).await.status,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        app.get("/api/query/list_starters", None).await.status,
+        app.get("/api/query/list_riders", None).await.status,
         StatusCode::UNAUTHORIZED
     );
 }
@@ -229,7 +225,7 @@ async fn system_status_reflects_open_registration(db: SqlitePool) {
         json!({
             "can_register": true,
             "can_create_club": true,
-            "can_register_starter": true,
+            "can_register_rider": true,
             "can_upload_music": true,
             "can_register_judge": true,
             "jury_registration": true,
@@ -238,7 +234,7 @@ async fn system_status_reflects_open_registration(db: SqlitePool) {
     assert_eq!(competition["name"], "Einradevent 2027 (Demo)");
     assert_eq!(competition["determining_day"], "2027-06-01");
     assert_eq!(competition["fee_per_start"], 15.0);
-    assert_eq!(competition["max_fee_per_starter"], 45.0);
+    assert_eq!(competition["max_fee_per_rider"], 45.0);
     assert_eq!(competition["payment_reference"], "Startgeld");
 }
 
@@ -254,7 +250,7 @@ async fn everything_is_closed_without_competition(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body["competition"], Value::Null);
     assert_eq!(response.body["can_register"], false);
-    assert_eq!(response.body["can_register_starter"], false);
+    assert_eq!(response.body["can_register_rider"], false);
     assert_eq!(response.body["can_upload_music"], false);
 }
 

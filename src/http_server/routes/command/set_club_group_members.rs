@@ -23,7 +23,7 @@ pub struct SetClubGroupMembersResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ClubGroupMemberInput {
-    starter_id: Uuid,
+    rider_id: Uuid,
     /// Replacement riders (Ersatzfahrer) don't count towards the group size.
     is_replacement: bool,
 }
@@ -65,7 +65,7 @@ pub async fn set_club_group_members(
     capabilities: Capabilities,
     Json(body): Json<SetClubGroupMembersBody>,
 ) -> Result<Json<SetClubGroupMembersResponse>, HttpError> {
-    if !capabilities.can_register_starter {
+    if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
@@ -76,14 +76,14 @@ pub async fn set_club_group_members(
 
     let mut seen = HashSet::new();
     for member in &body.members {
-        if !seen.insert(member.starter_id) {
+        if !seen.insert(member.rider_id) {
             return Err(HttpError::ErrorMessages(
                 "Jede FahrerIn kann nur einmal in der Gruppe angemeldet werden.".to_string(),
             ));
         }
         let club_id = sqlx::query_scalar!(
-            r#"SELECT club_id as "club_id!: Uuid" FROM starter WHERE id = ?"#,
-            member.starter_id
+            r#"SELECT club_id as "club_id!: Uuid" FROM rider WHERE id = ?"#,
+            member.rider_id
         )
         .fetch_optional(&mut *transaction)
         .await?;
@@ -104,7 +104,7 @@ pub async fn set_club_group_members(
     sqlx::query!(
         r#"
         DELETE FROM act_participants
-        WHERE act_id = ? AND starter_id IN (SELECT id FROM starter WHERE club_id = ?)
+        WHERE act_id = ? AND rider_id IN (SELECT id FROM rider WHERE club_id = ?)
         "#,
         group.id,
         body.club_id,
@@ -115,11 +115,11 @@ pub async fn set_club_group_members(
     for member in &body.members {
         sqlx::query!(
             r#"
-            INSERT INTO act_participants (act_id, starter_id, is_replacement)
+            INSERT INTO act_participants (act_id, rider_id, is_replacement)
             VALUES (?, ?, ?)
             "#,
             group.id,
-            member.starter_id,
+            member.rider_id,
             member.is_replacement,
         )
         .execute(&mut *transaction)

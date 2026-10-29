@@ -15,13 +15,13 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetFeeWaivedResponse {}
 
-/// Exactly one of `club_id`, `starter_id` and `act_id`.
+/// Exactly one of `club_id`, `rider_id` and `act_id`.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFeeWaivedBody {
     /// All the club's fees: start fees and jury fee.
     club_id: Option<Uuid>,
     /// All the rider's starts.
-    starter_id: Option<Uuid>,
+    rider_id: Option<Uuid>,
     /// The act's start, for every rider.
     act_id: Option<Uuid>,
     /// Why the fees are waived, e.g. "Veranstalter"; `null` charges them
@@ -51,7 +51,7 @@ pub async fn set_fee_waived(
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<SetFeeWaivedBody>,
 ) -> Result<Json<SetFeeWaivedResponse>, HttpError> {
-    let target = match (body.club_id, body.starter_id, body.act_id) {
+    let target = match (body.club_id, body.rider_id, body.act_id) {
         (Some(id), None, None) => Target::Club(id),
         (None, Some(id), None) => Target::Rider(id),
         (None, None, Some(id)) => Target::Act(id),

@@ -13,7 +13,7 @@
 #                                 partly checked in
 # - lena.schmitz@example.org      RV Bonn, not paid, owns an incomplete group,
 #                                 nobody checked in
-# - sabine.koch@example.org       club without starters, fees waived and so overpaid,
+# - sabine.koch@example.org       club without riders, fees waived and so overpaid,
 #                                 password reset pending
 # - tim.neumann@example.org       verified, no club yet
 # - paul.hoffmann@example.org     email not verified
@@ -45,7 +45,7 @@ registration_start = 2026-01-01T00:00:00+01:00
 registration_end = 2027-02-28T23:59:59+01:00
 music_upload_end = 2027-03-15T23:59:59+01:00
 fee_per_start = 15
-max_fee_per_starter = 45
+max_fee_per_rider = 45
 
 # The clubs' jury obligation (jury registration), with the Jury-Konzept's
 # values written out; an empty section would use the same defaults.
@@ -142,18 +142,18 @@ password = "Paul"
 email_verified = false
 verification_token = "00000000-0000-4000-8000-000000000001"
 
-# Clubs with their starters. owner is a user name, payment the amount in € the
+# Clubs with their riders. owner is a user name, payment the amount in € the
 # club has paid. Ages count against the determining day 2027-06-01.
 #
-# Starters: single is "male" or "female" (or missing). A pair starter either
+# Riders: single is "male" or "female" (or missing). A pair rider either
 # names a registered partner (any club, linked both ways), names an
 # unregistered partner with partner_name, or has no partner yet. A partner of
 # another club named with partner_name on both sides is an unconfirmed pair:
 # the organizer links them (admin overview). gender defaults to the single's.
-# checked_in_at is set for starters who already checked in on competition day.
+# checked_in_at is set for riders who already checked in on competition day.
 #
 # Every start costs 15 €, group starts (replacements included) as well, but at
-# most 45 € per starter.
+# most 45 € per rider.
 
 # 19 starts, 270 € due (Emma Wagner's 4 starts cost 45 €): paid in full.
 # Everybody checked in.
@@ -162,28 +162,28 @@ name = "SSV Nümbrecht"
 owner = "Maria Wagner"
 payment = 270
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Ben"
 lastname = "Fischer"
 birthdate = 2017-08-20
 single = "male"
 checked_in_at = 2027-06-05T08:41:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Noah"
 lastname = "Fischer"
 birthdate = 2016-11-02
 single = "male"
 checked_in_at = 2027-06-05T08:41:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Luca"
 lastname = "Weber"
 birthdate = 2015-02-10
 single = "male"
 checked_in_at = 2027-06-05T08:43:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Elias"
 lastname = "Weber"
 birthdate = 2014-09-30
@@ -191,7 +191,7 @@ single = "male"
 checked_in_at = 2027-06-05T08:43:00+02:00
 
 # Single and pair (with a partner from the same club).
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Mia"
 lastname = "Schneider"
 birthdate = 2017-03-12
@@ -200,7 +200,7 @@ pair = true
 partner = "Emma Wagner"
 checked_in_at = 2027-06-05T08:50:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Emma"
 lastname = "Wagner"
 birthdate = 2016-12-01
@@ -209,7 +209,7 @@ pair = true
 checked_in_at = 2027-06-05T08:50:00+02:00
 
 # Pair with a partner from RSC Köln.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Sophie"
 lastname = "Becker"
 birthdate = 2012-04-15
@@ -218,14 +218,14 @@ pair = true
 partner = "Lea Hoffmann"
 checked_in_at = 2027-06-05T09:05:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Hannah"
 lastname = "Klein"
 birthdate = 1990-05-05
 single = "female"
 checked_in_at = 2027-06-05T09:12:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Peter"
 lastname = "Lange"
 birthdate = 1965-08-08
@@ -233,7 +233,7 @@ single = "male"
 checked_in_at = 2027-06-05T09:20:00+02:00
 
 # Open-ended category (70+).
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Karl"
 lastname = "Richter"
 birthdate = 1952-01-20
@@ -273,27 +273,27 @@ registrations = [
   { category = "Paar Vorlauf Junior Expert", task = "dismounts" },
 ]
 
-# 20 starts, 300 € due: paid partially. Half of the starters checked in.
+# 20 starts, 300 € due: paid partially. Half of the riders checked in.
 [[clubs]]
 name = "RSC Köln"
 owner = "Jonas Becker"
 payment = 75
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Finn"
 lastname = "Meyer"
 birthdate = 2015-07-07
 single = "male"
 checked_in_at = 2027-06-05T08:55:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Lea"
 lastname = "Hoffmann"
 birthdate = 2012-10-03
 pair = true
 fee_waiver = "Gastfahrerin"
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Julia"
 lastname = "Krüger"
 birthdate = 2008-02-14
@@ -302,7 +302,7 @@ pair = true
 partner = "Max Krüger"
 checked_in_at = 2027-06-05T09:02:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Max"
 lastname = "Krüger"
 birthdate = 2009-11-11
@@ -310,21 +310,21 @@ single = "male"
 pair = true
 checked_in_at = 2027-06-05T09:02:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Tom"
 lastname = "Schulz"
 birthdate = 2001-03-03
 single = "male"
 checked_in_at = 2027-06-05T09:40:00+02:00
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Jan"
 lastname = "Zimmermann"
 birthdate = 1999-12-24
 single = "male"
 
 # Unconfirmed pair with Clara Berg (RV Bonn): both clubs name each other.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Laura"
 lastname = "Schulz"
 birthdate = 2003-07-19
@@ -334,7 +334,7 @@ partner_name = "Clara Berg"
 
 # Unconfirmed pair with Ida Naumann (RV Bonn), but both clubs spelled the
 # names a little differently.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Paul"
 lastname = "Krämer"
 birthdate = 2006-10-12
@@ -344,7 +344,7 @@ partner_name = "Ida Neumann"
 
 # Unconfirmed pair with Jonas Richter (RV Bonn). Both clubs only entered the
 # first name, so the matcher can't suggest it; an admin can still tell.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Mila"
 lastname = "Hartmann"
 birthdate = 2009-08-21
@@ -353,7 +353,7 @@ pair = true
 partner_name = "Jonas"
 
 # Pair without a partner.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Nina"
 lastname = "Wolf"
 birthdate = 2011-05-25
@@ -383,19 +383,19 @@ registrations = [
 name = "RV Bonn"
 owner = "Lena Schmitz"
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Anna"
 lastname = "Braun"
 birthdate = 2013-01-08
 single = "female"
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Felix"
 lastname = "Braun"
 birthdate = 2010-09-09
 single = "male"
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Marie"
 lastname = "Lehmann"
 birthdate = 2005-04-04
@@ -403,7 +403,7 @@ single = "female"
 pair = true
 partner = "Leon Lehmann"
 
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Leon"
 lastname = "Lehmann"
 birthdate = 2004-05-05
@@ -411,7 +411,7 @@ single = "male"
 pair = true
 
 # Unconfirmed pair with Laura Schulz (RSC Köln).
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Clara"
 lastname = "Berg"
 birthdate = 2003-02-14
@@ -420,7 +420,7 @@ pair = true
 partner_name = "Laura Schulz"
 
 # Unconfirmed pair with Paul Krämer (RSC Köln), spelled "Paul Kramer" here.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Ida"
 lastname = "Naumann"
 birthdate = 2007-03-30
@@ -429,7 +429,7 @@ pair = true
 partner_name = "Paul Kramer"
 
 # Unconfirmed pair with Mila Hartmann (RSC Köln), named by first name only.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Jonas"
 lastname = "Richter"
 birthdate = 2008-11-03
@@ -438,12 +438,12 @@ pair = true
 partner_name = "Mila"
 
 # Registered, but without any start.
-[[clubs.starters]]
+[[clubs.riders]]
 firstname = "Greta"
 lastname = "Vogel"
 birthdate = 2016-07-01
 
-# No starters, but paid: overpaid.
+# No riders, but paid: overpaid.
 [[clubs]]
 name = "Einrad-Freunde Aachen"
 owner = "Sabine Koch"
@@ -500,8 +500,8 @@ owner = "RV Bonn"
 act_type = "group_small"
 members = ["Felix Braun", "Leon Lehmann"]
 
-# Act details. An act exists for every single starter, every linked pair and
-# every group; each entry selects one by a participant (starter) and act_type,
+# Act details. An act exists for every single rider, every linked pair and
+# every group; each entry selects one by a participant (rider) and act_type,
 # or a group by its name (group). Optional: name, description, song (file name
 # shown; a short tone is generated unless song_source points to an audio file
 # relative to this file), song_url, song_checked, order, started_at, ended_at.
@@ -516,12 +516,12 @@ members = ["Felix Braun", "Leon Lehmann"]
 # board and the live startlist have something to show.
 
 [[acts]]
-starter = "Felix Braun"
+rider = "Felix Braun"
 act_type = "single"
 fee_waiver = "Attest"
 
 [[acts]]
-starter = "Ben Fischer"
+rider = "Ben Fischer"
 act_type = "single"
 name = "Kleiner Drache"
 song = "TheFatRat - Rise Up.mp3"
@@ -532,7 +532,7 @@ started_at = 2027-06-05T10:10:00+02:00
 ended_at = 2027-06-05T10:13:00+02:00
 
 [[acts]]
-starter = "Noah Fischer"
+rider = "Noah Fischer"
 act_type = "single"
 name = "Piratenfahrt"
 description = "Mit Augenklappe und Hut."
@@ -544,7 +544,7 @@ started_at = 2027-06-05T10:17:00+02:00
 ended_at = 2027-06-05T10:20:00+02:00
 
 [[acts]]
-starter = "Luca Weber"
+rider = "Luca Weber"
 act_type = "single"
 name = "Roboter"
 song = "TheFatRat - Electrified.mp3"
@@ -555,7 +555,7 @@ started_at = 2027-06-05T10:30:00+02:00
 ended_at = 2027-06-05T10:33:00+02:00
 
 [[acts]]
-starter = "Elias Weber"
+rider = "Elias Weber"
 act_type = "single"
 name = "Dschungelbuch"
 song = "TheFatRat - Monkeys.mp3"
@@ -565,7 +565,7 @@ started_at = 2027-06-05T10:37:00+02:00
 
 # Song uploaded, not checked yet.
 [[acts]]
-starter = "Finn Meyer"
+rider = "Finn Meyer"
 act_type = "single"
 name = "Feuerwehr"
 song = "TheFatRat - Fire.mp3"
@@ -573,7 +573,7 @@ song_url = "https://static.wixstatic.com/mp3/80cc5d_cc85cc2cf99640a79886bba86b51
 order = 3
 
 [[acts]]
-starter = "Mia Schneider"
+rider = "Mia Schneider"
 act_type = "pair"
 name = "Zwei Schmetterlinge"
 description = "Beide in bunten Kostümen, Start von der Mitte."
@@ -583,12 +583,12 @@ song_checked = true
 
 # Name only, no song yet.
 [[acts]]
-starter = "Sophie Becker"
+rider = "Sophie Becker"
 act_type = "pair"
 name = "Grenzenlos"
 
 [[acts]]
-starter = "Hannah Klein"
+rider = "Hannah Klein"
 act_type = "single"
 name = "Schwanensee"
 description = "Klassisch, mit Tutu."
@@ -597,14 +597,14 @@ song_url = "https://static.wixstatic.com/mp3/80cc5d_b27bcee24e8243c5bb04b08d1630
 song_checked = true
 
 [[acts]]
-starter = "Karl Richter"
+rider = "Karl Richter"
 act_type = "single"
 name = "Immer noch auf Rädern"
 song = "TheFatRat - Still Here With You.mp3"
 song_url = "https://static.wixstatic.com/mp3/80cc5d_33b52f2271c24927a6168fa50c262d31.mp3"
 
 [[acts]]
-starter = "Julia Krüger"
+rider = "Julia Krüger"
 act_type = "pair"
 name = "Geschwister"
 song = "TheFatRat - Never Be Alone.mp3"
