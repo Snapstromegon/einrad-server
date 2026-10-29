@@ -1,11 +1,15 @@
 //! Shared harness for integration tests.
 //!
-//! Every test gets a fresh, migrated SQLite database from `#[sqlx::test]` and
+//! Every test gets a fresh, migrated SQLite database in memory and
 //! drives the real API router in-process, without binding a socket. Tests that
 //! send mails additionally get their own Mailpit container.
 #![allow(dead_code)]
 
 pub mod mailpit;
+
+/// Every test gets its own database in memory.
+#[allow(unused_imports)]
+pub use nrw_freestyle_cup_registration::reloadable_sqlite::{in_memory, in_memory_migrated};
 
 use std::{
     path::{Path, PathBuf},

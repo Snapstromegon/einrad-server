@@ -11,7 +11,6 @@ use common::TestApp;
 use futures_util::{SinkExt, StreamExt};
 use nrw_freestyle_cup_registration::player::Timing;
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use tokio::{
     net::TcpStream,
     time::{Instant, timeout, timeout_at},
@@ -441,8 +440,9 @@ async fn berta_waiting(app: &TestApp, admin: &str, state: &str) -> BertaWaiting 
     }
 }
 
-#[sqlx::test]
-async fn upgrade_requires_an_admin(db: SqlitePool) {
+#[tokio::test]
+async fn upgrade_requires_an_admin() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
@@ -460,8 +460,9 @@ async fn upgrade_requires_an_admin(db: SqlitePool) {
     assert_eq!(unknown_mode.err(), Some(StatusCode::BAD_REQUEST));
 }
 
-#[sqlx::test]
-async fn controller_sees_players_come_and_go(db: SqlitePool) {
+#[tokio::test]
+async fn controller_sees_players_come_and_go() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     app.player_hub.set_timing(short_grace());
@@ -556,8 +557,9 @@ async fn controller_sees_players_come_and_go(db: SqlitePool) {
     assert_eq!(connected(&state, "Tonpult"), Some(true));
 }
 
-#[sqlx::test]
-async fn selecting_a_player_activates_it(db: SqlitePool) {
+#[tokio::test]
+async fn selecting_a_player_activates_it() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -589,8 +591,9 @@ async fn selecting_a_player_activates_it(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn timeplan_steps_cue_the_songs_without_starting_them(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_steps_cue_the_songs_without_starting_them() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -653,8 +656,9 @@ async fn timeplan_steps_cue_the_songs_without_starting_them(db: SqlitePool) {
     assert_eq!(state["active_player"], id);
 }
 
-#[sqlx::test]
-async fn ending_an_act_stops_its_music(db: SqlitePool) {
+#[tokio::test]
+async fn ending_an_act_stops_its_music() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -694,8 +698,9 @@ async fn ending_an_act_stops_its_music(db: SqlitePool) {
     assert_eq!(state["pending_cue"], Value::Null);
 }
 
-#[sqlx::test]
-async fn a_new_song_waits_until_the_playing_one_stops(db: SqlitePool) {
+#[tokio::test]
+async fn a_new_song_waits_until_the_playing_one_stops() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let BertaWaiting {
@@ -728,8 +733,9 @@ async fn a_new_song_waits_until_the_playing_one_stops(db: SqlitePool) {
     assert_eq!(state["cue"], original_song(berta, "Berta"));
 }
 
-#[sqlx::test]
-async fn playback_commands_go_only_to_the_active_player(db: SqlitePool) {
+#[tokio::test]
+async fn playback_commands_go_only_to_the_active_player() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -780,8 +786,9 @@ async fn playback_commands_go_only_to_the_active_player(db: SqlitePool) {
     assert_eq!(tonpult.next().await["type"], "prefetch");
 }
 
-#[sqlx::test]
-async fn closing_the_active_player_removes_it_after_a_while(db: SqlitePool) {
+#[tokio::test]
+async fn closing_the_active_player_removes_it_after_a_while() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     app.player_hub.set_timing(short_grace());
@@ -830,8 +837,9 @@ fn queue(state: &Value) -> Vec<(String, bool)> {
         .collect()
 }
 
-#[sqlx::test]
-async fn the_award_queue_plays_songs_on_demand(db: SqlitePool) {
+#[tokio::test]
+async fn the_award_queue_plays_songs_on_demand() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -928,8 +936,9 @@ async fn the_award_queue_plays_songs_on_demand(db: SqlitePool) {
     assert_eq!(error["message"], "Für diese Kür gibt es keine Musik.");
 }
 
-#[sqlx::test]
-async fn the_playback_is_public(db: SqlitePool) {
+#[tokio::test]
+async fn the_playback_is_public() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -975,8 +984,9 @@ async fn the_playback_is_public(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn the_controller_removes_a_disconnected_player_at_once(db: SqlitePool) {
+#[tokio::test]
+async fn the_controller_removes_a_disconnected_player_at_once() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -1016,8 +1026,9 @@ async fn the_controller_removes_a_disconnected_player_at_once(db: SqlitePool) {
     assert_eq!(connected(&state, "Bühne"), Some(true));
 }
 
-#[sqlx::test]
-async fn switching_players_hands_over_the_waiting_song(db: SqlitePool) {
+#[tokio::test]
+async fn switching_players_hands_over_the_waiting_song() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let BertaWaiting {
@@ -1054,8 +1065,9 @@ async fn switching_players_hands_over_the_waiting_song(db: SqlitePool) {
     assert_eq!(state["pending_cue"], Value::Null);
 }
 
-#[sqlx::test]
-async fn a_waiting_song_takes_over_when_the_playing_player_leaves(db: SqlitePool) {
+#[tokio::test]
+async fn a_waiting_song_takes_over_when_the_playing_player_leaves() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let BertaWaiting {
@@ -1093,8 +1105,9 @@ async fn a_waiting_song_takes_over_when_the_playing_player_leaves(db: SqlitePool
     assert_eq!(message, cue(original_song(berta, "Berta")));
 }
 
-#[sqlx::test]
-async fn the_controller_can_cue_an_act(db: SqlitePool) {
+#[tokio::test]
+async fn the_controller_can_cue_an_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -1140,8 +1153,9 @@ async fn the_controller_can_cue_an_act(db: SqlitePool) {
     assert_eq!(error["message"], "Für diese Kür gibt es keine Musik.");
 }
 
-#[sqlx::test]
-async fn malformed_controller_messages_keep_the_connection(db: SqlitePool) {
+#[tokio::test]
+async fn malformed_controller_messages_keep_the_connection() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -1169,8 +1183,9 @@ async fn malformed_controller_messages_keep_the_connection(db: SqlitePool) {
     assert_eq!(state["volume"], 0.3);
 }
 
-#[sqlx::test]
-async fn a_paused_song_keeps_the_next_one_waiting(db: SqlitePool) {
+#[tokio::test]
+async fn a_paused_song_keeps_the_next_one_waiting() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     // Paused when Anna's act ended: Berta's song waits.
@@ -1201,8 +1216,9 @@ async fn a_paused_song_keeps_the_next_one_waiting(db: SqlitePool) {
     assert_eq!(tonpult.next().await, cue(original_song(berta, "Berta")));
 }
 
-#[sqlx::test]
-async fn the_active_player_reconnects_with_its_id(db: SqlitePool) {
+#[tokio::test]
+async fn the_active_player_reconnects_with_its_id() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let BertaWaiting {
@@ -1329,8 +1345,9 @@ async fn the_active_player_reconnects_with_its_id(db: SqlitePool) {
     assert_eq!(tonpult.next().await, cue(original_song(berta, "Berta")));
 }
 
-#[sqlx::test]
-async fn players_keep_their_id(db: SqlitePool) {
+#[tokio::test]
+async fn players_keep_their_id() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;
@@ -1368,8 +1385,9 @@ async fn players_keep_their_id(db: SqlitePool) {
     assert_eq!(connected(&state, "Tonpult"), Some(true));
 }
 
-#[sqlx::test]
-async fn the_server_pings_and_closes_silent_connections(db: SqlitePool) {
+#[tokio::test]
+async fn the_server_pings_and_closes_silent_connections() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     app.player_hub.set_timing(Timing {
@@ -1404,8 +1422,9 @@ async fn the_server_pings_and_closes_silent_connections(db: SqlitePool) {
         .await;
 }
 
-#[sqlx::test]
-async fn a_fresh_server_preloads_the_songs_coming_up(db: SqlitePool) {
+#[tokio::test]
+async fn a_fresh_server_preloads_the_songs_coming_up() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -1425,8 +1444,9 @@ async fn a_fresh_server_preloads_the_songs_coming_up(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn the_original_choice_is_remembered_per_act(db: SqlitePool) {
+#[tokio::test]
+async fn the_original_choice_is_remembered_per_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;
@@ -1493,8 +1513,9 @@ async fn the_original_choice_is_remembered_per_act(db: SqlitePool) {
     assert_eq!(state["cue"], berta_normalized);
 }
 
-#[sqlx::test]
-async fn a_published_final_plays_the_songs_of_its_placed_acts(db: SqlitePool) {
+#[tokio::test]
+async fn a_published_final_plays_the_songs_of_its_placed_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let acts = acts_with_songs(&app, &admin, &["Anna", "Berta"]).await;

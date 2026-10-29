@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::TestApp;
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// The migration that replaced `clubs.payment` with bookings.
@@ -76,8 +75,9 @@ async fn treasurer(app: &TestApp) -> (Uuid, String) {
     (id, app.cookie_for(id))
 }
 
-#[sqlx::test]
-async fn a_payment_and_a_refund_add_up_to_the_paid_amount(db: SqlitePool) {
+#[tokio::test]
+async fn a_payment_and_a_refund_add_up_to_the_paid_amount() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;
@@ -97,8 +97,9 @@ async fn a_payment_and_a_refund_add_up_to_the_paid_amount(db: SqlitePool) {
     assert_eq!(amounts, [(120.5, "Überweisung"), (-20.3, "Überweisung")]);
 }
 
-#[sqlx::test]
-async fn unassigned_bookings_count_once_assigned_ignored_ones_never(db: SqlitePool) {
+#[tokio::test]
+async fn unassigned_bookings_count_once_assigned_ignored_ones_never() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;
@@ -132,8 +133,9 @@ async fn unassigned_bookings_count_once_assigned_ignored_ones_never(db: SqlitePo
     assert_eq!(transfer["club_name"], "RSV");
 }
 
-#[sqlx::test]
-async fn editing_and_deleting_change_the_paid_amount(db: SqlitePool) {
+#[tokio::test]
+async fn editing_and_deleting_change_the_paid_amount() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;
@@ -147,8 +149,9 @@ async fn editing_and_deleting_change_the_paid_amount(db: SqlitePool) {
     assert_eq!(paid(&app, &kasse).await, [("RSV".into(), 60.0)]);
 }
 
-#[sqlx::test]
-async fn invalid_bookings_are_refused(db: SqlitePool) {
+#[tokio::test]
+async fn invalid_bookings_are_refused() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;
@@ -180,8 +183,9 @@ async fn invalid_bookings_are_refused(db: SqlitePool) {
     assert!(log(&app, &kasse, "").await.is_empty());
 }
 
-#[sqlx::test]
-async fn only_treasurer_and_admin_write_bookings(db: SqlitePool) {
+#[tokio::test]
+async fn only_treasurer_and_admin_write_bookings() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;
@@ -212,8 +216,9 @@ async fn only_treasurer_and_admin_write_bookings(db: SqlitePool) {
     assert_eq!(paid(&app, &kasse).await, [("RSV".into(), 20.0)]);
 }
 
-#[sqlx::test]
-async fn a_club_sees_only_its_own_payments(db: SqlitePool) {
+#[tokio::test]
+async fn a_club_sees_only_its_own_payments() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, _) = app.create_club_owner("Max", "RSV").await;
     let (other, other_id) = app.create_club_owner("Erika", "ESV").await;
@@ -239,8 +244,9 @@ async fn a_club_sees_only_its_own_payments(db: SqlitePool) {
     assert_eq!(own.body["payments"].as_array().unwrap().len(), 1);
 }
 
-#[sqlx::test(migrations = false)]
-async fn the_migration_turns_paid_totals_into_bookings(db: SqlitePool) {
+#[tokio::test]
+async fn the_migration_turns_paid_totals_into_bookings() {
+    let db = common::in_memory().await;
     let migrator = sqlx::migrate!();
     migrator.run_to(BOOKINGS_MIGRATION - 1, &db).await.unwrap();
     let owner = Uuid::now_v7();
@@ -292,8 +298,9 @@ async fn the_migration_turns_paid_totals_into_bookings(db: SqlitePool) {
     assert_eq!(entries[0]["booking_id"], bookings[0]["id"]);
 }
 
-#[sqlx::test]
-async fn each_change_writes_one_log_entry_with_before_and_after(db: SqlitePool) {
+#[tokio::test]
+async fn each_change_writes_one_log_entry_with_before_and_after() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, rsv) = app.create_club_owner("Max", "RSV").await;
     let (_, esv) = app.create_club_owner("Erika", "ESV").await;
@@ -373,8 +380,9 @@ async fn each_change_writes_one_log_entry_with_before_and_after(db: SqlitePool) 
     assert_eq!(rsv_actions, ["assigned", "assigned"]);
 }
 
-#[sqlx::test]
-async fn only_treasurer_and_admin_read_the_log(db: SqlitePool) {
+#[tokio::test]
+async fn only_treasurer_and_admin_read_the_log() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Max", "RSV").await;
     let (_, kasse) = treasurer(&app).await;

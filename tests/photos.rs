@@ -19,7 +19,6 @@ use axum::{
 use common::TestApp;
 use nrw_freestyle_cup_registration::photos::PhotosSettings;
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// A folder removed again when dropped.
@@ -89,8 +88,9 @@ async fn follow(app: &TestApp, uri: &str) -> (String, String) {
     (image.body.as_str().unwrap().to_owned(), content_type)
 }
 
-#[sqlx::test]
-async fn without_a_source_there_are_no_photos(db: SqlitePool) {
+#[tokio::test]
+async fn without_a_source_there_are_no_photos() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let overview = app.get("/api/query/get_photos", None).await;
     assert_eq!(
@@ -103,8 +103,9 @@ async fn without_a_source_there_are_no_photos(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn the_newest_photo_of_a_local_folder_and_its_subfolders(db: SqlitePool) {
+#[tokio::test]
+async fn the_newest_photo_of_a_local_folder_and_its_subfolders() {
+    let db = common::in_memory_migrated().await;
     let folder = Folder::new();
     folder.write("a.jpg", "older", 10);
     folder.write("Freitag/b.png", "newest", 1);
@@ -163,8 +164,9 @@ async fn the_newest_photo_of_a_local_folder_and_its_subfolders(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn a_missing_folder_is_an_error_for_admins_only(db: SqlitePool) {
+#[tokio::test]
+async fn a_missing_folder_is_an_error_for_admins_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_photos(
         db,
         PhotosSettings {
@@ -280,8 +282,9 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-#[sqlx::test]
-async fn the_newest_photo_of_a_nextcloud_folder(db: SqlitePool) {
+#[tokio::test]
+async fn the_newest_photo_of_a_nextcloud_folder() {
+    let db = common::in_memory_migrated().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {

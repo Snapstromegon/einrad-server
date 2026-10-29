@@ -9,7 +9,6 @@ use std::collections::{BTreeSet, HashMap};
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 async fn get_act(app: &TestApp, act_id: Uuid) -> Value {
@@ -126,8 +125,9 @@ fn keys(value: &Value) -> BTreeSet<&str> {
         .collect()
 }
 
-#[sqlx::test]
-async fn the_chosen_type_stays_and_the_size_only_decides_if_it_starts(db: SqlitePool) {
+#[tokio::test]
+async fn the_chosen_type_stays_and_the_size_only_decides_if_it_starts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     // Born 2015, so every group of them is U15.
@@ -186,8 +186,9 @@ async fn the_chosen_type_stays_and_the_size_only_decides_if_it_starts(db: Sqlite
     }
 }
 
-#[sqlx::test]
-async fn a_group_is_a_small_or_a_large_group(db: SqlitePool) {
+#[tokio::test]
+async fn a_group_is_a_small_or_a_large_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let group = app.create_group(&cookie, club_id, "Wirbelwind").await;
@@ -223,8 +224,9 @@ async fn a_group_is_a_small_or_a_large_group(db: SqlitePool) {
     assert_eq!(get_act(&app, group).await["act_type"], "group_small");
 }
 
-#[sqlx::test]
-async fn only_the_owner_club_or_an_admin_changes_the_group_type(db: SqlitePool) {
+#[tokio::test]
+async fn only_the_owner_club_or_an_admin_changes_the_group_type() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -293,8 +295,9 @@ async fn only_the_owner_club_or_an_admin_changes_the_group_type(db: SqlitePool) 
     assert_eq!(act["category"], "KGU15");
 }
 
-#[sqlx::test]
-async fn oldest_rider_decides_age_group_including_replacements(db: SqlitePool) {
+#[tokio::test]
+async fn oldest_rider_decides_age_group_including_replacements() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
@@ -341,8 +344,9 @@ async fn oldest_rider_decides_age_group_including_replacements(db: SqlitePool) {
     assert!(act["max_age"].as_f64().unwrap() > 37.0, "{act}");
 }
 
-#[sqlx::test]
-async fn group_names_are_unique_ignoring_case(db: SqlitePool) {
+#[tokio::test]
+async fn group_names_are_unique_ignoring_case() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other, other_club_id) = app.create_club_owner("Other", "SSV").await;
@@ -445,8 +449,9 @@ async fn group_names_are_unique_ignoring_case(db: SqlitePool) {
     assert_eq!(names, ["Überflieger", "WirbelWind"]);
 }
 
-#[sqlx::test]
-async fn clubs_only_change_their_own_riders_in_a_shared_group(db: SqlitePool) {
+#[tokio::test]
+async fn clubs_only_change_their_own_riders_in_a_shared_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -545,8 +550,9 @@ async fn clubs_only_change_their_own_riders_in_a_shared_group(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn only_the_owner_club_or_an_admin_renames_and_deletes(db: SqlitePool) {
+#[tokio::test]
+async fn only_the_owner_club_or_an_admin_renames_and_deletes() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -629,8 +635,9 @@ async fn only_the_owner_club_or_an_admin_renames_and_deletes(db: SqlitePool) {
     assert!(list_groups(&app, &owner).await.is_empty());
 }
 
-#[sqlx::test]
-async fn owner_cannot_delete_a_group_while_other_clubs_have_riders(db: SqlitePool) {
+#[tokio::test]
+async fn owner_cannot_delete_a_group_while_other_clubs_have_riders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -687,8 +694,9 @@ async fn owner_cannot_delete_a_group_while_other_clubs_have_riders(db: SqlitePoo
     assert_eq!(list_club_riders(&app, &guest, guest_club_id).await.len(), 2);
 }
 
-#[sqlx::test]
-async fn a_rider_starts_in_only_one_small_group_even_as_replacement(db: SqlitePool) {
+#[tokio::test]
+async fn a_rider_starts_in_only_one_small_group_even_as_replacement() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 6).await;
@@ -746,8 +754,9 @@ async fn a_rider_starts_in_only_one_small_group_even_as_replacement(db: SqlitePo
     assert!(groups.iter().all(|g| g["conflict"].is_null()), "{groups:?}");
 }
 
-#[sqlx::test]
-async fn a_rider_starts_in_one_small_and_one_large_group(db: SqlitePool) {
+#[tokio::test]
+async fn a_rider_starts_in_one_small_and_one_large_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 9).await;
@@ -801,8 +810,9 @@ async fn a_rider_starts_in_one_small_and_one_large_group(db: SqlitePool) {
     assert_eq!(act["type_conflict"], false);
 }
 
-#[sqlx::test]
-async fn changing_the_type_warns_if_a_rider_is_in_another_group_of_it(db: SqlitePool) {
+#[tokio::test]
+async fn changing_the_type_warns_if_a_rider_is_in_another_group_of_it() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -870,8 +880,9 @@ async fn changing_the_type_warns_if_a_rider_is_in_another_group_of_it(db: Sqlite
     assert_eq!(get_act(&app, alpha).await["category"], "GGU15");
 }
 
-#[sqlx::test]
-async fn a_shared_large_group_can_be_built_one_club_at_a_time(db: SqlitePool) {
+#[tokio::test]
+async fn a_shared_large_group_can_be_built_one_club_at_a_time() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (rsv, rsv_id) = app.create_club_owner("Owner", "RSV").await;
     let (ssv, ssv_id) = app.create_club_owner("Guest", "SSV").await;
@@ -924,8 +935,9 @@ async fn a_shared_large_group_can_be_built_one_club_at_a_time(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn deleting_a_rider_only_removes_them_from_the_group(db: SqlitePool) {
+#[tokio::test]
+async fn deleting_a_rider_only_removes_them_from_the_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut riders = app.add_riders(&cookie, club_id, "R", 8).await;
@@ -962,8 +974,9 @@ async fn deleting_a_rider_only_removes_them_from_the_group(db: SqlitePool) {
     assert_eq!(acts[0]["id"], group.to_string());
 }
 
-#[sqlx::test]
-async fn deleting_a_rider_leaves_their_small_and_large_group(db: SqlitePool) {
+#[tokio::test]
+async fn deleting_a_rider_leaves_their_small_and_large_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 10).await;
@@ -1003,8 +1016,9 @@ async fn deleting_a_rider_leaves_their_small_and_large_group(db: SqlitePool) {
     assert!(riders.iter().all(|s| s["id"] != r[8].to_string()));
 }
 
-#[sqlx::test]
-async fn other_clubs_cannot_remove_or_change_riders_of_a_shared_group(db: SqlitePool) {
+#[tokio::test]
+async fn other_clubs_cannot_remove_or_change_riders_of_a_shared_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -1053,8 +1067,9 @@ async fn other_clubs_cannot_remove_or_change_riders_of_a_shared_group(db: Sqlite
     assert_eq!(act["category"], Value::Null);
 }
 
-#[sqlx::test]
-async fn a_new_birthdate_moves_the_group_to_another_age_group(db: SqlitePool) {
+#[tokio::test]
+async fn a_new_birthdate_moves_the_group_to_another_age_group() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 3).await;
@@ -1087,8 +1102,9 @@ async fn a_new_birthdate_moves_the_group_to_another_age_group(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn deleting_a_group_keeps_its_riders(db: SqlitePool) {
+#[tokio::test]
+async fn deleting_a_group_keeps_its_riders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut riders = app.add_riders(&cookie, club_id, "R", 2).await;
@@ -1128,8 +1144,9 @@ async fn deleting_a_group_keeps_its_riders(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn single_pair_and_group_starts_of_a_rider_are_all_listed(db: SqlitePool) {
+#[tokio::test]
+async fn single_pair_and_group_starts_of_a_rider_are_all_listed() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -1190,8 +1207,9 @@ async fn single_pair_and_group_starts_of_a_rider_are_all_listed(db: SqlitePool) 
     assert_eq!(anna["group_count"], 1);
 }
 
-#[sqlx::test]
-async fn groups_are_listed_without_rider_data_and_per_club_with_members(db: SqlitePool) {
+#[tokio::test]
+async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -1350,8 +1368,9 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members(db: Sqli
     assert!(owner_acts.iter().any(|act| act["id"] == empty.to_string()));
 }
 
-#[sqlx::test]
-async fn group_count_counts_group_starts_including_replacements(db: SqlitePool) {
+#[tokio::test]
+async fn group_count_counts_group_starts_including_replacements() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
@@ -1390,8 +1409,9 @@ async fn group_count_counts_group_starts_including_replacements(db: SqlitePool) 
     }
 }
 
-#[sqlx::test]
-async fn startlist_and_csv_show_groups_by_name(db: SqlitePool) {
+#[tokio::test]
+async fn startlist_and_csv_show_groups_by_name() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club_id) = app.create_club_owner("Guest", "SSV").await;
@@ -1468,8 +1488,9 @@ async fn startlist_and_csv_show_groups_by_name(db: SqlitePool) {
     assert!(!csv.contains("A1 Muster"), "{csv}");
 }
 
-#[sqlx::test]
-async fn group_commands_need_open_registration_unless_admin(db: SqlitePool) {
+#[tokio::test]
+async fn group_commands_need_open_registration_unless_admin() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
@@ -1524,8 +1545,9 @@ async fn group_commands_need_open_registration_unless_admin(db: SqlitePool) {
     assert_eq!(groups[0]["group_name"], "Nachzügler");
 }
 
-#[sqlx::test]
-async fn incomplete_groups_are_listed_without_category_after_other_acts(db: SqlitePool) {
+#[tokio::test]
+async fn incomplete_groups_are_listed_without_category_after_other_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let r = app.add_riders(&cookie, club_id, "R", 3).await;

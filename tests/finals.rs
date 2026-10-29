@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
 
 /// Format sent by the admin frontend.
@@ -134,8 +133,9 @@ fn final_body(name: &str, slot_groups: Value) -> Value {
     })
 }
 
-#[sqlx::test]
-async fn finals_are_seeded_with_their_slots(db: SqlitePool) {
+#[tokio::test]
+async fn finals_are_seeded_with_their_slots() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let mut finals = list_finals(&app).await;
     let slots = finals[0]["slots"].take();
@@ -178,8 +178,9 @@ async fn finals_are_seeded_with_their_slots(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn a_final_block_reserves_its_slots_with_the_finals_durations(db: SqlitePool) {
+#[tokio::test]
+async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -273,8 +274,9 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations(db: SqlitePo
     assert!(!csv.contains(";1. Finalist"), "{csv}");
 }
 
-#[sqlx::test]
-async fn finalists_run_and_are_judged_like_acts(db: SqlitePool) {
+#[tokio::test]
+async fn finalists_run_and_are_judged_like_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
@@ -322,8 +324,9 @@ async fn finalists_run_and_are_judged_like_acts(db: SqlitePool) {
     assert!(!list_finals(&app).await[0]["started"].as_bool().unwrap());
 }
 
-#[sqlx::test]
-async fn a_final_runs_in_one_block_with_its_slots(db: SqlitePool) {
+#[tokio::test]
+async fn a_final_runs_in_one_block_with_its_slots() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
@@ -383,8 +386,9 @@ async fn a_final_runs_in_one_block_with_its_slots(db: SqlitePool) {
     assert_eq!(finalists(&item).len(), 3);
 }
 
-#[sqlx::test]
-async fn admins_add_edit_and_delete_finals(db: SqlitePool) {
+#[tokio::test]
+async fn admins_add_edit_and_delete_finals() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
@@ -562,8 +566,9 @@ async fn timeplan_acts(app: &TestApp) -> Vec<Value> {
         .collect()
 }
 
-#[sqlx::test]
-async fn placed_acts_show_once_the_placement_is_published(db: SqlitePool) {
+#[tokio::test]
+async fn placed_acts_show_once_the_placement_is_published() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -716,8 +721,9 @@ async fn placed_acts_show_once_the_placement_is_published(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn placements_survive_new_slot_groups(db: SqlitePool) {
+#[tokio::test]
+async fn placements_survive_new_slot_groups() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -750,8 +756,9 @@ async fn placements_survive_new_slot_groups(db: SqlitePool) {
     assert_eq!(list_finals(&app).await[0]["categories"], json!(["EWU13"]));
 }
 
-#[sqlx::test]
-async fn a_placed_act_plays_in_its_final_slot(db: SqlitePool) {
+#[tokio::test]
+async fn a_placed_act_plays_in_its_final_slot() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;

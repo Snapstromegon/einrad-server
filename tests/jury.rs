@@ -6,7 +6,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, closed_registration};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -16,8 +15,9 @@ async fn system_status(app: &TestApp, cookie: Option<&str>) -> Value {
     response.body
 }
 
-#[sqlx::test]
-async fn system_status_shows_the_flag_rules_and_judge_window(db: SqlitePool) {
+#[tokio::test]
+async fn system_status_shows_the_flag_rules_and_judge_window() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let status = system_status(&app, None).await;
     // Tests are debug builds, where the flag is on by default.
@@ -34,8 +34,9 @@ async fn system_status_shows_the_flag_rules_and_judge_window(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn judges_follow_the_registration_window_unless_the_jury_has_its_own(db: SqlitePool) {
+#[tokio::test]
+async fn judges_follow_the_registration_window_unless_the_jury_has_its_own() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     assert_eq!(system_status(&app, None).await["can_register_judge"], false);
     let admin = app.create_admin().await;
@@ -56,8 +57,9 @@ async fn judges_follow_the_registration_window_unless_the_jury_has_its_own(db: S
     assert_eq!(status["can_register_rider"], false);
 }
 
-#[sqlx::test]
-async fn the_flag_can_be_turned_off(db: SqlitePool) {
+#[tokio::test]
+async fn the_flag_can_be_turned_off() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let status = system_status(&app, None).await;
     assert_eq!(status["jury_registration"], false);
@@ -84,8 +86,9 @@ fn category_body(name: &str, deployments: i64, day: Option<&str>) -> Value {
     })
 }
 
-#[sqlx::test]
-async fn jury_categories_are_seeded_from_the_config_in_order(db: SqlitePool) {
+#[tokio::test]
+async fn jury_categories_are_seeded_from_the_config_in_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
     let categories = jury_categories(&app, &owner).await;
@@ -115,8 +118,9 @@ async fn jury_categories_are_seeded_from_the_config_in_order(db: SqlitePool) {
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn seeding_keeps_jury_categories_changed_by_admins(db: SqlitePool) {
+#[tokio::test]
+async fn seeding_keeps_jury_categories_changed_by_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let first = jury_categories(&app, &admin).await[0]["id"].clone();
@@ -133,8 +137,9 @@ async fn seeding_keeps_jury_categories_changed_by_admins(db: SqlitePool) {
     assert_eq!(jury_categories(&app, &admin).await.len(), 2);
 }
 
-#[sqlx::test]
-async fn admins_manage_jury_categories(db: SqlitePool) {
+#[tokio::test]
+async fn admins_manage_jury_categories() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
@@ -189,8 +194,9 @@ async fn admins_manage_jury_categories(db: SqlitePool) {
     assert!(!partial.status.is_success());
 }
 
-#[sqlx::test]
-async fn jury_categories_are_validated(db: SqlitePool) {
+#[tokio::test]
+async fn jury_categories_are_validated() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     for body in [
@@ -210,8 +216,9 @@ async fn jury_categories_are_validated(db: SqlitePool) {
     assert_eq!(jury_categories(&app, &admin).await.len(), 3);
 }
 
-#[sqlx::test]
-async fn jury_endpoints_dont_exist_without_the_flag(db: SqlitePool) {
+#[tokio::test]
+async fn jury_endpoints_dont_exist_without_the_flag() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let admin = app.create_admin().await;
     let list = app
@@ -281,8 +288,9 @@ async fn club_judges(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-#[sqlx::test]
-async fn clubs_add_edit_and_delete_judges(db: SqlitePool) {
+#[tokio::test]
+async fn clubs_add_edit_and_delete_judges() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let ids = category_ids(&app, &owner).await;
@@ -341,8 +349,9 @@ async fn clubs_add_edit_and_delete_judges(db: SqlitePool) {
     assert!(club_judges(&app, &owner, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn only_the_club_and_admins_manage_its_judges(db: SqlitePool) {
+#[tokio::test]
+async fn only_the_club_and_admins_manage_its_judges() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other, _) = app.create_club_owner("Other", "RSV Andere").await;
@@ -393,8 +402,9 @@ async fn only_the_club_and_admins_manage_its_judges(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn judges_are_fixed_after_the_judge_deadline_except_for_admins(db: SqlitePool) {
+#[tokio::test]
+async fn judges_are_fixed_after_the_judge_deadline_except_for_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let ids = category_ids(&app, &owner).await;
@@ -408,8 +418,9 @@ async fn judges_are_fixed_after_the_judge_deadline_except_for_admins(db: SqliteP
     assert_eq!(add_judge(&app, &admin, body).await.status, StatusCode::OK);
 }
 
-#[sqlx::test]
-async fn judges_are_validated(db: SqlitePool) {
+#[tokio::test]
+async fn judges_are_validated() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let ids = category_ids(&app, &owner).await;
@@ -514,8 +525,9 @@ async fn judges_are_validated(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn jury_categories_with_registered_judges_cannot_be_deleted(db: SqlitePool) {
+#[tokio::test]
+async fn jury_categories_with_registered_judges_cannot_be_deleted() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
@@ -547,8 +559,9 @@ async fn jury_categories_with_registered_judges_cannot_be_deleted(db: SqlitePool
     assert_eq!(allowed.status, StatusCode::OK, "{:?}", allowed.body);
 }
 
-#[sqlx::test]
-async fn judge_endpoints_dont_exist_without_the_flag(db: SqlitePool) {
+#[tokio::test]
+async fn judge_endpoints_dont_exist_without_the_flag() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let list = app
@@ -581,8 +594,9 @@ async fn club_with_singles(app: &TestApp, singles: usize) -> (String, Uuid) {
     (owner, club_id)
 }
 
-#[sqlx::test]
-async fn clubs_owe_a_fee_for_missing_einsaetze(db: SqlitePool) {
+#[tokio::test]
+async fn clubs_owe_a_fee_for_missing_einsaetze() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     // 3 Küren: 2 started pairs of Küren, so 8 Einsätze.
     let (owner, club_id) = club_with_singles(&app, 3).await;
@@ -660,8 +674,9 @@ async fn clubs_owe_a_fee_for_missing_einsaetze(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn admins_correct_the_credited_einsaetze(db: SqlitePool) {
+#[tokio::test]
+async fn admins_correct_the_credited_einsaetze() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = club_with_singles(&app, 1).await;
     let admin = app.create_admin().await;
@@ -697,8 +712,9 @@ async fn admins_correct_the_credited_einsaetze(db: SqlitePool) {
     assert_eq!(club(&app, &owner).await["jury"]["fee"], 28.0);
 }
 
-#[sqlx::test]
-async fn kueren_count_like_the_start_fee(db: SqlitePool) {
+#[tokio::test]
+async fn kueren_count_like_the_start_fee() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = club_with_singles(&app, 2).await;
     let admin = app.create_admin().await;
@@ -741,8 +757,9 @@ async fn kueren_count_like_the_start_fee(db: SqlitePool) {
     assert_eq!(club(&app, &owner).await["jury"]["acts"], 2);
 }
 
-#[sqlx::test]
-async fn changing_a_categorys_einsaetze_changes_every_club(db: SqlitePool) {
+#[tokio::test]
+async fn changing_a_categorys_einsaetze_changes_every_club() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = club_with_singles(&app, 1).await;
     let admin = app.create_admin().await;
@@ -766,8 +783,9 @@ async fn changing_a_categorys_einsaetze_changes_every_club(db: SqlitePool) {
     assert_eq!(jury["fee"], 0.0);
 }
 
-#[sqlx::test]
-async fn there_is_no_jury_fee_without_the_flag(db: SqlitePool) {
+#[tokio::test]
+async fn there_is_no_jury_fee_without_the_flag() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let (owner, _) = club_with_singles(&app, 3).await;
     let body = club(&app, &owner).await;
@@ -790,8 +808,9 @@ fn assignment(judge: &Value, category: &Value, task: &str) -> Value {
     json!({ "judge_id": judge, "jury_category_id": category, "task": task })
 }
 
-#[sqlx::test]
-async fn admins_assign_judges_and_publish_the_plan(db: SqlitePool) {
+#[tokio::test]
+async fn admins_assign_judges_and_publish_the_plan() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -897,8 +916,9 @@ async fn admins_assign_judges_and_publish_the_plan(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn assignments_follow_the_jury_rules(db: SqlitePool) {
+#[tokio::test]
+async fn assignments_follow_the_jury_rules() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -973,8 +993,9 @@ async fn assignments_follow_the_jury_rules(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn a_cross_club_group_counts_for_its_owner_club_only(db: SqlitePool) {
+#[tokio::test]
+async fn a_cross_club_group_counts_for_its_owner_club_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (guest, guest_club) = app.create_club_owner("Guest", "RSV Gast").await;
@@ -993,8 +1014,9 @@ async fn a_cross_club_group_counts_for_its_owner_club_only(db: SqlitePool) {
     assert_eq!(club(&app, &guest).await["jury"]["acts"], 0);
 }
 
-#[sqlx::test]
-async fn untrained_judges_lose_their_technical_and_performance_assignments(db: SqlitePool) {
+#[tokio::test]
+async fn untrained_judges_lose_their_technical_and_performance_assignments() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;

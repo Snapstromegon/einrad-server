@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 async fn treasurer(app: &TestApp) -> String {
@@ -33,8 +32,9 @@ async fn club(app: &TestApp, cookie: &str, club_id: Uuid) -> Value {
         .clone()
 }
 
-#[sqlx::test]
-async fn a_waived_club_owes_nothing_but_keeps_its_jury_obligation(db: SqlitePool) {
+#[tokio::test]
+async fn a_waived_club_owes_nothing_but_keeps_its_jury_obligation() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Max", "RSV").await;
     app.add_single_act(&owner, club_id, "Anna").await;
@@ -67,8 +67,9 @@ async fn start_fees(app: &TestApp, cookie: &str, club_id: Uuid) -> f64 {
         .unwrap()
 }
 
-#[sqlx::test]
-async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club(db: SqlitePool) {
+#[tokio::test]
+async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (rsv_owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let (esv_owner, esv) = app.create_club_owner("Erika", "ESV").await;
@@ -124,8 +125,9 @@ async fn waived_riders_cost_nothing_and_waived_acts_are_free_in_every_club(db: S
     assert_eq!(r1["waived_count"], 1);
 }
 
-#[sqlx::test]
-async fn the_cap_applies_to_the_starts_left_after_act_waivers(db: SqlitePool) {
+#[tokio::test]
+async fn the_cap_applies_to_the_starts_left_after_act_waivers() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let dora = app
@@ -153,8 +155,9 @@ async fn the_cap_applies_to_the_starts_left_after_act_waivers(db: SqlitePool) {
     assert_eq!(start_fees(&app, &kasse, rsv).await, 45.0);
 }
 
-#[sqlx::test]
-async fn only_a_withdrawn_waived_act_drops_out_of_the_jury_obligation(db: SqlitePool) {
+#[tokio::test]
+async fn only_a_withdrawn_waived_act_drops_out_of_the_jury_obligation() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let anna = app.add_single_act(&owner, rsv, "Anna").await;
@@ -196,8 +199,9 @@ async fn only_a_withdrawn_waived_act_drops_out_of_the_jury_obligation(db: Sqlite
     assert_eq!(acts(club(&app, &kasse, rsv).await), 3);
 }
 
-#[sqlx::test]
-async fn granting_needs_a_reason_revoking_doesnt(db: SqlitePool) {
+#[tokio::test]
+async fn granting_needs_a_reason_revoking_doesnt() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     app.add_single_act(&owner, rsv, "Anna").await;
@@ -245,8 +249,9 @@ async fn granting_needs_a_reason_revoking_doesnt(db: SqlitePool) {
     assert_eq!(club(&app, &kasse, rsv).await["fee_waiver"], Value::Null);
 }
 
-#[sqlx::test]
-async fn each_grant_and_revoke_writes_one_log_entry(db: SqlitePool) {
+#[tokio::test]
+async fn each_grant_and_revoke_writes_one_log_entry() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (rsv_owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let (esv_owner, esv) = app.create_club_owner("Erika", "ESV").await;
@@ -332,8 +337,9 @@ async fn each_grant_and_revoke_writes_one_log_entry(db: SqlitePool) {
     assert_eq!(actions, ["Wirbelwind"]);
 }
 
-#[sqlx::test]
-async fn clubs_see_what_is_waived_but_not_why(db: SqlitePool) {
+#[tokio::test]
+async fn clubs_see_what_is_waived_but_not_why() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, rsv) = app.create_club_owner("Max", "RSV").await;
     let anna = app
@@ -385,8 +391,9 @@ async fn clubs_see_what_is_waived_but_not_why(db: SqlitePool) {
 /// The migration that replaced `acts.fee_waived` with waiver reasons.
 const FEE_WAIVERS_MIGRATION: i64 = 20261026120000;
 
-#[sqlx::test(migrations = false)]
-async fn the_migration_keeps_waived_acts_with_a_reason(db: SqlitePool) {
+#[tokio::test]
+async fn the_migration_keeps_waived_acts_with_a_reason() {
+    let db = common::in_memory().await;
     let migrator = sqlx::migrate!();
     migrator
         .run_to(FEE_WAIVERS_MIGRATION - 1, &db)

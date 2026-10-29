@@ -5,9 +5,14 @@ mod common;
 use axum::http::StatusCode;
 use common::{METRICS_TOKEN, TestApp, rider_body};
 use serde_json::json;
-use sqlx::SqlitePool;
+
+/// The metrics live in one registry per process, which a scrape refreshes
+/// from its test's database and then renders; scrapes of tests running in
+/// parallel would mix their values.
+static SCRAPE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn scrape(app: &TestApp) -> String {
+    let _alone = SCRAPE.lock().await;
     let response = app.get_with_bearer("/metrics", METRICS_TOKEN).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert!(
@@ -23,8 +28,9 @@ fn has_line(body: &str, line: &str) -> bool {
     body.lines().any(|l| l == line)
 }
 
-#[sqlx::test]
-async fn metrics_need_the_token(db: SqlitePool) {
+#[tokio::test]
+async fn metrics_need_the_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
 
     let missing = app.get("/metrics", None).await;
@@ -37,8 +43,9 @@ async fn metrics_need_the_token(db: SqlitePool) {
     assert_eq!(as_admin.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn metrics_count_registrations_acts_and_money(db: SqlitePool) {
+#[tokio::test]
+async fn metrics_count_registrations_acts_and_money() {
+    let db = common::in_memory_migrated().await;
     // Start fees only; with the jury registration the jury fee adds to it.
     let app = TestApp::without_jury_registration(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -93,8 +100,9 @@ async fn metrics_count_registrations_acts_and_money(db: SqlitePool) {
     assert!(body.ends_with("# EOF\n"), "{body}");
 }
 
-#[sqlx::test]
-async fn metrics_show_the_live_timeplan(db: SqlitePool) {
+#[tokio::test]
+async fn metrics_show_the_live_timeplan() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     app.add_single_act(&cookie, club_id, "Anna").await;

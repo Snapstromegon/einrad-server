@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// A club with Anna (single), Berta and Carla (pair). Returns the owner's
@@ -77,8 +76,9 @@ fn sorted(ids: &[Uuid]) -> Vec<Uuid> {
     ids
 }
 
-#[sqlx::test]
-async fn check_in_is_admin_only(db: SqlitePool) {
+#[tokio::test]
+async fn check_in_is_admin_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, _, [anna, ..]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -100,8 +100,9 @@ async fn check_in_is_admin_only(db: SqlitePool) {
     assert!(checked_in(&app, &admin).await.is_empty());
 }
 
-#[sqlx::test]
-async fn riders_are_checked_in_and_out_one_by_one_and_in_bulk(db: SqlitePool) {
+#[tokio::test]
+async fn riders_are_checked_in_and_out_one_by_one_and_in_bulk() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -134,8 +135,9 @@ async fn riders_are_checked_in_and_out_one_by_one_and_in_bulk(db: SqlitePool) {
     assert!(checked_in(&app, &admin).await.is_empty());
 }
 
-#[sqlx::test]
-async fn checking_in_again_keeps_the_first_time(db: SqlitePool) {
+#[tokio::test]
+async fn checking_in_again_keeps_the_first_time() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -160,8 +162,9 @@ async fn checking_in_again_keeps_the_first_time(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn unknown_riders_fail_the_whole_call(db: SqlitePool) {
+#[tokio::test]
+async fn unknown_riders_fail_the_whole_call() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, _, [anna, berta, _]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -182,8 +185,9 @@ async fn unknown_riders_fail_the_whole_call(db: SqlitePool) {
     assert_eq!(check_ins(&app, &admin).await, before);
 }
 
-#[sqlx::test]
-async fn list_riders_shows_the_check_in(db: SqlitePool) {
+#[tokio::test]
+async fn list_riders_shows_the_check_in() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, _, [anna, berta, carla]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -201,8 +205,9 @@ async fn list_riders_shows_the_check_in(db: SqlitePool) {
     assert_eq!(checked_in_at(carla), Value::Null);
 }
 
-#[sqlx::test]
-async fn check_in_works_after_registration_closed(db: SqlitePool) {
+#[tokio::test]
+async fn check_in_works_after_registration_closed() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id, [anna, ..]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -223,8 +228,9 @@ async fn check_in_works_after_registration_closed(db: SqlitePool) {
     assert_eq!(checked_in(&app, &admin).await, [anna]);
 }
 
-#[sqlx::test]
-async fn public_endpoints_do_not_expose_the_check_in(db: SqlitePool) {
+#[tokio::test]
+async fn public_endpoints_do_not_expose_the_check_in() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id, riders) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
@@ -269,8 +275,9 @@ async fn public_endpoints_do_not_expose_the_check_in(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn list_clubs_shows_clubs_with_owners_to_admins(db: SqlitePool) {
+#[tokio::test]
+async fn list_clubs_shows_clubs_with_owners_to_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (_, other_club_id) = app.create_club_owner("Other", "ESV").await;

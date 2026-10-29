@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, closed_registration, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 async fn list_riders(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
@@ -30,8 +29,9 @@ async fn list_acts(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-#[sqlx::test]
-async fn create_club_assigns_club_to_owner(db: SqlitePool) {
+#[tokio::test]
+async fn create_club_assigns_club_to_owner() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
 
@@ -47,8 +47,9 @@ async fn create_club_assigns_club_to_owner(db: SqlitePool) {
     assert_eq!(club.body["payments"], json!([]));
 }
 
-#[sqlx::test]
-async fn create_club_requires_login(db: SqlitePool) {
+#[tokio::test]
+async fn create_club_requires_login() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app
         .post("/api/command/create_club", json!({ "name": "RSV" }), None)
@@ -56,15 +57,17 @@ async fn create_club_requires_login(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn get_club_without_id_or_login_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn get_club_without_id_or_login_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app.get("/api/query/get_club", None).await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn club_actions_are_forbidden_outside_registration_period(db: SqlitePool) {
+#[tokio::test]
+async fn club_actions_are_forbidden_outside_registration_period() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     let cookie = app.cookie_for(app.create_user("Owner", false).await);
 
@@ -79,8 +82,9 @@ async fn club_actions_are_forbidden_outside_registration_period(db: SqlitePool) 
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn admins_bypass_registration_period(db: SqlitePool) {
+#[tokio::test]
+async fn admins_bypass_registration_period() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     let admin = app.create_admin().await;
 
@@ -97,8 +101,9 @@ async fn admins_bypass_registration_period(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::OK);
 }
 
-#[sqlx::test]
-async fn rename_club_by_owner_changes_name(db: SqlitePool) {
+#[tokio::test]
+async fn rename_club_by_owner_changes_name() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "Old Name").await;
 
@@ -115,8 +120,9 @@ async fn rename_club_by_owner_changes_name(db: SqlitePool) {
     assert_eq!(club.body["name"], "New Name");
 }
 
-#[sqlx::test]
-async fn rename_club_by_other_user_does_not_change_name(db: SqlitePool) {
+#[tokio::test]
+async fn rename_club_by_other_user_does_not_change_name() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "Original").await;
     let (intruder, _) = app.create_club_owner("Intruder", "Other Club").await;
@@ -132,8 +138,9 @@ async fn rename_club_by_other_user_does_not_change_name(db: SqlitePool) {
     assert_eq!(club.body["name"], "Original");
 }
 
-#[sqlx::test]
-async fn single_rider_gets_a_single_act(db: SqlitePool) {
+#[tokio::test]
+async fn single_rider_gets_a_single_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
 
@@ -152,8 +159,9 @@ async fn single_rider_gets_a_single_act(db: SqlitePool) {
     assert_eq!(acts[0]["participants"][0]["id"], rider_id.to_string());
 }
 
-#[sqlx::test]
-async fn pair_partners_are_linked_by_name(db: SqlitePool) {
+#[tokio::test]
+async fn pair_partners_are_linked_by_name() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
 
@@ -184,8 +192,9 @@ async fn pair_partners_are_linked_by_name(db: SqlitePool) {
     assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn deleting_a_rider_removes_acts_and_leaves_the_partner_waiting(db: SqlitePool) {
+#[tokio::test]
+async fn deleting_a_rider_removes_acts_and_leaves_the_partner_waiting() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
 
@@ -217,8 +226,9 @@ async fn deleting_a_rider_removes_acts_and_leaves_the_partner_waiting(db: Sqlite
     );
 }
 
-#[sqlx::test]
-async fn adding_rider_requires_login(db: SqlitePool) {
+#[tokio::test]
+async fn adding_rider_requires_login() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app
         .post(
@@ -269,8 +279,9 @@ fn ids(riders: &[Uuid]) -> Vec<String> {
     ids
 }
 
-#[sqlx::test]
-async fn edit_rider_changes_the_riders_data_and_keeps_their_starts(db: SqlitePool) {
+#[tokio::test]
+async fn edit_rider_changes_the_riders_data_and_keeps_their_starts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -291,8 +302,9 @@ async fn edit_rider_changes_the_riders_data_and_keeps_their_starts(db: SqlitePoo
     assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
 }
 
-#[sqlx::test]
-async fn set_single_adds_and_removes_the_single_act(db: SqlitePool) {
+#[tokio::test]
+async fn set_single_adds_and_removes_the_single_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -317,8 +329,9 @@ async fn set_single_adds_and_removes_the_single_act(db: SqlitePool) {
     assert!(list_acts(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn link_pair_creates_the_pair_act_of_two_riders(db: SqlitePool) {
+#[tokio::test]
+async fn link_pair_creates_the_pair_act_of_two_riders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -363,8 +376,9 @@ async fn link_pair_creates_the_pair_act_of_two_riders(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn leave_pair_dissolves_the_pair_and_leaves_the_partner_waiting(db: SqlitePool) {
+#[tokio::test]
+async fn leave_pair_dissolves_the_pair_and_leaves_the_partner_waiting() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -395,8 +409,9 @@ async fn leave_pair_dissolves_the_pair_and_leaves_the_partner_waiting(db: Sqlite
     assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn dissolve_pair_ends_the_pair_for_both_riders(db: SqlitePool) {
+#[tokio::test]
+async fn dissolve_pair_ends_the_pair_for_both_riders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (intruder, _) = app.create_club_owner("Intruder", "ESV").await;
@@ -428,8 +443,9 @@ async fn dissolve_pair_ends_the_pair_for_both_riders(db: SqlitePool) {
     assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn request_pair_rejects_pairing_with_oneself(db: SqlitePool) {
+#[tokio::test]
+async fn request_pair_rejects_pairing_with_oneself() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -454,8 +470,9 @@ async fn request_pair_rejects_pairing_with_oneself(db: SqlitePool) {
     assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn edit_rider_is_forbidden_outside_registration_period(db: SqlitePool) {
+#[tokio::test]
+async fn edit_rider_is_forbidden_outside_registration_period() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     let owner = app.cookie_for(app.create_user("Owner", false).await);
 
@@ -470,8 +487,9 @@ async fn edit_rider_is_forbidden_outside_registration_period(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn a_single_needs_the_riders_gender(db: SqlitePool) {
+#[tokio::test]
+async fn a_single_needs_the_riders_gender() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -501,8 +519,9 @@ async fn a_single_needs_the_riders_gender(db: SqlitePool) {
     assert!(list_acts(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn club_rosters_are_only_shown_to_the_club_and_admins(db: SqlitePool) {
+#[tokio::test]
+async fn club_rosters_are_only_shown_to_the_club_and_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (intruder, _) = app.create_club_owner("Intruder", "ESV").await;
@@ -539,8 +558,9 @@ async fn club_rosters_are_only_shown_to_the_club_and_admins(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn only_the_club_and_admins_change_its_riders(db: SqlitePool) {
+#[tokio::test]
+async fn only_the_club_and_admins_change_its_riders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (intruder, intruder_club_id) = app.create_club_owner("Intruder", "ESV").await;
@@ -655,8 +675,9 @@ async fn only_the_club_and_admins_change_its_riders(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn clubs_only_link_partners_of_their_own_club(db: SqlitePool) {
+#[tokio::test]
+async fn clubs_only_link_partners_of_their_own_club() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other, other_club_id) = app.create_club_owner("Other", "ESV").await;
@@ -709,8 +730,9 @@ async fn clubs_only_link_partners_of_their_own_club(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn club_code_is_stable_across_renames(db: SqlitePool) {
+#[tokio::test]
+async fn club_code_is_stable_across_renames() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let code = |body: &Value| body["code"].as_str().unwrap().to_string();
@@ -735,8 +757,9 @@ fn find<'a>(riders: &'a [Value], id: Uuid) -> &'a Value {
     riders.iter().find(|s| s["id"] == id.to_string()).unwrap()
 }
 
-#[sqlx::test]
-async fn a_single_follows_the_riders_gender(db: SqlitePool) {
+#[tokio::test]
+async fn a_single_follows_the_riders_gender() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -775,8 +798,9 @@ async fn a_single_follows_the_riders_gender(db: SqlitePool) {
     assert_eq!(find(&riders, anna)["gender"], "male");
 }
 
-#[sqlx::test]
-async fn replace_act_rider_moves_a_single_and_keeps_the_act(db: SqlitePool) {
+#[tokio::test]
+async fn replace_act_rider_moves_a_single_and_keeps_the_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -831,8 +855,9 @@ async fn replace_act_rider_moves_a_single_and_keeps_the_act(db: SqlitePool) {
     assert_eq!(acts[0]["participants"][0]["id"], berta.to_string());
 }
 
-#[sqlx::test]
-async fn replace_act_rider_swaps_a_pair_partner(db: SqlitePool) {
+#[tokio::test]
+async fn replace_act_rider_swaps_a_pair_partner() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
@@ -862,8 +887,9 @@ async fn replace_act_rider_swaps_a_pair_partner(db: SqlitePool) {
     assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn replace_act_rider_rejects_riders_of_other_clubs(db: SqlitePool) {
+#[tokio::test]
+async fn replace_act_rider_rejects_riders_of_other_clubs() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other_cookie, other_club) = app.create_club_owner("Other", "RV").await;
@@ -888,8 +914,9 @@ async fn replace_act_rider_rejects_riders_of_other_clubs(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn get_club_shows_the_owner_only_to_the_club_and_admins(db: SqlitePool) {
+#[tokio::test]
+async fn get_club_shows_the_owner_only_to_the_club_and_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other, _) = app.create_club_owner("Other", "RV").await;
@@ -910,8 +937,9 @@ async fn get_club_shows_the_owner_only_to_the_club_and_admins(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn add_rider_requires_a_gender(db: SqlitePool) {
+#[tokio::test]
+async fn add_rider_requires_a_gender() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut body = rider_body(club_id, "Anna", false, false);
@@ -929,8 +957,9 @@ async fn add_rider_requires_a_gender(db: SqlitePool) {
     assert!(list_riders(&app, &cookie, club_id).await.is_empty());
 }
 
-#[sqlx::test]
-async fn responsible_person_defaults_to_owner_and_can_be_changed(db: SqlitePool) {
+#[tokio::test]
+async fn responsible_person_defaults_to_owner_and_can_be_changed() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
 
@@ -964,8 +993,9 @@ async fn responsible_person_defaults_to_owner_and_can_be_changed(db: SqlitePool)
     assert_eq!(club.body["responsible_name"], "Owner");
 }
 
-#[sqlx::test]
-async fn responsible_person_is_only_set_by_the_club_or_admins(db: SqlitePool) {
+#[tokio::test]
+async fn responsible_person_is_only_set_by_the_club_or_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV Test").await;
     let (other, _) = app.create_club_owner("Other", "RSV Andere").await;
@@ -1015,8 +1045,9 @@ async fn responsible_person_is_only_set_by_the_club_or_admins(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn responsible_person_needs_name_and_a_valid_email(db: SqlitePool) {
+#[tokio::test]
+async fn responsible_person_needs_name_and_a_valid_email() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
 
@@ -1045,8 +1076,9 @@ async fn responsible_person_needs_name_and_a_valid_email(db: SqlitePool) {
     assert_eq!(club.body["responsible_name"], "Owner");
 }
 
-#[sqlx::test]
-async fn responsible_person_is_fixed_after_the_registration_for_clubs(db: SqlitePool) {
+#[tokio::test]
+async fn responsible_person_is_fixed_after_the_registration_for_clubs() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
     app.close_registration().await;
@@ -1061,8 +1093,9 @@ async fn responsible_person_is_fixed_after_the_registration_for_clubs(db: Sqlite
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn amount_due_lists_start_fees_jury_fee_and_total(db: SqlitePool) {
+#[tokio::test]
+async fn amount_due_lists_start_fees_jury_fee_and_total() {
+    let db = common::in_memory_migrated().await;
     // Only the start fees; the jury fee is tested in tests/jury.rs.
     let app = TestApp::without_jury_registration(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
@@ -1134,8 +1167,9 @@ async fn amount_due_lists_start_fees_jury_fee_and_total(db: SqlitePool) {
     assert_eq!(club.body["amount_due"], Value::Null);
 }
 
-#[sqlx::test]
-async fn amount_due_keeps_withdrawn_starts_unless_the_fee_is_waived(db: SqlitePool) {
+#[tokio::test]
+async fn amount_due_keeps_withdrawn_starts_unless_the_fee_is_waived() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV Test").await;
     let admin = app.create_admin().await;
@@ -1170,8 +1204,9 @@ async fn amount_due_keeps_withdrawn_starts_unless_the_fee_is_waived(db: SqlitePo
     assert_eq!(start_fees().await, 15.0);
 }
 
-#[sqlx::test]
-async fn a_rider_is_registered_once_per_club_ignoring_case_and_spaces(db: SqlitePool) {
+#[tokio::test]
+async fn a_rider_is_registered_once_per_club_ignoring_case_and_spaces() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app

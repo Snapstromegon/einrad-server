@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{RELOAD_DB_TOKEN, TestApp};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
 
 async fn category_orders(app: &TestApp) -> Vec<(String, Option<i64>)> {
@@ -39,8 +38,9 @@ fn category_body(name: &str) -> Value {
     })
 }
 
-#[sqlx::test]
-async fn list_users_is_admin_only(db: SqlitePool) {
+#[tokio::test]
+async fn list_users_is_admin_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
@@ -64,8 +64,9 @@ async fn list_users_is_admin_only(db: SqlitePool) {
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn admins_can_grant_and_revoke_admin(db: SqlitePool) {
+#[tokio::test]
+async fn admins_can_grant_and_revoke_admin() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user_id = app.create_user("Alex", false).await;
@@ -111,8 +112,9 @@ async fn admins_can_grant_and_revoke_admin(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn setting_roles_is_admin_only_and_checks_the_user(db: SqlitePool) {
+#[tokio::test]
+async fn setting_roles_is_admin_only_and_checks_the_user() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user_id = app.create_user("Alex", false).await;
@@ -142,8 +144,9 @@ async fn setting_roles_is_admin_only_and_checks_the_user(db: SqlitePool) {
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn a_lone_admin_keeps_admin_as_nobody_drops_their_own(db: SqlitePool) {
+#[tokio::test]
+async fn a_lone_admin_keeps_admin_as_nobody_drops_their_own() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin_id = app.create_user("Admin", true).await;
     let admin = app.cookie_for(admin_id);
@@ -167,8 +170,9 @@ async fn a_lone_admin_keeps_admin_as_nobody_drops_their_own(db: SqlitePool) {
     assert!(is_admin);
 }
 
-#[sqlx::test]
-async fn admin_cannot_demote_themselves_even_when_another_admin_exists(db: SqlitePool) {
+#[tokio::test]
+async fn admin_cannot_demote_themselves_even_when_another_admin_exists() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin_id = app.create_user("Admin", true).await;
     app.create_user("Another admin", true).await;
@@ -193,8 +197,9 @@ async fn admin_cannot_demote_themselves_even_when_another_admin_exists(db: Sqlit
     assert!(is_admin);
 }
 
-#[sqlx::test]
-async fn list_riders_is_admin_only(db: SqlitePool) {
+#[tokio::test]
+async fn list_riders_is_admin_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
@@ -213,8 +218,9 @@ async fn list_riders_is_admin_only(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn system_status_reflects_open_registration(db: SqlitePool) {
+#[tokio::test]
+async fn system_status_reflects_open_registration() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app.get("/api/query/get_system_status", None).await;
     assert_eq!(response.status, StatusCode::OK);
@@ -238,8 +244,9 @@ async fn system_status_reflects_open_registration(db: SqlitePool) {
     assert_eq!(competition["payment_reference"], "Startgeld");
 }
 
-#[sqlx::test]
-async fn everything_is_closed_without_competition(db: SqlitePool) {
+#[tokio::test]
+async fn everything_is_closed_without_competition() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     sqlx::query("DELETE FROM competition")
         .execute(&app.db)
@@ -254,8 +261,9 @@ async fn everything_is_closed_without_competition(db: SqlitePool) {
     assert_eq!(response.body["can_upload_music"], false);
 }
 
-#[sqlx::test]
-async fn categories_are_seeded_in_order(db: SqlitePool) {
+#[tokio::test]
+async fn categories_are_seeded_in_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let categories = category_orders(&app).await;
 
@@ -265,8 +273,9 @@ async fn categories_are_seeded_in_order(db: SqlitePool) {
     assert!(orders.is_sorted());
 }
 
-#[sqlx::test]
-async fn category_commands_require_admin(db: SqlitePool) {
+#[tokio::test]
+async fn category_commands_require_admin() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
 
@@ -291,8 +300,9 @@ async fn category_commands_require_admin(db: SqlitePool) {
     assert_eq!(category_orders(&app).await.len(), 40);
 }
 
-#[sqlx::test]
-async fn admin_can_add_and_edit_category(db: SqlitePool) {
+#[tokio::test]
+async fn admin_can_add_and_edit_category() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
 
@@ -329,9 +339,10 @@ async fn admin_can_add_and_edit_category(db: SqlitePool) {
     assert_eq!(renamed["order"], last);
 }
 
-#[sqlx::test]
+#[tokio::test]
 #[ignore = "known bug: category birthdays are stored unvalidated and break list_categories"]
-async fn category_with_date_only_birthday_does_not_break_listing(db: SqlitePool) {
+async fn category_with_date_only_birthday_does_not_break_listing() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let mut body = category_body("DATE-ONLY");
@@ -348,8 +359,9 @@ async fn category_with_date_only_birthday_does_not_break_listing(db: SqlitePool)
     }
 }
 
-#[sqlx::test]
-async fn move_category_up_and_down_swaps_neighbours(db: SqlitePool) {
+#[tokio::test]
+async fn move_category_up_and_down_swaps_neighbours() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
 
@@ -378,8 +390,9 @@ async fn move_category_up_and_down_swaps_neighbours(db: SqlitePool) {
     assert_eq!(order_of(&categories, "EMU13"), Some(2));
 }
 
-#[sqlx::test]
-async fn moving_first_category_up_or_last_down_is_rejected(db: SqlitePool) {
+#[tokio::test]
+async fn moving_first_category_up_or_last_down_is_rejected() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let before = category_orders(&app).await;
@@ -405,8 +418,9 @@ async fn moving_first_category_up_or_last_down_is_rejected(db: SqlitePool) {
     assert_eq!(category_orders(&app).await, before);
 }
 
-#[sqlx::test]
-async fn delete_category_removes_its_timeplan_entries(db: SqlitePool) {
+#[tokio::test]
+async fn delete_category_removes_its_timeplan_entries() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
 
@@ -429,8 +443,9 @@ async fn delete_category_removes_its_timeplan_entries(db: SqlitePool) {
     assert_eq!(timeplan_refs, 0);
 }
 
-#[sqlx::test]
-async fn delete_unknown_category_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn delete_unknown_category_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let response = app
@@ -447,8 +462,9 @@ fn parse_time(value: &Value) -> OffsetDateTime {
     OffsetDateTime::parse(value.as_str().unwrap(), &Iso8601::DEFAULT).unwrap()
 }
 
-#[sqlx::test]
-async fn predicted_timeplan_is_contiguous_and_planned(db: SqlitePool) {
+#[tokio::test]
+async fn predicted_timeplan_is_contiguous_and_planned() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let timeplan_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeplan")
         .fetch_one(&app.db)
@@ -493,8 +509,9 @@ async fn predicted_timeplan_is_contiguous_and_planned(db: SqlitePool) {
     assert_eq!(lunch["planned_duration"], 45 * 60);
 }
 
-#[sqlx::test]
-async fn timeplan_forward_starts_first_entry(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_forward_starts_first_entry() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
@@ -526,8 +543,9 @@ async fn timeplan_forward_starts_first_entry(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn reload_db_rejects_non_admin_without_token(db: SqlitePool) {
+#[tokio::test]
+async fn reload_db_rejects_non_admin_without_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
 
@@ -551,15 +569,17 @@ async fn reload_db_rejects_non_admin_without_token(db: SqlitePool) {
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn unknown_api_route_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn unknown_api_route_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app.get("/api/query/does_not_exist", None).await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn swagger_serves_openapi_document(db: SqlitePool) {
+#[tokio::test]
+async fn swagger_serves_openapi_document() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app.get("/openapi.json", None).await;
     assert_eq!(response.status, StatusCode::OK);

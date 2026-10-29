@@ -1167,8 +1167,9 @@ mod tests {
         }
     }
 
-    #[sqlx::test]
-    async fn only_the_active_player_gets_commands(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn only_the_active_player_gets_commands() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         let (_, mut b_rx) = connect(&hub, "B").await;
@@ -1192,8 +1193,9 @@ mod tests {
         assert_eq!(hub.subscribe().0.active_player, Some(a));
     }
 
-    #[sqlx::test]
-    async fn switching_players_stops_the_old_one(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn switching_players_stops_the_old_one() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         let PlayerConnection {
@@ -1217,8 +1219,9 @@ mod tests {
         assert!(b_messages.contains(&ToPlayer::Cue { song: song(1) }));
     }
 
-    #[sqlx::test]
-    async fn unregistering_the_active_player_clears_it(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn unregistering_the_active_player_clears_it() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, _a_rx) = connect(&hub, "A").await;
         select(&hub, a).await;
@@ -1234,8 +1237,9 @@ mod tests {
         assert!(unknown.is_err());
     }
 
-    #[sqlx::test]
-    async fn a_reconnect_keeps_the_active_status(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_reconnect_keeps_the_active_status() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let first = hub.register(None, "Tonpult".into(), PlayerKind::Web).await;
         let id = first.id;
@@ -1283,8 +1287,9 @@ mod tests {
         assert_eq!(drain(&mut third.commands).last(), Some(&ToPlayer::Clear));
     }
 
-    #[sqlx::test]
-    async fn a_newer_connection_replaces_the_old_one(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_newer_connection_replaces_the_old_one() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let mut first = hub.register(None, "Tonpult".into(), PlayerKind::Web).await;
         select(&hub, first.id).await;
@@ -1306,8 +1311,9 @@ mod tests {
         assert_eq!(drain(&mut second.commands), [ToPlayer::Play]);
     }
 
-    #[sqlx::test]
-    async fn players_keep_valid_ids_of_their_kind(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn players_keep_valid_ids_of_their_kind() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let chosen = Uuid::now_v7();
         let player = hub
@@ -1332,8 +1338,9 @@ mod tests {
         assert!(state.players.iter().all(|p| p.connected));
     }
 
-    #[sqlx::test]
-    async fn a_player_that_does_not_come_back_is_removed(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_player_that_does_not_come_back_is_removed() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         hub.set_timing(short_grace());
         let a = hub.register(None, "A".into(), PlayerKind::Web).await;
@@ -1356,8 +1363,9 @@ mod tests {
         assert_eq!(state.pending_cue, None);
     }
 
-    #[sqlx::test]
-    async fn a_player_back_in_time_stays(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_player_back_in_time_stays() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         hub.set_timing(short_grace());
         let a = hub.register(None, "A".into(), PlayerKind::Web).await;
@@ -1376,8 +1384,9 @@ mod tests {
         wait_state(&mut updates, |s| s.players.is_empty()).await;
     }
 
-    #[sqlx::test]
-    async fn a_disconnected_player_can_not_be_selected(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_disconnected_player_can_not_be_selected() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let a = hub.register(None, "A".into(), PlayerKind::Web).await;
         let b = hub.register(None, "B".into(), PlayerKind::Web).await;
@@ -1399,8 +1408,9 @@ mod tests {
         assert_eq!(hub.subscribe().0.active_player, Some(a.id));
     }
 
-    #[sqlx::test]
-    async fn playback_is_the_active_players_or_else_the_local_one(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn playback_is_the_active_players_or_else_the_local_one() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         assert_eq!(hub.playback(), Playback::IDLE);
 
@@ -1435,8 +1445,9 @@ mod tests {
         assert!((30.1..31.0).contains(&playback.position), "{playback:?}");
     }
 
-    #[sqlx::test]
-    async fn the_music_control_that_plays_goes_first(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn the_music_control_that_plays_goes_first() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let report = |state, position| Playback {
             act_id: Some(Uuid::from_u128(2)),
@@ -1464,8 +1475,9 @@ mod tests {
         assert_eq!(hub.playback(), Playback::IDLE);
     }
 
-    #[sqlx::test]
-    async fn only_a_disconnected_player_can_be_removed(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn only_a_disconnected_player_can_be_removed() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let a = hub.register(None, "A".into(), PlayerKind::Web).await;
         let b = hub.register(None, "B".into(), PlayerKind::Web).await;
@@ -1491,8 +1503,9 @@ mod tests {
         assert_eq!(hub.subscribe().0.active_player, None);
     }
 
-    #[sqlx::test]
-    async fn a_pending_cue_waits_until_the_song_stops(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_pending_cue_waits_until_the_song_stops() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         select(&hub, a).await;
@@ -1511,8 +1524,9 @@ mod tests {
         assert_eq!(state.pending_cue, None);
     }
 
-    #[sqlx::test]
-    async fn only_a_stopped_song_lets_the_next_one_in(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn only_a_stopped_song_lets_the_next_one_in() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         select(&hub, a).await;
@@ -1550,8 +1564,9 @@ mod tests {
         }
     }
 
-    #[sqlx::test]
-    async fn a_pending_cue_takes_over_when_the_player_goes(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_pending_cue_takes_over_when_the_player_goes() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, _a_rx) = connect(&hub, "A").await;
         let (b, mut b_rx) = connect(&hub, "B").await;
@@ -1583,8 +1598,9 @@ mod tests {
         assert!(drain(&mut c_rx).contains(&ToPlayer::Cue { song: song(2) }));
     }
 
-    #[sqlx::test]
-    async fn ending_an_act_stops_the_music(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn ending_an_act_stops_the_music() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         select(&hub, a).await;
@@ -1613,8 +1629,9 @@ mod tests {
         assert_eq!(state.pending_cue, None);
     }
 
-    #[sqlx::test]
-    async fn the_first_player_gets_the_songs_coming_up(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn the_first_player_gets_the_songs_coming_up() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         assert_eq!(hub.lock().prefetch, None);
 
@@ -1642,8 +1659,9 @@ mod tests {
         );
     }
 
-    #[sqlx::test]
-    async fn a_cued_version_replaces_the_one_coming_up(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn a_cued_version_replaces_the_one_coming_up() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         hub.lock().prefetch = Some(vec![song(1), song(2)]);
         let (_, mut a_rx) = connect(&hub, "A").await;
@@ -1666,8 +1684,9 @@ mod tests {
         assert!(drain(&mut a_rx).is_empty());
     }
 
-    #[sqlx::test]
-    async fn starting_the_cued_song_records_the_music_start(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn starting_the_cued_song_records_the_music_start() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let act = Uuid::from_u128(1);
         sqlx::query(
             "INSERT INTO acts (id, name, act_type, started_at) VALUES (?, '', 'single', datetime('now'))",
@@ -1719,8 +1738,9 @@ mod tests {
         assert!((-1.0..2.0).contains(&seconds_ago), "{seconds_ago}");
     }
 
-    #[sqlx::test]
-    async fn volume_is_clamped_and_kept(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn volume_is_clamped_and_kept() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let (a, mut a_rx) = connect(&hub, "A").await;
         hub.command(ControllerMessage::Volume { volume: 3.0 })

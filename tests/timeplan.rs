@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
 use uuid::Uuid;
 
@@ -77,8 +76,9 @@ fn custom_entry(label: &str, duration_seconds: i64) -> Value {
     })
 }
 
-#[sqlx::test]
-async fn list_timeplan_returns_seeded_entries_in_order(db: SqlitePool) {
+#[tokio::test]
+async fn list_timeplan_returns_seeded_entries_in_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
 
     let entries = list_timeplan(&app).await;
@@ -96,8 +96,9 @@ async fn list_timeplan_returns_seeded_entries_in_order(db: SqlitePool) {
     assert!(entries.iter().all(|e| e["started_at"].is_null()));
 }
 
-#[sqlx::test]
-async fn timeplan_commands_require_admin(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_commands_require_admin() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let user = app.cookie_for(app.create_user("Alex", false).await);
     let before = list_timeplan(&app).await;
@@ -130,8 +131,9 @@ async fn timeplan_commands_require_admin(db: SqlitePool) {
     assert_eq!(list_timeplan(&app).await, before);
 }
 
-#[sqlx::test]
-async fn add_edit_and_delete_timeplan_entries(db: SqlitePool) {
+#[tokio::test]
+async fn add_edit_and_delete_timeplan_entries() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -173,8 +175,9 @@ async fn add_edit_and_delete_timeplan_entries(db: SqlitePool) {
     assert_eq!(labels(&list_timeplan(&app).await), ["EWU13"]);
 }
 
-#[sqlx::test]
-async fn delete_unknown_timeplan_entry_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn delete_unknown_timeplan_entry_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let response = app
@@ -187,8 +190,9 @@ async fn delete_unknown_timeplan_entry_is_not_found(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn move_timeplan_entries_up_and_down(db: SqlitePool) {
+#[tokio::test]
+async fn move_timeplan_entries_up_and_down() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -230,8 +234,9 @@ async fn move_timeplan_entries_up_and_down(db: SqlitePool) {
     assert_eq!(labels(&list_timeplan(&app).await), ["C", "A", "B"]);
 }
 
-#[sqlx::test]
-async fn moving_first_entry_up_or_last_entry_down_is_rejected(db: SqlitePool) {
+#[tokio::test]
+async fn moving_first_entry_up_or_last_entry_down_is_rejected() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -289,8 +294,9 @@ async fn progress(app: &TestApp) -> (Vec<String>, Vec<String>) {
     (item_status, act_status)
 }
 
-#[sqlx::test]
-async fn timeplan_forward_and_backward_walk_through_acts(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_forward_and_backward_walk_through_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -368,8 +374,9 @@ async fn timeplan_forward_and_backward_walk_through_acts(db: SqlitePool) {
     assert_eq!(progress(&app).await, initial);
 }
 
-#[sqlx::test]
-async fn timeplan_forward_starts_custom_entry(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_forward_starts_custom_entry() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(&app, &admin, &[custom_entry("Pause", 900)]).await;
@@ -382,8 +389,9 @@ async fn timeplan_forward_starts_custom_entry(db: SqlitePool) {
     assert!(list_timeplan(&app).await[0]["started_at"].is_string());
 }
 
-#[sqlx::test]
-async fn timeplan_backward_without_progress_does_nothing(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_backward_without_progress_does_nothing() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let before = list_timeplan(&app).await;
@@ -396,8 +404,9 @@ async fn timeplan_backward_without_progress_does_nothing(db: SqlitePool) {
     assert_eq!(list_timeplan(&app).await, before);
 }
 
-#[sqlx::test]
-async fn timeplan_forward_skips_category_without_acts(db: SqlitePool) {
+#[tokio::test]
+async fn timeplan_forward_skips_category_without_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -429,8 +438,9 @@ async fn step(app: &TestApp, admin: &str, command: &str) -> Vec<String> {
     progress(app).await.0
 }
 
-#[sqlx::test]
-async fn empty_blocks_are_skipped_in_one_step_and_restored(db: SqlitePool) {
+#[tokio::test]
+async fn empty_blocks_are_skipped_in_one_step_and_restored() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -473,8 +483,9 @@ async fn empty_blocks_are_skipped_in_one_step_and_restored(db: SqlitePool) {
     assert_eq!(progress(&app).await.1, ["Started"]);
 }
 
-#[sqlx::test]
-async fn forward_with_only_empty_blocks_left_changes_nothing(db: SqlitePool) {
+#[tokio::test]
+async fn forward_with_only_empty_blocks_left_changes_nothing() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     replace_timeplan(
@@ -492,8 +503,9 @@ async fn forward_with_only_empty_blocks_left_changes_nothing(db: SqlitePool) {
     assert_eq!(states, ["Planned", "Planned"]);
 }
 
-#[sqlx::test]
-async fn shared_warmup_of_an_empty_category_moves_to_the_next(db: SqlitePool) {
+#[tokio::test]
+async fn shared_warmup_of_an_empty_category_moves_to_the_next() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -532,8 +544,9 @@ async fn shared_warmup_of_an_empty_category_moves_to_the_next(db: SqlitePool) {
     assert_eq!(acts[0]["status"], "Planned");
 }
 
-#[sqlx::test]
-async fn act_timer_starts_with_the_first_music_start(db: SqlitePool) {
+#[tokio::test]
+async fn act_timer_starts_with_the_first_music_start() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -706,8 +719,9 @@ fn rejected(response: &TestResponse, message: &str) {
     );
 }
 
-#[sqlx::test]
-async fn acts_of_several_categories_run_in_any_order(db: SqlitePool) {
+#[tokio::test]
+async fn acts_of_several_categories_run_in_any_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -779,8 +793,9 @@ async fn acts_of_several_categories_run_in_any_order(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn breaks_in_a_block_shift_the_acts_after_them(db: SqlitePool) {
+#[tokio::test]
+async fn breaks_in_a_block_shift_the_acts_after_them() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -839,8 +854,9 @@ async fn breaks_in_a_block_shift_the_acts_after_them(db: SqlitePool) {
     rejected(&no_label, "Bezeichnung");
 }
 
-#[sqlx::test]
-async fn acts_move_to_the_end_and_behind_a_break(db: SqlitePool) {
+#[tokio::test]
+async fn acts_move_to_the_end_and_behind_a_break() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -887,8 +903,9 @@ async fn acts_move_to_the_end_and_behind_a_break(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn new_blocks_without_category_and_entries_in_between(db: SqlitePool) {
+#[tokio::test]
+async fn new_blocks_without_category_and_entries_in_between() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -973,8 +990,9 @@ async fn new_blocks_without_category_and_entries_in_between(db: SqlitePool) {
     assert!(slot_names(&items[0]).contains(&a1.to_string()));
 }
 
-#[sqlx::test]
-async fn the_running_block_can_be_replanned_after_the_current_act(db: SqlitePool) {
+#[tokio::test]
+async fn the_running_block_can_be_replanned_after_the_current_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1045,8 +1063,9 @@ async fn the_running_block_can_be_replanned_after_the_current_act(db: SqlitePool
     rejected(&ended, "beendet");
 }
 
-#[sqlx::test]
-async fn forward_and_backward_step_through_acts_and_breaks(db: SqlitePool) {
+#[tokio::test]
+async fn forward_and_backward_step_through_acts_and_breaks() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1107,8 +1126,9 @@ async fn forward_and_backward_step_through_acts_and_breaks(db: SqlitePool) {
     assert_eq!(state().await, initial);
 }
 
-#[sqlx::test]
-async fn a_break_runs_on_after_its_time_until_forward(db: SqlitePool) {
+#[tokio::test]
+async fn a_break_runs_on_after_its_time_until_forward() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1154,8 +1174,9 @@ async fn a_break_runs_on_after_its_time_until_forward(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn late_acts_join_their_home_block_and_deleted_acts_leave(db: SqlitePool) {
+#[tokio::test]
+async fn late_acts_join_their_home_block_and_deleted_acts_leave() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1191,8 +1212,9 @@ async fn late_acts_join_their_home_block_and_deleted_acts_leave(db: SqlitePool) 
     );
 }
 
-#[sqlx::test]
-async fn reset_returns_a_block_to_category_order(db: SqlitePool) {
+#[tokio::test]
+async fn reset_returns_a_block_to_category_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1260,8 +1282,9 @@ async fn reset_returns_a_block_to_category_order(db: SqlitePool) {
     rejected(&response, "Gestartete");
 }
 
-#[sqlx::test]
-async fn set_block_order_rejects_invalid_orders(db: SqlitePool) {
+#[tokio::test]
+async fn set_block_order_rejects_invalid_orders() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1312,8 +1335,9 @@ async fn set_block_order_rejects_invalid_orders(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn started_slots_keep_their_planned_order_whatever_their_times(db: SqlitePool) {
+#[tokio::test]
+async fn started_slots_keep_their_planned_order_whatever_their_times() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1367,8 +1391,9 @@ async fn add_late_block(app: &TestApp, admin: &str, label: &str, after_id: i64) 
     response.body["id"].as_i64().unwrap()
 }
 
-#[sqlx::test]
-async fn acts_are_never_sent_back_into_an_ended_block(db: SqlitePool) {
+#[tokio::test]
+async fn acts_are_never_sent_back_into_an_ended_block() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1430,8 +1455,9 @@ async fn acts_are_never_sent_back_into_an_ended_block(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 }
 
-#[sqlx::test]
-async fn moving_entries_keeps_started_acts_in_their_block(db: SqlitePool) {
+#[tokio::test]
+async fn moving_entries_keeps_started_acts_in_their_block() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1467,8 +1493,9 @@ async fn moving_entries_keeps_started_acts_in_their_block(db: SqlitePool) {
     assert!(slot_names(&items[0]).is_empty());
 }
 
-#[sqlx::test]
-async fn withdrawn_acts_keep_their_place_in_a_replanned_block(db: SqlitePool) {
+#[tokio::test]
+async fn withdrawn_acts_keep_their_place_in_a_replanned_block() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1517,8 +1544,9 @@ async fn withdrawn_acts_keep_their_place_in_a_replanned_block(db: SqlitePool) {
     assert!(slot_names(&items[1]).is_empty());
 }
 
-#[sqlx::test]
-async fn a_started_break_comes_only_once(db: SqlitePool) {
+#[tokio::test]
+async fn a_started_break_comes_only_once() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1572,8 +1600,9 @@ async fn a_started_break_comes_only_once(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn backward_after_a_block_lost_its_last_acts_only_reopens_the_block(db: SqlitePool) {
+#[tokio::test]
+async fn backward_after_a_block_lost_its_last_acts_only_reopens_the_block() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1606,8 +1635,9 @@ async fn backward_after_a_block_lost_its_last_acts_only_reopens_the_block(db: Sq
     assert_eq!(slot_states(&items[0]), ["Ended"]);
 }
 
-#[sqlx::test]
-async fn a_block_that_lost_its_acts_skips_its_breaks(db: SqlitePool) {
+#[tokio::test]
+async fn a_block_that_lost_its_acts_skips_its_breaks() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1641,8 +1671,9 @@ async fn a_block_that_lost_its_acts_skips_its_breaks(db: SqlitePool) {
     assert_eq!(slot_states(&items[0]), ["Planned"]);
 }
 
-#[sqlx::test]
-async fn breaks_need_a_duration_in_the_database_too(db: SqlitePool) {
+#[tokio::test]
+async fn breaks_need_a_duration_in_the_database_too() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let block: i64 = sqlx::query_scalar("SELECT id FROM timeplan ORDER BY position LIMIT 1")
         .fetch_one(&app.db)
@@ -1660,8 +1691,9 @@ async fn breaks_need_a_duration_in_the_database_too(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn a_block_without_category_warms_up_only_with_its_own_time(db: SqlitePool) {
+#[tokio::test]
+async fn a_block_without_category_warms_up_only_with_its_own_time() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
@@ -1717,8 +1749,9 @@ async fn custom_by_label(app: &TestApp, label: &str) -> (Value, Value) {
     (predicted, listed)
 }
 
-#[sqlx::test]
-async fn custom_entries_show_photos_unless_turned_off(db: SqlitePool) {
+#[tokio::test]
+async fn custom_entries_show_photos_unless_turned_off() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
 
@@ -1767,8 +1800,9 @@ async fn add_internal_entry(app: &TestApp, admin: &str) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 }
 
-#[sqlx::test]
-async fn internal_entries_are_a_pause_for_everyone_but_the_organizer_team(db: SqlitePool) {
+#[tokio::test]
+async fn internal_entries_are_a_pause_for_everyone_but_the_organizer_team() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     add_internal_entry(&app, &admin).await;
@@ -1840,8 +1874,9 @@ async fn internal_entries_are_a_pause_for_everyone_but_the_organizer_team(db: Sq
     assert!(csv.contains("Pause"));
 }
 
-#[sqlx::test]
-async fn start_blocks_cant_be_internal(db: SqlitePool) {
+#[tokio::test]
+async fn start_blocks_cant_be_internal() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let response = app

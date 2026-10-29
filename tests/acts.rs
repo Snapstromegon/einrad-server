@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, closed_registration, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 async fn get_act(app: &TestApp, act_id: Uuid) -> Value {
@@ -40,8 +39,9 @@ async fn club_with_acts(app: &TestApp) -> (String, Uuid, Uuid) {
     (cookie, single, pair)
 }
 
-#[sqlx::test]
-async fn get_act_returns_category_and_participants(db: SqlitePool) {
+#[tokio::test]
+async fn get_act_returns_category_and_participants() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, single, pair) = club_with_acts(&app).await;
     let admin = app.create_admin().await;
@@ -80,8 +80,9 @@ async fn category_of(app: &TestApp, rider_id: Uuid, act_type: &str) -> Value {
     get_act(app, act_id).await["category"].clone()
 }
 
-#[sqlx::test]
-async fn categories_follow_gender_and_age(db: SqlitePool) {
+#[tokio::test]
+async fn categories_follow_gender_and_age() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let rider = |name: &str, birthdate: &str, male: bool, female: bool, pair: bool| {
@@ -148,8 +149,9 @@ async fn categories_follow_gender_and_age(db: SqlitePool) {
     assert_eq!(category_of(&app, ben, "pair").await, "PU13");
 }
 
-#[sqlx::test]
-async fn get_unknown_act_fails(db: SqlitePool) {
+#[tokio::test]
+async fn get_unknown_act_fails() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app
         .get(
@@ -160,8 +162,9 @@ async fn get_unknown_act_fails(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-#[sqlx::test]
-async fn list_acts_is_sorted_by_category_order(db: SqlitePool) {
+#[tokio::test]
+async fn list_acts_is_sorted_by_category_order() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, single, pair) = club_with_acts(&app).await;
 
@@ -171,8 +174,9 @@ async fn list_acts_is_sorted_by_category_order(db: SqlitePool) {
     assert!(acts[0]["category_order"].as_i64() < acts[1]["category_order"].as_i64());
 }
 
-#[sqlx::test]
-async fn edit_club_act_sets_name_and_description(db: SqlitePool) {
+#[tokio::test]
+async fn edit_club_act_sets_name_and_description() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
 
@@ -190,8 +194,9 @@ async fn edit_club_act_sets_name_and_description(db: SqlitePool) {
     assert_eq!(act["description"], "Mit Seil");
 }
 
-#[sqlx::test]
-async fn edit_club_act_is_forbidden_after_music_deadline(db: SqlitePool) {
+#[tokio::test]
+async fn edit_club_act_is_forbidden_after_music_deadline() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     let owner = app.cookie_for(app.create_user("Owner", false).await);
 
@@ -206,8 +211,9 @@ async fn edit_club_act_is_forbidden_after_music_deadline(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn save_act_song_stores_file_and_metadata(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_stores_file_and_metadata() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
     let contents = b"ID3 not really an mp3";
@@ -232,8 +238,9 @@ async fn save_act_song_stores_file_and_metadata(db: SqlitePool) {
     assert_eq!(act["song_file_name"], "Mein Lied.mp3");
 }
 
-#[sqlx::test]
-async fn save_act_song_replaces_previous_upload(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_replaces_previous_upload() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
     let uri = format!("/api/command/save_act_song?act_id={single}");
@@ -264,8 +271,9 @@ async fn save_act_song_replaces_previous_upload(db: SqlitePool) {
     assert_eq!(act["song_checked"], false);
 }
 
-#[sqlx::test]
-async fn only_the_acts_clubs_and_admins_edit_an_act(db: SqlitePool) {
+#[tokio::test]
+async fn only_the_acts_clubs_and_admins_edit_an_act() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, single, _) = club_with_acts(&app).await;
     let (intruder, _) = app.create_club_owner("Intruder", "ESV").await;
@@ -341,8 +349,9 @@ async fn only_the_acts_clubs_and_admins_edit_an_act(db: SqlitePool) {
     assert_eq!(act["song_file_name"], "admin.mp3");
 }
 
-#[sqlx::test]
-async fn ages_are_only_shown_to_admins(db: SqlitePool) {
+#[tokio::test]
+async fn ages_are_only_shown_to_admins() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, single, pair) = club_with_acts(&app).await;
     let admin = app.create_admin().await;
@@ -377,8 +386,9 @@ async fn ages_are_only_shown_to_admins(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn save_act_song_rejects_file_without_extension(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_rejects_file_without_extension() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
 
@@ -395,8 +405,9 @@ async fn save_act_song_rejects_file_without_extension(db: SqlitePool) {
     assert_eq!(std::fs::read_dir(app.data_path()).unwrap().count(), 0);
 }
 
-#[sqlx::test]
-async fn save_act_song_accepts_only_mp3(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_accepts_only_mp3() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
     let uri = format!("/api/command/save_act_song?act_id={single}");
@@ -414,8 +425,9 @@ async fn save_act_song_accepts_only_mp3(db: SqlitePool) {
     assert!(app.data_path().join(format!("{single}.mp3")).exists());
 }
 
-#[sqlx::test]
-async fn save_act_song_rejects_files_over_10_mib(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_rejects_files_over_10_mib() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
     let uri = format!("/api/command/save_act_song?act_id={single}");
@@ -439,8 +451,9 @@ async fn save_act_song_rejects_files_over_10_mib(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
-#[sqlx::test]
-async fn save_act_song_requires_login(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_requires_login() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app
         .post_file(
@@ -453,8 +466,9 @@ async fn save_act_song_requires_login(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn save_act_song_is_forbidden_after_music_deadline(db: SqlitePool) {
+#[tokio::test]
+async fn save_act_song_is_forbidden_after_music_deadline() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
     let owner = app.cookie_for(app.create_user("Owner", false).await);
 
@@ -470,8 +484,9 @@ async fn save_act_song_is_forbidden_after_music_deadline(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn set_song_checked_is_admin_only(db: SqlitePool) {
+#[tokio::test]
+async fn set_song_checked_is_admin_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, single, _) = club_with_acts(&app).await;
     let admin = app.create_admin().await;
@@ -499,8 +514,9 @@ async fn set_song_checked_is_admin_only(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn set_act_order_reorders_acts_within_category(db: SqlitePool) {
+#[tokio::test]
+async fn set_act_order_reorders_acts_within_category() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
@@ -534,8 +550,9 @@ async fn set_act_order_reorders_acts_within_category(db: SqlitePool) {
     assert_eq!(acts[1]["act_order"], 2);
 }
 
-#[sqlx::test]
-async fn startlist_lists_acts_with_participants_and_clubs(db: SqlitePool) {
+#[tokio::test]
+async fn startlist_lists_acts_with_participants_and_clubs() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, single, pair) = club_with_acts(&app).await;
 
@@ -554,8 +571,9 @@ async fn startlist_lists_acts_with_participants_and_clubs(db: SqlitePool) {
     assert!(acts[0].get("song_checked").is_none());
 }
 
-#[sqlx::test]
-async fn startlist_csv_contains_header_sections_and_acts(db: SqlitePool) {
+#[tokio::test]
+async fn startlist_csv_contains_header_sections_and_acts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (cookie, single, _) = club_with_acts(&app).await;
     app.post(
@@ -632,8 +650,9 @@ async fn startlist_csv_contains_header_sections_and_acts(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn withdrawn_act_leaves_the_startlist_and_keeps_its_fee(db: SqlitePool) {
+#[tokio::test]
+async fn withdrawn_act_leaves_the_startlist_and_keeps_its_fee() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, single, _) = club_with_acts(&app).await;
     let admin = app.create_admin().await;
@@ -688,8 +707,9 @@ async fn withdrawn_act_leaves_the_startlist_and_keeps_its_fee(db: SqlitePool) {
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn uploaded_song_gets_a_normalized_copy(db: SqlitePool) {
+#[tokio::test]
+async fn uploaded_song_gets_a_normalized_copy() {
+    let db = common::in_memory_migrated().await;
     // A short tone as mp3; without ffmpeg there is nothing to test.
     let dir = std::env::temp_dir().join(format!("song-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();

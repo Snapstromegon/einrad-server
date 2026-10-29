@@ -465,8 +465,9 @@ mod tests {
         }
     }
 
-    #[sqlx::test]
-    async fn single_on_and_off(db: SqlitePool) {
+    #[tokio::test]
+    async fn single_on_and_off() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let mut conn = db.acquire().await.unwrap();
@@ -484,8 +485,9 @@ mod tests {
         assert_eq!(starts(&mut conn, anna).await.unwrap().single, None);
     }
 
-    #[sqlx::test]
-    async fn waiting_riders_naming_each_other_become_a_pair(db: SqlitePool) {
+    #[tokio::test]
+    async fn waiting_riders_naming_each_other_become_a_pair() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;
@@ -523,8 +525,9 @@ mod tests {
         );
     }
 
-    #[sqlx::test]
-    async fn a_newcomer_naming_a_waiting_rider_pairs_with_them(db: SqlitePool) {
+    #[tokio::test]
+    async fn a_newcomer_naming_a_waiting_rider_pairs_with_them() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;
@@ -540,8 +543,9 @@ mod tests {
         assert!(matches!(pair_of(&db, anna).await, Pair::Linked { .. }));
     }
 
-    #[sqlx::test]
-    async fn a_waiting_rider_naming_someone_else_or_of_another_club_isnt_taken(db: SqlitePool) {
+    #[tokio::test]
+    async fn a_waiting_rider_naming_someone_else_or_of_another_club_isnt_taken() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let other_club = insert_club(&db, "ESV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
@@ -570,8 +574,9 @@ mod tests {
         assert!(matches!(pair_of(&db, zoe).await, Pair::Requested { .. }));
     }
 
-    #[sqlx::test]
-    async fn a_paired_rider_is_never_taken(db: SqlitePool) {
+    #[tokio::test]
+    async fn a_paired_rider_is_never_taken() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let max = insert_rider(&db, club, "Max Müller").await;
         let lena = insert_rider(&db, club, "Lena Schmidt").await;
@@ -603,8 +608,9 @@ mod tests {
         );
     }
 
-    #[sqlx::test]
-    async fn a_rider_cant_ask_for_themselves_or_a_second_pair(db: SqlitePool) {
+    #[tokio::test]
+    async fn a_rider_cant_ask_for_themselves_or_a_second_pair() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;
@@ -622,8 +628,9 @@ mod tests {
         assert!(message(error).contains("schon eine Paarkür"));
     }
 
-    #[sqlx::test]
-    async fn the_organizer_links_riders_of_different_clubs(db: SqlitePool) {
+    #[tokio::test]
+    async fn the_organizer_links_riders_of_different_clubs() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let other_club = insert_club(&db, "ESV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
@@ -675,8 +682,9 @@ mod tests {
         assert!(message(error).contains("schon eine Paarkür"));
     }
 
-    #[sqlx::test]
-    async fn leaving_a_pair_leaves_the_partner_waiting(db: SqlitePool) {
+    #[tokio::test]
+    async fn leaving_a_pair_leaves_the_partner_waiting() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;
@@ -703,8 +711,9 @@ mod tests {
         assert_eq!(pair_of(&db, berta).await, Pair::None);
     }
 
-    #[sqlx::test]
-    async fn deleting_a_rider_of_a_pair_leaves_the_partner_waiting(db: SqlitePool) {
+    #[tokio::test]
+    async fn deleting_a_rider_of_a_pair_leaves_the_partner_waiting() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;
@@ -727,8 +736,9 @@ mod tests {
         assert_eq!(riders, 1);
     }
 
-    #[sqlx::test]
-    async fn dissolving_a_pair_leaves_nobody_waiting(db: SqlitePool) {
+    #[tokio::test]
+    async fn dissolving_a_pair_leaves_nobody_waiting() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let club = insert_club(&db, "RSV").await;
         let anna = insert_rider(&db, club, "Anna Muster").await;
         let berta = insert_rider(&db, club, "Berta Muster").await;

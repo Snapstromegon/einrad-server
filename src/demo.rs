@@ -924,8 +924,9 @@ mod tests {
         std::env::temp_dir().join(format!("cup-demo-test-{}", Uuid::new_v4()))
     }
 
-    #[sqlx::test]
-    async fn demo_file_fills_every_table(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn demo_file_fills_every_table() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let data = DemoData::parse(DEMO).unwrap();
         let data_path = data_dir();
         data.apply(&db, &data_path).await.unwrap();
@@ -1026,8 +1027,9 @@ mod tests {
         std::fs::remove_dir_all(data_path).unwrap();
     }
 
-    #[sqlx::test]
-    async fn unknown_partner_is_rejected(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn unknown_partner_is_rejected() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
         let rider = &mut data.clubs[0].riders[0];
         rider.pair = true;
@@ -1037,8 +1039,9 @@ mod tests {
         assert!(err.contains("Niemand Unbekannt"), "{err}");
     }
 
-    #[sqlx::test]
-    async fn demo_groups_follow_the_group_rules(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn demo_groups_follow_the_group_rules() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
         // Emma Wagner already rides in a small group.
         let incomplete = data
@@ -1051,8 +1054,9 @@ mod tests {
         assert!(err.contains("„Emma Wagner“"), "{err}");
     }
 
-    #[sqlx::test]
-    async fn fetched_songs_are_stored(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn fetched_songs_are_stored() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
         // No downloads in tests: one song is in the cache already, the
         // other's download fails.

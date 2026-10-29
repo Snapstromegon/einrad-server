@@ -19,7 +19,6 @@ use nrw_freestyle_cup_registration::player::{
     client::{self, Options, Songs},
 };
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use tokio::{
     net::TcpStream,
     sync::mpsc as tokio_mpsc,
@@ -189,8 +188,9 @@ async fn act_with_song(app: &TestApp, song: &[u8]) -> Uuid {
     act_id
 }
 
-#[sqlx::test]
-async fn the_cli_player_downloads_the_cued_song_and_plays_it(db: SqlitePool) {
+#[tokio::test]
+async fn the_cli_player_downloads_the_cued_song_and_plays_it() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let song = b"ID3 not really an mp3".as_slice();
@@ -223,8 +223,9 @@ async fn the_cli_player_downloads_the_cued_song_and_plays_it(db: SqlitePool) {
     assert_eq!(songs.get(&file).unwrap().as_deref(), Some(song));
 }
 
-#[sqlx::test]
-async fn a_rejected_login_stops_the_cli_player(db: SqlitePool) {
+#[tokio::test]
+async fn a_rejected_login_stops_the_cli_player() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     app.create_admin().await;
     let address = app.serve().await;
@@ -233,8 +234,9 @@ async fn a_rejected_login_stops_the_cli_player(db: SqlitePool) {
     assert!(result.unwrap_err().contains("rejected"));
 }
 
-#[sqlx::test]
-async fn a_cli_player_with_the_same_id_takes_over(db: SqlitePool) {
+#[tokio::test]
+async fn a_cli_player_with_the_same_id_takes_over() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let address = app.serve().await;

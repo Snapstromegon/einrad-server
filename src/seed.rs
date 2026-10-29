@@ -874,8 +874,9 @@ mod tests {
             .unwrap()
     }
 
-    #[sqlx::test]
-    async fn migrations_leave_tables_empty(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn migrations_leave_tables_empty() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         for table in [
             "competition",
             "categories",
@@ -889,8 +890,9 @@ mod tests {
         }
     }
 
-    #[sqlx::test]
-    async fn seeds_empty_database(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn seeds_empty_database() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         seed_config(&db, CONFIG).await.unwrap();
 
         let competition = Competition::current(&db).await.unwrap().unwrap();
@@ -908,8 +910,9 @@ mod tests {
         assert_eq!(count(&db, "timeplan").await, 3);
     }
 
-    #[sqlx::test]
-    async fn new_competition_id_replaces_the_old_row(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn new_competition_id_replaces_the_old_row() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         seed_config(&db, CONFIG).await.unwrap();
         let renamed = CONFIG.replace(r#"id = "cup""#, r#"id = "cup-2""#);
         seed_config(&db, &renamed).await.unwrap();
@@ -919,8 +922,9 @@ mod tests {
         assert_eq!(competition.id, "cup-2");
     }
 
-    #[sqlx::test]
-    async fn invalid_competition_dates_write_nothing(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn invalid_competition_dates_write_nothing() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let broken = CONFIG.replace(
             "registration_end = 2027-04-30T23:59:59+02:00",
             "registration_end = 2027-12-20T23:59:59+01:00",
@@ -930,8 +934,9 @@ mod tests {
         assert_eq!(count(&db, "competition").await, 0);
     }
 
-    #[sqlx::test]
-    async fn second_run_keeps_admin_changes_but_updates_competition(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn second_run_keeps_admin_changes_but_updates_competition() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         seed_config(&db, CONFIG).await.unwrap();
         sqlx::query("UPDATE categories SET description = 'edited' WHERE name = 'U15'")
             .execute(&db)
@@ -957,8 +962,9 @@ mod tests {
         );
     }
 
-    #[sqlx::test]
-    async fn invalid_config_writes_nothing(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn invalid_config_writes_nothing() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let invalid = CONFIG.replace("category = \"15+\"", "category = \"missing\"");
         let err = seed_config(&db, &invalid).await.unwrap_err();
         assert!(err.contains("missing"), "{err}");
@@ -967,15 +973,17 @@ mod tests {
         assert_eq!(count(&db, "timeplan").await, 0);
     }
 
-    #[sqlx::test]
-    async fn categories_without_competition_are_rejected(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn categories_without_competition_are_rejected() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let without_competition = &CONFIG[CONFIG.find("[[categories]]").unwrap()..];
         let err = seed_config(&db, without_competition).await.unwrap_err();
         assert!(err.contains("determining_day"), "{err}");
     }
 
-    #[sqlx::test]
-    async fn age_uses_determining_day_of_competition(db: sqlx::SqlitePool) {
+    #[tokio::test]
+    async fn age_uses_determining_day_of_competition() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
         seed_config(&db, CONFIG).await.unwrap();
         let age: f64 = sqlx::query_scalar(
             "SELECT (julianday((SELECT determining_day FROM competition ORDER BY start_date DESC LIMIT 1)) - julianday('2012-06-01')) / 365.2425",

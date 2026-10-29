@@ -5,15 +5,15 @@ mod common;
 use axum::http::StatusCode;
 use common::{BASE_URL, PASSWORD, TestApp, closed_registration, email_for, mailpit::FROM_ADDRESS};
 use serde_json::json;
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 fn register_body(name: &str, password: &str) -> serde_json::Value {
     json!({ "name": name, "email": email_for(name), "password": password })
 }
 
-#[sqlx::test]
-async fn register_creates_unverified_user_logs_in_and_sends_mail(db: SqlitePool) {
+#[tokio::test]
+async fn register_creates_unverified_user_logs_in_and_sends_mail() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
 
     let response = app
@@ -54,8 +54,9 @@ async fn register_creates_unverified_user_logs_in_and_sends_mail(db: SqlitePool)
     );
 }
 
-#[sqlx::test]
-async fn register_reports_mail_delivery_failure(db: SqlitePool) {
+#[tokio::test]
+async fn register_reports_mail_delivery_failure() {
+    let db = common::in_memory_migrated().await;
     // No mail server is reachable for this app.
     let app = TestApp::new(db).await;
 
@@ -79,8 +80,9 @@ async fn register_reports_mail_delivery_failure(db: SqlitePool) {
     assert!(response.jwt_cookie().is_none());
 }
 
-#[sqlx::test]
-async fn register_stores_hashed_password(db: SqlitePool) {
+#[tokio::test]
+async fn register_stores_hashed_password() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.post(
         "/api/command/register",
@@ -97,8 +99,9 @@ async fn register_stores_hashed_password(db: SqlitePool) {
     assert!(password_auth::verify_password(PASSWORD, &stored).is_ok());
 }
 
-#[sqlx::test]
-async fn register_rejects_weak_password(db: SqlitePool) {
+#[tokio::test]
+async fn register_rejects_weak_password() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
 
     let response = app
@@ -120,8 +123,9 @@ async fn register_rejects_weak_password(db: SqlitePool) {
     assert!(app.mails().await.is_empty());
 }
 
-#[sqlx::test]
-async fn register_rejects_duplicate_email(db: SqlitePool) {
+#[tokio::test]
+async fn register_rejects_duplicate_email() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.post(
         "/api/command/register",
@@ -144,8 +148,9 @@ async fn register_rejects_duplicate_email(db: SqlitePool) {
     assert_eq!(app.mails().await.len(), 1);
 }
 
-#[sqlx::test]
-async fn register_is_forbidden_outside_registration_period(db: SqlitePool) {
+#[tokio::test]
+async fn register_is_forbidden_outside_registration_period() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_status(db, closed_registration()).await;
 
     let response = app
@@ -163,8 +168,9 @@ async fn register_is_forbidden_outside_registration_period(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn verify_email_marks_user_verified_and_consumes_token(db: SqlitePool) {
+#[tokio::test]
+async fn verify_email_marks_user_verified_and_consumes_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.post(
         "/api/command/register",
@@ -189,8 +195,9 @@ async fn verify_email_marks_user_verified_and_consumes_token(db: SqlitePool) {
     assert_eq!(reused.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn resend_mail_validation_replaces_the_previous_token(db: SqlitePool) {
+#[tokio::test]
+async fn resend_mail_validation_replaces_the_previous_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     let register = app
         .post(
@@ -238,8 +245,9 @@ async fn resend_mail_validation_replaces_the_previous_token(db: SqlitePool) {
     assert_eq!(new.status, StatusCode::OK);
 }
 
-#[sqlx::test]
-async fn resend_mail_validation_requires_login(db: SqlitePool) {
+#[tokio::test]
+async fn resend_mail_validation_requires_login() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     let response = app
         .post("/api/command/resend_mail_validation", json!({}), None)
@@ -248,8 +256,9 @@ async fn resend_mail_validation_requires_login(db: SqlitePool) {
     assert!(app.mails().await.is_empty());
 }
 
-#[sqlx::test]
-async fn verify_email_with_unknown_token_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn verify_email_with_unknown_token_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let response = app
         .post(
@@ -261,8 +270,9 @@ async fn verify_email_with_unknown_token_is_not_found(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn login_with_correct_password_sets_cookie(db: SqlitePool) {
+#[tokio::test]
+async fn login_with_correct_password_sets_cookie() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let user_id = app.create_user("Alex", false).await;
 
@@ -281,8 +291,9 @@ async fn login_with_correct_password_sets_cookie(db: SqlitePool) {
     assert_eq!(whoami.body["id"], user_id.to_string());
 }
 
-#[sqlx::test]
-async fn login_with_wrong_password_or_unknown_email_is_unauthorized(db: SqlitePool) {
+#[tokio::test]
+async fn login_with_wrong_password_or_unknown_email_is_unauthorized() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     app.create_user("Alex", false).await;
 
@@ -297,8 +308,9 @@ async fn login_with_wrong_password_or_unknown_email_is_unauthorized(db: SqlitePo
     }
 }
 
-#[sqlx::test]
-async fn logout_clears_jwt_cookie(db: SqlitePool) {
+#[tokio::test]
+async fn logout_clears_jwt_cookie() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
 
     let response = app.post("/api/command/logout", json!(null), None).await;
@@ -307,8 +319,9 @@ async fn logout_clears_jwt_cookie(db: SqlitePool) {
     assert_eq!(response.jwt_cookie().as_deref(), Some("jwt="));
 }
 
-#[sqlx::test]
-async fn whoami_requires_valid_jwt(db: SqlitePool) {
+#[tokio::test]
+async fn whoami_requires_valid_jwt() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
 
     let missing = app.get("/api/query/whoami", None).await;
@@ -318,8 +331,9 @@ async fn whoami_requires_valid_jwt(db: SqlitePool) {
     assert_eq!(invalid.status, StatusCode::UNAUTHORIZED);
 }
 
-#[sqlx::test]
-async fn jwt_for_deleted_user_is_rejected(db: SqlitePool) {
+#[tokio::test]
+async fn jwt_for_deleted_user_is_rejected() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let cookie = app.cookie_for(Uuid::now_v7());
 
@@ -329,8 +343,9 @@ async fn jwt_for_deleted_user_is_rejected(db: SqlitePool) {
     assert_eq!(response.body, "User not found");
 }
 
-#[sqlx::test]
-async fn password_reset_flow_replaces_password(db: SqlitePool) {
+#[tokio::test]
+async fn password_reset_flow_replaces_password() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.create_user("Alex", false).await;
 
@@ -401,8 +416,9 @@ async fn password_reset_flow_replaces_password(db: SqlitePool) {
     assert_eq!(reused.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn requesting_a_new_reset_invalidates_the_previous_token(db: SqlitePool) {
+#[tokio::test]
+async fn requesting_a_new_reset_invalidates_the_previous_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.create_user("Alex", false).await;
     let body = json!({ "email": email_for("Alex") });
@@ -426,8 +442,9 @@ async fn requesting_a_new_reset_invalidates_the_previous_token(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
-#[sqlx::test]
-async fn reset_password_rejects_weak_password_and_keeps_token(db: SqlitePool) {
+#[tokio::test]
+async fn reset_password_rejects_weak_password_and_keeps_token() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
     app.create_user("Alex", false).await;
     app.post(
@@ -458,8 +475,9 @@ async fn reset_password_rejects_weak_password_and_keeps_token(db: SqlitePool) {
     assert_eq!(retry.status, StatusCode::OK, "{:?}", retry.body);
 }
 
-#[sqlx::test]
-async fn password_reset_for_unknown_email_is_not_found(db: SqlitePool) {
+#[tokio::test]
+async fn password_reset_for_unknown_email_is_not_found() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::with_mailpit(db).await;
 
     let response = app

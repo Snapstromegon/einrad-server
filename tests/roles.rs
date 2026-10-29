@@ -6,7 +6,6 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, email_for, rider_body};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// The migration that replaced `users.is_admin` with roles.
@@ -23,8 +22,9 @@ fn strings(value: &Value) -> Vec<&str> {
     strings
 }
 
-#[sqlx::test(migrations = false)]
-async fn admins_from_before_roles_become_admins(db: SqlitePool) {
+#[tokio::test]
+async fn admins_from_before_roles_become_admins() {
+    let db = common::in_memory().await;
     let migrator = sqlx::migrate!();
     migrator.run_to(ROLES_MIGRATION - 1, &db).await.unwrap();
     let admin = Uuid::now_v7();
@@ -56,8 +56,9 @@ async fn admins_from_before_roles_become_admins(db: SqlitePool) {
     assert_eq!(strings(&user.body["roles"]), Vec::<&str>::new());
 }
 
-#[sqlx::test]
-async fn whoami_lists_roles_and_their_permissions(db: SqlitePool) {
+#[tokio::test]
+async fn whoami_lists_roles_and_their_permissions() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let id = app
         .create_user_with_roles("Kim", &["treasurer", "music_check"])
@@ -85,8 +86,9 @@ async fn whoami_lists_roles_and_their_permissions(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn admins_hold_every_permission(db: SqlitePool) {
+#[tokio::test]
+async fn admins_hold_every_permission() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let kim = app.create_user_with_roles("Kim", &["jury_lead"]).await;
@@ -104,8 +106,9 @@ async fn admins_hold_every_permission(db: SqlitePool) {
     }
 }
 
-#[sqlx::test]
-async fn a_missing_permission_is_forbidden_a_missing_login_unauthorized(db: SqlitePool) {
+#[tokio::test]
+async fn a_missing_permission_is_forbidden_a_missing_login_unauthorized() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let treasurer = app.create_user_with_roles("Kim", &["treasurer"]).await;
 
@@ -122,8 +125,9 @@ async fn a_missing_permission_is_forbidden_a_missing_login_unauthorized(db: Sqli
     assert_eq!(allowed.status, StatusCode::OK);
 }
 
-#[sqlx::test]
-async fn admins_grant_and_revoke_several_roles_at_once(db: SqlitePool) {
+#[tokio::test]
+async fn admins_grant_and_revoke_several_roles_at_once() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let kim = app.create_user_with_roles("Kim", &["treasurer"]).await;
@@ -165,8 +169,9 @@ async fn admins_grant_and_revoke_several_roles_at_once(db: SqlitePool) {
     assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
-#[sqlx::test]
-async fn admins_keep_their_admin_role_but_may_change_the_others(db: SqlitePool) {
+#[tokio::test]
+async fn admins_keep_their_admin_role_but_may_change_the_others() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin_id = app.create_user("Admin", true).await;
     let admin = app.cookie_for(admin_id);
@@ -193,8 +198,9 @@ async fn admins_keep_their_admin_role_but_may_change_the_others(db: SqlitePool) 
     assert_eq!(strings(&whoami.body["roles"]), ["admin", "music_control"]);
 }
 
-#[sqlx::test]
-async fn only_admins_set_roles(db: SqlitePool) {
+#[tokio::test]
+async fn only_admins_set_roles() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let jury_lead = app.create_user_with_roles("Jury", &["jury_lead"]).await;
     let body = json!({ "user_id": jury_lead, "roles": ["jury_lead", "treasurer"] });
@@ -218,8 +224,9 @@ async fn status(app: &TestApp, uri: &str, body: Value, cookie: &str) -> StatusCo
     app.post(uri, body, Some(cookie)).await.status
 }
 
-#[sqlx::test]
-async fn each_role_reaches_its_own_commands_only(db: SqlitePool) {
+#[tokio::test]
+async fn each_role_reaches_its_own_commands_only() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
     let rider = app
@@ -322,8 +329,9 @@ async fn each_role_reaches_its_own_commands_only(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn the_check_in_but_not_the_treasurer_sees_birthdates(db: SqlitePool) {
+#[tokio::test]
+async fn the_check_in_but_not_the_treasurer_sees_birthdates() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
     app.add_rider(&owner, rider_body(club_id, "Anna", true, false))
@@ -347,8 +355,9 @@ async fn the_check_in_but_not_the_treasurer_sees_birthdates(db: SqlitePool) {
     assert_ne!(acts.body[0]["max_age"], Value::Null);
 }
 
-#[sqlx::test]
-async fn check_in_sees_club_balances_but_not_contacts(db: SqlitePool) {
+#[tokio::test]
+async fn check_in_sees_club_balances_but_not_contacts() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
     app.add_rider(&owner, rider_body(club_id, "Anna", true, false))
@@ -382,8 +391,9 @@ async fn check_in_sees_club_balances_but_not_contacts(db: SqlitePool) {
     assert_eq!(clubs.status, StatusCode::FORBIDDEN);
 }
 
-#[sqlx::test]
-async fn a_role_doesnt_open_other_clubs(db: SqlitePool) {
+#[tokio::test]
+async fn a_role_doesnt_open_other_clubs() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Clara", "SSV").await;
     let treasurer = member(&app, "Kasse", &["treasurer", "jury_lead", "check_in"]).await;
@@ -406,8 +416,9 @@ async fn a_role_doesnt_open_other_clubs(db: SqlitePool) {
     );
 }
 
-#[sqlx::test]
-async fn only_registration_managers_edit_after_the_meldeschluss(db: SqlitePool) {
+#[tokio::test]
+async fn only_registration_managers_edit_after_the_meldeschluss() {
+    let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (_, club_id) = app.create_club_owner("Clara", "SSV").await;
     app.close_registration().await;
