@@ -10,6 +10,13 @@ The registration and event-day tool for one unicycle freestyle competition (here
 The one event this tool runs, with its dates, deadlines, fees and rules.
 _Avoid_: Event, Cup, Meisterschaft (as a term in the tool)
 
+**Competition file**:
+The file that imports a competition with its categories, finals, timeplan and jury categories; applied only when the database has no competition yet, or on purpose as a replace. The database stays the source of the competition (ADR 0005).
+_Avoid_: Config (for the competition)
+
+**Remap file**:
+The list of judge registrations a replace dropped because their jury category has no namesake in the new competition file, with an empty jury category to fill in.
+
 **Determining day** (Stichtag):
 The day ages are counted on for categories: 1 June of the season, for every act type.
 _Avoid_: Age day, reference date

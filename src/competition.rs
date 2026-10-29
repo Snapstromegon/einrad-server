@@ -166,7 +166,42 @@ impl Competition {
     }
 }
 
-/// Inserts the competition from the config or updates it if it already exists.
+impl From<&CompetitionConfig> for Competition {
+    /// The competition as the database stores it.
+    fn from(config: &CompetitionConfig) -> Self {
+        Competition {
+            id: config.id.clone(),
+            name: config.name.clone(),
+            location: config.location.clone(),
+            start_date: config.start_date,
+            end_date: config.end_date,
+            determining_day: config.determining_day,
+            registration_start: config.registration_start,
+            registration_end: config.registration_end,
+            music_upload_end: config.music_upload_end,
+            fee_per_start: config.fee_per_start,
+            max_fee_per_rider: config.max_fee_per_rider,
+            venue: config.venue.clone(),
+            contact_email: config.contact_email.clone(),
+            announcement_url: config.announcement_url.clone(),
+            photos_url: config.photos_url.clone(),
+            payment_deadline: config.payment.deadline,
+            payment_account_holder: config.payment.account_holder.clone(),
+            payment_iban: config.payment.iban.clone(),
+            payment_bic: config.payment.bic.clone(),
+            payment_reference: config.payment.reference.clone(),
+            jury: config.jury.as_ref().map(|jury| JuryRules {
+                min_age: jury.min_age,
+                deployments_per_two_acts: jury.deployments_per_two_acts,
+                missing_deployment_fee: jury.missing_deployment_fee,
+                registration_end: jury.registration_end,
+            }),
+        }
+    }
+}
+
+/// Inserts the competition from the competition file or updates it if it
+/// already exists.
 pub async fn upsert_competition(
     db: impl sqlx::SqliteExecutor<'_>,
     config: &CompetitionConfig,

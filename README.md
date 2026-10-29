@@ -13,18 +13,20 @@ This project contains the registration system for the freestyle unicycling cup N
 
 ## Configuration
 
-Settings come from CLI flags, environment variables (including `.env`) and an
+System settings (server, database, SMTP, auth, admin, photos, feature
+defaults) come from CLI flags, environment variables (including `.env`) and an
 optional TOML config file, in that order of precedence. The config file is read
 from `--config` / `CONFIG`, or from `./config.toml` if it exists. See
 [`config.example.toml`](config.example.toml) for all options.
 
-Event settings only come from the config file:
+The competition comes from a separate competition file, read from
+`--competition` / `COMPETITION`, or from `./competition.toml` if it exists. See
+[`competition.example.toml`](competition.example.toml). A config file that
+still contains competition sections is rejected.
 
 - `[competition]`: name, location, dates, the determining day for ages,
-  registration and music upload deadlines, fees and payment details. It is
-  written to the `competition` table on every start.
-- `[[categories]]`, `[[finals]]` and `[[timeplan]]`: only written into empty
-  tables, so changes made in the admin UI are kept. A final reserves slots for
+  registration and music upload deadlines, fees and payment details.
+- `[[categories]]`, `[[finals]]` and `[[timeplan]]`. A final reserves slots for
   the best riders of the heats ("1. Finalist (U11–U15)") before the results are
   known; a `[[timeplan]]` entry with `final = "…"` plans it. Custom entries
   can leave out the photos on the info board (`show_photos = false`) or be
@@ -33,8 +35,27 @@ Event settings only come from the config file:
   Einsätze per two Küren, fee per missing Einsatz, optional judge deadline).
   The defaults are the Jury-Konzept Einrad Freestyle's rules.
 - `[[jury_categories]]`: what judges register for and get assigned to (e.g.
-  one heat block, 2 Einsätze, or a final, 1 Einsatz). Only written into an
-  empty table, like `[[categories]]`.
+  one heat block, 2 Einsätze, or a final, 1 Einsatz).
+
+The database is the source of the competition ([ADR 0005](docs/adr/0005-the-database-is-the-source-of-the-competition.md)),
+the competition file only an import:
+
+- It is applied only when the database has no competition. A file that differs
+  from the database is ignored with a warning, so editing it and restarting
+  changes nothing.
+- The competition's id never changes once created; a file with another id is
+  ignored with a warning.
+- `--replace-competition` / `REPLACE_COMPETITION` replaces the competition
+  (except its id), categories, finals, timeplan and jury categories in one
+  transaction; an invalid file changes nothing. Club data is kept: clubs,
+  riders, acts with music, pair requests, judges, bookings, fee waivers, users
+  and roles. Timeplan slots and progress (also the acts' started and ended
+  times), finals placements and the jury plan with its publication are dropped,
+  with a warning listing them. Judge registrations are matched to the new jury
+  categories by name; the others are written to
+  `data_path/remap/jury-registrations-<timestamp>.toml`, with an empty
+  `jury_category` to fill in. A file that doesn't change anything replaces
+  nothing, so leaving the flag set doesn't drop the planning on every start.
 
 Features that are still being refined are behind flags in `[features]`. They
 are on in debug builds and off in release builds unless set:
@@ -47,10 +68,11 @@ The database migrations only create the schema and don't insert any data.
 
 ## Setting up a new season
 
-1. Copy `config.example.toml` to `config.toml` and set the competition, the
-   categories, the finals and the timeplan.
+1. Copy `competition.example.toml` to `competition.toml` and set the
+   competition, the categories, the finals and the timeplan.
 2. Start with a fresh database (archive the old `db.sqlite`).
-3. Start the server. It migrates the database and seeds it from the config.
+3. Start the server. It migrates the database and creates the competition from
+   the competition file.
 
 The migrations of the 2024–2026 seasons were squashed into one baseline
 migration; the originals are kept in `migrations-archive/` for reference. A

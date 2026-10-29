@@ -1,8 +1,10 @@
 //! Configuration from CLI flags, environment variables and an optional TOML file.
 //!
 //! Precedence: CLI flag > environment variable (including `.env`) > config file >
-//! built-in default. Event specific settings (`[competition]`, `[[categories]]`,
-//! `[[timeplan]]`) only come from the config file; see `config.example.toml`.
+//! built-in default; see `config.example.toml`. The competition (`[competition]`,
+//! `[[categories]]`, `[[timeplan]]`, …) comes from a separate competition file,
+//! which is only an import into the database (see `crate::seed` and
+//! `competition.example.toml`).
 
 use std::{
     path::{Path, PathBuf},
@@ -18,6 +20,7 @@ use url::Url;
 use crate::act_type::ActType;
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
+pub const DEFAULT_COMPETITION_PATH: &str = "./competition.toml";
 pub const DEFAULT_BASE_URL: &str = "http://localhost:3000";
 pub const DEFAULT_HTTP_ADDRESS: &str = "127.0.0.1:3000";
 pub const DEFAULT_DATABASE_URL: &str = "sqlite://./db.sqlite?mode=rwc";
@@ -32,6 +35,14 @@ pub struct CliArgs {
     /// Path to the TOML config file. Defaults to `./config.toml` if it exists.
     #[clap(long, env = "CONFIG")]
     pub config: Option<PathBuf>,
+    /// Path to the competition file. Defaults to `./competition.toml` if it
+    /// exists. Only applied if the database has no competition yet.
+    #[clap(long, env = "COMPETITION")]
+    pub competition: Option<PathBuf>,
+    /// Replaces the database's competition with the competition file, keeping
+    /// the club data (see `crate::seed::apply`).
+    #[clap(long, env = "REPLACE_COMPETITION")]
+    pub replace_competition: bool,
     #[clap(long, env = "BASE_URL")]
     pub base_url: Option<Url>,
     #[clap(long, env = "HTTP_ADDRESS")]
@@ -90,15 +101,38 @@ pub struct ConfigFile {
     pub admin: Option<AdminConfig>,
     pub photos: PhotosConfig,
     pub features: FeaturesConfig,
-    pub competition: Option<CompetitionConfig>,
-    pub categories: Vec<CategoryConfig>,
-    pub finals: Vec<FinalConfig>,
-    pub timeplan: Vec<TimeplanEntryConfig>,
-    pub jury_categories: Vec<JuryCategoryConfig>,
 }
 
+/// The sections of the competition file, which older system configs
+/// contained.
+const COMPETITION_SECTIONS: [&str; 5] = [
+    "competition",
+    "categories",
+    "finals",
+    "timeplan",
+    "jury_categories",
+];
+
 impl ConfigFile {
+    /// Parses a system config. A config that still contains competition
+    /// sections is rejected with how to split it.
     pub fn parse(content: &str) -> Result<Self, String> {
+        let table: toml::Table = toml::from_str(content).map_err(|e| e.to_string())?;
+        let moved = COMPETITION_SECTIONS
+            .iter()
+            .filter(|section| table.contains_key(**section))
+            .map(|section| format!("[{section}]"))
+            .collect::<Vec<_>>();
+        if !moved.is_empty() {
+            return Err(format!(
+                "{} belong in the competition file now, not in the system config. \
+                 Move them into a file of their own (e.g. competition.toml, see \
+                 competition.example.toml) and pass it with --competition or COMPETITION; \
+                 [server], [database], [smtp], [auth], [admin], [photos] and [features] stay \
+                 in the system config.",
+                moved.join(", ")
+            ));
+        }
         toml::from_str(content).map_err(|e| e.to_string())
     }
 
@@ -113,6 +147,36 @@ impl ConfigFile {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Couldn't read config file {}: {e}", path.display()))?;
         Self::parse(&content).map_err(|e| format!("Invalid config file {}: {e}", path.display()))
+    }
+}
+
+/// The competition file: the competition with its categories, finals,
+/// timeplan and jury categories. It's only an import; the database is the
+/// source of the competition (see `crate::seed::apply`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompetitionFile {
+    pub competition: CompetitionConfig,
+    #[serde(default)]
+    pub categories: Vec<CategoryConfig>,
+    #[serde(default)]
+    pub finals: Vec<FinalConfig>,
+    #[serde(default)]
+    pub timeplan: Vec<TimeplanEntryConfig>,
+    #[serde(default)]
+    pub jury_categories: Vec<JuryCategoryConfig>,
+}
+
+impl CompetitionFile {
+    pub fn parse(content: &str) -> Result<Self, String> {
+        toml::from_str(content).map_err(|e| e.to_string())
+    }
+
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("Couldn't read competition file {}: {e}", path.display()))?;
+        Self::parse(&content)
+            .map_err(|e| format!("Invalid competition file {}: {e}", path.display()))
     }
 }
 
@@ -502,11 +566,10 @@ pub struct Settings {
     pub photos: Option<crate::photos::PhotosSettings>,
     /// Whether clubs can register judges (`[features] jury_registration`).
     pub jury_registration: bool,
-    pub competition: Option<CompetitionConfig>,
-    pub categories: Vec<CategoryConfig>,
-    pub finals: Vec<FinalConfig>,
-    pub timeplan: Vec<TimeplanEntryConfig>,
-    pub jury_categories: Vec<JuryCategoryConfig>,
+    /// The competition file, if one is given or `./competition.toml` exists.
+    pub competition_file: Option<PathBuf>,
+    /// Whether the competition file replaces the database's competition.
+    pub replace_competition: bool,
     /// Problems that don't stop the server, e.g. insecure defaults.
     pub warnings: Vec<String>,
 }
@@ -622,11 +685,12 @@ impl Settings {
                 .jury_registration
                 .or(file.features.jury_registration)
                 .unwrap_or(cfg!(debug_assertions)),
-            competition: file.competition,
-            categories: file.categories,
-            finals: file.finals,
-            timeplan: file.timeplan,
-            jury_categories: file.jury_categories,
+            competition_file: cli.competition.or_else(|| {
+                Path::new(DEFAULT_COMPETITION_PATH)
+                    .exists()
+                    .then(|| PathBuf::from(DEFAULT_COMPETITION_PATH))
+            }),
+            replace_competition: cli.replace_competition,
             warnings,
         })
     }
@@ -668,7 +732,7 @@ mod tests {
         assert_eq!(settings.database_url, DEFAULT_DATABASE_URL);
         assert_eq!(settings.data_path, PathBuf::from(DEFAULT_DATA_PATH));
         assert!(!settings.insecure_cookies);
-        assert!(settings.competition.is_none());
+        assert!(!settings.replace_competition);
     }
 
     #[test]
@@ -711,7 +775,7 @@ mod tests {
 
     #[test]
     fn competition_dates_are_parsed() {
-        let file = ConfigFile::parse(
+        let file = CompetitionFile::parse(
             r#"
             [competition]
             id = "cup-2027"
@@ -732,7 +796,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let competition = file.competition.unwrap();
+        let competition = file.competition;
         assert_eq!(competition.determining_day.to_string(), "2027-06-01");
         assert_eq!(competition.registration_start.offset().whole_hours(), 1);
         assert_eq!(competition.fee_per_start, 15.0);
@@ -744,11 +808,11 @@ mod tests {
     }
 
     fn competition(dates: &str) -> CompetitionConfig {
-        let file = ConfigFile::parse(&format!(
+        let file = CompetitionFile::parse(&format!(
             "[competition]\nid = \"c\"\nname = \"C\"\nlocation = \"L\"\nfee_per_start = 15\n{dates}"
         ))
         .unwrap();
-        file.competition.unwrap()
+        file.competition
     }
 
     const VALID_DATES: &str = "start_date = 2027-02-12
@@ -853,13 +917,10 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
 
     #[test]
     fn datetime_without_offset_is_rejected() {
-        let err = ConfigFile::parse(
-            r#"
-            [[timeplan]]
-            category = "NEM"
-            earliest_start = 2027-06-05T10:00:00
-            "#,
-        )
+        let err = CompetitionFile::parse(&format!(
+            "[competition]\nid = \"c\"\nname = \"C\"\nlocation = \"L\"\nfee_per_start = 15\n{VALID_DATES}\n\
+             [[timeplan]]\ncategory = \"NEM\"\nearliest_start = 2027-06-05T10:00:00"
+        ))
         .unwrap_err();
         assert!(err.contains("offset"), "{err}");
     }
@@ -871,15 +932,33 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
     }
 
     #[test]
+    fn a_combined_config_is_rejected_with_how_to_split_it() {
+        let err = ConfigFile::parse(&format!(
+            "{SMTP}\n[competition]\nid = \"c\"\n[[categories]]\nname = \"A\""
+        ))
+        .unwrap_err();
+        assert!(err.contains("[competition], [categories]"), "{err}");
+        assert!(err.contains("--competition"), "{err}");
+        assert!(err.contains("competition.example.toml"), "{err}");
+    }
+
+    #[test]
     fn example_config_is_valid() {
         let content =
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/config.example.toml"))
                 .unwrap();
-        let file = ConfigFile::parse(&content).unwrap();
-        let competition = file
-            .competition
-            .as_ref()
-            .expect("example has a competition");
+        ConfigFile::parse(&content).unwrap();
+    }
+
+    #[test]
+    fn example_competition_is_valid() {
+        let content = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/competition.example.toml"
+        ))
+        .unwrap();
+        let file = CompetitionFile::parse(&content).unwrap();
+        let competition = &file.competition;
         competition.validate().unwrap();
         let categories =
             crate::seed::resolve_categories(&file.categories, competition.determining_day).unwrap();

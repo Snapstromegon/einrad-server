@@ -1,23 +1,28 @@
-//! Seeds the competition, categories, finals and timeplan from the config
-//! file.
+//! Applies the competition file: the competition, categories, finals,
+//! timeplan and jury categories.
 //!
-//! The competition is inserted or updated on every start, so the config file
-//! stays the source of truth for event settings. Categories, finals and the
-//! timeplan are only seeded into empty tables, so changes admins make in the
-//! UI are never overwritten.
+//! The database is the source of the competition (ADR 0005), the file only
+//! an import: it's applied when the database has no competition yet, or on
+//! purpose with `--replace-competition`. See [`apply`].
 
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::{Path, PathBuf},
+};
 
-use time::{Date, Duration, Month, OffsetDateTime};
+use time::{Date, Duration, Month, OffsetDateTime, macros::format_description};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
     competition::{Competition, upsert_competition},
     config::{
-        CategoryConfig, CompetitionConfig, FinalConfig, JuryCategoryConfig, TimeplanEntryConfig,
+        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
+        TimeplanEntryConfig,
     },
     finals::{self, SlotGroup},
+    jury::JudgeTask,
     timeplan::EntryKind,
 };
 
@@ -423,52 +428,473 @@ fn midnight_utc(date: Date) -> OffsetDateTime {
     date.midnight().assume_utc()
 }
 
-/// Applies the event settings from the config to the database in one
-/// transaction. Nothing is written if the config is invalid.
-pub async fn seed(
+/// What [`apply`] did with the competition file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Applied {
+    /// No competition file was given.
+    NoFile,
+    /// The database had no competition; the file created it.
+    Created,
+    /// The database already has the file's competition.
+    Unchanged,
+    /// The database has a competition that differs from the file; the file
+    /// is ignored.
+    Ignored,
+    /// The file replaced the database's competition (`replace`).
+    Replaced(Dropped),
+}
+
+/// What a replace drops along with the old competition's planning.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Dropped {
+    pub timeplan_slots: i64,
+    /// Acts started or ended, whose progress is reset.
+    pub act_progress: i64,
+    /// Acts placed in finals slots.
+    pub finals_placements: i64,
+    /// The jury plan's assignments.
+    pub jury_assignments: i64,
+    pub jury_plan_published: bool,
+    /// Judge registrations whose jury category has no namesake in the file.
+    pub judge_registrations: Vec<RemapRegistration>,
+    /// Where they were written, to fill in `jury_category` and apply again.
+    pub remap_file: Option<PathBuf>,
+}
+
+impl Dropped {
+    /// The dropped items for a warning, e.g. "12 timeplan slots, the
+    /// published jury plan".
+    fn summary(&self) -> Vec<String> {
+        let counted = |count: i64, one: &str, many: &str| {
+            (count > 0).then(|| format!("{count} {}", if count == 1 { one } else { many }))
+        };
+        [
+            counted(self.timeplan_slots, "timeplan slot", "timeplan slots"),
+            (self.act_progress > 0).then(|| {
+                format!(
+                    "the progress of {} act{}",
+                    self.act_progress,
+                    if self.act_progress == 1 { "" } else { "s" }
+                )
+            }),
+            counted(
+                self.finals_placements,
+                "finals placement",
+                "finals placements",
+            ),
+            counted(
+                self.jury_assignments,
+                "jury plan assignment",
+                "jury plan assignments",
+            ),
+            self.jury_plan_published
+                .then(|| "the published jury plan".to_string()),
+            counted(
+                self.judge_registrations.len() as i64,
+                "judge registration without a matching jury category",
+                "judge registrations without a matching jury category",
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+}
+
+/// A judge registration a replace dropped, as in the remap file. Filling in
+/// `jury_category` says which new jury category the judge belongs to.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RemapRegistration {
+    pub club: String,
+    pub firstname: String,
+    pub lastname: String,
+    pub task: JudgeTask,
+    pub old_jury_category: String,
+    /// Empty until filled in.
+    pub jury_category: String,
+}
+
+/// The remap file of dropped judge registrations.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RemapFile {
+    pub jury_registrations: Vec<RemapRegistration>,
+}
+
+/// The outcome of [`apply`]. The warnings are logged as well.
+#[derive(Debug)]
+pub struct Report {
+    pub applied: Applied,
+    pub warnings: Vec<String>,
+}
+
+/// Applies the competition file to the database. The database is the
+/// source of the competition (ADR 0005): the file creates the competition
+/// only if the database has none. Otherwise it's ignored with a warning if
+/// it differs, unless `replace` is set. Everything happens in one
+/// transaction, so an invalid file changes nothing.
+pub async fn apply(
     db: &sqlx::SqlitePool,
-    competition: Option<&CompetitionConfig>,
-    categories: &[CategoryConfig],
-    finals: &[FinalConfig],
-    timeplan: &[TimeplanEntryConfig],
-    jury_categories: &[JuryCategoryConfig],
-) -> Result<(), String> {
-    let db_error = |e: sqlx::Error| format!("Database error while seeding: {e}");
-    if let Some(competition) = competition {
-        competition.validate()?;
-        for warning in competition.payment_warnings() {
-            warn!("{warning}");
-        }
-    }
+    file: Option<&CompetitionFile>,
+    replace: bool,
+    data_path: &Path,
+) -> Result<Report, String> {
+    let mut warnings = Vec::new();
+    let Some(file) = file else {
+        return Ok(Report {
+            applied: Applied::NoFile,
+            warnings,
+        });
+    };
     let mut tx = db.begin().await.map_err(db_error)?;
-
-    if let Some(competition) = competition {
-        upsert_competition(&mut *tx, competition)
-            .await
-            .map_err(db_error)?;
-        info!("Applied competition {} from the config", competition.id);
-        // The app uses one competition. A row left over from an earlier id
-        // would win in `Competition::current` if it starts later.
-        let removed = sqlx::query!("DELETE FROM competition WHERE id != ?", competition.id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db_error)?
-            .rows_affected();
-        if removed > 0 {
-            warn!(
-                "Removed {removed} competition(s) with an id other than {}",
-                competition.id
+    let mut dropped_registrations = Vec::new();
+    let applied = match Competition::current(&mut *tx).await.map_err(db_error)? {
+        None => {
+            let dropped = write(&mut tx, file, &file.competition.id).await?;
+            dropped_registrations = dropped.judge_registrations;
+            info!(
+                "Created competition {} from the competition file",
+                file.competition.id
             );
+            Applied::Created
         }
+        Some(current) if !replace && current.id != file.competition.id => {
+            warnings.push(format!(
+                "The competition file has the id {}, the database's competition the id {}; \
+                 the file is ignored. A competition's id never changes once created.",
+                file.competition.id, current.id
+            ));
+            Applied::Ignored
+        }
+        Some(current) => {
+            // Applied in a savepoint, so the comparison sees exactly what the
+            // file would write.
+            let before = Snapshot::take(&mut tx).await.map_err(db_error)?;
+            let mut savepoint = sqlx::Connection::begin(&mut *tx).await.map_err(db_error)?;
+            let written = write(&mut savepoint, file, &current.id).await;
+            let differences = match &written {
+                Ok(_) => {
+                    before.differences(&Snapshot::take(&mut savepoint).await.map_err(db_error)?)
+                }
+                Err(_) => vec![],
+            };
+            match written {
+                Err(e) if !replace => {
+                    warnings.push(format!("The competition file is invalid and ignored: {e}"));
+                    Applied::Ignored
+                }
+                Err(e) => return Err(e),
+                Ok(_) if differences.is_empty() => Applied::Unchanged,
+                Ok(_) if !replace => {
+                    warnings.push(format!(
+                        "The competition file differs from the database in {}; it is ignored, \
+                         the database is the source of the competition. To apply it anyway, \
+                         start with --replace-competition.",
+                        differences.join(", ")
+                    ));
+                    Applied::Ignored
+                }
+                Ok(dropped) => {
+                    savepoint.commit().await.map_err(db_error)?;
+                    if current.id != file.competition.id {
+                        warnings.push(format!(
+                            "The competition file has the id {}, the database's competition the \
+                             id {}; the replace keeps {}. A competition's id never changes once \
+                             created.",
+                            file.competition.id, current.id, current.id
+                        ));
+                    }
+                    info!(
+                        "Replaced {} of competition {} with the competition file",
+                        differences.join(", "),
+                        current.id
+                    );
+                    dropped_registrations = dropped.judge_registrations.clone();
+                    Applied::Replaced(dropped)
+                }
+            }
+        }
+    };
+    tx.commit().await.map_err(db_error)?;
+
+    // Written after the commit, so it only lists registrations that are
+    // really gone.
+    let remap_file = if dropped_registrations.is_empty() {
+        None
+    } else {
+        let remap = RemapFile {
+            jury_registrations: dropped_registrations,
+        };
+        match write_remap_file(data_path, &remap) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                warnings.push(format!(
+                    "{e}. The dropped judge registrations were:\n{}",
+                    toml::to_string(&remap).unwrap_or_default()
+                ));
+                None
+            }
+        }
+    };
+    let applied = match applied {
+        Applied::Replaced(dropped) => {
+            let dropped = Dropped {
+                remap_file,
+                ..dropped
+            };
+            warnings.extend(dropped_warning(&dropped));
+            Applied::Replaced(dropped)
+        }
+        applied => applied,
+    };
+    for warning in &warnings {
+        warn!("{warning}");
+    }
+    Ok(Report { applied, warnings })
+}
+
+/// Loads the competition file of `settings`, if any, and applies it as the
+/// server does on startup (see [`apply`]).
+pub async fn apply_settings(db: &sqlx::SqlitePool, settings: &Settings) -> Result<Report, String> {
+    let file = settings
+        .competition_file
+        .as_deref()
+        .map(CompetitionFile::load)
+        .transpose()?;
+    apply(
+        db,
+        file.as_ref(),
+        settings.replace_competition,
+        &settings.data_path,
+    )
+    .await
+}
+
+fn db_error(e: sqlx::Error) -> String {
+    format!("Database error while applying the competition file: {e}")
+}
+
+/// The competition's settings and lists as the database has them, without
+/// generated ids and progress, to tell whether a file changes anything.
+#[derive(Debug, PartialEq)]
+struct Snapshot {
+    competition: Vec<String>,
+    categories: Vec<String>,
+    finals: Vec<String>,
+    timeplan: Vec<String>,
+    jury_categories: Vec<String>,
+}
+
+impl Snapshot {
+    async fn take(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Self> {
+        let mut rows = async |sql: &'static str| {
+            sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
+                .fetch_all(&mut *conn)
+                .await
+        };
+        Ok(Self {
+            competition: rows(
+                r#"SELECT json_array(name, location, start_date, end_date, determining_day,
+                    registration_start, registration_end, music_upload_end, fee_per_start,
+                    max_fee_per_rider, venue, contact_email, announcement_url, photos_url,
+                    payment_deadline, payment_account_holder, payment_iban, payment_bic,
+                    payment_reference, jury_min_age, jury_deployments_per_two_acts,
+                    jury_missing_deployment_fee, jury_registration_end)
+                FROM competition"#,
+            )
+            .await?,
+            categories: rows(
+                r#"SELECT json_array(name, description, from_birthday, to_birthday, act_type,
+                    is_single_male, "order", einfahrzeit_seconds, act_duration_seconds,
+                    judge_duration_seconds)
+                FROM categories ORDER BY "order", name"#,
+            )
+            .await?,
+            finals: rows(
+                r#"SELECT json_array(name, description, act_type, is_single_male, "order",
+                    einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
+                    (SELECT json_group_array(json_array(group_label, number))
+                        FROM (SELECT group_label, number FROM final_slots
+                            WHERE final_name = finals.name ORDER BY position)),
+                    (SELECT json_group_array(category)
+                        FROM (SELECT category FROM final_categories
+                            WHERE final_name = finals.name ORDER BY category)))
+                FROM finals ORDER BY "order", name"#,
+            )
+            .await?,
+            timeplan: rows(
+                r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
+                    final_name, kind, show_photos, internal, einfahrzeit_seconds)
+                FROM timeplan ORDER BY position, id"#,
+            )
+            .await?,
+            jury_categories: rows(
+                r#"SELECT json_array(name, deployments, day, needed_technical,
+                    needed_performance, needed_dismounts)
+                FROM jury_categories ORDER BY sort_order"#,
+            )
+            .await?,
+        })
     }
 
-    let category_count: i64 =
-        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM categories"#)
-            .fetch_one(&mut *tx)
+    /// What differs from `other`, e.g. "the categories".
+    fn differences(&self, other: &Self) -> Vec<&'static str> {
+        [
+            (
+                self.competition != other.competition,
+                "the competition settings",
+            ),
+            (self.categories != other.categories, "the categories"),
+            (self.finals != other.finals, "the finals"),
+            (self.timeplan != other.timeplan, "the timeplan"),
+            (
+                self.jury_categories != other.jury_categories,
+                "the jury categories",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(differs, what)| differs.then_some(what))
+        .collect()
+    }
+}
+
+fn dropped_warning(dropped: &Dropped) -> Option<String> {
+    let summary = dropped.summary();
+    if summary.is_empty() {
+        return None;
+    }
+    let remap = dropped
+        .remap_file
+        .as_ref()
+        .map(|path| {
+            format!(
+                " They are listed in {}, with an empty jury_category to fill in.",
+                path.display()
+            )
+        })
+        .unwrap_or_default();
+    Some(format!(
+        "Applying the competition file dropped {}.{remap}",
+        summary.join(", ")
+    ))
+}
+
+/// Writes the file's competition with `id`, its categories, finals, timeplan
+/// and jury categories, replacing what the database has (ADR 0005): the
+/// planning that depends on them is dropped, club data is kept. Judge
+/// registrations follow their jury category by name; the others are returned
+/// for the remap file.
+async fn write(
+    conn: &mut sqlx::SqliteConnection,
+    file: &CompetitionFile,
+    id: &str,
+) -> Result<Dropped, String> {
+    let competition = CompetitionConfig {
+        id: id.to_string(),
+        ..file.competition.clone()
+    };
+    competition.validate()?;
+    for warning in competition.payment_warnings() {
+        warn!("{warning}");
+    }
+
+    let mut dropped = Dropped {
+        timeplan_slots: sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM timeplan_slots"#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?,
+        act_progress: sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) as "count!: i64" FROM acts
+            WHERE started_at IS NOT NULL OR ended_at IS NOT NULL OR music_started_at IS NOT NULL
+            "#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?,
+        finals_placements: sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM final_slots WHERE act_id IS NOT NULL"#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?,
+        jury_assignments: sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM jury_assignments"#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?,
+        jury_plan_published: sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM competition WHERE jury_plan_published_at IS NOT NULL"#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?
+            > 0,
+        ..Default::default()
+    };
+    let registrations = sqlx::query!(
+        r#"
+        SELECT
+            judge.id as "judge_id!: Uuid",
+            clubs.name as "club!",
+            judge.firstname as "firstname!",
+            judge.lastname as "lastname!",
+            judge_registration.task as "task!: JudgeTask",
+            jury_categories.name as "jury_category!"
+        FROM judge_registration
+        JOIN judge ON judge.id = judge_registration.judge_id
+        JOIN clubs ON clubs.id = judge.club_id
+        JOIN jury_categories ON jury_categories.id = judge_registration.jury_category_id
+        ORDER BY clubs.name, judge.lastname, judge.firstname, jury_categories.sort_order, judge_registration.task
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db_error)?;
+
+    for table in [
+        "jury_assignments",
+        "judge_registration",
+        "jury_categories",
+        "timeplan_slots",
+        "timeplan",
+        "final_categories",
+        "final_slots",
+        "finals",
+        "categories",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}")))
+            .execute(&mut *conn)
             .await
             .map_err(db_error)?;
-    if category_count == 0 && !categories.is_empty() {
-        let determining_day = Competition::current(&mut *tx)
+    }
+
+    upsert_competition(&mut *conn, &competition)
+        .await
+        .map_err(db_error)?;
+    // The app uses one competition. A row left over from an earlier id
+    // would win in `Competition::current` if it starts later.
+    sqlx::query!("DELETE FROM competition WHERE id != ?", competition.id)
+        .execute(&mut *conn)
+        .await
+        .map_err(db_error)?;
+    sqlx::query!("UPDATE acts SET started_at = NULL, ended_at = NULL, music_started_at = NULL")
+        .execute(&mut *conn)
+        .await
+        .map_err(db_error)?;
+    sqlx::query!("UPDATE competition SET jury_plan_published_at = NULL")
+        .execute(&mut *conn)
+        .await
+        .map_err(db_error)?;
+    let categories = &file.categories;
+    let finals = &file.finals;
+    let timeplan = &file.timeplan;
+    let jury_categories = &file.jury_categories;
+
+    if !categories.is_empty() {
+        let determining_day = Competition::current(&mut *conn)
             .await
             .map_err(db_error)?
             .map(|c| c.determining_day)
@@ -502,20 +928,17 @@ pub async fn seed(
                 category.act_duration_seconds,
                 category.judge_duration_seconds,
             )
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await
             .map_err(db_error)?;
         }
-        info!("Seeded {} categories from the config", resolved.len());
-    } else if !categories.is_empty() {
-        info!("Categories already present, [[categories]] in the config is ignored");
+        info!(
+            "Seeded {} categories from the competition file",
+            resolved.len()
+        );
     }
 
-    let final_count: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM finals"#)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db_error)?;
-    if final_count == 0 && !finals.is_empty() {
+    if !finals.is_empty() {
         let resolved = resolve_finals(finals)?;
         for (order, item) in (1_i64..).zip(&resolved) {
             sqlx::query!(
@@ -534,13 +957,13 @@ pub async fn seed(
                 item.act_duration_seconds,
                 item.judge_duration_seconds,
             )
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await
             .map_err(db_error)?;
-            finals::replace_slots(&mut tx, &item.name, &item.slots)
+            finals::replace_slots(conn, &item.name, &item.slots)
                 .await
                 .map_err(db_error)?;
-            if finals::check_categories(&mut tx, &item.categories)
+            if finals::check_categories(conn, &item.categories)
                 .await
                 .is_err()
             {
@@ -549,28 +972,21 @@ pub async fn seed(
                     item.name
                 ));
             }
-            finals::set_categories(&mut tx, &item.name, &item.categories)
+            finals::set_categories(conn, &item.name, &item.categories)
                 .await
                 .map_err(db_error)?;
         }
-        info!("Seeded {} finals from the config", resolved.len());
-    } else if !finals.is_empty() {
-        info!("Finals already present, [[finals]] in the config is ignored");
+        info!("Seeded {} finals from the competition file", resolved.len());
     }
 
-    let timeplan_count: i64 =
-        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM timeplan"#)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db_error)?;
-    if timeplan_count == 0 && !timeplan.is_empty() {
+    if !timeplan.is_empty() {
         let category_names: Vec<String> =
             sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories"#)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut *conn)
                 .await
                 .map_err(db_error)?;
         let final_names: Vec<String> = sqlx::query_scalar!(r#"SELECT name as "name!" FROM finals"#)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut *conn)
             .await
             .map_err(db_error)?;
         validate_timeplan(timeplan, &category_names, &final_names)?;
@@ -604,22 +1020,18 @@ pub async fn seed(
                 entry.internal,
                 position,
             )
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await
             .map_err(db_error)?;
         }
-        info!("Seeded {} timeplan entries from the config", timeplan.len());
-    } else if !timeplan.is_empty() {
-        info!("Timeplan already present, [[timeplan]] in the config is ignored");
+        info!(
+            "Seeded {} timeplan entries from the competition file",
+            timeplan.len()
+        );
     }
 
-    let jury_category_count: i64 =
-        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM jury_categories"#)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(db_error)?;
-    if jury_category_count == 0 && !jury_categories.is_empty() {
-        let competition = Competition::current(&mut *tx).await.map_err(db_error)?;
+    if !jury_categories.is_empty() {
+        let competition = Competition::current(&mut *conn).await.map_err(db_error)?;
         for category in jury_categories {
             let fields = crate::jury::JuryCategoryFields {
                 name: category.name.clone(),
@@ -631,32 +1043,93 @@ pub async fn seed(
             }
             .normalize(competition.as_ref())
             .map_err(|e| format!("[[jury_categories]] {:?}: {e}", category.name))?;
-            crate::jury::insert_category(&mut tx, &fields)
+            crate::jury::insert_category(conn, &fields)
                 .await
                 .map_err(|e| format!("[[jury_categories]] {:?}: {e:?}", category.name))?;
         }
         info!(
-            "Seeded {} jury categories from the config",
+            "Seeded {} jury categories from the competition file",
             jury_categories.len()
         );
-    } else if !jury_categories.is_empty() {
-        info!("Jury categories already present, [[jury_categories]] in the config is ignored");
     }
 
-    tx.commit().await.map_err(db_error)?;
-    Ok(())
+    for registration in registrations {
+        let category = sqlx::query_scalar!(
+            r#"SELECT id as "id!: Uuid" FROM jury_categories WHERE name = ?"#,
+            registration.jury_category
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db_error)?;
+        match category {
+            Some(category) => {
+                sqlx::query!(
+                    "INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, ?)",
+                    registration.judge_id,
+                    category,
+                    registration.task,
+                )
+                .execute(&mut *conn)
+                .await
+                .map_err(db_error)?;
+            }
+            None => dropped.judge_registrations.push(RemapRegistration {
+                club: registration.club,
+                firstname: registration.firstname,
+                lastname: registration.lastname,
+                task: registration.task,
+                old_jury_category: registration.jury_category,
+                jury_category: String::new(),
+            }),
+        }
+    }
+    Ok(dropped)
+}
+
+/// Writes `remap` to `data_path/remap/jury-registrations-<timestamp>.toml`.
+fn write_remap_file(data_path: &Path, remap: &RemapFile) -> Result<PathBuf, String> {
+    let directory = data_path.join("remap");
+    std::fs::create_dir_all(&directory)
+        .map_err(|e| format!("Couldn't create {}: {e}", directory.display()))?;
+    let timestamp = OffsetDateTime::now_utc()
+        .format(format_description!(
+            "[year][month][day]T[hour][minute][second]Z"
+        ))
+        .expect("valid format");
+    let path = directory.join(format!("jury-registrations-{timestamp}.toml"));
+    let content = format!(
+        "# Judge registrations whose jury category the competition file dropped.\n\
+         # Fill in jury_category with the jury category of the new competition\n\
+         # each judge belongs to.\n\n{}",
+        toml::to_string(remap).map_err(|e| e.to_string())?
+    );
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
+    Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ConfigFile;
     use time::macros::date;
 
     const DAY: Date = date!(2027 - 06 - 01);
 
+    /// The lists of a competition file, without its competition.
+    #[derive(serde::Deserialize)]
+    struct Lists {
+        #[serde(default)]
+        categories: Vec<CategoryConfig>,
+        #[serde(default)]
+        timeplan: Vec<TimeplanEntryConfig>,
+    }
+
+    fn lists(toml: &str) -> Lists {
+        toml::from_str(toml).unwrap()
+    }
+
     fn categories(toml: &str) -> Vec<CategoryConfig> {
-        ConfigFile::parse(toml).unwrap().categories
+        lists(toml).categories
     }
 
     fn category(name: &str, min: Option<f64>, under: Option<f64>) -> String {
@@ -778,10 +1251,9 @@ mod tests {
     #[test]
     fn categories_without_timeplan_entry_are_reported() {
         let names = vec!["NEM".to_string(), "KG".to_string()];
-        let timeplan = ConfigFile::parse(
+        let timeplan = lists(
             "[[timeplan]]\ncategory = \"NEM\"\n[[timeplan]]\nlabel = \"Pause\"\nduration_minutes = 30",
         )
-        .unwrap()
         .timeplan;
         assert_eq!(
             unscheduled_category_warnings(&timeplan, &names),
@@ -792,7 +1264,7 @@ mod tests {
     #[test]
     fn timeplan_entries_are_validated() {
         let names = vec!["NEM".to_string()];
-        let parse = |toml: &str| ConfigFile::parse(toml).unwrap().timeplan;
+        let parse = |toml: &str| lists(toml).timeplan;
 
         let finals = vec!["Finale 1".to_string()];
         let validate = |toml: &str| validate_timeplan(&parse(toml), &names, &finals);
@@ -819,7 +1291,7 @@ mod tests {
         assert!(internal_block.unwrap_err().contains("only custom entries"));
     }
 
-    const CONFIG: &str = r#"
+    const COMPETITION: &str = r#"
         [competition]
         id = "cup"
         name = "Cup"
@@ -854,17 +1326,36 @@ mod tests {
         category = "15+"
     "#;
 
-    async fn seed_config(db: &sqlx::SqlitePool, toml: &str) -> Result<(), String> {
-        let file = ConfigFile::parse(toml).unwrap();
-        seed(
-            db,
-            file.competition.as_ref(),
-            &file.categories,
-            &file.finals,
-            &file.timeplan,
-            &file.jury_categories,
-        )
-        .await
+    /// Directory removed again when dropped.
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("cup-seed-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    async fn apply_file(
+        db: &sqlx::SqlitePool,
+        toml: &str,
+        replace: bool,
+        data_path: &Path,
+    ) -> Result<Report, String> {
+        let file = CompetitionFile::parse(toml).unwrap();
+        apply(db, Some(&file), replace, data_path).await
+    }
+
+    async fn seed_file(db: &sqlx::SqlitePool, toml: &str) -> Result<(), String> {
+        let data = TempDir::new();
+        apply_file(db, toml, false, &data.0).await.map(|_| ())
     }
 
     async fn count(db: &sqlx::SqlitePool, table: &str) -> i64 {
@@ -891,9 +1382,366 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_changed_file_on_the_next_start_changes_nothing_and_warns() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        let created = apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        assert_eq!(created.applied, Applied::Created);
+        assert!(created.warnings.is_empty(), "{:?}", created.warnings);
+
+        let unchanged = apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        assert_eq!(unchanged.applied, Applied::Unchanged);
+        assert!(unchanged.warnings.is_empty(), "{:?}", unchanged.warnings);
+
+        let changed = COMPETITION.replace("name = \"Cup\"", "name = \"Cup 2\"");
+        let report = apply_file(&db, &changed, false, &data.0).await.unwrap();
+        assert_eq!(report.applied, Applied::Ignored);
+        assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+        assert!(
+            report.warnings[0].contains("the competition settings"),
+            "{:?}",
+            report.warnings
+        );
+        assert!(
+            report.warnings[0].contains("--replace-competition"),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(
+            Competition::current(&db).await.unwrap().unwrap().name,
+            "Cup"
+        );
+    }
+
+    #[tokio::test]
+    async fn any_changed_detail_counts_as_a_difference() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, &planned_competition(), false, &data.0)
+            .await
+            .unwrap();
+        let cases = [
+            ("under_age = 15", "under_age = 14", "the categories"),
+            ("count = 2", "count = 3", "the finals"),
+            (
+                "duration_minutes = 30",
+                "duration_minutes = 45",
+                "the timeplan",
+            ),
+            (
+                "name = \"Block B\"",
+                "name = \"Block B\"\n        deployments = 1",
+                "the jury categories",
+            ),
+        ];
+        for (from, to, expected) in cases {
+            let changed = planned_competition().replace(from, to);
+            let report = apply_file(&db, &changed, false, &data.0).await.unwrap();
+            assert_eq!(report.applied, Applied::Ignored, "{to}");
+            assert!(
+                report.warnings.len() == 1 && report.warnings[0].contains(expected),
+                "{to}: {:?}",
+                report.warnings
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalid_file_on_the_next_start_is_ignored_with_a_warning() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+
+        let invalid = COMPETITION.replace("category = \"15+\"", "category = \"missing\"");
+        let report = apply_file(&db, &invalid, false, &data.0).await.unwrap();
+        assert_eq!(report.applied, Applied::Ignored);
+        assert!(
+            report.warnings.len() == 1 && report.warnings[0].contains("missing"),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(count(&db, "timeplan").await, 3);
+    }
+
+    #[tokio::test]
+    async fn replacing_with_an_unchanged_file_keeps_the_planning() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, &planned_competition(), false, &data.0)
+            .await
+            .unwrap();
+        add_club_data_and_planning(&db).await;
+
+        let report = apply_file(&db, &planned_competition(), true, &data.0)
+            .await
+            .unwrap();
+        assert_eq!(report.applied, Applied::Unchanged);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(count(&db, "timeplan_slots").await, 1);
+        assert_eq!(count(&db, "jury_assignments").await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_file_with_another_id_is_ignored_with_a_warning() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+
+        let renamed = COMPETITION.replace(r#"id = "cup""#, r#"id = "cup-2""#);
+        let report = apply_file(&db, &renamed, false, &data.0).await.unwrap();
+        assert_eq!(report.applied, Applied::Ignored);
+        assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+        assert!(
+            report.warnings[0].contains("id cup-2")
+                && report.warnings[0].contains("cup")
+                && report.warnings[0].contains("never changes"),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(count(&db, "competition").await, 1);
+        assert_eq!(Competition::current(&db).await.unwrap().unwrap().id, "cup");
+    }
+
+    /// [`COMPETITION`] with a final and two jury categories.
+    fn planned_competition() -> String {
+        format!(
+            r#"{COMPETITION}
+        [[timeplan]]
+        final = "Finale"
+
+        [[finals]]
+        name = "Finale"
+        act_type = "single"
+        slots = [{{ label = "U15", count = 2 }}]
+        categories = ["U15"]
+
+        [[jury_categories]]
+        name = "Block A"
+
+        [[jury_categories]]
+        name = "Block B"
+        "#
+        )
+    }
+
+    /// A club with a rider, an act, a judge registered for both jury
+    /// categories and a booking, plus planning: the act in a timeplan slot
+    /// and a finals slot and already performed, the judge in the published
+    /// jury plan.
+    async fn add_club_data_and_planning(db: &sqlx::SqlitePool) {
+        let (user, club, rider, act, judge) = (
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        let block = |name: &'static str| {
+            sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM jury_categories WHERE name = ?")
+                .bind(name)
+                .fetch_one(db)
+        };
+        let (block_a, block_b) = (
+            block("Block A").await.unwrap(),
+            block("Block B").await.unwrap(),
+        );
+        let statements: Vec<sqlx::query::Query<'_, sqlx::Sqlite, _>> = vec![
+            sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Max', '')")
+                .bind(user),
+            sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES (?, 'Club A', ?)")
+                .bind(club)
+                .bind(user),
+            sqlx::query("INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender) VALUES (?, ?, 'Erika', 'Muster', '2014-01-01T00:00:00Z', 'female')")
+                .bind(rider)
+                .bind(club),
+            sqlx::query("INSERT INTO acts (id, name, act_type, song_file, started_at, ended_at) VALUES (?, 'Kür', 'single', 'song.mp3', '2027-06-05T10:00:00Z', '2027-06-05T10:04:00Z')").bind(act),
+            sqlx::query("INSERT INTO act_participants (act_id, rider_id) VALUES (?, ?)")
+                .bind(act)
+                .bind(rider),
+            sqlx::query("INSERT INTO judge (id, club_id, firstname, lastname, birthdate, is_trained) VALUES (?, ?, 'Max', 'Müller', '1990-01-01T00:00:00Z', true)")
+                .bind(judge)
+                .bind(club),
+            sqlx::query("INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, 'technical')")
+                .bind(judge)
+                .bind(block_a),
+            sqlx::query("INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, 'performance')")
+                .bind(judge)
+                .bind(block_b),
+            sqlx::query("INSERT INTO jury_assignments (judge_id, jury_category_id, task) VALUES (?, ?, 'technical')")
+                .bind(judge)
+                .bind(block_a),
+            sqlx::query("UPDATE competition SET jury_plan_published_at = '2027-01-01T00:00:00Z'"),
+            sqlx::query("INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ((SELECT MIN(id) FROM timeplan), 1, ?)")
+                .bind(act),
+            sqlx::query("UPDATE final_slots SET act_id = ? WHERE position = 1").bind(act),
+            sqlx::query("INSERT INTO bookings (id, amount, date, club_id) VALUES (?, 15, '2027-01-01', ?)")
+                .bind(uuid::Uuid::new_v4())
+                .bind(club),
+        ];
+        for statement in statements {
+            statement.execute(db).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn replace_keeps_club_data_and_drops_the_planning() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, &planned_competition(), false, &data.0)
+            .await
+            .unwrap();
+        add_club_data_and_planning(&db).await;
+
+        let replacement = planned_competition()
+            .replace("name = \"Cup\"", "name = \"Cup 2\"")
+            .replace("Block B", "Block C");
+        let report = apply_file(&db, &replacement, true, &data.0).await.unwrap();
+
+        let Applied::Replaced(dropped) = report.applied else {
+            panic!("{:?}", report.applied);
+        };
+        assert_eq!(dropped.timeplan_slots, 1);
+        assert_eq!(dropped.act_progress, 1);
+        assert_eq!(dropped.finals_placements, 1);
+        assert_eq!(dropped.jury_assignments, 1);
+        assert!(dropped.jury_plan_published);
+        let unmatched = vec![RemapRegistration {
+            club: "Club A".into(),
+            firstname: "Max".into(),
+            lastname: "Müller".into(),
+            task: JudgeTask::Performance,
+            old_jury_category: "Block B".into(),
+            jury_category: String::new(),
+        }];
+        assert_eq!(dropped.judge_registrations, unmatched);
+        let remap_file = dropped.remap_file.expect("a remap file");
+        assert!(
+            remap_file.starts_with(data.0.join("remap")),
+            "{remap_file:?}"
+        );
+        let name = remap_file.file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with("jury-registrations-") && name.ends_with(".toml"),
+            "{name}"
+        );
+        let written: RemapFile =
+            toml::from_str(&std::fs::read_to_string(&remap_file).unwrap()).unwrap();
+        assert_eq!(written.jury_registrations, unmatched);
+        assert!(
+            report.warnings.iter().any(|w| w.contains("1 timeplan slot")
+                && w.contains("the progress of 1 act")
+                && w.contains("1 finals placement")
+                && w.contains("the published jury plan")
+                && w.contains("1 judge registration")),
+            "{:?}",
+            report.warnings
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains(&remap_file.display().to_string())),
+            "{:?}",
+            report.warnings
+        );
+
+        let competition = Competition::current(&db).await.unwrap().unwrap();
+        assert_eq!(
+            (competition.id.as_str(), competition.name.as_str()),
+            ("cup", "Cup 2")
+        );
+        for (table, expected) in [
+            ("users", 1),
+            ("clubs", 1),
+            ("rider", 1),
+            ("acts", 1),
+            ("act_participants", 1),
+            ("judge", 1),
+            ("bookings", 1),
+            ("timeplan_slots", 0),
+            ("jury_assignments", 0),
+            ("judge_registration", 1),
+        ] {
+            assert_eq!(count(&db, table).await, expected, "{table}");
+        }
+        let kept: (String, String) = sqlx::query_as(
+            "SELECT jury_categories.name, task FROM judge_registration JOIN jury_categories ON jury_categories.id = jury_category_id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(kept, ("Block A".to_string(), "technical".to_string()));
+        let progress: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT started_at, ended_at FROM acts")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(progress, (None, None));
+        let placements: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM final_slots WHERE act_id IS NOT NULL")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(placements, 0);
+        let published: Option<String> =
+            sqlx::query_scalar("SELECT jury_plan_published_at FROM competition")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(published, None);
+    }
+
+    #[tokio::test]
+    async fn replace_keeps_the_database_id_and_warns() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+
+        let renamed = COMPETITION
+            .replace(r#"id = "cup""#, r#"id = "cup-2""#)
+            .replace("name = \"Cup\"", "name = \"Cup 2\"");
+        let report = apply_file(&db, &renamed, true, &data.0).await.unwrap();
+        assert_eq!(report.applied, Applied::Replaced(Dropped::default()));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("id cup-2") && w.contains("keeps cup")),
+            "{:?}",
+            report.warnings
+        );
+        assert_eq!(count(&db, "competition").await, 1);
+        let competition = Competition::current(&db).await.unwrap().unwrap();
+        assert_eq!(
+            (competition.id.as_str(), competition.name.as_str()),
+            ("cup", "Cup 2")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_invalid_replacement_changes_nothing() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = TempDir::new();
+        apply_file(&db, &planned_competition(), false, &data.0)
+            .await
+            .unwrap();
+        add_club_data_and_planning(&db).await;
+
+        let invalid = planned_competition()
+            .replace("Block B", "Block C")
+            .replace("category = \"15+\"", "category = \"missing\"");
+        let err = apply_file(&db, &invalid, true, &data.0).await.unwrap_err();
+        assert!(err.contains("missing"), "{err}");
+        assert_eq!(count(&db, "timeplan_slots").await, 1);
+        assert_eq!(count(&db, "jury_assignments").await, 1);
+        assert_eq!(count(&db, "judge_registration").await, 2);
+        assert!(!data.0.join("remap").exists());
+    }
+
+    #[tokio::test]
     async fn seeds_empty_database() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        seed_config(&db, CONFIG).await.unwrap();
+        seed_file(&db, COMPETITION).await.unwrap();
 
         let competition = Competition::current(&db).await.unwrap().unwrap();
         assert_eq!(competition.determining_day, DAY);
@@ -911,62 +1759,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_competition_id_replaces_the_old_row() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        seed_config(&db, CONFIG).await.unwrap();
-        let renamed = CONFIG.replace(r#"id = "cup""#, r#"id = "cup-2""#);
-        seed_config(&db, &renamed).await.unwrap();
-
-        assert_eq!(count(&db, "competition").await, 1);
-        let competition = Competition::current(&db).await.unwrap().unwrap();
-        assert_eq!(competition.id, "cup-2");
-    }
-
-    #[tokio::test]
     async fn invalid_competition_dates_write_nothing() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let broken = CONFIG.replace(
+        let broken = COMPETITION.replace(
             "registration_end = 2027-04-30T23:59:59+02:00",
             "registration_end = 2027-12-20T23:59:59+01:00",
         );
-        let err = seed_config(&db, &broken).await.unwrap_err();
+        let err = seed_file(&db, &broken).await.unwrap_err();
         assert!(err.contains("registration_end"), "{err}");
         assert_eq!(count(&db, "competition").await, 0);
     }
 
     #[tokio::test]
-    async fn second_run_keeps_admin_changes_but_updates_competition() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        seed_config(&db, CONFIG).await.unwrap();
-        sqlx::query("UPDATE categories SET description = 'edited' WHERE name = 'U15'")
-            .execute(&db)
-            .await
-            .unwrap();
-
-        seed_config(&db, &CONFIG.replace("name = \"Cup\"", "name = \"Cup 2\""))
-            .await
-            .unwrap();
-
-        let description: Option<String> =
-            sqlx::query_scalar("SELECT description FROM categories WHERE name = 'U15'")
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        assert_eq!(description.as_deref(), Some("edited"));
-        assert_eq!(count(&db, "categories").await, 2);
-        assert_eq!(count(&db, "timeplan").await, 3);
-        assert_eq!(count(&db, "competition").await, 1);
-        assert_eq!(
-            Competition::current(&db).await.unwrap().unwrap().name,
-            "Cup 2"
-        );
-    }
-
-    #[tokio::test]
     async fn invalid_config_writes_nothing() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let invalid = CONFIG.replace("category = \"15+\"", "category = \"missing\"");
-        let err = seed_config(&db, &invalid).await.unwrap_err();
+        let invalid = COMPETITION.replace("category = \"15+\"", "category = \"missing\"");
+        let err = seed_file(&db, &invalid).await.unwrap_err();
         assert!(err.contains("missing"), "{err}");
         assert_eq!(count(&db, "competition").await, 0);
         assert_eq!(count(&db, "categories").await, 0);
@@ -974,17 +1782,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn categories_without_competition_are_rejected() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let without_competition = &CONFIG[CONFIG.find("[[categories]]").unwrap()..];
-        let err = seed_config(&db, without_competition).await.unwrap_err();
-        assert!(err.contains("determining_day"), "{err}");
-    }
-
-    #[tokio::test]
     async fn age_uses_determining_day_of_competition() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        seed_config(&db, CONFIG).await.unwrap();
+        seed_file(&db, COMPETITION).await.unwrap();
         let age: f64 = sqlx::query_scalar(
             "SELECT (julianday((SELECT determining_day FROM competition ORDER BY start_date DESC LIMIT 1)) - julianday('2012-06-01')) / 365.2425",
         )

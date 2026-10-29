@@ -23,7 +23,7 @@ use axum::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use nrw_freestyle_cup_registration::{
-    config::ConfigFile,
+    config::CompetitionFile,
     http_server::{HttpServerOptions, routes::get_api_router},
     jwt::JWTConfig,
     mailer::Mailer,
@@ -58,10 +58,10 @@ pub struct TestApp {
 }
 
 /// Directory removed again when dropped.
-struct TempDir(PathBuf);
+pub struct TempDir(pub PathBuf);
 
 impl TempDir {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let path = std::env::temp_dir().join(format!("cup-test-data-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
@@ -114,20 +114,13 @@ pub fn closed_registration() -> StatusOptions {
     }
 }
 
-/// Seeds the competition, categories, finals and timeplan from `tests/fixtures/config.toml`
-/// and sets the registration dates of the competition to `status`.
+/// Seeds the competition, categories, finals and timeplan from
+/// `tests/fixtures/competition.toml` and sets the registration dates of the
+/// competition to `status`.
 pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
-    let file = ConfigFile::parse(include_str!("../fixtures/config.toml")).unwrap();
-    seed::seed(
-        db,
-        file.competition.as_ref(),
-        &file.categories,
-        &file.finals,
-        &file.timeplan,
-        &file.jury_categories,
-    )
-    .await
-    .unwrap();
+    let file = CompetitionFile::parse(include_str!("../fixtures/competition.toml")).unwrap();
+    let data = TempDir::new();
+    seed::apply(db, Some(&file), false, &data.0).await.unwrap();
     set_registration_status(db, status).await;
 }
 

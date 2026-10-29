@@ -58,19 +58,14 @@ async fn main() -> eyre::Result<()> {
     info!("Running database migrations");
     migrate!("./migrations").run(&db).await?;
 
-    info!("Applying event settings from the config");
-    seed::seed(
-        &db,
-        settings.competition.as_ref(),
-        &settings.categories,
-        &settings.finals,
-        &settings.timeplan,
-        &settings.jury_categories,
-    )
-    .await
-    .map_err(|e| eyre!(e))?;
+    if let Some(path) = &settings.competition_file {
+        info!("Reading the competition file {}", path.display());
+    }
+    seed::apply_settings(&db, &settings)
+        .await
+        .map_err(|e| eyre!(e))?;
     let competition = Competition::current(&db).await?.ok_or_else(|| {
-        eyre!("No competition configured. Add a [competition] section to the config file (see config.example.toml).")
+        eyre!("No competition in the database. Pass a competition file with --competition or COMPETITION (see competition.example.toml).")
     })?;
     info!(
         "Running competition {} ({})",

@@ -10,7 +10,7 @@ use time::{OffsetDateTime, format_description::well_known::Iso8601};
 /// Format sent by the admin frontend.
 const START: &str = "2026-04-19T09:00:00Z";
 
-/// The final in `tests/fixtures/config.toml`.
+/// The final in `tests/fixtures/competition.toml`.
 const FINAL: &str = "Finale EW";
 
 async fn list_finals(app: &TestApp) -> Vec<Value> {

@@ -1,5 +1,5 @@
-# Event settings seeded into every integration test database (see tests/common/mod.rs).
-# Mirrors config.example.toml; the registration dates are overwritten per test.
+# The competition file seeded into every integration test database (see tests/common/mod.rs).
+# Mirrors competition.example.toml; the registration dates are overwritten per test.
 
 [competition]
 id = "einrad-demo-2027"

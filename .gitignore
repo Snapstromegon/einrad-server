@@ -6,4 +6,5 @@ openapi.json
 /data
 /2025/
 /config.toml
+/competition.toml
 /demo-songs

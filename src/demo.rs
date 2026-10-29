@@ -1,8 +1,8 @@
 //! Demo data for development and tests.
 //!
 //! A demo file (see `demo-data.toml`) describes a complete event: the
-//! competition, categories and timeplan in the same format as the config file,
-//! plus users, clubs, riders, groups and act details. [`DemoData::apply`]
+//! competition, categories and timeplan in the same format as the competition
+//! file, plus users, clubs, riders, groups and act details. [`DemoData::apply`]
 //! writes it into an empty, migrated database; the `seed_demo` binary
 //! recreates the database before doing so.
 
@@ -20,8 +20,8 @@ use uuid::Uuid;
 use crate::{
     act_type::ActType,
     config::{
-        CategoryConfig, CompetitionConfig, FinalConfig, JuryCategoryConfig, TimeplanEntryConfig,
-        toml_date, toml_datetime_option,
+        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, JuryCategoryConfig,
+        TimeplanEntryConfig, toml_date, toml_datetime_option,
     },
     gender::Gender,
     groups,
@@ -287,15 +287,14 @@ impl DemoData {
                 earliest_start: entry.earliest_start,
             })
             .collect();
-        seed::seed(
-            db,
-            Some(&self.competition),
-            &self.categories,
-            &self.finals,
-            &timeplan,
-            &self.jury_categories,
-        )
-        .await?;
+        let file = CompetitionFile {
+            competition: self.competition.clone(),
+            categories: self.categories.clone(),
+            finals: self.finals.clone(),
+            timeplan,
+            jury_categories: self.jury_categories.clone(),
+        };
+        seed::apply(db, Some(&file), false, data_path).await?;
 
         let timeplan_ids: Vec<i64> =
             sqlx::query_scalar!(r#"SELECT id as "id!" FROM timeplan ORDER BY position, id"#)
