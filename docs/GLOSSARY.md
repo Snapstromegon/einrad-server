@@ -83,6 +83,10 @@ An act of one rider, ranked separately for women and men (Einzel weiblich / Einz
 **Pair** (Paarkür):
 An act of two riders; its age is the older rider's. Pairs across clubs are linked by the organizer.
 
+**Pair request** (Paaranfrage):
+A rider's wish to ride a pair with a named partner who isn't linked yet; within a club it's linked once the partner is registered, across clubs the organizer confirms it. It pays a start but doesn't count towards the jury obligation until it's a pair.
+_Avoid_: Unconfirmed pair, Partnerwunsch
+
 **Small group** (Kleingruppe):
 A group act of up to 8 regular riders; the club chooses the type, the size only warns.
 
@@ -274,6 +278,7 @@ An award for each rider of the first three places of a final, and for each group
 - A member of the **Organizer team** holds one or more **Roles**; the same user can also be a **Club contact**, and neither widens the other.
 - A **Club** has **Riders**, registers **Acts** and **Judges**, and owes an **Amount due**.
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
+- A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
 - An **Act** belongs to one **Category** once it is complete and not withdrawn; a **Category** belongs to one **Heat**.
 - The best acts of a **Heat** fill the **Finalist slots** of its **Final**.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
