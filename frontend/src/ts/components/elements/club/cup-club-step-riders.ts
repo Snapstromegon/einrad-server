@@ -34,8 +34,6 @@ import {
   editRider,
   type Gender,
   genderLabels,
-  hasSingle,
-  singleFlags,
 } from "./club-actions";
 import { dataChanged, navigateTo } from "./events";
 
@@ -736,9 +734,8 @@ export default class CupClubStepRiders extends LitElement {
         firstname: edit.firstname,
         lastname: edit.lastname,
         birthdate: birthdate.toISOString(),
+        // A single follows the gender (Einzel weiblich or männlich).
         gender,
-        // The single follows the gender (Einzel weiblich or männlich).
-        ...singleFlags(hasSingle(rider), gender),
       });
       this.edit = null;
     });

@@ -26,6 +26,7 @@ import {
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
 import { formatDate, isMusicUploadOpen } from "../../../utils";
+import { withStarts } from "../../../starts";
 import type { NavigateDetail } from "./events";
 import { loadPref, savePref } from "./prefs";
 import "./cup-club-step-club.js";
@@ -500,6 +501,7 @@ export default class CupClubPortal extends LitElement {
         club,
         riders,
         acts,
+        pairRequests,
         groups,
         allGroups,
         allRiders,
@@ -510,10 +512,19 @@ export default class CupClubPortal extends LitElement {
         unwrap(client.getClub(query)),
         unwrap(client.listClubRiders(query)),
         unwrap(client.listClubActs(query)),
+        unwrap(client.listClubPairRequests(query)),
         unwrap(client.listClubGroups(query)),
         unwrap(client.listGroups()).catch(() => []),
         // Admins pick riders of any club.
-        admin ? unwrap(client.listRiders()) : Promise.resolve(undefined),
+        admin
+          ? Promise.all([
+              unwrap(client.listRiders()),
+              unwrap(client.listActs()),
+              unwrap(client.listPairRequests()),
+            ]).then(([riders, acts, requests]) =>
+              withStarts(riders, acts, requests),
+            )
+          : Promise.resolve(undefined),
         jury
           ? unwrap(client.listClubJudges(query))
           : Promise.resolve(undefined),
@@ -522,7 +533,7 @@ export default class CupClubPortal extends LitElement {
       ]);
       return {
         club,
-        riders: sortRiders(riders),
+        riders: sortRiders(withStarts(riders, acts, pairRequests)),
         acts,
         groups,
         allGroups,

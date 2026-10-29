@@ -1200,7 +1200,7 @@ export default class CupClubStepActs extends LitElement {
     await this.create(async () => {
       let actId: string | undefined;
       if (this.newPartner === OTHER_CLUB) {
-        await pairWithOtherClub(a, this.newPartnerName, this.data.riders);
+        await pairWithOtherClub(a, this.newPartnerName);
         this.notice = `Paarkür ${riderName(a)} & ${this.newPartnerName.trim()} angemeldet – wartet auf Bestätigung.`;
       } else {
         const riders = ridersOf(this.data, false);
@@ -1209,7 +1209,7 @@ export default class CupClubStepActs extends LitElement {
           return null;
         }
         this.checkNewDetails();
-        await linkPartners({ ...a, club_id: this.data.club.id }, b, riders);
+        await linkPartners(a, b);
         this.notice = `Paarkür ${riderName(a)} & ${riderName(b)} angelegt.`;
         actId = await findActOf(this.data.club.id, "pair", a.id);
       }
@@ -1784,7 +1784,7 @@ export default class CupClubStepActs extends LitElement {
                 `Paarkür ${this.riderNames(act)} wirklich auflösen?\nTitel und Musik gehen dabei verloren.`,
               )
             ) {
-              this.run(act.id, () => leavePair(rider, this.data.riders));
+              this.run(act.id, () => leavePair(rider));
             }
           }
         }
@@ -1854,8 +1854,7 @@ export default class CupClubStepActs extends LitElement {
                 ?disabled=${this.busy.has(rider.id)}
                 @click=${
                   // eslint-disable-next-line lit/no-template-arrow
-                  () =>
-                    this.run(rider.id, () => leavePair(rider, this.data.riders))
+                  () => this.run(rider.id, () => leavePair(rider))
                 }
               >
                 <i class="material-icon">link_off</i> Paar auflösen

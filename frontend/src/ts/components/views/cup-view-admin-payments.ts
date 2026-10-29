@@ -34,9 +34,10 @@ import {
   formatMoney,
   startsByFee,
 } from "../../utils";
+import { type Starts, withStarts } from "../../starts";
 
 type ClubOverview = schemas.ClubOverview;
-type Rider = schemas.Rider;
+type Rider = schemas.Rider & Starts;
 type ListedBooking = schemas.ListedBooking;
 type BookingLogEntry = schemas.BookingLogEntry;
 type Act = schemas.Act;
@@ -373,14 +374,21 @@ export default class CupViewAdminPayments extends LitElement {
 
   data = new Task(this, {
     task: async (): Promise<PaymentsData> => {
-      const [clubs, riders, bookings, log, acts] = await Promise.all([
+      const [clubs, riders, bookings, log, acts, requests] = await Promise.all([
         unwrap(client.listClubs()),
         unwrap(client.listRiders()),
         unwrap(client.listBookings()),
         unwrap(client.listBookingLog()),
         unwrap(client.listActs()),
+        unwrap(client.listPairRequests()),
       ]);
-      return { clubs, riders, bookings, log, acts };
+      return {
+        clubs,
+        riders: withStarts(riders, acts, requests),
+        bookings,
+        log,
+        acts,
+      };
     },
     args: () => [],
     onComplete: (value) => {

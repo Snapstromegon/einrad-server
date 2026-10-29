@@ -20,21 +20,9 @@ pub struct ClubRider {
     /// Decides whether the single is Einzel weiblich or männlich. Missing for
     /// riders registered before it was asked.
     gender: Option<Gender>,
-    /// Has a single, by `gender` Einzel weiblich or männlich.
-    single_male: bool,
-    single_female: bool,
-    /// Is in a pair act or waits for a partner (a pair request).
-    pair: bool,
-    /// The partner of the pair act.
-    partner_id: Option<Uuid>,
-    /// The name of the requested partner, or of the pair act's partner.
-    partner_name: Option<String>,
-    resolved_partner_name: Option<String>,
-    resolved_partner_club: Option<String>,
     /// Number of groups the rider is in, as a regular or replacement rider.
     group_count: i64,
-    /// Starts in acts whose fee is waived. They count in the flags and
-    /// `group_count` above, but cost nothing.
+    /// Starts in acts whose fee is waived. They cost nothing.
     waived_count: i64,
     /// The rider's own starts are all free (a rider's fee waiver).
     fee_waived: bool,
@@ -81,25 +69,6 @@ pub async fn list_club_riders(
             rider.lastname,
             rider.birthdate,
             rider.gender as "gender: Gender",
-            (rider.gender = 'male' AND EXISTS (
-              SELECT 1 FROM act_participants
-              JOIN acts ON acts.id = act_participants.act_id
-              WHERE act_participants.rider_id = rider.id AND acts.act_type = 'single'
-            )) as "single_male!: bool",
-            (rider.gender = 'female' AND EXISTS (
-              SELECT 1 FROM act_participants
-              JOIN acts ON acts.id = act_participants.act_id
-              WHERE act_participants.rider_id = rider.id AND acts.act_type = 'single'
-            )) as "single_female!: bool",
-            (request.rider_id IS NOT NULL OR EXISTS (
-              SELECT 1 FROM act_participants
-              JOIN acts ON acts.id = act_participants.act_id
-              WHERE act_participants.rider_id = rider.id AND acts.act_type = 'pair'
-            )) as "pair!: bool",
-            partner.id as "partner_id: Uuid",
-            CASE WHEN partner.id IS NULL THEN request.partner_name ELSE partner.firstname || ' ' || partner.lastname END as "partner_name: String",
-            NULLIF(concat_ws(" ", partner.firstname, partner.lastname), '') as "resolved_partner_name: String",
-            partner_club.name as resolved_partner_club,
             (
               SELECT COUNT(*) FROM act_participants
               JOIN acts ON acts.id = act_participants.act_id
@@ -114,14 +83,6 @@ pub async fn list_club_riders(
             ) as "waived_count!: i64",
             rider.fee_waiver IS NOT NULL as "fee_waived!: bool"
         FROM rider
-          LEFT JOIN pair_requests as request ON request.rider_id = rider.id
-          LEFT JOIN rider as partner ON partner.id = (
-            SELECT other.rider_id FROM act_participants own
-              JOIN acts ON acts.id = own.act_id AND acts.act_type = 'pair'
-              JOIN act_participants other ON other.act_id = own.act_id AND other.rider_id != own.rider_id
-            WHERE own.rider_id = rider.id
-          )
-          LEFT JOIN clubs as partner_club ON partner_club.id = partner.club_id
         WHERE rider.club_id = ?
         "#,
         club_id

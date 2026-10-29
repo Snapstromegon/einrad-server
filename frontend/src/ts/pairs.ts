@@ -3,8 +3,9 @@
 // the likely partner by the names the clubs entered. Only type imports, so
 // the unit tests can import it without a DOM.
 import type { schemas } from "./apiClient";
+import type { Starts } from "./starts";
 
-type Rider = schemas.Rider;
+type Rider = schemas.Rider & Starts;
 
 /** A name for comparing: lower case, without accents, ß → ss, ä → a. */
 export const normalizeName = (name: string) =>

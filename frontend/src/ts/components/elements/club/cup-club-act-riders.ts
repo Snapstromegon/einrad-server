@@ -17,7 +17,6 @@ import {
   MIN_GROUP_SIZE,
 } from "../../../utils";
 import {
-  editRider,
   genderLabels,
   hasSingle,
   leavePair,
@@ -25,6 +24,7 @@ import {
   ownGroupMembers,
   pairWithOtherClub,
   replaceRider,
+  requestPair,
   setGroupMembers,
 } from "./club-actions";
 import "../cup-rider-picker.js";
@@ -479,8 +479,8 @@ export default class CupClubActRiders extends LitElement {
     }
     const partner = pending.partner_name ?? "";
     this.run(async () => {
-      await leavePair(pending, this.data.riders);
-      await pairWithOtherClub(rider, partner, this.data.riders);
+      await leavePair(pending);
+      await pairWithOtherClub(rider, partner);
     });
   }
 
@@ -493,7 +493,7 @@ export default class CupClubActRiders extends LitElement {
       this.error = "Bitte gib den Namen des Partners an.";
       return;
     }
-    this.run(() => editRider(rider, { partner_name: name, partner_id: null }));
+    this.run(() => requestPair(rider, name));
   }
 
   /** Pairs a waiting rider with a rider of the club or (admins) any club. */
@@ -502,13 +502,7 @@ export default class CupClubActRiders extends LitElement {
     if (!partner) {
       return;
     }
-    this.run(() =>
-      linkPartners(
-        { ...rider, club_id: this.data.club.id },
-        partner,
-        this.riders,
-      ),
-    );
+    this.run(() => linkPartners(rider, partner));
   }
 
   addMember(group: ClubGroup, id: string) {

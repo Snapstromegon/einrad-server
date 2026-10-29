@@ -199,6 +199,24 @@ pub async fn leave_pair(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), 
     Ok(())
 }
 
+/// Dissolves a pair act: both riders leave the pair competition, nobody is
+/// left waiting for a partner (unlike [`leave_pair`]).
+pub async fn dissolve_pair(conn: &mut SqliteConnection, act_id: Uuid) -> Result<(), HttpError> {
+    let act_type = sqlx::query_scalar!(
+        r#"SELECT act_type as "act_type!: ActType" FROM acts WHERE id = ?"#,
+        act_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    if act_type != ActType::Pair {
+        return Err(HttpError::ErrorMessages(
+            "Die Kür ist keine Paarkür.".to_string(),
+        ));
+    }
+    Ok(delete_act(conn, act_id).await?)
+}
+
 /// Replaces a rider of a single or pair act by `new`, keeping the act with
 /// its title, description and music. `new` must not have such an act yet;
 /// their pair request is fulfilled by the pair act.
@@ -707,5 +725,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(riders, 1);
+    }
+
+    #[sqlx::test]
+    async fn dissolving_a_pair_leaves_nobody_waiting(db: SqlitePool) {
+        let club = insert_club(&db, "RSV").await;
+        let anna = insert_rider(&db, club, "Anna Muster").await;
+        let berta = insert_rider(&db, club, "Berta Muster").await;
+        let mut conn = db.acquire().await.unwrap();
+        let act_id = link_pair(&mut conn, anna, berta, PartnerClubs::Same)
+            .await
+            .unwrap();
+        set_single(&mut conn, anna, true).await.unwrap();
+        let single = starts(&mut conn, anna).await.unwrap().single.unwrap();
+
+        dissolve_pair(&mut conn, act_id).await.unwrap();
+
+        assert_eq!(pair_of(&db, anna).await, Pair::None);
+        assert_eq!(pair_of(&db, berta).await, Pair::None);
+        // Only pair acts are dissolved.
+        let error = dissolve_pair(&mut conn, single).await.unwrap_err();
+        assert!(message(error).contains("keine Paarkür"));
     }
 }

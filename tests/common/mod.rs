@@ -401,13 +401,78 @@ impl TestApp {
         (cookie, club_id)
     }
 
-    /// Adds a rider via the API and returns its id.
+    /// Adds a rider from a [`rider_body`]: the rider's own fields with
+    /// `add_rider`, then the starts (`single_male` / `single_female`, `pair`
+    /// with `partner_id` or `partner_name`) with the start commands. A single
+    /// gives the gender (Einzel männlich or weiblich).
     pub async fn add_rider(&self, cookie: &str, body: Value) -> Uuid {
+        let flag = |key: &str| body[key].as_bool().unwrap_or(false);
+        let gender = if flag("single_male") {
+            json!("male")
+        } else if flag("single_female") {
+            json!("female")
+        } else {
+            body["gender"].clone()
+        };
         let response = self
-            .post("/api/command/add_rider", body, Some(cookie))
+            .post(
+                "/api/command/add_rider",
+                json!({
+                    "club_id": body["club_id"],
+                    "firstname": body["firstname"],
+                    "lastname": body["lastname"],
+                    "birthdate": body["birthdate"],
+                    "gender": gender,
+                }),
+                Some(cookie),
+            )
             .await;
         assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-        response.body["rider_id"].as_str().unwrap().parse().unwrap()
+        let rider_id: Uuid = response.body["rider_id"].as_str().unwrap().parse().unwrap();
+        if flag("single_male") || flag("single_female") {
+            self.start_command(
+                cookie,
+                "set_single",
+                json!({ "rider_id": rider_id, "single": true }),
+            )
+            .await;
+        }
+        if flag("pair") {
+            match &body["partner_id"] {
+                Value::Null => {
+                    self.start_command(
+                        cookie,
+                        "request_pair",
+                        json!({ "rider_id": rider_id, "partner_name": body["partner_name"] }),
+                    )
+                    .await
+                }
+                partner_id => {
+                    self.start_command(
+                        cookie,
+                        "link_pair",
+                        json!({ "rider_id": rider_id, "partner_id": partner_id }),
+                    )
+                    .await
+                }
+            };
+        }
+        rider_id
+    }
+
+    /// Sends a start command (`set_single`, `request_pair`, `link_pair`,
+    /// `leave_pair`) and asserts it succeeds.
+    pub async fn start_command(&self, cookie: &str, command: &str, body: Value) -> Value {
+        let response = self
+            .post(&format!("/api/command/{command}"), body, Some(cookie))
+            .await;
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "{command}: {:?}",
+            response.body
+        );
+        response.body
     }
 
     /// Adds a single rider and returns the id of their generated act.
@@ -544,13 +609,12 @@ pub fn email_for(name: &str) -> String {
     format!("{}@cup.test", name.to_lowercase().replace(' ', "."))
 }
 
-/// Body for `add_rider`. The birthdate places single female riders in
-/// the seeded `EWU13` category (12 years old on the determining day 2027-06-01).
+/// Body for [`TestApp::add_rider`]: the rider and their starts. The
+/// birthdate places single female riders in the seeded `EWU13` category (12
+/// years old on the determining day 2027-06-01).
 pub fn rider_body(club_id: Uuid, firstname: &str, single: bool, pair: bool) -> Value {
-    // A single implies the gender; everyone else needs one.
-    let gender = if single { Value::Null } else { json!("female") };
     json!({
-        "gender": gender,
+        "gender": "female",
         "club_id": club_id,
         "firstname": firstname,
         "lastname": "Muster",

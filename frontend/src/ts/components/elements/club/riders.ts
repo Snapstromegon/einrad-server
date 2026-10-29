@@ -4,10 +4,7 @@ import type { AnyRider, ClubData, ClubRider } from "../../../club-data";
 import type { PickerOption } from "../cup-rider-picker";
 
 /** A rider of any club, with what the pickers need. */
-export type Rider = Omit<
-  ClubRider,
-  "resolved_partner_club" | "resolved_partner_name"
-> & {
+export type Rider = ClubRider & {
   club_name: string;
 };
 
@@ -42,8 +39,11 @@ export const ridersOf = (data: ClubData, admin: boolean): Rider[] => {
       single_male: s.single_male,
       single_female: s.single_female,
       pair: s.pair,
+      pair_act_id: s.pair_act_id,
       partner_id: s.partner_id,
       partner_name: s.partner_name,
+      resolved_partner_name: s.resolved_partner_name,
+      resolved_partner_club: s.resolved_partner_club,
       group_count: s.group_count,
       waived_count: s.waived_count,
       fee_waived: s.fee_waived,

@@ -35,10 +35,11 @@ import {
   MIN_GROUP_SIZE,
   participantName,
 } from "../../utils";
+import { type Starts, withStarts } from "../../starts";
 
 type Act = schemas.Act;
 type ClubOverview = schemas.ClubOverview;
-type Rider = schemas.Rider;
+type Rider = schemas.Rider & Starts;
 type User = schemas.User;
 
 interface DashboardData {
@@ -573,15 +574,22 @@ export default class CupViewAdmin extends LitElement {
 
   data = new Task(this, {
     task: async () => {
-      const [clubs, users, riders, acts, checkIns] = await Promise.all([
-        unwrap(client.listClubs()),
-        unwrap(client.listUsers()),
-        unwrap(client.listRiders()),
-        unwrap(client.listActs()),
-        unwrap(client.listCheckIns()),
-      ]);
+      const [clubs, users, riders, acts, requests, checkIns] =
+        await Promise.all([
+          unwrap(client.listClubs()),
+          unwrap(client.listUsers()),
+          unwrap(client.listRiders()),
+          unwrap(client.listActs()),
+          unwrap(client.listPairRequests()),
+          unwrap(client.listCheckIns()),
+        ]);
       this.checkIns = checkInMap(checkIns);
-      return { clubs, users, riders, acts } satisfies DashboardData;
+      return {
+        clubs,
+        users,
+        riders: withStarts(riders, acts, requests),
+        acts,
+      } satisfies DashboardData;
     },
     args: () => [],
     onComplete: (value) => {
@@ -1049,7 +1057,7 @@ export default class CupViewAdmin extends LitElement {
     this.linking = new Set(this.linking).add(id);
     try {
       // Also pairs riders who aren't registered for a pair yet.
-      await linkPartners(rider, partner, data.riders);
+      await linkPartners(rider, partner);
       const choice = new Map(this.pairChoice);
       choice.delete(id);
       this.pairChoice = choice;

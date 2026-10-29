@@ -19,6 +19,7 @@ mod delete_final;
 mod delete_jury_category;
 mod delete_rider;
 mod delete_timeplan_entry;
+mod dissolve_pair;
 mod edit_booking;
 mod edit_category;
 mod edit_club_act;
@@ -27,6 +28,8 @@ mod edit_final;
 mod edit_jury_category;
 mod edit_rider;
 mod edit_timeplan_entry;
+mod leave_pair;
+mod link_pair;
 mod login;
 mod logout;
 mod move_category_down;
@@ -38,6 +41,7 @@ mod reload_db;
 mod rename_club;
 mod rename_club_group;
 mod replace_act_rider;
+mod request_pair;
 mod request_password_reset;
 mod resend_mail_validation;
 mod reset_block_order;
@@ -58,6 +62,7 @@ mod set_jury_category_order;
 mod set_jury_deployments_override;
 mod set_jury_plan_published;
 mod set_photo_hidden;
+mod set_single;
 mod set_song_checked;
 mod set_user_roles;
 mod timeplan_backward;
@@ -96,6 +101,11 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(add_rider::add_rider))
         .routes(routes!(delete_rider::delete_rider))
         .routes(routes!(edit_rider::edit_rider))
+        .routes(routes!(set_single::set_single))
+        .routes(routes!(request_pair::request_pair))
+        .routes(routes!(link_pair::link_pair))
+        .routes(routes!(leave_pair::leave_pair))
+        .routes(routes!(dissolve_pair::dissolve_pair))
         .routes(routes!(create_club_group::create_club_group))
         .routes(routes!(set_club_group_members::set_club_group_members))
         .routes(routes!(set_club_group_type::set_club_group_type))

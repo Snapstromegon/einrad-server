@@ -31,8 +31,9 @@ import {
   participantName,
   countRiders,
 } from "../../utils";
+import { type Starts, withStarts } from "../../starts";
 
-type Rider = schemas.Rider;
+type Rider = schemas.Rider & Starts;
 type Act = schemas.Act;
 type ClubOverview = schemas.ClubOverview;
 type Timeplan = schemas.Timeplan;
@@ -1488,13 +1489,17 @@ export default class CupViewAdminCheckIn extends LitElement {
     this.loadingRiders = true;
     const epoch = this.epoch;
     try {
-      const riders = await unwrap(client.listRiders());
+      const [riders, acts, requests] = await Promise.all([
+        unwrap(client.listRiders()),
+        unwrap(client.listActs()),
+        unwrap(client.listPairRequests()),
+      ]);
       if (epoch === this.epoch) {
         this.mergeCheckIns(
           new Map(riders.map((s) => [s.id, s.checked_in_at ?? null])),
         );
       }
-      this.riders = riders;
+      this.riders = withStarts(riders, acts, requests);
       this.ridersError = null;
     } catch (error) {
       this.ridersError = errorMessage(error);

@@ -1184,8 +1184,9 @@ async fn single_pair_and_group_starts_of_a_rider_are_all_listed(db: SqlitePool) 
 
     let riders = list_club_riders(&app, &cookie, club_id).await;
     let anna = riders.iter().find(|s| s["id"] == anna_id).unwrap();
-    assert_eq!(anna["single_female"], true);
-    assert_eq!(anna["pair"], true);
+    // The starts come from the acts; riders don't carry them.
+    assert_eq!(anna["single_female"], Value::Null);
+    assert_eq!(anna["pair"], Value::Null);
     assert_eq!(anna["group_count"], 1);
 }
 

@@ -2,6 +2,7 @@
 // state of each registration step and the open issues. Only type imports and
 // pure helpers, so the unit tests can import it without a DOM.
 import type { schemas } from "./apiClient";
+import type { Starts } from "./starts";
 import {
   type ActType,
   type Competition,
@@ -10,7 +11,8 @@ import {
   MIN_GROUP_SIZE,
 } from "./utils";
 
-export type ClubRider = schemas.ClubRider;
+/** A rider of the club with their starts (see `withStarts`). */
+export type ClubRider = schemas.ClubRider & Starts;
 export type ClubAct = schemas.ClubAct;
 export type ClubGroup = schemas.ClubGroup;
 export type GroupSummary = schemas.GroupSummary;
@@ -19,7 +21,7 @@ export type ClubJudge = schemas.ClubJudge;
 export type JuryCategory = schemas.JuryCategory;
 export type JuryPlan = schemas.JuryPlan;
 /** A rider of any club, as admins list them. */
-export type AnyRider = schemas.Rider;
+export type AnyRider = schemas.Rider & Starts;
 
 /** Everything the portal loads for a club. */
 export interface ClubData {

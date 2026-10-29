@@ -160,32 +160,32 @@ async fn pair_partners_are_linked_by_name(db: SqlitePool) {
     let mut first = rider_body(club_id, "Anna", false, true);
     first["partner_name"] = json!("Berta Muster");
     let anna = app.add_rider(&cookie, first).await;
+    assert_eq!(
+        list_pair_requests(&app, &cookie, club_id).await,
+        vec![json!({ "rider_id": anna, "partner_name": "Berta Muster" })]
+    );
 
-    let mut second = rider_body(club_id, "Berta", false, true);
-    second["partner_name"] = json!("Anna Muster");
-    let berta = app.add_rider(&cookie, second).await;
-
-    let riders = list_riders(&app, &cookie, club_id).await;
-    let find = |id: Uuid| {
-        riders
-            .iter()
-            .find(|s| s["id"] == id.to_string())
-            .unwrap()
-            .clone()
-    };
-    assert_eq!(find(anna)["partner_id"], berta.to_string());
-    assert_eq!(find(anna)["resolved_partner_name"], "Berta Muster");
-    assert_eq!(find(anna)["resolved_partner_club"], "RSV");
-    assert_eq!(find(berta)["partner_id"], anna.to_string());
+    let berta = app
+        .add_rider(&cookie, rider_body(club_id, "Berta", false, false))
+        .await;
+    let response = app
+        .start_command(
+            &cookie,
+            "request_pair",
+            json!({ "rider_id": berta, "partner_name": "Anna Muster" }),
+        )
+        .await;
+    assert_eq!(response["partner_id"], anna.to_string());
 
     let acts = list_acts(&app, &cookie, club_id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["act_type"], "pair");
-    assert_eq!(acts[0]["participants"].as_array().unwrap().len(), 2);
+    assert_eq!(participants(&acts[0]), ids(&[anna, berta]));
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
 #[sqlx::test]
-async fn deleting_a_rider_removes_acts_and_unlinks_partner(db: SqlitePool) {
+async fn deleting_a_rider_removes_acts_and_leaves_the_partner_waiting(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
 
@@ -209,9 +209,12 @@ async fn deleting_a_rider_removes_acts_and_unlinks_partner(db: SqlitePool) {
     let riders = list_riders(&app, &cookie, club_id).await;
     assert_eq!(riders.len(), 1);
     assert_eq!(riders[0]["id"], berta.to_string());
-    assert_eq!(riders[0]["partner_id"], Value::Null);
-    assert_eq!(riders[0]["partner_name"], Value::Null);
     assert!(list_acts(&app, &cookie, club_id).await.is_empty());
+    // Berta still pays her pair start and needs a new partner.
+    assert_eq!(
+        list_pair_requests(&app, &cookie, club_id).await,
+        vec![json!({ "rider_id": berta, "partner_name": null })]
+    );
 }
 
 #[sqlx::test]
@@ -227,145 +230,228 @@ async fn adding_rider_requires_login(db: SqlitePool) {
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }
 
-fn edit_body(rider_id: Uuid, firstname: &str, single: bool, pair: bool) -> Value {
-    let mut body = rider_body(Uuid::nil(), firstname, single, pair);
-    let body_map = body.as_object_mut().unwrap();
-    body_map.remove("club_id");
-    // Without a gender, an edit keeps the stored one.
-    body_map.remove("gender");
-    body_map.insert("rider_id".into(), json!(rider_id));
-    body
+/// Body for `edit_rider`; without a gender, an edit keeps the stored one.
+fn edit_body(rider_id: Uuid, firstname: &str) -> Value {
+    json!({
+        "rider_id": rider_id,
+        "firstname": firstname,
+        "lastname": "Muster",
+        "birthdate": "2015-05-01T00:00:00.000Z",
+    })
+}
+
+async fn list_pair_requests(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+    let response = app
+        .get(
+            &format!("/api/query/list_club_pair_requests?club_id={club_id}"),
+            Some(cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body.as_array().unwrap().clone()
+}
+
+/// The ids of the act's riders, sorted.
+fn participants(act: &Value) -> Vec<String> {
+    let mut ids: Vec<String> = act["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap().to_string())
+        .collect();
+    ids.sort();
+    ids
+}
+
+fn ids(riders: &[Uuid]) -> Vec<String> {
+    let mut ids: Vec<String> = riders.iter().map(Uuid::to_string).collect();
+    ids.sort();
+    ids
 }
 
 #[sqlx::test]
-async fn edit_rider_updates_data_and_single_act(db: SqlitePool) {
+async fn edit_rider_changes_the_riders_data_and_keeps_their_starts(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
         .add_rider(&cookie, rider_body(club_id, "Anna", true, false))
         .await;
-    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
 
-    // Renaming and leaving the single competition removes the single act.
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(anna, "Annika", false, false),
+            edit_body(anna, "Annika"),
             Some(&cookie),
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let riders = list_riders(&app, &cookie, club_id).await;
     assert_eq!(riders[0]["firstname"], "Annika");
-    assert_eq!(riders[0]["single_female"], false);
-    assert!(list_acts(&app, &cookie, club_id).await.is_empty());
+    assert_eq!(riders[0]["gender"], "female");
+    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
+}
 
-    // Re-entering the single competition creates a new act.
-    let response = app
-        .post(
-            "/api/command/edit_rider",
-            edit_body(anna, "Annika", true, false),
-            Some(&cookie),
-        )
+#[sqlx::test]
+async fn set_single_adds_and_removes_the_single_act(db: SqlitePool) {
+    let app = TestApp::new(db).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let anna = app
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
         .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let set_single = |single: bool| json!({ "rider_id": anna, "single": single });
+
+    app.start_command(&cookie, "set_single", set_single(true))
+        .await;
     let acts = list_acts(&app, &cookie, club_id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["act_type"], "single");
-}
+    let act_id = acts[0]["id"].clone();
 
-#[sqlx::test]
-async fn edit_rider_links_partner_and_creates_pair_act(db: SqlitePool) {
-    let app = TestApp::new(db).await;
-    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let anna = app
-        .add_rider(&cookie, rider_body(club_id, "Anna", false, true))
+    // Again keeps the act (and its music).
+    app.start_command(&cookie, "set_single", set_single(true))
         .await;
-    let berta = app
-        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
+    assert_eq!(list_acts(&app, &cookie, club_id).await[0]["id"], act_id);
+
+    app.start_command(&cookie, "set_single", set_single(false))
         .await;
     assert!(list_acts(&app, &cookie, club_id).await.is_empty());
-
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_name"] = json!("Berta Muster");
-    let response = app
-        .post("/api/command/edit_rider", body, Some(&cookie))
-        .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-
-    let riders = list_riders(&app, &cookie, club_id).await;
-    let find = |id: Uuid| {
-        riders
-            .iter()
-            .find(|s| s["id"] == id.to_string())
-            .unwrap()
-            .clone()
-    };
-    assert_eq!(find(anna)["partner_id"], berta.to_string());
-    assert_eq!(find(berta)["partner_id"], anna.to_string());
-    assert_eq!(find(berta)["partner_name"], "Anna Muster");
-    let acts = list_acts(&app, &cookie, club_id).await;
-    assert_eq!(acts.len(), 1);
-    assert_eq!(acts[0]["act_type"], "pair");
 }
 
 #[sqlx::test]
-async fn edit_rider_unpairing_deletes_pair_act(db: SqlitePool) {
+async fn link_pair_creates_the_pair_act_of_two_riders(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
         .add_rider(&cookie, rider_body(club_id, "Anna", false, true))
         .await;
     let berta = app
-        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Berta", false, false))
         .await;
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_name"] = json!("Berta Muster");
-    let response = app
-        .post("/api/command/edit_rider", body, Some(&cookie))
-        .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
 
-    // Leaving the pair competition removes the pair act and the link.
+    let response = app
+        .start_command(
+            &cookie,
+            "link_pair",
+            json!({ "rider_id": anna, "partner_id": berta }),
+        )
+        .await;
+
+    let acts = list_acts(&app, &cookie, club_id).await;
+    assert_eq!(acts.len(), 1);
+    assert_eq!(acts[0]["id"], response["act_id"]);
+    assert_eq!(acts[0]["act_type"], "pair");
+    assert_eq!(participants(&acts[0]), ids(&[anna, berta]));
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
+
+    // One pair per rider.
+    let clara = app
+        .add_rider(&cookie, rider_body(club_id, "Clara", false, false))
+        .await;
     let response = app
         .post(
-            "/api/command/edit_rider",
-            edit_body(berta, "Berta", false, false),
+            "/api/command/link_pair",
+            json!({ "rider_id": clara, "partner_id": berta }),
+            Some(&cookie),
+        )
+        .await;
+    assert_ne!(response.status, StatusCode::OK);
+    assert!(
+        response.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("schon eine Paarkür")
+    );
+}
+
+#[sqlx::test]
+async fn leave_pair_dissolves_the_pair_and_leaves_the_partner_waiting(db: SqlitePool) {
+    let app = TestApp::new(db).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let anna = app
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
+        .await;
+    let mut body = rider_body(club_id, "Berta", false, true);
+    body["partner_id"] = json!(anna);
+    let berta = app.add_rider(&cookie, body).await;
+    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
+
+    let response = app
+        .post(
+            "/api/command/leave_pair",
+            json!({ "rider_id": berta }),
             Some(&cookie),
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert!(list_acts(&app, &cookie, club_id).await.is_empty());
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert!(riders.iter().all(|s| s["partner_id"] == Value::Null));
+    assert_eq!(
+        list_pair_requests(&app, &cookie, club_id).await,
+        vec![json!({ "rider_id": anna, "partner_name": null })]
+    );
+
+    // A waiting rider just stops waiting.
+    app.start_command(&cookie, "leave_pair", json!({ "rider_id": anna }))
+        .await;
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
 #[sqlx::test]
-async fn edit_rider_rejects_pairing_with_oneself(db: SqlitePool) {
+async fn dissolve_pair_ends_the_pair_for_both_riders(db: SqlitePool) {
+    let app = TestApp::new(db).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let (intruder, _) = app.create_club_owner("Intruder", "ESV").await;
+    let anna = app
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
+        .await;
+    let mut body = rider_body(club_id, "Berta", false, true);
+    body["partner_id"] = json!(anna);
+    app.add_rider(&cookie, body).await;
+    let act_id = list_acts(&app, &cookie, club_id).await[0]["id"].clone();
+
+    let response = app
+        .post(
+            "/api/command/dissolve_pair",
+            json!({ "act_id": act_id }),
+            Some(&intruder),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::FORBIDDEN);
+    let response = app
+        .post(
+            "/api/command/dissolve_pair",
+            json!({ "act_id": act_id }),
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert!(list_acts(&app, &cookie, club_id).await.is_empty());
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
+}
+
+#[sqlx::test]
+async fn request_pair_rejects_pairing_with_oneself(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
-        .add_rider(&cookie, rider_body(club_id, "Anna", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
         .await;
 
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_name"] = json!("Anna Muster");
     let response = app
-        .post("/api/command/edit_rider", body, Some(&cookie))
+        .post(
+            "/api/command/request_pair",
+            json!({ "rider_id": anna, "partner_name": "Anna Muster" }),
+            Some(&cookie),
+        )
         .await;
 
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_ne!(response.status, StatusCode::OK);
     assert!(
         response.body["message"]
             .as_str()
             .unwrap()
             .contains("selbe Person")
     );
-    assert_eq!(
-        list_riders(&app, &cookie, club_id).await[0]["partner_id"],
-        Value::Null
-    );
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
 #[sqlx::test]
@@ -376,7 +462,7 @@ async fn edit_rider_is_forbidden_outside_registration_period(db: SqlitePool) {
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(Uuid::now_v7(), "Anna", true, false),
+            edit_body(Uuid::now_v7(), "Anna"),
             Some(&owner),
         )
         .await;
@@ -385,38 +471,34 @@ async fn edit_rider_is_forbidden_outside_registration_period(db: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn rider_can_only_start_in_one_single_act(db: SqlitePool) {
+async fn a_single_needs_the_riders_gender(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
-
-    let mut both = rider_body(club_id, "Anna", true, false);
-    both["single_male"] = json!(true);
-    let response = app
-        .post("/api/command/add_rider", both, Some(&cookie))
+    let anna = app
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
         .await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    // Registered before the gender was asked.
+    sqlx::query("UPDATE rider SET gender = NULL WHERE id = ?")
+        .bind(anna)
+        .execute(&app.db)
+        .await
+        .unwrap();
+
+    let response = app
+        .post(
+            "/api/command/set_single",
+            json!({ "rider_id": anna, "single": true }),
+            Some(&cookie),
+        )
+        .await;
+    assert_ne!(response.status, StatusCode::OK);
     assert!(
         response.body["message"]
             .as_str()
             .unwrap()
-            .contains("einer Einzelkür"),
-        "{:?}",
-        response.body
+            .contains("Geschlecht")
     );
-    assert!(list_riders(&app, &cookie, club_id).await.is_empty());
-
-    let anna = app
-        .add_rider(&cookie, rider_body(club_id, "Anna", true, false))
-        .await;
-    let mut edit = edit_body(anna, "Anna", true, false);
-    edit["single_male"] = json!(true);
-    let response = app
-        .post("/api/command/edit_rider", edit, Some(&cookie))
-        .await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(riders[0]["single_male"], false);
-    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
+    assert!(list_acts(&app, &cookie, club_id).await.is_empty());
 }
 
 #[sqlx::test]
@@ -483,7 +565,7 @@ async fn only_the_club_and_admins_change_its_riders(db: SqlitePool) {
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(anna, "Gekapert", false, false),
+            edit_body(anna, "Gekapert"),
             Some(&intruder),
         )
         .await;
@@ -511,17 +593,27 @@ async fn only_the_club_and_admins_change_its_riders(db: SqlitePool) {
     let riders = list_riders(&app, &cookie, club_id).await;
     assert_eq!(riders.len(), 1);
     assert_eq!(riders[0]["firstname"], "Anna");
-    assert_eq!(riders[0]["single_female"], true);
+    assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
+    // Nor the starts.
+    for (command, body) in [
+        ("set_single", json!({ "rider_id": anna, "single": false })),
+        (
+            "request_pair",
+            json!({ "rider_id": anna, "partner_name": null }),
+        ),
+        ("leave_pair", json!({ "rider_id": anna })),
+    ] {
+        let response = app
+            .post(&format!("/api/command/{command}"), body, Some(&intruder))
+            .await;
+        assert_eq!(response.status, StatusCode::FORBIDDEN, "{command}");
+    }
     assert_eq!(list_acts(&app, &cookie, club_id).await.len(), 1);
 
     // Unknown riders.
     for uri in ["/api/command/delete_rider", "/api/command/edit_rider"] {
         let response = app
-            .post(
-                uri,
-                edit_body(Uuid::now_v7(), "Niemand", false, false),
-                Some(&admin),
-            )
+            .post(uri, edit_body(Uuid::now_v7(), "Niemand"), Some(&admin))
             .await;
         assert_eq!(response.status, StatusCode::NOT_FOUND, "{uri}");
     }
@@ -538,7 +630,7 @@ async fn only_the_club_and_admins_change_its_riders(db: SqlitePool) {
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(anna, "Annika", true, false),
+            edit_body(anna, "Annika"),
             Some(&admin),
         )
         .await;
@@ -569,20 +661,20 @@ async fn clubs_only_link_partners_of_their_own_club(db: SqlitePool) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let (other, other_club_id) = app.create_club_owner("Other", "ESV").await;
     let admin = app.create_admin().await;
-    let anna = app
-        .add_rider(&cookie, rider_body(club_id, "Anna", false, true))
-        .await;
-    let zoe = app
-        .add_rider(&other, rider_body(other_club_id, "Zoe", false, true))
-        .await;
+    let mut body = rider_body(club_id, "Anna", false, true);
+    body["partner_name"] = json!("Zoe Muster");
+    let anna = app.add_rider(&cookie, body).await;
+    let mut body = rider_body(other_club_id, "Zoe", false, true);
+    body["partner_name"] = json!("Anna Muster");
+    let zoe = app.add_rider(&other, body).await;
+    // The names match, but only the organizer links pairs across clubs.
+    assert!(list_acts(&app, &cookie, club_id).await.is_empty());
 
-    // Linking a rider of another club would change that club's rider.
-    let mut body = rider_body(club_id, "Berta", false, true);
-    body["partner_id"] = json!(zoe);
+    let link = json!({ "rider_id": anna, "partner_id": zoe });
     let response = app
-        .post("/api/command/add_rider", body, Some(&cookie))
+        .post("/api/command/link_pair", link.clone(), Some(&cookie))
         .await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_ne!(response.status, StatusCode::OK);
     assert!(
         response.body["message"]
             .as_str()
@@ -591,38 +683,30 @@ async fn clubs_only_link_partners_of_their_own_club(db: SqlitePool) {
         "{:?}",
         response.body
     );
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_id"] = json!(zoe);
-    let response = app
-        .post("/api/command/edit_rider", body, Some(&cookie))
-        .await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
-        list_riders(&app, &other, other_club_id).await[0]["partner_id"],
-        Value::Null
+        list_pair_requests(&app, &other, other_club_id).await.len(),
+        1
     );
 
-    // The organizer links pairs across clubs …
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_id"] = json!(zoe);
-    let response = app
-        .post("/api/command/edit_rider", body, Some(&admin))
-        .await;
+    // The organizer sees all waiting riders …
+    let response = app.get("/api/query/list_pair_requests", Some(&admin)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(riders[0]["partner_id"], zoe.to_string());
-    assert_eq!(riders[0]["resolved_partner_club"], "ESV");
+    assert_eq!(response.body.as_array().unwrap().len(), 2);
+    let response = app
+        .get("/api/query/list_pair_requests", Some(&cookie))
+        .await;
+    assert_eq!(response.status, StatusCode::FORBIDDEN);
 
-    // … and the club keeps that link when it edits its rider.
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_id"] = json!(zoe);
-    body["birthdate"] = json!("2015-05-02T00:00:00.000Z");
-    let response = app
-        .post("/api/command/edit_rider", body, Some(&cookie))
-        .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(riders[0]["partner_id"], zoe.to_string());
+    // … and links them.
+    app.start_command(&admin, "link_pair", link).await;
+    let acts = list_acts(&app, &cookie, club_id).await;
+    assert_eq!(acts.len(), 1);
+    assert_eq!(participants(&acts[0]), ids(&[anna, zoe]));
+    assert!(
+        list_pair_requests(&app, &other, other_club_id)
+            .await
+            .is_empty()
+    );
 }
 
 #[sqlx::test]
@@ -652,38 +736,43 @@ fn find<'a>(riders: &'a [Value], id: Uuid) -> &'a Value {
 }
 
 #[sqlx::test]
-async fn rider_gender_defaults_to_the_single_and_must_match_it(db: SqlitePool) {
+async fn a_single_follows_the_riders_gender(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
         .add_rider(&cookie, rider_body(club_id, "Anna", true, false))
         .await;
-    let mut body = rider_body(club_id, "Ben", false, false);
-    body["gender"] = json!("male");
-    let ben = app.add_rider(&cookie, body).await;
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(find(&riders, anna)["gender"], "female");
-    assert_eq!(find(&riders, ben)["gender"], "male");
+    let act_id = list_acts(&app, &cookie, club_id).await[0]["id"].clone();
+    let category = || async {
+        let act = app
+            .get(
+                &format!("/api/query/get_act?act_id={}", act_id.as_str().unwrap()),
+                None,
+            )
+            .await;
+        act.body["category"].clone()
+    };
+    assert_eq!(category().await, "EWU13");
 
-    // Einzel weiblich doesn't fit a male rider.
-    let mut body = edit_body(ben, "Ben", true, false);
+    let mut body = edit_body(anna, "Anna");
     body["gender"] = json!("male");
     let response = app
         .post("/api/command/edit_rider", body, Some(&cookie))
         .await;
-    assert_ne!(response.status, StatusCode::OK);
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(category().await, "EMU13");
 
     // Without the field, the stored gender is kept.
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(ben, "Benjamin", false, false),
+            edit_body(anna, "Anna"),
             Some(&cookie),
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(find(&riders, ben)["gender"], "male");
+    assert_eq!(find(&riders, anna)["gender"], "male");
 }
 
 #[sqlx::test]
@@ -740,9 +829,6 @@ async fn replace_act_rider_moves_a_single_and_keeps_the_act(db: SqlitePool) {
     assert_eq!(acts[0]["id"], act_id);
     assert_eq!(acts[0]["name"], "Schwanensee");
     assert_eq!(acts[0]["participants"][0]["id"], berta.to_string());
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(find(&riders, anna)["single_female"], false);
-    assert_eq!(find(&riders, berta)["single_female"], true);
 }
 
 #[sqlx::test]
@@ -750,17 +836,14 @@ async fn replace_act_rider_swaps_a_pair_partner(db: SqlitePool) {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
-        .add_rider(&cookie, rider_body(club_id, "Anna", false, true))
+        .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
         .await;
-    let berta = app
-        .add_rider(&cookie, rider_body(club_id, "Berta", false, true))
-        .await;
+    let mut body = rider_body(club_id, "Berta", false, true);
+    body["partner_id"] = json!(anna);
+    let berta = app.add_rider(&cookie, body).await;
+    // Clara was waiting for a partner.
     let clara = app
-        .add_rider(&cookie, rider_body(club_id, "Clara", false, false))
-        .await;
-    let mut body = edit_body(anna, "Anna", false, true);
-    body["partner_name"] = json!("Berta Muster");
-    app.post("/api/command/edit_rider", body, Some(&cookie))
+        .add_rider(&cookie, rider_body(club_id, "Clara", false, true))
         .await;
     let act_id = list_acts(&app, &cookie, club_id).await[0]["id"].clone();
 
@@ -775,13 +858,8 @@ async fn replace_act_rider_swaps_a_pair_partner(db: SqlitePool) {
     let acts = list_acts(&app, &cookie, club_id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["id"], act_id);
-    let riders = list_riders(&app, &cookie, club_id).await;
-    assert_eq!(find(&riders, anna)["partner_id"], clara.to_string());
-    assert_eq!(find(&riders, clara)["partner_id"], anna.to_string());
-    assert_eq!(find(&riders, clara)["partner_name"], "Anna Muster");
-    assert_eq!(find(&riders, anna)["partner_name"], "Clara Muster");
-    assert_eq!(find(&riders, berta)["pair"], false);
-    assert_eq!(find(&riders, berta)["partner_id"], Value::Null);
+    assert_eq!(participants(&acts[0]), ids(&[anna, clara]));
+    assert!(list_pair_requests(&app, &cookie, club_id).await.is_empty());
 }
 
 #[sqlx::test]
@@ -1121,7 +1199,7 @@ async fn a_rider_is_registered_once_per_club_ignoring_case_and_spaces(db: Sqlite
     let renamed = app
         .post(
             "/api/command/edit_rider",
-            edit_body(berta, "anna", true, false),
+            edit_body(berta, "anna"),
             Some(&cookie),
         )
         .await;
@@ -1135,7 +1213,7 @@ async fn a_rider_is_registered_once_per_club_ignoring_case_and_spaces(db: Sqlite
     let same = app
         .post(
             "/api/command/edit_rider",
-            edit_body(anna, "Anna", true, false),
+            edit_body(anna, "Anna"),
             Some(&cookie),
         )
         .await;

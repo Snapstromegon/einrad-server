@@ -23,10 +23,11 @@ import {
   participantName,
   countRiders,
 } from "../../utils";
+import { type Starts, withStarts } from "../../starts";
 
 type Act = schemas.Act;
 type Category = schemas.Category;
-type Rider = schemas.Rider;
+type Rider = schemas.Rider & Starts;
 
 /** One rider in one section of the rider table. */
 interface Row {
@@ -151,12 +152,13 @@ export default class CupViewAdminRiders extends LitElement {
 
   private async load(signal?: AbortSignal) {
     try {
-      const [riders, acts, categories] = await Promise.all([
+      const [riders, acts, requests, categories] = await Promise.all([
         unwrap(client.listRiders({ signal })),
         unwrap(client.listActs({ signal })),
+        unwrap(client.listPairRequests({ signal })),
         unwrap(client.listCategories({ signal })),
       ]);
-      this.riders = riders;
+      this.riders = withStarts(riders, acts, requests);
       this.acts = acts;
       this.categories = categories;
       this.checkIns = checkInMap(
