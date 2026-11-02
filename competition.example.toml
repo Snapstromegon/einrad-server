@@ -12,6 +12,9 @@
 #   are written to data_path/remap/ to fill in. A file that changes nothing
 #   replaces nothing.
 # - The competition's id never changes once created.
+#
+# The photo password below ends up in the database; share a file with it only
+# in trusted channels.
 
 [competition]
 id = "einradevent-demo-2027"
@@ -57,6 +60,26 @@ reference = "Startgeld"
 # deployments_per_two_acts = 4   # Einsätze per started two Küren
 # missing_deployment_fee = 7     # € per missing Einsatz
 # registration_end = 2027-04-30T23:59:59+02:00  # default: registration_end
+
+# Optional: features that are still being refined, on (true) or off (false).
+# Unset ones follow [features] in the system config, then the build default
+# (on in debug builds, off in release builds).
+[competition.features]
+# Clubs register judges, admins plan the jury.
+# jury_registration = true
+
+# Optional: the photos of the info board, the newest after each act and random
+# recent ones in breaks; the music control previews the newest. The folder and
+# its direct subfolders count. One of:
+# - a folder in a Nextcloud account over WebDAV, with the user and an app
+#   password: https://cloud.example.org/remote.php/dav/files/anna/Fotos
+# - a Nextcloud share link (a password only if the share has one):
+#   https://cloud.example.org/s/AbC123
+# - a local folder, e.g. one the Nextcloud desktop client keeps in sync.
+# [competition.photos]
+# source = "https://cloud.example.org/remote.php/dav/files/anna/Fotos"
+# user = "anna"
+# password = "…"
 
 # Categories in timeplan order.
 #
@@ -699,7 +722,7 @@ label = "Siegerehrung"
 duration_minutes = 45
 
 # What judges register for and get assigned to, used by the jury
-# registration ([features] jury_registration). Only written into an empty
+# registration ([competition.features] jury_registration). Only written into an empty
 # table, like [[categories]]. A heat (Vorlauf) counts 2 Einsätze, a final 1.
 # Optional: day (within the event), needed_technical / needed_performance
 # (default 5) and needed_dismounts (default 3).

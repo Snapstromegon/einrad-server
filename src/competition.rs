@@ -1,6 +1,6 @@
 use time::{Date, OffsetDateTime};
 
-use crate::{config::CompetitionConfig, system_status::StatusOptions};
+use crate::{config::CompetitionConfig, photos::PhotosSettings, system_status::StatusOptions};
 
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
@@ -43,6 +43,61 @@ pub struct Competition {
     pub payment_reference: Option<String>,
     /// The clubs' jury obligation; `None` means there is none.
     pub jury: Option<JuryRules>,
+    /// The features this competition turns on or off; see
+    /// [`Features::resolve`].
+    pub features: Features,
+    /// Where the info board's photos come from; `None` means no photos.
+    /// Never sent to clients: it holds a password.
+    #[serde(skip)]
+    pub photos: Option<PhotosSettings>,
+}
+
+/// Features that are still being refined, as a competition (or the system
+/// config's `[features]`) sets them: on, off, or unset.
+#[derive(
+    Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(default, deny_unknown_fields)]
+pub struct Features {
+    /// Clubs register judges, admins plan the jury (see `crate::jury`).
+    pub jury_registration: Option<bool>,
+}
+
+/// Whether each feature is on, after [`Features::resolve`].
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, utoipa::ToSchema)]
+pub struct ResolvedFeatures {
+    pub jury_registration: bool,
+}
+
+impl Features {
+    /// Fills in what's unset from `defaults` (the system config's
+    /// `[features]`), then the build default: on in debug builds, off in
+    /// release builds.
+    pub fn resolve(&self, defaults: &Features) -> ResolvedFeatures {
+        ResolvedFeatures {
+            jury_registration: self
+                .jury_registration
+                .or(defaults.jury_registration)
+                .unwrap_or(cfg!(debug_assertions)),
+        }
+    }
+
+    /// The features of `competition`, or only the defaults without one.
+    pub fn of(competition: Option<&Competition>, defaults: &Features) -> ResolvedFeatures {
+        competition
+            .map(|competition| competition.features.clone())
+            .unwrap_or_default()
+            .resolve(defaults)
+    }
+
+    /// The features of the current competition. Read per request, so a
+    /// change applies without a restart.
+    pub async fn current(
+        db: impl sqlx::SqliteExecutor<'_>,
+        defaults: &Features,
+    ) -> sqlx::Result<ResolvedFeatures> {
+        Ok(Self::of(Competition::current(db).await?.as_ref(), defaults))
+    }
 }
 
 /// The jury rules of a competition, from `[competition.jury]`.
@@ -97,7 +152,11 @@ impl Competition {
                 jury_min_age,
                 jury_deployments_per_two_acts,
                 jury_missing_deployment_fee,
-                jury_registration_end as "jury_registration_end: OffsetDateTime"
+                jury_registration_end as "jury_registration_end: OffsetDateTime",
+                feature_jury_registration as "feature_jury_registration: bool",
+                photos_source,
+                photos_user,
+                photos_password
             FROM competition
             ORDER BY start_date DESC
             LIMIT 1
@@ -143,6 +202,14 @@ impl Competition {
                 payment_bic: row.payment_bic,
                 payment_reference: row.payment_reference,
                 jury,
+                features: Features {
+                    jury_registration: row.feature_jury_registration,
+                },
+                photos: row.photos_source.map(|source| PhotosSettings {
+                    source,
+                    user: row.photos_user,
+                    password: row.photos_password,
+                }),
             }
         }))
     }
@@ -196,6 +263,8 @@ impl From<&CompetitionConfig> for Competition {
                 missing_deployment_fee: jury.missing_deployment_fee,
                 registration_end: jury.registration_end,
             }),
+            features: config.features.clone(),
+            photos: config.photos.clone(),
         }
     }
 }
@@ -207,6 +276,7 @@ pub async fn upsert_competition(
     config: &CompetitionConfig,
 ) -> sqlx::Result<()> {
     let jury = config.jury.as_ref();
+    let photos = config.photos.as_ref();
     sqlx::query!(
         r#"
         INSERT INTO competition (
@@ -215,8 +285,11 @@ pub async fn upsert_competition(
             fee_per_start, max_fee_per_rider, venue, contact_email, announcement_url, photos_url,
             payment_deadline, payment_account_holder, payment_iban, payment_bic, payment_reference,
             jury_min_age, jury_deployments_per_two_acts, jury_missing_deployment_fee,
-            jury_registration_end
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            jury_registration_end, feature_jury_registration,
+            photos_source, photos_user, photos_password
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
         ON CONFLICT (id) DO UPDATE SET
             name = excluded.name,
             location = excluded.location,
@@ -240,7 +313,11 @@ pub async fn upsert_competition(
             jury_min_age = excluded.jury_min_age,
             jury_deployments_per_two_acts = excluded.jury_deployments_per_two_acts,
             jury_missing_deployment_fee = excluded.jury_missing_deployment_fee,
-            jury_registration_end = excluded.jury_registration_end
+            jury_registration_end = excluded.jury_registration_end,
+            feature_jury_registration = excluded.feature_jury_registration,
+            photos_source = excluded.photos_source,
+            photos_user = excluded.photos_user,
+            photos_password = excluded.photos_password
         "#,
         config.id,
         config.name,
@@ -266,8 +343,37 @@ pub async fn upsert_competition(
         jury.map(|jury| jury.deployments_per_two_acts),
         jury.map(|jury| jury.missing_deployment_fee),
         jury.and_then(|jury| jury.registration_end),
+        config.features.jury_registration,
+        photos.map(|photos| &photos.source),
+        photos.and_then(|photos| photos.user.as_ref()),
+        photos.and_then(|photos| photos.password.as_ref()),
     )
     .execute(db)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unset_features_follow_the_system_config_then_the_build_default() {
+        let on = Features {
+            jury_registration: Some(true),
+        };
+        let off = Features {
+            jury_registration: Some(false),
+        };
+        let unset = Features::default();
+        assert!(on.resolve(&off).jury_registration);
+        assert!(!off.resolve(&on).jury_registration);
+        assert!(unset.resolve(&on).jury_registration);
+        assert!(!unset.resolve(&off).jury_registration);
+        assert_eq!(
+            unset.resolve(&unset).jury_registration,
+            cfg!(debug_assertions)
+        );
+        assert!(Features::of(None, &on).jury_registration);
+    }
 }

@@ -13,7 +13,8 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PhotosOverview {
-    /// Whether a photo source is set (`[photos]`).
+    /// Whether the competition has a valid photo source
+    /// (`[competition.photos]`).
     pub configured: bool,
     /// The newest photo that isn't hidden: the info board shows it after an
     /// act.

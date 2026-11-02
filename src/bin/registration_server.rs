@@ -98,8 +98,8 @@ async fn main() -> eyre::Result<()> {
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
     }
-    let photos = Photos::new(settings.photos.as_ref()).map_err(|e| eyre!(e))?;
-    photos.start();
+    let photos = Photos::new().map_err(|e| eyre!(e))?;
+    photos.start(db.clone());
 
     HttpServer::new(
         HttpServerOptions {
@@ -108,7 +108,7 @@ async fn main() -> eyre::Result<()> {
             data_path: settings.data_path,
             reload_db_token: settings.reload_db_token,
             metrics_token: settings.metrics_token,
-            jury_registration: settings.jury_registration,
+            features: settings.features,
         },
         db,
         Arc::new(jwt_config),

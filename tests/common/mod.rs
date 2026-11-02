@@ -23,6 +23,7 @@ use axum::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use nrw_freestyle_cup_registration::{
+    competition::Features,
     config::CompetitionFile,
     http_server::{HttpServerOptions, routes::get_api_router},
     jwt::JWTConfig,
@@ -124,6 +125,26 @@ pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
     set_registration_status(db, status).await;
 }
 
+/// Sets the competition's photo settings.
+pub async fn set_photos(db: &SqlitePool, photos: Option<&PhotosSettings>) {
+    sqlx::query("UPDATE competition SET photos_source = ?, photos_user = ?, photos_password = ?")
+        .bind(photos.map(|p| p.source.clone()))
+        .bind(photos.and_then(|p| p.user.clone()))
+        .bind(photos.and_then(|p| p.password.clone()))
+        .execute(db)
+        .await
+        .unwrap();
+}
+
+/// Sets the competition's `jury_registration` feature: on, off or unset.
+pub async fn set_jury_registration(db: &SqlitePool, on: Option<bool>) {
+    sqlx::query("UPDATE competition SET feature_jury_registration = ?")
+        .bind(on)
+        .execute(db)
+        .await
+        .unwrap();
+}
+
 /// Sets the registration dates of the competition to `status`. Capabilities
 /// are read per request, so this takes effect immediately.
 pub async fn set_registration_status(db: &SqlitePool, status: &StatusOptions) {
@@ -148,21 +169,24 @@ impl TestApp {
         seed_db(&db, &status).await;
         // Nothing listens on port 1, so any attempt to send a mail fails.
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, None, true)
+        Self::build(db, mailer, None, true)
     }
 
-    /// App with the jury registration turned off, as in release builds.
+    /// App whose competition leaves the jury registration unset and whose
+    /// system default turns it off, as in release builds.
     pub async fn without_jury_registration(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, None, false)
+        Self::build(db, mailer, None, false)
     }
 
-    /// App showing the photos of `photos` on the info board.
+    /// App showing the photos of `photos` on the info board: the
+    /// competition's photo settings. [`TestApp::sync_photos`] lists them.
     pub async fn with_photos(db: SqlitePool, photos: PhotosSettings) -> Self {
         seed_db(&db, &open_registration()).await;
+        set_photos(&db, Some(&photos)).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, Some(photos), true)
+        Self::build(db, mailer, None, true)
     }
 
     /// App sending mails to a dedicated Mailpit container.
@@ -170,14 +194,14 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         let mailpit = Mailpit::start().await;
         let mailer = mailpit.mailer();
-        Self::build(db, mailer, Some(mailpit), None, true)
+        Self::build(db, mailer, Some(mailpit), true)
     }
 
+    /// `jury_registration` is the system default for the feature.
     fn build(
         db: SqlitePool,
         mailer: Mailer,
         mailpit: Option<Mailpit>,
-        photos: Option<PhotosSettings>,
         jury_registration: bool,
     ) -> Self {
         let mut validation = Validation::new(Algorithm::HS512);
@@ -196,11 +220,13 @@ impl TestApp {
             data_path: data_dir.0.clone(),
             reload_db_token: RELOAD_DB_TOKEN.into(),
             metrics_token: Some(METRICS_TOKEN.into()),
-            jury_registration,
+            features: Features {
+                jury_registration: Some(jury_registration),
+            },
         };
         let reloadable = ReloadableSqlite::new(db.clone(), String::new());
         let player_hub = PlayerHub::new(reloadable.clone());
-        let photos = Photos::new(photos.as_ref()).unwrap();
+        let photos = Photos::new().unwrap();
         let router = get_api_router(
             Arc::new(options),
             reloadable,
@@ -218,6 +244,12 @@ impl TestApp {
             player_hub,
             photos,
         }
+    }
+
+    /// Takes the competition's photo settings and lists the source once,
+    /// as the server does every few seconds.
+    pub async fn sync_photos(&self) -> Result<(), String> {
+        self.photos.sync(&self.db).await
     }
 
     /// Directory uploaded songs are stored in.

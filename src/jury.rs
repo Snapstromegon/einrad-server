@@ -1,7 +1,7 @@
 //! The jury registration (#225): clubs register their judges (JurorInnen)
 //! for admin-defined jury categories, admins check each club's jury
 //! obligation and plan the jury. Everything is behind the
-//! `[features] jury_registration` flag.
+//! `jury_registration` feature of the competition (see `Features`).
 
 use std::sync::Arc;
 
@@ -13,16 +13,17 @@ use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
-    competition::{Competition, JuryRules},
+    competition::{Competition, Features, JuryRules},
     groups::ensure_club_access,
     http_server::{HttpError, HttpServerOptions, extractor::auth::Auth},
     people::{self, Person},
+    reloadable_sqlite::ReloadableSqlite,
 };
 
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 /// Guard for every jury endpoint: they don't exist (404) while the feature
-/// flag is off.
+/// is off. Read per request, so turning it on or off applies immediately.
 #[derive(Debug)]
 pub struct JuryEnabled;
 
@@ -30,11 +31,17 @@ impl<S: Send + Sync> FromRequestParts<S> for JuryEnabled {
     type Rejection = HttpError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let enabled = parts
-            .extensions
-            .get::<Arc<HttpServerOptions>>()
-            .is_some_and(|options| options.jury_registration);
-        if enabled {
+        let (Some(options), Some(db)) = (
+            parts.extensions.get::<Arc<HttpServerOptions>>(),
+            parts.extensions.get::<ReloadableSqlite>(),
+        ) else {
+            return Err(HttpError::NotFound);
+        };
+        let db = db.get().await.clone();
+        if Features::current(&db, &options.features)
+            .await?
+            .jury_registration
+        {
             Ok(JuryEnabled)
         } else {
             Err(HttpError::NotFound)

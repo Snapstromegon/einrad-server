@@ -17,7 +17,7 @@ use time::{
 };
 use url::Url;
 
-use crate::act_type::ActType;
+use crate::{act_type::ActType, competition::Features, photos::PhotosSettings};
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
 pub const DEFAULT_COMPETITION_PATH: &str = "./competition.toml";
@@ -74,19 +74,8 @@ pub struct CliArgs {
     /// card (remote playback). Needs a build with the `local-audio` feature.
     #[clap(long, env = "LOCAL_PLAYER")]
     pub local_player: Option<String>,
-    /// The photos for the info board: a Nextcloud folder (WebDAV URL), a
-    /// Nextcloud share link or a local folder.
-    #[clap(long, env = "PHOTOS_SOURCE")]
-    pub photos_source: Option<String>,
-    /// Nextcloud user for a WebDAV folder.
-    #[clap(long, env = "PHOTOS_USER")]
-    pub photos_user: Option<String>,
-    /// Nextcloud app password for a WebDAV folder, or a share link's
-    /// password.
-    #[clap(long, env = "PHOTOS_PASSWORD", hide_env_values = true)]
-    pub photos_password: Option<String>,
-    /// Turns the jury registration on or off; on by default only in debug
-    /// builds (see `FeaturesConfig`).
+    /// Turns the jury registration on or off for competitions that leave it
+    /// unset; on by default only in debug builds (see `Features`).
     #[clap(long, env = "JURY_REGISTRATION")]
     pub jury_registration: Option<bool>,
 }
@@ -99,8 +88,8 @@ pub struct ConfigFile {
     pub smtp: SmtpConfig,
     pub auth: AuthConfig,
     pub admin: Option<AdminConfig>,
-    pub photos: PhotosConfig,
-    pub features: FeaturesConfig,
+    /// Defaults for the features a competition leaves unset.
+    pub features: Features,
 }
 
 /// The sections of the competition file, which older system configs
@@ -128,10 +117,18 @@ impl ConfigFile {
                 "{} belong in the competition file now, not in the system config. \
                  Move them into a file of their own (e.g. competition.toml, see \
                  competition.example.toml) and pass it with --competition or COMPETITION; \
-                 [server], [database], [smtp], [auth], [admin], [photos] and [features] stay \
+                 [server], [database], [smtp], [auth], [admin] and [features] stay \
                  in the system config.",
                 moved.join(", ")
             ));
+        }
+        if table.contains_key("photos") {
+            return Err(
+                "[photos] is a competition setting now: move it into the competition \
+                 file as [competition.photos], or set it in the admin UI under Wettkampf \
+                 bearbeiten."
+                    .to_string(),
+            );
         }
         toml::from_str(content).map_err(|e| e.to_string())
     }
@@ -190,24 +187,6 @@ pub struct ServerConfig {
     pub reload_db_token: Option<String>,
     pub metrics_token: Option<String>,
     pub local_player: Option<String>,
-}
-
-/// Features that are still being refined. Each is on by default in debug
-/// builds only, so production turns them on explicitly.
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct FeaturesConfig {
-    /// Clubs register judges, admins plan the jury (see `crate::jury`).
-    pub jury_registration: Option<bool>,
-}
-
-/// Where the info board's photos come from; see `crate::photos`.
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PhotosConfig {
-    pub source: Option<String>,
-    pub user: Option<String>,
-    pub password: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -285,6 +264,13 @@ pub struct CompetitionConfig {
     /// The clubs' jury obligation; without it there is none.
     #[serde(default)]
     pub jury: Option<JuryConfig>,
+    /// Features this competition turns on or off; unset ones follow the
+    /// system config's `[features]`.
+    #[serde(default)]
+    pub features: Features,
+    /// Where the info board's photos come from; without it there are none.
+    #[serde(default)]
+    pub photos: Option<PhotosSettings>,
 }
 
 /// Rules of the Jury-Konzept Einrad Freestyle (Stand 15.09.2025), which are
@@ -380,14 +366,18 @@ impl CompetitionConfig {
         {
             errors.push("[competition.jury] registration_end must not be after start_date");
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
+        if !errors.is_empty() {
+            return Err(format!(
                 "Invalid [competition] dates:\n- {}",
                 errors.join("\n- ")
-            ))
+            ));
         }
+        if let Some(photos) = &self.photos {
+            photos
+                .check()
+                .map_err(|e| format!("Invalid [competition.photos]: {e}"))?;
+        }
+        Ok(())
     }
 }
 
@@ -562,10 +552,8 @@ pub struct Settings {
     pub reload_db_token: String,
     pub metrics_token: Option<String>,
     pub local_player: Option<String>,
-    /// Where the info board's photos come from, if anywhere.
-    pub photos: Option<crate::photos::PhotosSettings>,
-    /// Whether clubs can register judges (`[features] jury_registration`).
-    pub jury_registration: bool,
+    /// Defaults for the features a competition leaves unset (`[features]`).
+    pub features: Features,
     /// The competition file, if one is given or `./competition.toml` exists.
     pub competition_file: Option<PathBuf>,
     /// Whether the competition file replaces the database's competition.
@@ -672,19 +660,9 @@ impl Settings {
                 .local_player
                 .or(file.server.local_player)
                 .filter(|name| !name.trim().is_empty()),
-            photos: cli
-                .photos_source
-                .or(file.photos.source)
-                .filter(|source| !source.trim().is_empty())
-                .map(|source| crate::photos::PhotosSettings {
-                    source: source.trim().to_string(),
-                    user: cli.photos_user.or(file.photos.user),
-                    password: cli.photos_password.or(file.photos.password),
-                }),
-            jury_registration: cli
-                .jury_registration
-                .or(file.features.jury_registration)
-                .unwrap_or(cfg!(debug_assertions)),
+            features: Features {
+                jury_registration: cli.jury_registration.or(file.features.jury_registration),
+            },
             competition_file: cli.competition.or_else(|| {
                 Path::new(DEFAULT_COMPETITION_PATH)
                     .exists()
@@ -823,22 +801,61 @@ registration_end = 2026-12-20T23:59:59+01:00
 music_upload_end = 2027-01-20T23:59:59+01:00";
 
     #[test]
-    fn jury_registration_is_on_in_debug_builds_unless_configured() {
+    fn feature_defaults_come_from_the_file_or_the_environment() {
         let settings = resolve(CliArgs::default(), SMTP).unwrap();
-        assert_eq!(settings.jury_registration, cfg!(debug_assertions));
+        assert_eq!(settings.features.jury_registration, None);
 
         let file = format!("{SMTP}\n[features]\njury_registration = false");
-        assert!(
-            !resolve(CliArgs::default(), &file)
+        assert_eq!(
+            resolve(CliArgs::default(), &file)
                 .unwrap()
-                .jury_registration
+                .features
+                .jury_registration,
+            Some(false)
         );
 
         let cli = CliArgs {
             jury_registration: Some(true),
             ..Default::default()
         };
-        assert!(resolve(cli, &file).unwrap().jury_registration);
+        assert_eq!(
+            resolve(cli, &file).unwrap().features.jury_registration,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn photos_in_the_system_config_are_rejected_with_where_they_went() {
+        let err = ConfigFile::parse(&format!("{SMTP}\n[photos]\nsource = \"/fotos\"")).unwrap_err();
+        assert!(err.contains("[competition.photos]"), "{err}");
+    }
+
+    #[test]
+    fn features_and_photos_are_competition_settings() {
+        let set = competition(&format!(
+            "{VALID_DATES}\n[competition.features]\njury_registration = true\n\
+             [competition.photos]\nsource = \"https://cloud.example.org/s/AbC123\"\npassword = \"p\""
+        ));
+        assert_eq!(set.features.jury_registration, Some(true));
+        let photos = set.photos.as_ref().unwrap();
+        assert_eq!(photos.source, "https://cloud.example.org/s/AbC123");
+        assert_eq!(photos.user, None);
+        assert_eq!(photos.password.as_deref(), Some("p"));
+        set.validate().unwrap();
+
+        let unset = competition(VALID_DATES);
+        assert_eq!(unset.features, Features::default());
+        assert_eq!(unset.photos, None);
+
+        let invalid = competition(&format!(
+            "{VALID_DATES}\n[competition.photos]\nsource = \"https://cloud.example.org/s/\""
+        ));
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .contains("[competition.photos]")
+        );
     }
 
     #[test]

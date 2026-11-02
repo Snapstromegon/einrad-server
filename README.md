@@ -57,12 +57,16 @@ the competition file only an import:
   `jury_category` to fill in. A file that doesn't change anything replaces
   nothing, so leaving the flag set doesn't drop the planning on every start.
 
-Features that are still being refined are behind flags in `[features]`. They
-are on in debug builds and off in release builds unless set:
+Features that are still being refined are competition settings
+(`[competition.features]`): on, off or unset. An unset feature follows
+`[features]` in the system config, then the build default: on in debug builds,
+off in release builds. A change in the database applies on the next request,
+without a restart.
 
-- `jury_registration` (`JURY_REGISTRATION`): clubs register judges for the jury
-  categories, admins see the jury obligation and plan the jury. Off, the judge
-  endpoints answer 404 and the UI shows nothing about judges.
+- `jury_registration` (`JURY_REGISTRATION` for the system default): clubs
+  register judges for the jury categories, admins see the jury obligation and
+  plan the jury. Off, the judge endpoints answer 404 and the UI shows nothing
+  about judges.
 
 The database migrations only create the schema and don't insert any data.
 
@@ -172,13 +176,15 @@ Event day setup:
   Juryleitung, Moderation and Musiksteuerung see them, marked "intern";
   everyone else, and always the info board, the startlist and its CSV, get a
   „Pause“ of the same length instead.
-- **Photos:** set `[photos] source` (see `config.example.toml`): a Nextcloud
-  folder over WebDAV with a user and an app password, a Nextcloud share link,
-  or a local folder. The server lists it every 15 s (the folder and its direct
-  subfolders) and gets the images from Nextcloud scaled down to 1920 px where
-  it can. The music control shows the newest photo below the act ("Nach der
+- **Photos:** set `[competition.photos] source` (see
+  `competition.example.toml`): a Nextcloud folder over WebDAV with a user and
+  an app password, a Nextcloud share link, or a local folder. The server lists
+  it every 5 s (the folder and its direct subfolders) and gets the images from
+  Nextcloud scaled down to 1920 px where it can. It reads the competition's
+  photo settings just as often, so a changed source is picked up without a
+  restart. The music control shows the newest photo below the act ("Nach der
   Kür auf dem Info-Board") and can hide it from the info board until the
-  server restarts.
+  server restarts or the source changes.
 - **Moderation screen** (`/admin-moderation`, Moderation, Musiksteuerung,
   Juryleitung or Admin role): the clock, the delay
   as a big timer, the current act with its riders, description and progress

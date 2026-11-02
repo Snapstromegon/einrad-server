@@ -698,7 +698,8 @@ impl Snapshot {
                     max_fee_per_rider, venue, contact_email, announcement_url, photos_url,
                     payment_deadline, payment_account_holder, payment_iban, payment_bic,
                     payment_reference, jury_min_age, jury_deployments_per_two_acts,
-                    jury_missing_deployment_fee, jury_registration_end)
+                    jury_missing_deployment_fee, jury_registration_end,
+                    feature_jury_registration, photos_source, photos_user, photos_password)
                 FROM competition"#,
             )
             .await?,

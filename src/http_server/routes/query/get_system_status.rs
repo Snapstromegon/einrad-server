@@ -4,7 +4,7 @@ use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
-    competition::Competition,
+    competition::{Competition, Features},
     http_server::{HttpError, HttpServerOptions},
     reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
@@ -16,8 +16,8 @@ pub struct SystemStatus {
     capabilities: Capabilities,
     /// The current competition; `None` until one is configured.
     competition: Option<Competition>,
-    /// Whether the jury registration is on; everything about judges is hidden
-    /// without it.
+    /// Whether the jury registration is on (the competition's feature, else
+    /// the system default); everything about judges is hidden without it.
     jury_registration: bool,
 }
 
@@ -37,9 +37,11 @@ pub async fn get_system_status(
     capabilities: Capabilities,
 ) -> Result<Json<SystemStatus>, HttpError> {
     let db = db.get().await.clone();
+    let competition = Competition::current(&db).await?;
+    let features = Features::of(competition.as_ref(), &http_options.features);
     Ok(Json(SystemStatus {
         capabilities,
-        competition: Competition::current(&db).await?,
-        jury_registration: http_options.jury_registration,
+        competition,
+        jury_registration: features.jury_registration,
     }))
 }

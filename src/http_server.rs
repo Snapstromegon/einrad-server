@@ -5,7 +5,7 @@ use serde::Serialize;
 use tracing::info;
 
 use crate::{
-    jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub,
+    competition::Features, jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub,
     reloadable_sqlite::ReloadableSqlite,
 };
 
@@ -92,8 +92,9 @@ pub struct HttpServerOptions {
     pub reload_db_token: String,
     /// Bearer token for `GET /metrics`; without one the endpoint is off.
     pub metrics_token: Option<String>,
-    /// Whether the jury registration is on (`[features] jury_registration`).
-    pub jury_registration: bool,
+    /// The system config's `[features]`: the defaults for the features a
+    /// competition leaves unset (see `Features::resolve`).
+    pub features: Features,
 }
 
 pub struct HttpServer {

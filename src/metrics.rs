@@ -32,7 +32,7 @@ use prometheus_client::{
 use tracing::error;
 
 use crate::{
-    competition::Competition,
+    competition::{Competition, Features},
     fees,
     http_server::{HttpServerOptions, routes::query::predict_timeplan::predict},
     reloadable_sqlite::ReloadableSqlite,
@@ -256,7 +256,7 @@ impl Metrics {
     async fn refresh(
         &self,
         db: &sqlx::SqlitePool,
-        jury_registration: bool,
+        feature_defaults: &Features,
     ) -> Result<(), sqlx::Error> {
         let set = |family: &GaugeFamily, rows: Vec<(Labels, i64)>| {
             family.clear();
@@ -439,11 +439,15 @@ impl Metrics {
                 .await?;
         self.payments_received.set(paid);
         self.fees_due.set(
-            fees::fees_by_club(db, competition.as_ref(), jury_registration)
-                .await?
-                .values()
-                .map(|fees| fees.amount_due.total)
-                .sum(),
+            fees::fees_by_club(
+                db,
+                competition.as_ref(),
+                Features::of(competition.as_ref(), feature_defaults).jury_registration,
+            )
+            .await?
+            .values()
+            .map(|fees| fees.amount_due.total)
+            .sum(),
         );
 
         let performed = sqlx::query_scalar!(
@@ -518,7 +522,7 @@ pub async fn metrics_handler(
     }
 
     let db = db.get().await.clone();
-    if let Err(e) = metrics().refresh(&db, options.jury_registration).await {
+    if let Err(e) = metrics().refresh(&db, &options.features).await {
         error!("Couldn't read the metrics from the database: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
@@ -581,7 +585,7 @@ mod tests {
             data_path: std::path::PathBuf::new(),
             reload_db_token: String::new(),
             metrics_token: None,
-            jury_registration: false,
+            features: Features::default(),
         };
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, "Bearer x".parse().unwrap());

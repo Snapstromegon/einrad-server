@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     bookings::paid_by_club,
-    competition::Competition,
+    competition::{Competition, Features},
     fees::{AmountDue, fees_by_club},
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     jury::JuryObligation,
@@ -97,7 +97,8 @@ pub async fn list_clubs(
     .await?;
     let competition = Competition::current(&db).await?;
     let paid = paid_by_club(&db).await?;
-    let mut fees = fees_by_club(&db, competition.as_ref(), http_options.jury_registration).await?;
+    let features = Features::of(competition.as_ref(), &http_options.features);
+    let mut fees = fees_by_club(&db, competition.as_ref(), features.jury_registration).await?;
     let clubs = rows
         .into_iter()
         .map(|row| {

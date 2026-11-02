@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     bookings::{Payment, payments_of_club, round_cents},
-    competition::Competition,
+    competition::{Competition, Features},
     fees::{AmountDue, fees_of_club},
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     jury::JuryObligation,
@@ -118,10 +118,11 @@ pub async fn get_club(
         };
         if may_see_owner {
             let competition = Competition::current(&db).await?;
+            let features = Features::of(competition.as_ref(), &http_options.features);
             let fees = fees_of_club(
                 &db,
                 competition.as_ref(),
-                http_options.jury_registration,
+                features.jury_registration,
                 club.id,
             )
             .await?;

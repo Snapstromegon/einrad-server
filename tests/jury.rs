@@ -65,6 +65,52 @@ async fn the_flag_can_be_turned_off() {
     assert_eq!(status["jury_registration"], false);
 }
 
+#[tokio::test]
+async fn the_competitions_feature_applies_on_the_next_request() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::without_jury_registration(db).await;
+    let admin = app.create_admin().await;
+    let categories = "/api/query/list_jury_categories";
+    assert_eq!(
+        app.get(categories, Some(&admin)).await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    common::set_jury_registration(&app.db, Some(true)).await;
+    assert_eq!(system_status(&app, None).await["jury_registration"], true);
+    assert_eq!(
+        system_status(&app, None).await["competition"]["features"],
+        json!({ "jury_registration": true })
+    );
+    assert_eq!(
+        app.get(categories, Some(&admin)).await.status,
+        StatusCode::OK
+    );
+
+    // Unset follows the system default again.
+    common::set_jury_registration(&app.db, None).await;
+    assert_eq!(system_status(&app, None).await["jury_registration"], false);
+    assert_eq!(
+        app.get(categories, Some(&admin)).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn the_competition_can_turn_off_what_the_system_default_turns_on() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    common::set_jury_registration(&app.db, Some(false)).await;
+    assert_eq!(system_status(&app, None).await["jury_registration"], false);
+    assert_eq!(
+        app.get("/api/query/list_jury_categories", Some(&admin))
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+}
+
 // ---------- Jury categories (#227) ----------
 
 async fn jury_categories(app: &TestApp, cookie: &str) -> Vec<Value> {

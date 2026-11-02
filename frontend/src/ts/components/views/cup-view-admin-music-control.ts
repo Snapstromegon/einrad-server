@@ -639,7 +639,7 @@ export default class CupViewAdminMusicControl extends LitElement {
   @state() private localOverride = false;
   /** The volume slider's value while it is dragged and not yet confirmed. */
   @state() private volumeDraft?: number;
-  /** The info board's photos (`[photos]`). */
+  /** The info board's photos (`[competition.photos]`). */
   @state() private photos?: PhotosOverview;
 
   @queryAll("audio") private audios!: NodeListOf<HTMLAudioElement>;

@@ -115,6 +115,54 @@ async fn replace_competition_applies_the_changed_file() {
 }
 
 #[tokio::test]
+async fn features_and_photos_come_with_the_competition() {
+    let db = in_memory_migrated().await;
+    let dir = TempDir::new();
+    write(&dir, "config.toml", SYSTEM_CONFIG);
+    let settings = "\n[competition.features]\njury_registration = false\n\
+        [competition.photos]\nsource = \"https://cloud.example.org/s/AbC123\"\npassword = \"geheim\"\n";
+    let competition = write(
+        &dir,
+        "competition.toml",
+        &format!("{COMPETITION}{settings}"),
+    );
+    start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    let created = Competition::current(&db).await.unwrap().unwrap();
+    assert_eq!(created.features.jury_registration, Some(false));
+    let photos = created.photos.unwrap();
+    assert_eq!(photos.source, "https://cloud.example.org/s/AbC123");
+    assert_eq!(photos.password.as_deref(), Some("geheim"));
+
+    // A changed photo password counts as a difference.
+    write(
+        &dir,
+        "competition.toml",
+        &format!("{COMPETITION}{}", settings.replace("geheim", "neu")),
+    );
+    let second = start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    assert_eq!(second.applied, Applied::Ignored);
+    assert!(
+        second
+            .warnings
+            .iter()
+            .any(|w| w.contains("the competition settings")),
+        "{:?}",
+        second.warnings
+    );
+}
+
+#[tokio::test]
+async fn photos_have_no_flags_or_environment_variables_anymore() {
+    let err = CliArgs::try_parse_from(["registration_server", "--photos-source", "/srv/fotos"])
+        .unwrap_err();
+    assert!(err.to_string().contains("--photos-source"), "{err}");
+}
+
+#[tokio::test]
 async fn a_combined_config_stops_the_start() {
     let db = in_memory_migrated().await;
     let dir = TempDir::new();

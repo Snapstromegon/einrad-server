@@ -1,11 +1,11 @@
 # Example system configuration. Copy to config.toml (ignored by git) and adjust.
 #
-# Every setting in [server], [database], [smtp], [auth], [admin] and [photos] can also be
-# set by a CLI flag or environment variable (including .env), which take
+# Every setting in [server], [database], [smtp], [auth], [admin] and [features] can
+# also be set by a CLI flag or environment variable (including .env), which take
 # precedence over this file. Secrets are better kept in environment variables.
 #
-# The competition (dates, fees, categories, timeplan, …) is not in here but in
-# the competition file, see competition.example.toml.
+# The competition (dates, fees, photos, categories, timeplan, …) is not in here
+# but in the competition file, see competition.example.toml.
 
 [server]
 # base_url = "https://anmeldung.freestyle-cup.nrw"   # BASE_URL
@@ -31,21 +31,10 @@
 [auth]
 # jwt_secret = "…"                                   # JWT_SECRET
 
-# Optional: the photos of the info board, the newest after each act and random
-# recent ones in breaks; the music control previews the newest. The folder and
-# its direct subfolders count. One of:
-# - a folder in a Nextcloud account over WebDAV, with the user and an app
-#   password: https://cloud.example.org/remote.php/dav/files/anna/Fotos
-# - a Nextcloud share link (a password only if the share has one):
-#   https://cloud.example.org/s/AbC123
-# - a local folder, e.g. one the Nextcloud desktop client keeps in sync.
-# [photos]
-# source = "https://cloud.example.org/remote.php/dav/files/anna/Fotos"  # PHOTOS_SOURCE
-# user = "anna"                                      # PHOTOS_USER
-# password = "…"                                     # PHOTOS_PASSWORD
-
-# Features that are still being refined. They are on in debug builds and off
-# in release builds unless set here.
+# Features that are still being refined. A competition turns each on or off
+# ([competition.features]); these are the defaults for the ones it leaves
+# unset. Without them, a feature is on in debug builds and off in release
+# builds.
 # [features]
 # Clubs register judges, admins plan the jury.
 # jury_registration = true                           # JURY_REGISTRATION

@@ -113,7 +113,7 @@ async fn the_newest_photo_of_a_local_folder_and_its_subfolders() {
     folder.write("Freitag/tief/c.jpg", "too deep", 0);
     let app = TestApp::with_photos(db, local(&folder)).await;
     let admin = app.create_admin().await;
-    app.photos.refresh().await.unwrap();
+    app.sync_photos().await.unwrap();
 
     let overview = app.get("/api/query/get_photos", None).await.body;
     assert_eq!(overview["configured"], true);
@@ -165,6 +165,55 @@ async fn the_newest_photo_of_a_local_folder_and_its_subfolders() {
 }
 
 #[tokio::test]
+async fn a_changed_source_is_listed_without_a_restart() {
+    let db = common::in_memory_migrated().await;
+    let first = Folder::new();
+    first.write("erste.jpg", "first", 1);
+    let second = Folder::new();
+    second.write("zweite.jpg", "second", 1);
+    let app = TestApp::with_photos(db, local(&first)).await;
+    app.sync_photos().await.unwrap();
+    assert_eq!(follow(&app, "/api/photos/newest").await.0, "first");
+
+    common::set_photos(&app.db, Some(&local(&second))).await;
+    app.sync_photos().await.unwrap();
+    assert_eq!(follow(&app, "/api/photos/newest").await.0, "second");
+    assert_eq!(
+        app.get("/api/query/get_photos", None).await.body["recent"],
+        1
+    );
+
+    // No source, no photos.
+    common::set_photos(&app.db, None).await;
+    app.sync_photos().await.unwrap();
+    assert_eq!(
+        app.get("/api/query/get_photos", None).await.body,
+        json!({ "configured": false, "newest": null, "recent": 0, "error": null })
+    );
+}
+
+#[tokio::test]
+async fn the_photo_settings_are_not_public() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::with_photos(
+        db,
+        PhotosSettings {
+            source: "https://cloud.example.org/s/AbC123".into(),
+            user: None,
+            password: Some("geheim".into()),
+        },
+    )
+    .await;
+    let admin = app.create_admin().await;
+    let status = app.get("/api/query/get_system_status", Some(&admin)).await;
+    assert!(
+        !status.body.to_string().contains("geheim"),
+        "{:?}",
+        status.body
+    );
+}
+
+#[tokio::test]
 async fn a_missing_folder_is_an_error_for_admins_only() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::with_photos(
@@ -177,7 +226,7 @@ async fn a_missing_folder_is_an_error_for_admins_only() {
     )
     .await;
     let admin = app.create_admin().await;
-    assert!(app.photos.refresh().await.is_err());
+    assert!(app.sync_photos().await.is_err());
     let public = app.get("/api/query/get_photos", None).await.body;
     assert_eq!(public["error"], Value::Null);
     let for_admins = app.get("/api/query/get_photos", Some(&admin)).await.body;
@@ -300,7 +349,7 @@ async fn the_newest_photo_of_a_nextcloud_folder() {
         },
     )
     .await;
-    app.photos.refresh().await.unwrap();
+    app.sync_photos().await.unwrap();
 
     let overview = app.get("/api/query/get_photos", None).await.body;
     // HEIC is left out: browsers can't show it.

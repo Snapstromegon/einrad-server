@@ -2,8 +2,9 @@
 //! local one) after each act, random recent ones in breaks. The music
 //! control previews the newest one.
 //!
-//! The source is listed every [`POLL_EVERY`], the folder and its direct
-//! subfolders:
+//! The source is a competition setting (`[competition.photos]`, ADR 0005).
+//! Every [`POLL_EVERY`] the competition's photo settings are read, and while
+//! there's a source, it's listed, the folder and its direct subfolders:
 //! - a folder in a Nextcloud account over WebDAV,
 //!   `https://cloud…/remote.php/dav/files/<user>/<path>`, with the user and an
 //!   app password;
@@ -29,11 +30,13 @@ use reqwest::{
     Method,
     header::{CONTENT_TYPE, HeaderValue},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
 use tracing::{info, warn};
 use url::Url;
 use utoipa::ToSchema;
+
+use crate::{competition::Competition, reloadable_sqlite::ReloadableSqlite};
 
 /// How often the source is listed.
 pub const POLL_EVERY: Duration = Duration::from_secs(5);
@@ -54,13 +57,28 @@ const PROPFIND_BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   </d:prop>
 </d:propfind>"#;
 
-/// Where the photos come from, as set in the config (`[photos]`).
-#[derive(Debug, Clone)]
+/// Where the photos come from, as the competition sets it
+/// (`[competition.photos]`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PhotosSettings {
     /// A WebDAV URL, a Nextcloud share link or a local folder.
     pub source: String,
+    /// Nextcloud user for a WebDAV folder.
+    #[serde(default)]
     pub user: Option<String>,
+    /// Nextcloud app password for a WebDAV folder, or a share link's
+    /// password.
+    #[serde(default)]
     pub password: Option<String>,
+}
+
+impl PhotosSettings {
+    /// Checks that the source is a folder path, a WebDAV URL or a share
+    /// link with a token.
+    pub fn check(&self) -> Result<(), String> {
+        Source::parse(self).map(|_| ())
+    }
 }
 
 // There's only one per server, so its size doesn't matter.
@@ -93,6 +111,9 @@ enum Preview {
 impl Source {
     fn parse(settings: &PhotosSettings) -> Result<Self, String> {
         let source = settings.source.trim();
+        if source.is_empty() {
+            return Err("The photo source is empty".to_owned());
+        }
         if !(source.starts_with("http://") || source.starts_with("https://")) {
             return Ok(Self::Local(PathBuf::from(source)));
         }
@@ -205,6 +226,12 @@ pub struct Image {
 
 #[derive(Default)]
 struct State {
+    /// The settings `source` comes from.
+    settings: Option<PhotosSettings>,
+    source: Option<Source>,
+    /// Counts the changes of the source, so a listing or an image of the
+    /// old source isn't kept.
+    generation: u64,
     /// Newest first.
     photos: Vec<Photo>,
     hidden: HashSet<String>,
@@ -212,17 +239,15 @@ struct State {
     error: Option<String>,
 }
 
-/// The photos of the configured source; see the module docs.
+/// The photos of the competition's source; see the module docs.
 pub struct Photos {
-    source: Option<Source>,
     http: reqwest::Client,
     state: Mutex<State>,
 }
 
 impl Photos {
-    /// Without settings there are no photos.
-    pub fn new(settings: Option<&PhotosSettings>) -> Result<Arc<Self>, String> {
-        let source = settings.map(Source::parse).transpose()?;
+    /// No photos until [`Photos::configure`] sets a source.
+    pub fn new() -> Result<Arc<Self>, String> {
         // reqwest uses rustls with ring; the first install wins.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
@@ -231,7 +256,6 @@ impl Photos {
             .build()
             .map_err(|e| e.to_string())?;
         Ok(Arc::new(Self {
-            source,
             http,
             state: Mutex::new(State::default()),
         }))
@@ -242,18 +266,47 @@ impl Photos {
     }
 
     pub fn configured(&self) -> bool {
-        self.source.is_some()
+        self.lock().source.is_some()
     }
 
-    /// Lists the source every [`POLL_EVERY`] in the background.
-    pub fn start(self: &Arc<Self>) {
-        if self.source.is_none() {
-            return;
+    /// Switches to `settings`. A change starts over: the old source's
+    /// photos, hidden photos and images are dropped. An invalid source
+    /// leaves no source, with the reason as the error. Returns whether the
+    /// settings changed.
+    pub fn configure(&self, settings: Option<&PhotosSettings>) -> bool {
+        let mut state = self.lock();
+        if state.settings.as_ref() == settings {
+            return false;
         }
+        let (source, error) = match settings.map(Source::parse) {
+            None => (None, None),
+            Some(Ok(source)) => (Some(source), None),
+            Some(Err(e)) => (None, Some(e)),
+        };
+        match (&settings, &error) {
+            (None, _) => info!("No photo source; the photos are off"),
+            (Some(_), Some(e)) => warn!("{e}; the photos are off"),
+            (Some(settings), None) => info!("The photo source is {}", settings.source),
+        }
+        *state = State {
+            settings: settings.cloned(),
+            source,
+            generation: state.generation + 1,
+            error,
+            ..State::default()
+        };
+        true
+    }
+
+    /// Follows the competition's photo settings in the background: every
+    /// [`POLL_EVERY`] they're read from `db` and the source is listed (see
+    /// [`Photos::sync`]).
+    pub fn start(self: &Arc<Self>, db: ReloadableSqlite) {
         let photos = self.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(e) = photos.refresh().await {
+                let pool = db.get().await.clone();
+                if let Err(e) = photos.sync(&pool).await {
                     warn!("Couldn't list the photos: {e}");
                 }
                 tokio::time::sleep(POLL_EVERY).await;
@@ -261,12 +314,26 @@ impl Photos {
         });
     }
 
+    /// Takes the current competition's photo settings (see
+    /// [`Photos::configure`]) and lists the source once.
+    pub async fn sync(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
+        let competition = Competition::current(db)
+            .await
+            .map_err(|e| format!("Couldn't read the photo settings: {e}"))?;
+        self.configure(competition.and_then(|c| c.photos).as_ref());
+        self.refresh().await
+    }
+
     /// Lists the source once.
     pub async fn refresh(&self) -> Result<(), String> {
-        let Some(source) = &self.source else {
-            return Ok(());
+        let (source, generation) = {
+            let state = self.lock();
+            match &state.source {
+                Some(source) => (source.clone(), state.generation),
+                None => return Ok(()),
+            }
         };
-        let listed = match source {
+        let listed = match &source {
             Source::Local(dir) => {
                 let dir = dir.clone();
                 tokio::task::spawn_blocking(move || list_local(&dir))
@@ -276,6 +343,9 @@ impl Photos {
             Source::WebDav { folder, auth, .. } => self.list_webdav(folder, auth.as_ref()).await,
         };
         let mut state = self.lock();
+        if state.generation != generation {
+            return Ok(());
+        }
         match listed {
             Ok(mut photos) => {
                 photos.sort_by_key(|photo| std::cmp::Reverse(photo.modified));
@@ -342,7 +412,7 @@ impl Photos {
 
     /// A photo's image, unless it's unknown or hidden.
     pub async fn image(&self, id: &str) -> Result<Option<Image>, String> {
-        let photo = {
+        let (photo, source, generation) = {
             let state = self.lock();
             if state.hidden.contains(id) {
                 return Ok(None);
@@ -350,24 +420,30 @@ impl Photos {
             if let Some((_, image)) = state.images.iter().find(|(cached, _)| cached == id) {
                 return Ok(Some(image.clone()));
             }
-            match state.photos.iter().find(|photo| photo.id == id) {
-                Some(photo) => photo.clone(),
-                None => return Ok(None),
+            match (
+                state.photos.iter().find(|photo| photo.id == id),
+                &state.source,
+            ) {
+                (Some(photo), Some(source)) => (photo.clone(), source.clone(), state.generation),
+                _ => return Ok(None),
             }
         };
-        let image = self.fetch(&photo).await?;
+        let image = self.fetch(&source, &photo).await?;
         let mut state = self.lock();
+        if state.generation != generation {
+            return Ok(Some(image));
+        }
         state.images.push_front((photo.id, image.clone()));
         state.images.truncate(CACHED_IMAGES);
         Ok(Some(image))
     }
 
-    async fn fetch(&self, photo: &Photo) -> Result<Image, String> {
-        let Some(Source::WebDav {
+    async fn fetch(&self, source: &Source, photo: &Photo) -> Result<Image, String> {
+        let Source::WebDav {
             folder,
             auth,
             preview,
-        }) = &self.source
+        } = source
         else {
             let bytes = tokio::fs::read(&photo.location)
                 .await
@@ -650,6 +726,31 @@ mod tests {
 
     fn url(url: &str) -> Url {
         Url::parse(url).unwrap()
+    }
+
+    #[test]
+    fn a_new_source_starts_over() {
+        let photos = Photos::new().unwrap();
+        assert!(!photos.configured());
+        assert!(photos.configure(Some(&settings("/srv/fotos", None, None))));
+        assert!(!photos.configure(Some(&settings("/srv/fotos", None, None))));
+        assert!(photos.configured());
+        photos.lock().photos.push(Photo::new(
+            "/srv/fotos/a.jpg".into(),
+            OffsetDateTime::UNIX_EPOCH,
+            "image/jpeg".into(),
+            None,
+        ));
+        assert!(photos.newest().is_some());
+
+        assert!(photos.configure(Some(&settings("/srv/andere", None, None))));
+        assert_eq!(photos.newest(), None);
+
+        assert!(photos.configure(Some(&settings(" ", None, None))));
+        assert!(!photos.configured());
+        assert!(photos.error().unwrap().contains("empty"));
+        assert!(photos.configure(None));
+        assert_eq!(photos.error(), None);
     }
 
     #[test]
