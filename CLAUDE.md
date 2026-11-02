@@ -1,5 +1,7 @@
 ## Agent skills
 
+Reach for a `mattpocock-skills` skill first whenever one covers the task: `tdd` when building a feature or fixing a bug, `diagnosing-bugs` for failures, `code-review` after implementing, `domain-modeling` for the glossary and ADRs, `writing-for-agents` when editing this file. Use your own approach only where no skill fits.
+
 ### Issue tracker
 
 Issues are tracked in GitHub Issues (Snapstromegon/nrw-freestyle-cup-registration) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
