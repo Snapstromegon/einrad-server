@@ -95,6 +95,8 @@ pub struct HttpServerOptions {
     /// The system config's `[features]`: the defaults for the features a
     /// competition leaves unset (see `Features::resolve`).
     pub features: Features,
+    /// The competition id in the competition file the server started with.
+    pub competition_file_id: Option<String>,
 }
 
 pub struct HttpServer {

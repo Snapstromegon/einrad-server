@@ -561,6 +561,8 @@ pub struct RemapFile {
 pub struct Report {
     pub applied: Applied,
     pub warnings: Vec<String>,
+    /// The competition id in the file, if there was one.
+    pub file_id: Option<String>,
 }
 
 /// Applies the competition file to the database. The database is the
@@ -579,6 +581,7 @@ pub async fn apply(
         return Ok(Report {
             applied: Applied::NoFile,
             warnings,
+            file_id: None,
         });
     };
     let mut tx = begin_write(db).await.map_err(db_error)?;
@@ -685,7 +688,11 @@ pub async fn apply(
     for warning in &warnings {
         warn!("{warning}");
     }
-    Ok(Report { applied, warnings })
+    Ok(Report {
+        applied,
+        warnings,
+        file_id: Some(file.competition.id.clone()),
+    })
 }
 
 /// What [`apply`] with `replace` would do with a file, for the admin UI to

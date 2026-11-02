@@ -47,3 +47,37 @@ export const droppedItems = (dropped: Dropped): string[] =>
       "Jury-Anmeldungen ohne passende Jury-Kategorie",
     ),
   ].filter((item): item is string => item !== null);
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * An RFC 3339 date-time as the value of a `datetime-local` input with
+ * seconds (`step="1"`), in local time; "" for none.
+ */
+export const toLocalInput = (value: string | null | undefined) => {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
+};
+
+/**
+ * The value of a `datetime-local` input as RFC 3339 with the browser's
+ * offset, e.g. "2027-04-30T23:59:59+02:00", so the competition file shows
+ * the organizer's time; `null` if empty or invalid.
+ */
+export const toOffsetTime = (value: string) => {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const hours = pad(Math.floor(Math.abs(offset) / 60));
+  const minutes = pad(Math.abs(offset) % 60);
+  return `${toLocalInput(date.toISOString())}${sign}${hours}:${minutes}`;
+};

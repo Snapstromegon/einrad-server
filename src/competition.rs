@@ -1,11 +1,15 @@
 use time::{Date, OffsetDateTime};
 
-use crate::{config::CompetitionConfig, photos::PhotosSettings, system_status::StatusOptions};
+use crate::{
+    config::{CompetitionConfig, JuryConfig, PaymentConfig},
+    photos::PhotosSettings,
+    system_status::StatusOptions,
+};
 
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 /// Event specific settings, stored in the `competition` table.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct Competition {
     pub id: String,
     pub name: String,
@@ -101,7 +105,7 @@ impl Features {
 }
 
 /// The jury rules of a competition, from `[competition.jury]`.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct JuryRules {
     /// Minimum age of trained judges on the first competition day.
     pub min_age: i64,
@@ -265,6 +269,45 @@ impl From<&CompetitionConfig> for Competition {
             }),
             features: config.features.clone(),
             photos: config.photos.clone(),
+        }
+    }
+}
+
+impl From<&Competition> for CompetitionConfig {
+    /// The competition as the competition file has it, e.g. to validate an
+    /// edit like the file.
+    fn from(competition: &Competition) -> Self {
+        CompetitionConfig {
+            id: competition.id.clone(),
+            name: competition.name.clone(),
+            location: competition.location.clone(),
+            start_date: competition.start_date,
+            end_date: competition.end_date,
+            determining_day: competition.determining_day,
+            registration_start: competition.registration_start,
+            registration_end: competition.registration_end,
+            music_upload_end: competition.music_upload_end,
+            fee_per_start: competition.fee_per_start,
+            max_fee_per_rider: competition.max_fee_per_rider,
+            venue: competition.venue.clone(),
+            contact_email: competition.contact_email.clone(),
+            announcement_url: competition.announcement_url.clone(),
+            photos_url: competition.photos_url.clone(),
+            payment: PaymentConfig {
+                deadline: competition.payment_deadline,
+                account_holder: competition.payment_account_holder.clone(),
+                iban: competition.payment_iban.clone(),
+                bic: competition.payment_bic.clone(),
+                reference: competition.payment_reference.clone(),
+            },
+            jury: competition.jury.as_ref().map(|jury| JuryConfig {
+                min_age: jury.min_age,
+                deployments_per_two_acts: jury.deployments_per_two_acts,
+                missing_deployment_fee: jury.missing_deployment_fee,
+                registration_end: jury.registration_end,
+            }),
+            features: competition.features.clone(),
+            photos: competition.photos.clone(),
         }
     }
 }

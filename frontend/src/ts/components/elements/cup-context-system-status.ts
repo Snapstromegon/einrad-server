@@ -1,9 +1,10 @@
 import { provide } from "@lit/context";
-import { html, LitElement } from "lit";
+import { html, LitElement, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
 import { unwrap } from "../../api";
 import { client } from "../../apiClient.js";
 import {
+  SYSTEM_STATUS_CHANGED,
   type SystemStatus,
   systemStatusContext,
 } from "../../contexts/systemStatus.js";
@@ -38,13 +39,31 @@ export default class CupContextSystemStatus extends LitElement {
     args: () => [],
   });
 
+  private reload = () => void this.SystemStatusTask.run();
+
+  override connectedCallback() {
+    super.connectedCallback?.();
+    window.addEventListener(SYSTEM_STATUS_CHANGED, this.reload);
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback?.();
+    window.removeEventListener(SYSTEM_STATUS_CHANGED, this.reload);
+  }
+
   override render() {
     return this.SystemStatusTask.render({
-      complete: (status) =>
-        status.competition || SETUP_PAGES.includes(location.pathname)
-          ? html`<slot></slot>`
-          : html`<cup-view-setup></cup-view-setup>`,
+      // A reload keeps the page.
+      pending: () =>
+        this.systemStatus ? this.renderPage(this.systemStatus) : nothing,
+      complete: (status) => this.renderPage(status),
       error: (error) => html`<p>${error}</p>`,
     });
+  }
+
+  private renderPage(status: SystemStatus) {
+    return status.competition || SETUP_PAGES.includes(location.pathname)
+      ? html`<slot></slot>`
+      : html`<cup-view-setup></cup-view-setup>`;
   }
 }

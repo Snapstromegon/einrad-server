@@ -60,7 +60,7 @@ async fn main() -> eyre::Result<()> {
     if let Some(path) = &settings.competition_file {
         info!("Reading the competition file {}", path.display());
     }
-    seed::apply_settings(&db, &settings)
+    let report = seed::apply_settings(&db, &settings)
         .await
         .map_err(|e| eyre!(e))?;
 
@@ -111,6 +111,7 @@ async fn main() -> eyre::Result<()> {
             reload_db_token: settings.reload_db_token,
             metrics_token: settings.metrics_token,
             features: settings.features,
+            competition_file_id: report.file_id,
         },
         db,
         Arc::new(jwt_config),

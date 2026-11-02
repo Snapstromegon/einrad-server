@@ -9,6 +9,7 @@ import {
   systemStatusContext,
 } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
+import "../elements/cup-competition-form.js";
 import { iconStyles, resetStyles } from "../../styles/base";
 
 type Preview = schemas.Preview;
@@ -20,7 +21,8 @@ const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
 });
 
 /**
- * The competition itself (Admin, ADR 0005): importing a competition file.
+ * The competition itself (Admin, ADR 0005): editing it ("Wettkampf
+ * bearbeiten", see `cup-competition-form`) and importing a competition file.
  * Without a competition (setup mode) a valid file is imported right away;
  * over an existing one the page first shows what the file replaces and
  * drops and imports after a confirmation. Afterwards the page reloads into
@@ -35,7 +37,7 @@ export default class CupViewAdminCompetition extends LitElement {
     adminStyles,
     css`
       section {
-        max-width: 48rem;
+        max-width: 64rem;
         margin-top: 1rem;
       }
 
@@ -71,10 +73,10 @@ export default class CupViewAdminCompetition extends LitElement {
       <h1>Wettkampf</h1>
       ${
         competition
-          ? html`<p>
-              <b>${competition.name}</b>
-              <span class="muted">(ID ${competition.id})</span>
-            </p>`
+          ? html`<section>
+              <h2>Wettkampf bearbeiten</h2>
+              <cup-competition-form></cup-competition-form>
+            </section>`
           : html`<div class="info-banner" role="status">
               Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du die
               Wettkampfdatei importierst.

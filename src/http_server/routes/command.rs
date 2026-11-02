@@ -24,6 +24,7 @@ mod edit_booking;
 mod edit_category;
 mod edit_club_act;
 mod edit_club_judge;
+mod edit_competition;
 mod edit_final;
 mod edit_jury_category;
 mod edit_rider;
@@ -139,6 +140,7 @@ pub fn get_command_router() -> OpenApiRouter {
             preview_competition_import::preview_competition_import
         ))
         .routes(routes!(import_competition::import_competition))
+        .routes(routes!(edit_competition::edit_competition))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
         .routes(routes!(edit_club_judge::edit_club_judge))

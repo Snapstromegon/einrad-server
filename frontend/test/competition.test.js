@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
-import { droppedItems } from "../src/ts/competition.ts";
+import {
+  droppedItems,
+  toLocalInput,
+  toOffsetTime,
+} from "../src/ts/competition.ts";
 
 const nothingDropped = {
   timeplan_slots: 0,
@@ -32,5 +36,22 @@ describe("droppedItems", () => {
         "4 Jury-Anmeldungen ohne passende Jury-Kategorie",
       ],
     );
+  });
+});
+
+describe("toLocalInput and toOffsetTime", () => {
+  test("keep the instant and add the local offset", () => {
+    const value = "2027-04-30T23:59:59+02:00";
+    const local = toLocalInput(value);
+    assert.match(local, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$/);
+    const back = toOffsetTime(local);
+    assert.match(back, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$/);
+    assert.equal(new Date(back).getTime(), new Date(value).getTime());
+  });
+
+  test("leave out empty values", () => {
+    assert.equal(toLocalInput(null), "");
+    assert.equal(toOffsetTime(""), null);
+    assert.equal(toOffsetTime("kein Datum"), null);
   });
 });

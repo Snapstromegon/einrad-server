@@ -352,6 +352,22 @@ impl CompetitionConfig {
         if self.start_date > self.end_date {
             errors.push("start_date must not be after end_date");
         }
+        if self.name.trim().is_empty() {
+            errors.push("name must not be empty");
+        }
+        if self.location.trim().is_empty() {
+            errors.push("location must not be empty");
+        }
+        if self.fee_per_start < 0.0 || self.max_fee_per_rider.is_some_and(|fee| fee < 0.0) {
+            errors.push("fees must not be negative");
+        }
+        if self.jury.as_ref().is_some_and(|jury| {
+            jury.min_age < 0
+                || jury.deployments_per_two_acts < 0
+                || jury.missing_deployment_fee < 0.0
+        }) {
+            errors.push("[competition.jury] values must not be negative");
+        }
         if self.registration_start >= self.registration_end {
             errors.push("registration_start must be before registration_end");
         }
@@ -367,10 +383,7 @@ impl CompetitionConfig {
             errors.push("[competition.jury] registration_end must not be after start_date");
         }
         if !errors.is_empty() {
-            return Err(format!(
-                "Invalid [competition] dates:\n- {}",
-                errors.join("\n- ")
-            ));
+            return Err(format!("Invalid [competition]:\n- {}", errors.join("\n- ")));
         }
         if let Some(photos) = &self.photos {
             photos

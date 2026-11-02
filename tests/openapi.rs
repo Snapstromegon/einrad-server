@@ -19,6 +19,7 @@ const COMMANDS: &[&str] = &[
     "delete_timeplan_entry",
     "edit_booking",
     "edit_category",
+    "edit_competition",
     "edit_club_act",
     "edit_rider",
     "set_single",
@@ -79,6 +80,7 @@ const COMMANDS: &[&str] = &[
 const QUERIES: &[&str] = &[
     "get_act",
     "get_club",
+    "get_competition_settings",
     "get_photos",
     "get_playback",
     "get_startlist_csv",

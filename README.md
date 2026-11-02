@@ -56,6 +56,11 @@ the competition file only an import:
   `data_path/remap/jury-registrations-<timestamp>.toml`, with an empty
   `jury_category` to fill in. A file that doesn't change anything replaces
   nothing, so leaving the flag set doesn't drop the planning on every start.
+- "Wettkampf bearbeiten" in the admin UI ("Wettkampf", Admin only) changes the
+  competition while the server runs, also while the registration is open:
+  dates and deadlines, fees, payment details, jury rules, photos and
+  features. It validates like the competition file and applies right away;
+  the id never changes, the determining day not once categories exist.
 - The admin UI imports a competition file too ("Wettkampf", Admin only):
   without a competition directly, over an existing one like
   `--replace-competition`, after a preview of what it replaces and drops and a

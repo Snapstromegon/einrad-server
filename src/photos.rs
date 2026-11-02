@@ -59,7 +59,7 @@ const PROPFIND_BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// Where the photos come from, as the competition sets it
 /// (`[competition.photos]`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PhotosSettings {
     /// A WebDAV URL, a Nextcloud share link or a local folder.

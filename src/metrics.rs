@@ -586,6 +586,7 @@ mod tests {
             reload_db_token: String::new(),
             metrics_token: None,
             features: Features::default(),
+            competition_file_id: None,
         };
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, "Bearer x".parse().unwrap());

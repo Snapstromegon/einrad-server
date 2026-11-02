@@ -169,13 +169,13 @@ impl TestApp {
         seed_db(&db, &status).await;
         // Nothing listens on port 1, so any attempt to send a mail fails.
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true)
+        Self::build(db, mailer, None, true, None)
     }
 
     /// App without a competition: the server in setup mode.
     pub async fn without_competition(db: SqlitePool) -> Self {
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true)
+        Self::build(db, mailer, None, true, None)
     }
 
     /// App whose competition leaves the jury registration unset and whose
@@ -183,7 +183,7 @@ impl TestApp {
     pub async fn without_jury_registration(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, false)
+        Self::build(db, mailer, None, false, None)
     }
 
     /// App showing the photos of `photos` on the info board: the
@@ -192,7 +192,7 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         set_photos(&db, Some(&photos)).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true)
+        Self::build(db, mailer, None, true, None)
     }
 
     /// App sending mails to a dedicated Mailpit container.
@@ -200,15 +200,25 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         let mailpit = Mailpit::start().await;
         let mailer = mailpit.mailer();
-        Self::build(db, mailer, Some(mailpit), true)
+        Self::build(db, mailer, Some(mailpit), true, None)
     }
 
-    /// `jury_registration` is the system default for the feature.
+    /// App started with a competition file whose id is `file_id`.
+    pub async fn started_with_competition_file(db: SqlitePool, file_id: &str) -> Self {
+        seed_db(&db, &open_registration()).await;
+        let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+        Self::build(db, mailer, None, true, Some(file_id))
+    }
+
+    /// `jury_registration` is the system default for the feature,
+    /// `competition_file_id` the id in the competition file the server
+    /// started with.
     fn build(
         db: SqlitePool,
         mailer: Mailer,
         mailpit: Option<Mailpit>,
         jury_registration: bool,
+        competition_file_id: Option<&str>,
     ) -> Self {
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_aud = false;
@@ -229,6 +239,7 @@ impl TestApp {
             features: Features {
                 jury_registration: Some(jury_registration),
             },
+            competition_file_id: competition_file_id.map(Into::into),
         };
         let reloadable = ReloadableSqlite::new(db.clone(), String::new());
         let player_hub = PlayerHub::new(reloadable.clone());
