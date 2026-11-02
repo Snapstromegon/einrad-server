@@ -3,7 +3,8 @@
 //!
 //! The database is the source of the competition (ADR 0005), the file only
 //! an import: it's applied when the database has no competition yet, or on
-//! purpose with `--replace-competition`. See [`apply`].
+//! purpose with `--replace-competition` or the admin UI's import. See
+//! [`apply`] and [`preview`].
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -23,6 +24,8 @@ use crate::{
     },
     finals::{self, SlotGroup},
     jury::JudgeTask,
+    reloadable_sqlite::begin_write,
+    roles::Role,
     timeplan::EntryKind,
 };
 
@@ -444,8 +447,40 @@ pub enum Applied {
     Replaced(Dropped),
 }
 
+/// A part of the competition that a file can change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Part {
+    Settings,
+    Categories,
+    Finals,
+    Timeplan,
+    JuryCategories,
+}
+
+impl Part {
+    /// For warnings, e.g. "the categories".
+    fn describe(self) -> &'static str {
+        match self {
+            Part::Settings => "the competition settings",
+            Part::Categories => "the categories",
+            Part::Finals => "the finals",
+            Part::Timeplan => "the timeplan",
+            Part::JuryCategories => "the jury categories",
+        }
+    }
+}
+
+fn describe(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .map(|part| part.describe())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// What a replace drops along with the old competition's planning.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct Dropped {
     pub timeplan_slots: i64,
     /// Acts started or ended, whose progress is reset.
@@ -458,6 +493,7 @@ pub struct Dropped {
     /// Judge registrations whose jury category has no namesake in the file.
     pub judge_registrations: Vec<RemapRegistration>,
     /// Where they were written, to fill in `jury_category` and apply again.
+    #[serde(skip)]
     pub remap_file: Option<PathBuf>,
 }
 
@@ -503,7 +539,7 @@ impl Dropped {
 
 /// A judge registration a replace dropped, as in the remap file. Filling in
 /// `jury_category` says which new jury category the judge belongs to.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemapRegistration {
     pub club: String,
     pub firstname: String,
@@ -545,7 +581,7 @@ pub async fn apply(
             warnings,
         });
     };
-    let mut tx = db.begin().await.map_err(db_error)?;
+    let mut tx = begin_write(db).await.map_err(db_error)?;
     let mut dropped_registrations = Vec::new();
     let applied = match Competition::current(&mut *tx).await.map_err(db_error)? {
         None => {
@@ -589,7 +625,7 @@ pub async fn apply(
                         "The competition file differs from the database in {}; it is ignored, \
                          the database is the source of the competition. To apply it anyway, \
                          start with --replace-competition.",
-                        differences.join(", ")
+                        describe(&differences)
                     ));
                     Applied::Ignored
                 }
@@ -605,7 +641,7 @@ pub async fn apply(
                     }
                     info!(
                         "Replaced {} of competition {} with the competition file",
-                        differences.join(", "),
+                        describe(&differences),
                         current.id
                     );
                     dropped_registrations = dropped.judge_registrations.clone();
@@ -650,6 +686,74 @@ pub async fn apply(
         warn!("{warning}");
     }
     Ok(Report { applied, warnings })
+}
+
+/// What [`apply`] with `replace` would do with a file, for the admin UI to
+/// confirm before.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
+pub struct Preview {
+    /// The id of the database's competition, which a replace keeps; `None`
+    /// if the file would create the competition.
+    pub current_id: Option<String>,
+    /// The id in the file.
+    pub file_id: String,
+    /// The file's competition name.
+    pub name: String,
+    /// What the file changes; empty if it changes nothing.
+    pub changes: Vec<Part>,
+    /// What a replace would drop.
+    pub dropped: Dropped,
+}
+
+/// Applies the file as [`apply`] with `replace` does, but in a transaction
+/// that's rolled back: the database stays as it is. Fails like [`apply`]
+/// for an invalid file.
+pub async fn preview(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<Preview, String> {
+    let mut tx = begin_write(db).await.map_err(db_error)?;
+    let current = Competition::current(&mut *tx).await.map_err(db_error)?;
+    let before = Snapshot::take(&mut tx).await.map_err(db_error)?;
+    let id = current.as_ref().map_or(&file.competition.id, |c| &c.id);
+    let dropped = write(&mut tx, file, id).await?;
+    let changes = before.differences(&Snapshot::take(&mut tx).await.map_err(db_error)?);
+    tx.rollback().await.map_err(db_error)?;
+    Ok(Preview {
+        dropped: if current.is_some() && !changes.is_empty() {
+            dropped
+        } else {
+            Dropped::default()
+        },
+        current_id: current.map(|c| c.id),
+        file_id: file.competition.id.clone(),
+        name: file.competition.name.clone(),
+        changes,
+    })
+}
+
+/// The competition the server starts with, or `None` for setup mode:
+/// without a competition the server starts as long as an admin exists, who
+/// imports one in the admin UI. Without either it refuses to start, as
+/// nobody could import one.
+pub async fn startup_competition(db: &sqlx::SqlitePool) -> Result<Option<Competition>, String> {
+    if let Some(competition) = Competition::current(db).await.map_err(db_error)? {
+        return Ok(Some(competition));
+    }
+    let admins = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
+        Role::Admin
+    )
+    .fetch_one(db)
+    .await
+    .map_err(db_error)?;
+    if admins == 0 {
+        return Err(
+            "No competition in the database and no admin to import one. Pass a \
+             competition file with --competition or COMPETITION (see competition.example.toml), \
+             or an admin with --admin, ADMIN or [admin] to start in setup mode and import the \
+             competition in the admin UI."
+                .to_string(),
+        );
+    }
+    Ok(None)
 }
 
 /// Loads the competition file of `settings`, if any, and applies it as the
@@ -737,19 +841,16 @@ impl Snapshot {
         })
     }
 
-    /// What differs from `other`, e.g. "the categories".
-    fn differences(&self, other: &Self) -> Vec<&'static str> {
+    /// The parts that differ from `other`.
+    fn differences(&self, other: &Self) -> Vec<Part> {
         [
-            (
-                self.competition != other.competition,
-                "the competition settings",
-            ),
-            (self.categories != other.categories, "the categories"),
-            (self.finals != other.finals, "the finals"),
-            (self.timeplan != other.timeplan, "the timeplan"),
+            (self.competition != other.competition, Part::Settings),
+            (self.categories != other.categories, Part::Categories),
+            (self.finals != other.finals, Part::Finals),
+            (self.timeplan != other.timeplan, Part::Timeplan),
             (
                 self.jury_categories != other.jury_categories,
-                "the jury categories",
+                Part::JuryCategories,
             ),
         ]
         .into_iter()
@@ -1087,6 +1188,16 @@ async fn write(
     Ok(dropped)
 }
 
+/// The remap file's content, with how to fill it in.
+pub fn remap_content(remap: &RemapFile) -> Result<String, String> {
+    Ok(format!(
+        "# Judge registrations whose jury category the competition file dropped.\n\
+         # Fill in jury_category with the jury category of the new competition\n\
+         # each judge belongs to.\n\n{}",
+        toml::to_string(remap).map_err(|e| e.to_string())?
+    ))
+}
+
 /// Writes `remap` to `data_path/remap/jury-registrations-<timestamp>.toml`.
 fn write_remap_file(data_path: &Path, remap: &RemapFile) -> Result<PathBuf, String> {
     let directory = data_path.join("remap");
@@ -1098,12 +1209,7 @@ fn write_remap_file(data_path: &Path, remap: &RemapFile) -> Result<PathBuf, Stri
         ))
         .expect("valid format");
     let path = directory.join(format!("jury-registrations-{timestamp}.toml"));
-    let content = format!(
-        "# Judge registrations whose jury category the competition file dropped.\n\
-         # Fill in jury_category with the jury category of the new competition\n\
-         # each judge belongs to.\n\n{}",
-        toml::to_string(remap).map_err(|e| e.to_string())?
-    );
+    let content = remap_content(remap)?;
     std::fs::write(&path, content)
         .map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
     Ok(path)

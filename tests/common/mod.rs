@@ -172,6 +172,12 @@ impl TestApp {
         Self::build(db, mailer, None, true)
     }
 
+    /// App without a competition: the server in setup mode.
+    pub async fn without_competition(db: SqlitePool) -> Self {
+        let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+        Self::build(db, mailer, None, true)
+    }
+
     /// App whose competition leaves the jury registration unset and whose
     /// system default turns it off, as in release builds.
     pub async fn without_jury_registration(db: SqlitePool) -> Self {

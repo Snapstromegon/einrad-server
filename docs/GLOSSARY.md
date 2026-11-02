@@ -11,8 +11,11 @@ The one event this tool runs, with its dates, deadlines, fees and rules.
 _Avoid_: Event, Cup, Meisterschaft (as a term in the tool)
 
 **Competition file**:
-The file that imports a competition with its categories, finals, timeplan and jury categories; applied only when the database has no competition yet, or on purpose as a replace. The database stays the source of the competition (ADR 0005).
+The file that imports a competition with its categories, finals, timeplan and jury categories; applied only when the database has no competition yet, or on purpose as a replace (`--replace-competition` or the import in the admin UI). The database stays the source of the competition (ADR 0005).
 _Avoid_: Config (for the competition)
+
+**Setup mode**:
+The server running without a competition, until an admin imports the competition file in the admin UI; everyone else sees "noch nicht eröffnet".
 
 **Remap file**:
 The list of judge registrations a replace dropped because their jury category has no namesake in the new competition file, with an empty jury category to fill in.

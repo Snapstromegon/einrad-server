@@ -1,0 +1,247 @@
+import { consume } from "@lit/context";
+import { css, html, LitElement, nothing } from "lit";
+import { customElement, state } from "lit/decorators.js";
+import { failureText, unwrap } from "../../api";
+import { client, type schemas } from "../../apiClient";
+import { droppedItems, partNames } from "../../competition";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
+import { adminStyles } from "../../styles/admin";
+import { iconStyles, resetStyles } from "../../styles/base";
+
+type Preview = schemas.Preview;
+
+/** The remap file as a link to download. */
+const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
+  name,
+  url: URL.createObjectURL(new Blob([content], { type: "application/toml" })),
+});
+
+/**
+ * The competition itself (Admin, ADR 0005): importing a competition file.
+ * Without a competition (setup mode) a valid file is imported right away;
+ * over an existing one the page first shows what the file replaces and
+ * drops and imports after a confirmation. Afterwards the page reloads into
+ * the new competition, unless dropped judge registrations are offered as a
+ * remap file to download first.
+ */
+@customElement("cup-view-admin-competition")
+export default class CupViewAdminCompetition extends LitElement {
+  static override styles = [
+    resetStyles,
+    iconStyles,
+    adminStyles,
+    css`
+      section {
+        max-width: 48rem;
+        margin-top: 1rem;
+      }
+
+      p {
+        margin: 0.25rem 0;
+      }
+
+      ul {
+        margin: 0.25rem 0 0.25rem 1.25rem;
+      }
+
+      input[type="file"] {
+        margin: 0.5rem 0;
+      }
+    `,
+  ];
+
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
+  @state() private busy = false;
+  @state() private error = "";
+  /** The chosen file's content. */
+  @state() private file = "";
+  /** What the chosen file would replace, waiting for the confirmation. */
+  @state() private preview: Preview | null = null;
+  /** Dropped judge registrations of the import, to download. */
+  @state() private remapFile: { name: string; url: string } | null = null;
+
+  override render() {
+    const competition = this.systemStatus?.competition;
+    return html`<div class="page-pad">
+      <h1>Wettkampf</h1>
+      ${
+        competition
+          ? html`<p>
+              <b>${competition.name}</b>
+              <span class="muted">(ID ${competition.id})</span>
+            </p>`
+          : html`<div class="info-banner" role="status">
+              Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du die
+              Wettkampfdatei importierst.
+            </div>`
+      }
+      <section>
+        <h2>Wettkampfdatei importieren</h2>
+        <p class="muted">
+          Eine Wettkampfdatei wie <code>competition.example.toml</code>.
+          ${
+            competition
+              ? html`Sie ersetzt die Einstellungen, Kategorien, Finals, den
+                Zeitplan und die Jury-Kategorien. Die Daten der Vereine
+                bleiben, die ID des Wettkampfs auch.`
+              : html`Sie legt den Wettkampf an.`
+          }
+        </p>
+        ${this.remapFile ? this.renderRemapFile(this.remapFile) : this.renderImport()}
+      </section>
+    </div>`;
+  }
+
+  private renderImport() {
+    return html`<input
+        type="file"
+        accept=".toml,text/plain"
+        aria-label="Wettkampfdatei"
+        ?disabled=${this.busy}
+        @change=${this.choose}
+      />
+      ${
+        this.error
+          ? html`<div class="error-banner" role="alert">${this.error}</div>`
+          : nothing
+      }
+      ${this.preview ? this.renderPreview(this.preview) : nothing}`;
+  }
+
+  private renderPreview(preview: Preview) {
+    if (!preview.changes.length) {
+      return html`<div class="ok-banner" role="status">
+        Die Datei ändert nichts am Wettkampf.
+      </div>`;
+    }
+    const dropped = droppedItems(preview.dropped).map(
+      (item) => html`<li>${item}</li>`,
+    );
+    return html`<div class="warn-banner" role="status">
+        <div>
+          <p>
+            <b>${preview.name}</b> ersetzt:
+            ${preview.changes.map((part) => partNames[part]).join(", ")}.
+          </p>
+          ${
+            preview.current_id !== preview.file_id
+              ? html`<p>
+                  Die Datei hat die ID <code>${preview.file_id}</code>; der
+                  Wettkampf behält seine ID <code>${preview.current_id}</code>.
+                </p>`
+              : nothing
+          }
+          ${
+            dropped.length
+              ? html`<p>Dabei geht verloren:</p>
+                  <ul>
+                    ${dropped}
+                  </ul>`
+              : nothing
+          }
+          ${
+            preview.dropped.judge_registrations.length
+              ? html`<p>
+                  Die Jury-Anmeldungen ohne passende Jury-Kategorie gibt es
+                  nach dem Import als Datei zum Nachtragen.
+                </p>`
+              : nothing
+          }
+        </div>
+      </div>
+      <div class="toolbar">
+        <button
+          class="btn danger"
+          ?disabled=${this.busy}
+          @click=${this.import}
+        >
+          Wettkampf ersetzen
+        </button>
+        <button class="btn" ?disabled=${this.busy} @click=${this.cancel}>
+          Abbrechen
+        </button>
+      </div>`;
+  }
+
+  private renderRemapFile(remapFile: { name: string; url: string }) {
+    return html`<div class="ok-banner" role="status">
+        <div>
+          <p>Wettkampf importiert.</p>
+          <p>
+            Einige Jury-Anmeldungen haben keine passende Jury-Kategorie mehr.
+            Trag in der Datei bei jeder Anmeldung die neue Jury-Kategorie ein
+            (<code>jury_category</code>).
+          </p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <a class="btn primary" href=${remapFile.url} download=${remapFile.name}
+          >${remapFile.name} herunterladen</a
+        >
+        <button class="btn" @click=${this.reload}>Weiter</button>
+      </div>`;
+  }
+
+  private async choose(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const chosen = input.files?.[0];
+    input.value = "";
+    if (!chosen) {
+      return;
+    }
+    this.error = "";
+    this.preview = null;
+    this.busy = true;
+    try {
+      this.file = await chosen.text();
+      const preview = await unwrap(
+        client.previewCompetitionImport({ body: { file: this.file } }),
+      );
+      if (preview.current_id === null) {
+        // Setup mode: nothing to replace, nothing to confirm.
+        await this.import();
+        return;
+      }
+      this.preview = preview;
+    } catch (error) {
+      this.error = failureText("Die Datei lässt sich nicht importieren", error);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private import = async () => {
+    this.error = "";
+    this.busy = true;
+    try {
+      const result = await unwrap(
+        client.importCompetition({ body: { file: this.file } }),
+      );
+      this.preview = null;
+      if (result.remap_file) {
+        this.remapFile = remapDownload(result.remap_file);
+      } else {
+        this.reload();
+      }
+    } catch (error) {
+      this.error = failureText("Fehler beim Import", error);
+    } finally {
+      this.busy = false;
+    }
+  };
+
+  private cancel() {
+    this.preview = null;
+    this.file = "";
+  }
+
+  /** Into the new competition: everything reads it again. */
+  private reload() {
+    location.reload();
+  }
+}

@@ -28,6 +28,7 @@ mod edit_final;
 mod edit_jury_category;
 mod edit_rider;
 mod edit_timeplan_entry;
+mod import_competition;
 mod leave_pair;
 mod link_pair;
 mod login;
@@ -36,6 +37,7 @@ mod move_category_down;
 mod move_category_up;
 mod move_timeplan_down;
 mod move_timeplan_up;
+mod preview_competition_import;
 mod register;
 mod reload_db;
 mod rename_club;
@@ -133,6 +135,10 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(set_block_order::set_block_order))
         .routes(routes!(reset_block_order::reset_block_order))
         .routes(routes!(reload_db::reload_db))
+        .routes(routes!(
+            preview_competition_import::preview_competition_import
+        ))
+        .routes(routes!(import_competition::import_competition))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
         .routes(routes!(edit_club_judge::edit_club_judge))

@@ -94,6 +94,8 @@ permissions! {
     ManageUsers,
     /// Categories, the timeplan, finals and the order of acts.
     PlanCompetition,
+    /// The competition itself: import, edit and export it (ADR 0005).
+    ManageCompetition,
     /// Every club's registration, also after the Meldeschluss: withdrawals,
     /// pairs across clubs, replacing riders.
     ManageRegistrations,
@@ -288,7 +290,12 @@ mod tests {
             Role::MusicCheck,
         ];
         for role in roles {
-            let admin_only = [P::ManageUsers, P::PlanCompetition, P::ManageRegistrations];
+            let admin_only = [
+                P::ManageUsers,
+                P::PlanCompetition,
+                P::ManageCompetition,
+                P::ManageRegistrations,
+            ];
             for permission in admin_only {
                 assert_eq!(
                     role.permissions().contains(&permission),

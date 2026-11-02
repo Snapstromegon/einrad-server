@@ -163,6 +163,32 @@ async fn photos_have_no_flags_or_environment_variables_anymore() {
 }
 
 #[tokio::test]
+async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
+    let db = in_memory_migrated().await;
+    let err = seed::startup_competition(&db).await.unwrap_err();
+    assert!(err.contains("setup mode"), "{err}");
+
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'admin@cup.test', true, 'Admin', 'x')")
+        .bind(uuid::Uuid::now_v7())
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_roles (user_id, role) SELECT id, 'admin' FROM users")
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(seed::startup_competition(&db).await.unwrap(), None);
+
+    let dir = TempDir::new();
+    write(&dir, "config.toml", SYSTEM_CONFIG);
+    let competition = write(&dir, "competition.toml", COMPETITION);
+    start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    assert!(seed::startup_competition(&db).await.unwrap().is_some());
+}
+
+#[tokio::test]
 async fn a_combined_config_stops_the_start() {
     let db = in_memory_migrated().await;
     let dir = TempDir::new();

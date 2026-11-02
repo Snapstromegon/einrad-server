@@ -1,7 +1,6 @@
 use clap::Parser;
 use eyre::eyre;
 use nrw_freestyle_cup_registration::{
-    competition::Competition,
     config::{CliArgs, ConfigFile, Settings},
     http_server::{HttpServer, HttpServerOptions},
     jwt::JWTConfig,
@@ -64,17 +63,20 @@ async fn main() -> eyre::Result<()> {
     seed::apply_settings(&db, &settings)
         .await
         .map_err(|e| eyre!(e))?;
-    let competition = Competition::current(&db).await?.ok_or_else(|| {
-        eyre!("No competition in the database. Pass a competition file with --competition or COMPETITION (see competition.example.toml).")
-    })?;
-    info!(
-        "Running competition {} ({})",
-        competition.name, competition.id
-    );
 
     if let Some(admin) = &settings.admin {
         info!("Inserting admin user with email: {}", admin.email);
         insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
+    }
+    match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
+        Some(competition) => info!(
+            "Running competition {} ({})",
+            competition.name, competition.id
+        ),
+        None => warn!(
+            "No competition yet: starting in setup mode. An admin imports the competition file \
+             in the admin UI (Wettkampf)."
+        ),
     }
 
     info!("Build JWT config");

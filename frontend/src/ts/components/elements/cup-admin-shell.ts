@@ -29,6 +29,7 @@ interface NavLink {
 
 const adminLinks: NavLink[] = [
   { href: "/admin", label: "Übersicht" },
+  { href: "/admin-competition", label: "Wettkampf" },
   { href: "/admin-check-in", label: "Check-In" },
   { href: "/admin-riders", label: "FahrerInnen" },
   { href: "/admin-payments", label: "Zahlungen" },

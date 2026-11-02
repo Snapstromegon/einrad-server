@@ -56,6 +56,16 @@ the competition file only an import:
   `data_path/remap/jury-registrations-<timestamp>.toml`, with an empty
   `jury_category` to fill in. A file that doesn't change anything replaces
   nothing, so leaving the flag set doesn't drop the planning on every start.
+- The admin UI imports a competition file too ("Wettkampf", Admin only):
+  without a competition directly, over an existing one like
+  `--replace-competition`, after a preview of what it replaces and drops and a
+  confirmation. Dropped judge registrations are offered as the remap file to
+  download. The new settings apply without a restart.
+- **Setup mode:** without a competition in the database and without a
+  competition file, the server starts anyway if there is an admin (`[admin]`
+  / `ADMIN`, or one in the database). Admins see the import, everyone else a
+  "noch nicht eröffnet" page. Without an admin it refuses to start, as nobody
+  could import.
 
 Features that are still being refined are competition settings
 (`[competition.features]`): on, off or unset. An unset feature follows
@@ -76,7 +86,8 @@ The database migrations only create the schema and don't insert any data.
    competition, the categories, the finals and the timeplan.
 2. Start with a fresh database (archive the old `db.sqlite`).
 3. Start the server. It migrates the database and creates the competition from
-   the competition file.
+   the competition file. Or start it without one (setup mode, with an admin)
+   and import the file under "Wettkampf" in the admin UI.
 
 The migrations of the 2024–2026 seasons were squashed into one baseline
 migration; the originals are kept in `migrations-archive/` for reference. A
