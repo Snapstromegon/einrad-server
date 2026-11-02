@@ -1,7 +1,8 @@
-// The competition's import (ADR 0005): German texts for what a competition
-// file changes and drops. Pure helpers, so the unit tests can import them
+// The competition's settings and import (ADR 0005): German texts for what a
+// competition file changes and drops, and helpers for the settings form. Pure helpers, so the unit tests can import them
 // without a DOM.
 import type { schemas } from "./apiClient";
+import { paymentReference } from "./epc";
 
 export type Part = schemas.Part;
 export type Dropped = schemas.Dropped;
@@ -81,3 +82,15 @@ export const toOffsetTime = (value: string) => {
   const minutes = pad(Math.abs(offset) % 60);
   return `${toLocalInput(date.toISOString())}${sign}${hours}:${minutes}`;
 };
+
+/**
+ * The transfer reference (Verwendungszweck) a sample club would get with
+ * `prefix`, built like the clubs' own (see `paymentReference`). A blank
+ * prefix counts as none, as the server saves it.
+ */
+export const referenceExample = (prefix: string) =>
+  paymentReference(
+    prefix.trim() || null,
+    "Einradverein Musterstadt",
+    "EV-K7Q3",
+  );

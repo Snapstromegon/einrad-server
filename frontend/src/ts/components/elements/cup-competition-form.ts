@@ -3,7 +3,11 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { failureText, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
-import { toLocalInput, toOffsetTime } from "../../competition";
+import {
+  referenceExample,
+  toLocalInput,
+  toOffsetTime,
+} from "../../competition";
 import { SYSTEM_STATUS_CHANGED } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
@@ -90,11 +94,14 @@ export default class CupCompetitionForm extends LitElement {
   @state() private showPassword = false;
   /** Whether the jury rules' fields show. */
   @state() private jury = false;
+  /** The Verwendungszweck's prefix as typed, for its example. */
+  @state() private referencePrefix = "";
 
   private settings = new Task(this, {
     task: async () => {
       const settings = await unwrap(client.getCompetitionSettings());
       this.jury = !!settings.competition.jury;
+      this.referencePrefix = settings.competition.payment_reference ?? "";
       return settings;
     },
     args: () => [],
@@ -304,8 +311,12 @@ export default class CupCompetitionForm extends LitElement {
                 class="inline"
                 name="payment_reference"
                 .value=${c.payment_reference ?? ""}
+                @input=${this.editReference}
               />
-              <small>Davor; Vereinsname und Code folgen.</small></label
+              <small
+                >Davor; Vereinsname und Code folgen, z. B.
+                „${referenceExample(this.referencePrefix)}“.</small
+              ></label
             >
           </div>
         </fieldset>
@@ -473,6 +484,10 @@ export default class CupCompetitionForm extends LitElement {
 
   private edited() {
     this.saved = false;
+  }
+
+  private editReference(event: Event) {
+    this.referencePrefix = (event.target as HTMLInputElement).value;
   }
 
   private toggleJury(event: Event) {

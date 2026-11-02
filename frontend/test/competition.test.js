@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
   droppedItems,
+  referenceExample,
   toLocalInput,
   toOffsetTime,
 } from "../src/ts/competition.ts";
@@ -53,5 +54,18 @@ describe("toLocalInput and toOffsetTime", () => {
     assert.equal(toLocalInput(null), "");
     assert.equal(toOffsetTime(""), null);
     assert.equal(toOffsetTime("kein Datum"), null);
+  });
+});
+
+describe("referenceExample", () => {
+  test("shows the Verwendungszweck of a sample club", () => {
+    assert.equal(
+      referenceExample("Startgeld LM 2027"),
+      "Startgeld LM 2027: Einradverein Musterstadt (EV-K7Q3)",
+    );
+  });
+
+  test("is only the club and its code without a prefix", () => {
+    assert.equal(referenceExample("  "), "Einradverein Musterstadt (EV-K7Q3)");
   });
 });

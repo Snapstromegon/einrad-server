@@ -102,7 +102,7 @@ export default class CupViewAdminCompetition extends LitElement {
       <section>
         <h2>Wettkampfdatei importieren</h2>
         <p class="muted">
-          Eine Wettkampfdatei wie <code>competition.example.toml</code>.
+          Eine Wettkampfdatei wie <code>competition.toml</code>.
           ${
             competition
               ? html`Sie ersetzt die Einstellungen, Kategorien, Finals, den
