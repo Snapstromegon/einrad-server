@@ -572,7 +572,10 @@ categories = ["PU17", "PU19", "PU21", "PU23", "PU25", "PU30", "PU50", "PU70", "P
 # custom entry runs, the info board shows its label, the clock and photos;
 # show_photos = false leaves out the photos. internal = true makes a custom
 # entry an internal timeplan entry: only the organizer team sees it, public
-# screens show a break. Example times: replace them with the real ones.
+# screens show a break. kind = "acts" makes an entry a start block with a
+# label, e.g. "Nachstarter" (with or without a category or final);
+# einfahrzeit_minutes overrides a start block's Einfahrzeit. Example times:
+# replace them with the real ones.
 
 [[timeplan]]
 category = "EMU11"

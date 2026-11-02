@@ -11,13 +11,15 @@ use std::{
     str::FromStr,
 };
 
-use serde::{Deserialize, Deserializer, de::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use time::{
     Date, OffsetDateTime, format_description::well_known::Rfc3339, macros::format_description,
 };
 use url::Url;
 
-use crate::{act_type::ActType, competition::Features, photos::PhotosSettings};
+use crate::{
+    act_type::ActType, competition::Features, photos::PhotosSettings, timeplan::EntryKind,
+};
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
 pub const DEFAULT_COMPETITION_PATH: &str = "./competition.toml";
@@ -149,24 +151,30 @@ impl ConfigFile {
 
 /// The competition file: the competition with its categories, finals,
 /// timeplan and jury categories. It's only an import; the database is the
-/// source of the competition (see `crate::seed::apply`).
-#[derive(Debug, Clone, Deserialize)]
+/// source of the competition (see `crate::seed::apply`). The export writes
+/// one (see `crate::export`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompetitionFile {
     pub competition: CompetitionConfig,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<CategoryConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub finals: Vec<FinalConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeplan: Vec<TimeplanEntryConfig>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jury_categories: Vec<JuryCategoryConfig>,
 }
 
 impl CompetitionFile {
     pub fn parse(content: &str) -> Result<Self, String> {
         toml::from_str(content).map_err(|e| e.to_string())
+    }
+
+    /// The file as TOML, as `parse` reads it.
+    pub fn to_toml(&self) -> Result<String, String> {
+        toml::to_string(self).map_err(|e| e.to_string())
     }
 
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -225,57 +233,66 @@ impl FromStr for AdminConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompetitionConfig {
     pub id: String,
     pub name: String,
     pub location: String,
-    #[serde(deserialize_with = "toml_date")]
+    #[serde(deserialize_with = "toml_date", serialize_with = "date_to_toml")]
     pub start_date: Date,
-    #[serde(deserialize_with = "toml_date")]
+    #[serde(deserialize_with = "toml_date", serialize_with = "date_to_toml")]
     pub end_date: Date,
-    #[serde(deserialize_with = "toml_date")]
+    #[serde(deserialize_with = "toml_date", serialize_with = "date_to_toml")]
     pub determining_day: Date,
-    #[serde(deserialize_with = "toml_datetime")]
+    #[serde(
+        deserialize_with = "toml_datetime",
+        serialize_with = "datetime_to_toml"
+    )]
     pub registration_start: OffsetDateTime,
-    #[serde(deserialize_with = "toml_datetime")]
+    #[serde(
+        deserialize_with = "toml_datetime",
+        serialize_with = "datetime_to_toml"
+    )]
     pub registration_end: OffsetDateTime,
-    #[serde(deserialize_with = "toml_datetime")]
+    #[serde(
+        deserialize_with = "toml_datetime",
+        serialize_with = "datetime_to_toml"
+    )]
     pub music_upload_end: OffsetDateTime,
     pub fee_per_start: f64,
     /// Formerly `max_fee_per_starter`, which older config files still use.
-    #[serde(alias = "max_fee_per_starter")]
+    #[serde(alias = "max_fee_per_starter", skip_serializing_if = "Option::is_none")]
     pub max_fee_per_rider: Option<f64>,
     /// Where the event takes place, e.g. the hall's name and address.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub venue: Option<String>,
     /// Shown to clubs for questions, e.g. about overpayments.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_email: Option<String>,
     /// Link to the official announcement (Ausschreibung).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub announcement_url: Option<String>,
     /// Where the info board's photo QR code leads, e.g. the photo gallery.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photos_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PaymentConfig::is_empty")]
     pub payment: PaymentConfig,
     /// The clubs' jury obligation; without it there is none.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jury: Option<JuryConfig>,
     /// Features this competition turns on or off; unset ones follow the
     /// system config's `[features]`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Features::is_unset")]
     pub features: Features,
     /// Where the info board's photos come from; without it there are none.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photos: Option<PhotosSettings>,
 }
 
 /// Rules of the Jury-Konzept Einrad Freestyle (Stand 15.09.2025), which are
 /// the defaults.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct JuryConfig {
     /// Minimum age of trained judges on the first competition day.
@@ -288,7 +305,12 @@ pub struct JuryConfig {
     #[serde(default = "default_missing_deployment_fee")]
     pub missing_deployment_fee: f64,
     /// End of the judge registration; the registration's end without it.
-    #[serde(default, deserialize_with = "toml_datetime_option")]
+    #[serde(
+        default,
+        deserialize_with = "toml_datetime_option",
+        serialize_with = "datetime_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub registration_end: Option<OffsetDateTime>,
 }
 
@@ -394,70 +416,98 @@ impl CompetitionConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PaymentConfig {
-    #[serde(deserialize_with = "toml_date_option")]
+    #[serde(
+        deserialize_with = "toml_date_option",
+        serialize_with = "date_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub deadline: Option<Date>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub account_holder: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub iban: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl PaymentConfig {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CategoryConfig {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub act_type: ActType,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub single_male: bool,
     /// Minimum age in years on the determining day (inclusive).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_age: Option<f64>,
     /// Age limit in years on the determining day (exclusive), e.g. 15 for "U15".
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub under_age: Option<f64>,
     /// Explicit lower birthday bound (inclusive); overrides `under_age`.
-    #[serde(default, deserialize_with = "toml_date_option")]
+    #[serde(
+        default,
+        deserialize_with = "toml_date_option",
+        serialize_with = "date_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub from_birthday: Option<Date>,
     /// Explicit upper birthday bound (exclusive); overrides `min_age`.
-    #[serde(default, deserialize_with = "toml_date_option")]
+    #[serde(
+        default,
+        deserialize_with = "toml_date_option",
+        serialize_with = "date_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub to_birthday: Option<Date>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub einfahrzeit_minutes: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub act_duration_minutes: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub judge_duration_minutes: f64,
 }
 
 /// A final: reserved slots for the best riders of the heats, e.g. 5 slots
 /// "U11–U15", planned before the results are known (see `crate::finals`).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FinalConfig {
     /// Unique; `[[timeplan]] final = …` refers to it.
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub act_type: ActType,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub single_male: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub einfahrzeit_minutes: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub act_duration_minutes: f64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub judge_duration_minutes: f64,
     /// The slots in start order, as groups like `{ label = "U11–U15", count = 5 }`.
     pub slots: Vec<crate::finals::SlotGroup>,
     /// The categories whose acts can be placed in the slots.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<String>,
 }
 
 /// What judges register for and get assigned to, e.g. one heat block (see
 /// `crate::jury`). Only seeded into an empty table.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct JuryCategoryConfig {
     pub name: String,
@@ -465,7 +515,12 @@ pub struct JuryCategoryConfig {
     #[serde(default = "default_category_deployments")]
     pub deployments: i64,
     /// The day it runs; within the event.
-    #[serde(default, deserialize_with = "toml_date_option")]
+    #[serde(
+        default,
+        deserialize_with = "toml_date_option",
+        serialize_with = "date_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub day: Option<Date>,
     /// Judges it needs per task. 5 allows dropping the highest and lowest
     /// score (Konzept Gemeinsame Wettkämpfe 4.1).
@@ -489,27 +544,59 @@ fn default_needed_dismount_counters() -> i64 {
     3
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TimeplanEntryConfig {
+    /// `"acts"` for a start block with a label, e.g. "Nachstarter" (with or
+    /// without a category or final). Without it, entries with a category or
+    /// final are start blocks, the others custom entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<EntryKind>,
     /// Name of the category this entry runs. Leave empty for custom entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     /// Name of the final this entry runs, instead of a category.
-    #[serde(rename = "final")]
+    #[serde(rename = "final", skip_serializing_if = "Option::is_none")]
     pub final_name: Option<String>,
-    /// Label of a custom entry, e.g. "Mittagspause".
+    /// Label of a custom entry, e.g. "Mittagspause", or of a start block
+    /// (`kind = "acts"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// Duration of a custom entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_minutes: Option<f64>,
+    /// Start blocks: the warm-up time (Einfahrzeit) before the block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub einfahrzeit_minutes: Option<f64>,
     /// Custom entries: photos next to the clock on the info board.
-    #[serde(default = "crate::utils::default_true")]
+    #[serde(
+        default = "crate::utils::default_true",
+        skip_serializing_if = "is_true"
+    )]
     pub show_photos: bool,
     /// Custom entries: an internal timeplan entry, only for the organizer
     /// team.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub internal: bool,
-    #[serde(default, deserialize_with = "toml_datetime_option")]
+    #[serde(
+        default,
+        deserialize_with = "toml_datetime_option",
+        serialize_with = "datetime_option_to_toml",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub earliest_start: Option<OffsetDateTime>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
 }
 
 fn parse_date(value: &str) -> Result<Date, String> {
@@ -547,6 +634,47 @@ pub(crate) fn toml_datetime_option<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<OffsetDateTime>, D::Error> {
     toml_datetime(deserializer).map(Some)
+}
+
+/// A date as a TOML date, e.g. `2027-06-05`, not as a string.
+fn date_to_toml<S: Serializer>(date: &Date, serializer: S) -> Result<S::Ok, S::Error> {
+    toml::value::Datetime::from_str(&date.to_string())
+        .map_err(serde::ser::Error::custom)?
+        .serialize(serializer)
+}
+
+fn date_option_to_toml<S: Serializer>(
+    date: &Option<Date>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match date {
+        Some(date) => date_to_toml(date, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// A date and time as a TOML datetime with its offset, e.g.
+/// `2027-06-05T10:00:00+02:00`.
+fn datetime_to_toml<S: Serializer>(
+    datetime: &OffsetDateTime,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let text = datetime
+        .format(&Rfc3339)
+        .map_err(serde::ser::Error::custom)?;
+    toml::value::Datetime::from_str(&text)
+        .map_err(serde::ser::Error::custom)?
+        .serialize(serializer)
+}
+
+fn datetime_option_to_toml<S: Serializer>(
+    datetime: &Option<OffsetDateTime>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match datetime {
+        Some(datetime) => datetime_to_toml(datetime, serializer),
+        None => serializer.serialize_none(),
+    }
 }
 
 /// Fully resolved settings the server runs with.

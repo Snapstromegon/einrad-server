@@ -278,10 +278,12 @@ impl DemoData {
             .timeplan
             .iter()
             .map(|entry| TimeplanEntryConfig {
+                kind: None,
                 category: entry.category.clone(),
                 final_name: entry.final_name.clone(),
                 label: entry.label.clone(),
                 duration_minutes: entry.duration_minutes,
+                einfahrzeit_minutes: None,
                 show_photos: entry.show_photos,
                 internal: entry.internal,
                 earliest_start: entry.earliest_start,

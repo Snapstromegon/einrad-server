@@ -123,6 +123,8 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private showAll = false;
   /** While printing only the Juryplan. */
   @state() private printingPlan = false;
+  /** What applying a remap file did. */
+  @state() private remapResult: schemas.ApplyJuryRemapResponse | null = null;
 
   @consume({ context: systemStatusContext, subscribe: true })
   systemStatus: SystemStatus | null = null;
@@ -156,7 +158,7 @@ export default class CupViewAdminJudges extends LitElement {
         this.systemStatus?.competition && !this.systemStatus.competition.jury
           ? html`<div class="warn-banner" role="status">
               Für diesen Wettkampf sind keine Jury-Regeln eingetragen
-              (<code>[competition.jury]</code> in der Config). Ohne sie gibt es
+              (unter <a href="/admin-competition">Wettkampf</a>). Ohne sie gibt es
               keine Pflicht-Juryeinsätze und keine Jurygebühr; JurorInnen können
               trotzdem gemeldet und eingeteilt werden.
             </div>`
@@ -182,7 +184,7 @@ export default class CupViewAdminJudges extends LitElement {
         "Jury-Kategorien",
         (categories) =>
           html`${this.renderJudgeSections(categories)}
-          ${this.renderCategories(categories)}`,
+          ${this.renderCategories(categories)} ${this.renderRemap()}`,
       )}
     </div>`;
   }
@@ -628,6 +630,90 @@ export default class CupViewAdminJudges extends LitElement {
         </tbody>
       </table>
     </section>`;
+  }
+
+  /**
+   * Applying a remap file: the judge registrations a competition import
+   * dropped, with their new jury category filled in.
+   */
+  private renderRemap() {
+    const result = this.remapResult;
+    const name = (r: schemas.RemapRegistration) =>
+      `${r.firstname} ${r.lastname} (${r.club}, ${taskNames[r.task]})`;
+    const unfilled = (result?.unfilled ?? []).map(
+      (r) => html`<li>${name(r)}: keine Jury-Kategorie eingetragen</li>`,
+    );
+    const notFound = (result?.not_found ?? []).map(
+      ({ registration: r, problem }) =>
+        html`<li>
+          ${name(r)}:
+          ${
+            problem === "judge_not_found"
+              ? "JurorIn nicht gefunden"
+              : `Jury-Kategorie „${r.jury_category}“ nicht gefunden`
+          }
+        </li>`,
+    );
+    return html`<section class="no-print">
+      <h2>Remap-Datei anwenden</h2>
+      <p class="muted">
+        Hat ein Import Jury-Kategorien umbenannt oder entfernt, gibt es die
+        Jury-Anmeldungen ohne passende Kategorie als Datei. Trag dort bei jeder
+        Anmeldung die neue Jury-Kategorie ein (<code>jury_category</code>) und
+        lade sie hier hoch: Die JurorInnen werden wieder angemeldet.
+      </p>
+      <input
+        type="file"
+        accept=".toml,text/plain"
+        aria-label="Remap-Datei"
+        ?disabled=${this.saving}
+        @change=${this.applyRemap}
+      />
+      ${
+        result
+          ? html`<div class="ok-banner" role="status">
+              ${result.registered}
+              ${result.registered === 1 ? "Anmeldung" : "Anmeldungen"}
+              eingetragen.
+            </div>`
+          : nothing
+      }
+      ${
+        unfilled.length || notFound.length
+          ? html`<div class="warn-banner" role="status">
+              <div>
+                Nicht eingetragen:
+                <ul>
+                  ${unfilled} ${notFound}
+                </ul>
+              </div>
+            </div>`
+          : nothing
+      }
+    </section>`;
+  }
+
+  private async applyRemap(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const chosen = input.files?.[0];
+    input.value = "";
+    if (!chosen) {
+      return;
+    }
+    this.saving = true;
+    this.error = null;
+    this.remapResult = null;
+    try {
+      const file = await chosen.text();
+      this.remapResult = await unwrap(
+        client.applyJuryRemap({ body: { file } }),
+      );
+      void this.judges.run();
+    } catch (error) {
+      this.error = `Fehler beim Anwenden der Remap-Datei: ${errorMessage(error)}`;
+    } finally {
+      this.saving = false;
+    }
   }
 
   private renderCategories(categories: JuryCategory[]) {

@@ -338,9 +338,19 @@ pub fn unscheduled_final_warnings(
         .collect()
 }
 
+/// The kind of a timeplan entry of the file: as given, else a start block
+/// with a category or final, else a custom entry.
+fn entry_kind(entry: &TimeplanEntryConfig) -> EntryKind {
+    EntryKind::derive(
+        entry.kind,
+        entry.category.as_deref().or(entry.final_name.as_deref()),
+    )
+}
+
 /// Checks that every timeplan entry is either a category entry for a known
 /// category, a final entry for a known final (each final once) or a custom
-/// entry with a label and a duration.
+/// entry with a label and a duration. A start block given as
+/// `kind = "acts"` may also have a label, or only a label.
 pub fn validate_timeplan(
     timeplan: &[TimeplanEntryConfig],
     category_names: &[String],
@@ -349,17 +359,56 @@ pub fn validate_timeplan(
     let mut planned_finals = HashSet::new();
     for (index, entry) in timeplan.iter().enumerate() {
         let position = index + 1;
-        let kind = EntryKind::derive(
-            None,
-            entry.category.as_deref().or(entry.final_name.as_deref()),
-        );
+        let kind = entry_kind(entry);
         if entry.internal && !kind.can_be_internal() {
             return Err(format!(
                 "Timeplan entry {position}: only custom entries can be internal."
             ));
         }
+        if kind == EntryKind::Custom && entry.einfahrzeit_minutes.is_some() {
+            return Err(format!(
+                "Timeplan entry {position}: only start blocks have einfahrzeit_minutes."
+            ));
+        }
+        if entry
+            .einfahrzeit_minutes
+            .is_some_and(|minutes| minutes < 0.0 || !minutes.is_finite())
+        {
+            return Err(format!(
+                "Timeplan entry {position}: einfahrzeit_minutes must not be negative."
+            ));
+        }
+        // An explicit start block: a label besides or instead of a category
+        // or final.
+        let labelled_block = entry.kind == Some(EntryKind::Acts);
+        if labelled_block {
+            if entry.category.is_some() && entry.final_name.is_some() {
+                return Err(format!(
+                    "Timeplan entry {position}: set either category or final, not both."
+                ));
+            }
+            if entry.duration_minutes.is_some() {
+                return Err(format!(
+                    "Timeplan entry {position}: start blocks get their duration from their acts, remove duration_minutes."
+                ));
+            }
+            if entry.category.is_none()
+                && entry.final_name.is_none()
+                && entry.label.as_deref().is_none_or(|l| l.trim().is_empty())
+            {
+                return Err(format!(
+                    "Timeplan entry {position}: a start block needs a category, a final or a label."
+                ));
+            }
+        } else if entry.kind == Some(EntryKind::Custom)
+            && (entry.category.is_some() || entry.final_name.is_some())
+        {
+            return Err(format!(
+                "Timeplan entry {position}: custom entries have no category and no final."
+            ));
+        }
         if let Some(final_name) = &entry.final_name {
-            if entry.category.is_some() || entry.label.is_some() {
+            if entry.category.is_some() || (entry.label.is_some() && !labelled_block) {
                 return Err(format!(
                     "Timeplan entry {position}: set either category, final or label, not several."
                 ));
@@ -377,6 +426,16 @@ pub fn validate_timeplan(
             if entry.duration_minutes.is_some() {
                 return Err(format!(
                     "Timeplan entry {position}: final entries get their duration from the final, remove duration_minutes."
+                ));
+            }
+            continue;
+        }
+        if labelled_block {
+            if let Some(category) = &entry.category
+                && !category_names.contains(category)
+            {
+                return Err(format!(
+                    "Timeplan entry {position}: category {category} doesn't exist."
                 ));
             }
             continue;
@@ -1107,17 +1166,15 @@ async fn write(
         }
         for (position, entry) in (1_i64..).zip(timeplan) {
             let duration_seconds = entry.duration_minutes.map(|m| (m * 60.0).round() as i64);
-            let kind = EntryKind::derive(
-                None,
-                entry.category.as_deref().or(entry.final_name.as_deref()),
-            );
+            let einfahrzeit_seconds = entry.einfahrzeit_minutes.map(|m| (m * 60.0).round() as i64);
+            let kind = entry_kind(entry);
             sqlx::query!(
                 r#"
                 INSERT INTO timeplan (
                     earliest_start_time, duration_seconds, label, category, final_name, kind,
-                    show_photos, internal, position
+                    show_photos, internal, position, einfahrzeit_seconds
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 entry.earliest_start,
                 duration_seconds,
@@ -1128,6 +1185,7 @@ async fn write(
                 entry.show_photos,
                 entry.internal,
                 position,
+                einfahrzeit_seconds,
             )
             .execute(&mut *conn)
             .await

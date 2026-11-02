@@ -74,6 +74,11 @@ pub struct ResolvedFeatures {
 }
 
 impl Features {
+    /// Whether every feature is unset.
+    pub fn is_unset(&self) -> bool {
+        *self == Self::default()
+    }
+
     /// Fills in what's unset from `defaults` (the system config's
     /// `[features]`), then the build default: on in debug builds, off in
     /// release builds.

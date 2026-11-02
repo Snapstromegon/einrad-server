@@ -66,6 +66,17 @@ the competition file only an import:
   `--replace-competition`, after a preview of what it replaces and drops and a
   confirmation. Dropped judge registrations are offered as the remap file to
   download. The new settings apply without a restart.
+- The export ("Wettkampf", Admin only) downloads the competition as a
+  competition file that the import and `--competition` take unchanged, e.g. to
+  save a test instance's settings: the settings with the id, the features it
+  sets, the photos with their password (share the file only in trusted
+  channels), the categories with explicit birthday bounds, the finals, the
+  timeplan and the jury categories. Nothing clubs entered, no bookings, fee
+  waivers, users, act order, progress, placements or jury plan.
+- A filled-in remap file is applied on the admin judges screen ("Jury",
+  "Remap-Datei anwenden"): entries with an existing `jury_category` register
+  their judge for it and the task again; entries whose judge or jury category
+  isn't found are listed.
 - **Setup mode:** without a competition in the database and without a
   competition file, the server starts anyway if there is an admin (`[admin]`
   / `ADMIN`, or one in the database). Admins see the import, everyone else a

@@ -3,6 +3,7 @@ pub mod bookings;
 pub mod competition;
 pub mod config;
 pub mod demo;
+pub mod export;
 pub mod fee_waivers;
 pub mod fees;
 pub mod finals;

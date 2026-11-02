@@ -7,6 +7,7 @@ mod add_final;
 mod add_jury_category;
 mod add_rider;
 mod add_timeplan_entry;
+mod apply_jury_remap;
 mod assign_judge;
 mod create_booking;
 mod create_club;
@@ -141,6 +142,7 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(import_competition::import_competition))
         .routes(routes!(edit_competition::edit_competition))
+        .routes(routes!(apply_jury_remap::apply_jury_remap))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
         .routes(routes!(edit_club_judge::edit_club_judge))

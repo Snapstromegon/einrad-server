@@ -22,7 +22,8 @@ const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
 
 /**
  * The competition itself (Admin, ADR 0005): editing it ("Wettkampf
- * bearbeiten", see `cup-competition-form`) and importing a competition file.
+ * bearbeiten", see `cup-competition-form`), exporting and importing a
+ * competition file.
  * Without a competition (setup mode) a valid file is imported right away;
  * over an existing one the page first shows what the file replaces and
  * drops and imports after a confirmation. Afterwards the page reloads into
@@ -74,9 +75,25 @@ export default class CupViewAdminCompetition extends LitElement {
       ${
         competition
           ? html`<section>
-              <h2>Wettkampf bearbeiten</h2>
-              <cup-competition-form></cup-competition-form>
-            </section>`
+                <h2>Wettkampf bearbeiten</h2>
+                <cup-competition-form></cup-competition-form>
+              </section>
+              <section>
+                <h2>Wettkampfdatei exportieren</h2>
+                <p class="muted">
+                  Der Wettkampf als Wettkampfdatei, ohne die Daten der Vereine:
+                  Einstellungen, Kategorien, Finals, Zeitplan und
+                  Jury-Kategorien. Der Import nimmt sie unverändert, z. B. für
+                  eine Testinstanz. Sie enthält das Foto-Passwort: nur über
+                  vertrauenswürdige Wege weitergeben.
+                </p>
+                <div class="toolbar">
+                  <a class="btn" href="/api/query/export_competition" download
+                    ><span class="material-icon">download</span>
+                    Exportieren</a
+                  >
+                </div>
+              </section>`
           : html`<div class="info-banner" role="status">
               Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du die
               Wettkampfdatei importierst.

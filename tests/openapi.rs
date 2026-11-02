@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "add_final",
     "add_rider",
     "add_timeplan_entry",
+    "apply_jury_remap",
     "create_booking",
     "create_club",
     "create_club_group",
@@ -78,6 +79,7 @@ const COMMANDS: &[&str] = &[
 ];
 
 const QUERIES: &[&str] = &[
+    "export_competition",
     "get_act",
     "get_club",
     "get_competition_settings",
