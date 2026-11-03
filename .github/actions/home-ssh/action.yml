@@ -1,0 +1,52 @@
+name: SSH into the home network
+description: >-
+  Writes ~/.ssh so that `ssh einrad-server` and `ssh caddy` (and Ansible with
+  deploy/inventory.yml) reach the hosts as deploy, through the jumphost. The
+  same config as the setup wizard's connection check (deploy/setup-wizard.sh).
+
+# Composite actions can't read secrets: pass the home environment's ones.
+inputs:
+  ssh-key:
+    description: HOME_SSH_KEY, the private key of deploy
+    required: true
+  known-hosts:
+    description: HOME_KNOWN_HOSTS, host keys of jump, einrad-server and caddy
+    required: true
+  jumphost:
+    description: HOME_JUMPHOST, the jumphost's host name
+    required: true
+  jumphost-port:
+    description: HOME_JUMPHOST_PORT, the jumphost's SSH port
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The jumphost's name only comes from the secret, so it stays masked.
+    - name: Write the SSH config
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+        KNOWN_HOSTS: ${{ inputs.known-hosts }}
+        JUMPHOST: ${{ inputs.jumphost }}
+        JUMPHOST_PORT: ${{ inputs.jumphost-port }}
+      run: |
+        install -m 700 -d ~/.ssh
+        install -m 600 /dev/null ~/.ssh/home
+        printf '%s\n' "$SSH_KEY" > ~/.ssh/home
+        printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+        cat >> ~/.ssh/config <<CONFIG
+        Host jump
+          HostName $JUMPHOST
+          Port $JUMPHOST_PORT
+          HostKeyAlias jump
+        Host einrad-server caddy
+          ProxyJump jump
+        Host jump einrad-server caddy
+          User deploy
+          IdentityFile ~/.ssh/home
+          IdentitiesOnly yes
+          StrictHostKeyChecking yes
+          BatchMode yes
+          ConnectTimeout 15
+        CONFIG

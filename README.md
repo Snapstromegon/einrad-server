@@ -518,3 +518,10 @@ secrets in the `home` environment, which the
   `HostKeyAlias jump`), `einrad-server` and `caddy`.
 - `HOME_JUMPHOST`, `HOME_JUMPHOST_PORT`: the jumphost's host name and SSH
   port, as reachable from the internet.
+
+Workflows set up SSH with the
+[`home-ssh`](.github/actions/home-ssh/action.yml) action, after which `ssh
+einrad-server`, `ssh caddy` and Ansible with `deploy/inventory.yml` work.
+[`check-home-ssh.yml`](.github/workflows/check-home-ssh.yml) (Actions → Check
+home SSH → Run workflow) checks the secrets: it connects to both hosts as
+`deploy` and runs `sudo`.

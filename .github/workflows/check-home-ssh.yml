@@ -1,0 +1,30 @@
+name: Check home SSH
+
+# Checks the home environment's secrets (see the setup wizard): GitHub's
+# runners reach einrad-server and caddy as deploy through the jumphost, with
+# passwordless sudo.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: home
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up SSH
+      uses: ./.github/actions/home-ssh
+      with:
+        ssh-key: ${{ secrets.HOME_SSH_KEY }}
+        known-hosts: ${{ secrets.HOME_KNOWN_HOSTS }}
+        jumphost: ${{ secrets.HOME_JUMPHOST }}
+        jumphost-port: ${{ secrets.HOME_JUMPHOST_PORT }}
+
+    - name: Connect to einrad-server and caddy
+      run: |
+        for host in einrad-server caddy; do
+          ssh "$host" 'echo "$(hostname): $(id -un)" && sudo -n true && echo "sudo ok"'
+        done
