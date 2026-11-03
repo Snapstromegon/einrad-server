@@ -349,8 +349,10 @@ is and how Caddy reloads.
 ### The deploy user
 
 GitHub Actions deploys the preview as the user `deploy`, which
-[`deploy/bootstrap.yml`](deploy/bootstrap.yml) creates. Run it once with your
-own account, which needs `sudo` on every host, and again to change the keys:
+[`deploy/bootstrap.yml`](deploy/bootstrap.yml) creates. The
+[setup wizard](#the-setup-wizard) does this with a new key; by hand, run it
+once with your own account, which needs `sudo` on every host, and again to
+change the keys:
 
 ```sh
 ssh-keygen -t ed25519 -N '' -C einrad-deploy -f ~/.ssh/einrad-deploy
@@ -388,6 +390,36 @@ sudo chown -R deploy:deploy ~deploy/einrad-server
 make deploy-preview ANSIBLE_ARGS="-u deploy"   # rewrites the unit for deploy
 ```
 
+### The setup wizard
+
+[`deploy/setup-wizard.sh`](deploy/setup-wizard.sh) walks you through the
+manual setup for deploying the preview from GitHub Actions, step by step;
+run it from the home network with `gh` logged in:
+
+```sh
+deploy/setup-wizard.sh
+```
+
+1. **Deploy key:** a new ed25519 key in a temp directory outside the
+   repository.
+2. **Bootstrap:** runs `bootstrap.yml -K` with the key, optionally with your
+   own public key too.
+3. **Jumphost and host keys:** asks for the jumphost's host name and port and
+   scans the host keys of the jumphost (named `jump`, the `HostKeyAlias`) and
+   of `einrad-server` and `caddy` (at the `HostName` your `~/.ssh/config`
+   gives them), for you to compare.
+4. **GitHub:** creates the environment `home` (no reviewers) and sets its
+   secrets, asking before it replaces one.
+5. **Check:** logs in like CI, as `deploy` through `jump` to `einrad-server`
+   and `caddy`, without your `~/.ssh/config`.
+6. **Authelia:** how to check that `access_control` covers
+   `mail.einrad-server.home.hoeser.dev`, and the rule to add if not.
+7. **Cleanup:** deletes the new private key; CI has it in `HOME_SSH_KEY`.
+
+Each step can be skipped when it's done already; nothing is remembered
+between runs. The jumphost's name only goes from your input into the secret
+`HOME_JUMPHOST`, never into a file in the repository.
+
 ### From GitHub Actions
 
 [`deploy-production.yml`](.github/workflows/deploy-production.yml) runs the
@@ -399,5 +431,13 @@ It needs these secrets in the `production` environment:
   `~/.ssh/authorized_keys`.
 - `UBERSPACE_KNOWN_HOSTS`: the host's line from `ssh-keyscan <host>`.
 
-The preview isn't reachable from GitHub's runners; deploying it from Actions
-would need a self-hosted runner in the home network.
+GitHub's runners reach the preview's hosts through the jumphost
+(`ProxyJump jump`, to exactly `einrad-server` and `caddy`), with these
+secrets in the `home` environment, which the
+[setup wizard](#the-setup-wizard) sets:
+
+- `HOME_SSH_KEY`: the private key of `deploy`.
+- `HOME_KNOWN_HOSTS`: host keys of `jump` (the jumphost, looked up with
+  `HostKeyAlias jump`), `einrad-server` and `caddy`.
+- `HOME_JUMPHOST`, `HOME_JUMPHOST_PORT`: the jumphost's host name and SSH
+  port, as reachable from the internet.
