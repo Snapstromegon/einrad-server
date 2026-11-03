@@ -7,6 +7,15 @@
 - name: Deploy the preview
   hosts: preview
   tasks:
+    # Another user would install a second instance in its own home directory.
+    - name: Check the user
+      ansible.builtin.assert:
+        that: ansible_facts.user_id == preview_user
+        fail_msg: >-
+          Log in to {{ inventory_hostname }} as {{ preview_user }} (-u {{ preview_user }}
+          or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
+        quiet: true
+
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml
 

@@ -1,0 +1,139 @@
+# Creates the user `deploy` that GitHub Actions deploys with. Run it once
+# with your own account (it needs sudo on every host), and again to change
+# the keys:
+#
+#   ansible-playbook -i deploy/inventory.yml deploy/bootstrap.yml -K -e deploy_public_key=~/.ssh/einrad-deploy.pub
+#
+# deploy_public_key is a public key or a file holding it; a file may hold
+# several keys, one per line (e.g. also your own, to deploy as `deploy` by
+# hand). They replace deploy's authorized_keys.
+#
+# - jumphost: `deploy` has no shell and its keys may only forward to port 22
+#   of einrad-server and caddy (ProxyJump). If sshd doesn't allow that for
+#   deploy, a `Match User deploy` block at the end of sshd_config does.
+# - einrad-server and caddy: `deploy` logs in with the keys and has
+#   passwordless sudo. On einrad-server the services run as `deploy`, from
+#   its home directory.
+- name: Set up the user deploy
+  hosts: jumphost:preview:proxy
+  become: true
+  vars:
+    deploy_keys: >-
+      {{ (lookup('ansible.builtin.file', deploy_public_key | expanduser)
+          if (deploy_public_key | expanduser) is file else deploy_public_key).splitlines()
+         | map('trim') | select | reject('match', '#') | list }}
+    is_jumphost: "{{ inventory_hostname in groups['jumphost'] }}"
+    # The client asks the jumphost for einrad-server:22 or caddy:22 by these
+    # names, which the jumphost resolves.
+    jump_targets: "{{ (groups['preview'] + groups['proxy']) | map('regex_replace', '$', ':22') | list }}"
+    key_options: >-
+      {{ (['restrict', 'port-forwarding'] + jump_targets | map('regex_replace', '^(.*)$', 'permitopen="\1"') | list)
+         | join(',') ~ ' ' if is_jumphost else '' }}
+    # Not known in check mode before the first run.
+    deploy_home: "{{ deploy_user.home | default('/home/deploy') }}"
+  tasks:
+    - name: Check deploy_public_key
+      ansible.builtin.assert:
+        that:
+          - deploy_public_key is defined
+          - deploy_keys | length > 0
+          - deploy_keys | reject('match', '^(ssh-|ecdsa-|sk-)\S+ \S+') | list | length == 0
+        fail_msg: >-
+          Set -e deploy_public_key=<key or file> to OpenSSH public keys, one per
+          line and without options (ssh-ed25519 AAAA… comment).
+        quiet: true
+
+    # "*" instead of a locked password: without PAM, sshd refuses keys of
+    # locked accounts.
+    - name: Create the user deploy
+      ansible.builtin.user:
+        name: deploy
+        shell: "{{ '/usr/sbin/nologin' if is_jumphost else '/bin/bash' }}"
+        password: "*"
+      register: deploy_user
+
+    - name: Create ~deploy/.ssh
+      ansible.builtin.file:
+        path: "{{ deploy_home }}/.ssh"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0700"
+
+    - name: Install the keys
+      ansible.builtin.copy:
+        content: |
+          {% for key in deploy_keys %}
+          {{ key_options }}{{ key }}
+          {% endfor %}
+        dest: "{{ deploy_home }}/.ssh/authorized_keys"
+        owner: deploy
+        group: deploy
+        mode: "0600"
+
+    - name: Allow deploy to sudo without a password
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (deploy/bootstrap.yml), changes here are overwritten.
+          deploy ALL=(ALL:ALL) NOPASSWD: ALL
+        dest: /etc/sudoers.d/deploy
+        owner: root
+        group: root
+        mode: "0440"
+        validate: visudo -cf %s
+      when: not is_jumphost
+
+    - name: Let deploy forward through the jumphost
+      when: is_jumphost
+      block:
+        - name: Read sshd's settings for deploy
+          ansible.builtin.command: sshd -T -C user=deploy,host=localhost,addr=127.0.0.1
+          register: sshd_settings
+          changed_when: false
+          check_mode: false
+
+        # ProxyJump (ssh -W) is local forwarding.
+        - name: Allow deploy to forward
+          ansible.builtin.blockinfile:
+            path: /etc/ssh/sshd_config
+            marker: "# {mark} ANSIBLE MANAGED: deploy (deploy/bootstrap.yml)"
+            block: |
+              Match User deploy
+                AllowTcpForwarding local
+            validate: sshd -t -f %s
+          when: sshd_settings.stdout is not search('(?m)^allowtcpforwarding (yes|local)$')
+          notify: Reload sshd
+
+        - name: Read sshd's settings for deploy again
+          ansible.builtin.command: sshd -T -C user=deploy,host=localhost,addr=127.0.0.1
+          register: sshd_settings
+          changed_when: false
+          check_mode: false
+
+        # The rest isn't changed by this playbook. sshd -T prints one line per
+        # user or group; patterns (dep*) aren't expanded. In check mode the
+        # Match block above isn't written.
+        - name: Check that sshd lets deploy in and forward
+          ansible.builtin.assert:
+            that:
+              - sshd_settings.stdout is search('(?m)^allowtcpforwarding (yes|local)$') or ansible_check_mode
+              - sshd_settings.stdout is not search('(?m)^disableforwarding yes$')
+              - not allow_users or 'deploy' in allow_users
+              - not allow_groups or 'deploy' in allow_groups
+              - "'deploy' not in deny_users and 'deploy' not in deny_groups"
+            fail_msg: >-
+              sshd doesn't let deploy in or forward; check AllowUsers, AllowGroups,
+              DenyUsers, DenyGroups, AllowTcpForwarding and DisableForwarding in
+              sshd_config.
+            quiet: true
+          vars:
+            allow_users: "{{ sshd_settings.stdout_lines | select('match', 'allowusers ') | map('regex_replace', '^allowusers ', '') | list }}"
+            allow_groups: "{{ sshd_settings.stdout_lines | select('match', 'allowgroups ') | map('regex_replace', '^allowgroups ', '') | list }}"
+            deny_users: "{{ sshd_settings.stdout_lines | select('match', 'denyusers ') | map('regex_replace', '^denyusers ', '') | list }}"
+            deny_groups: "{{ sshd_settings.stdout_lines | select('match', 'denygroups ') | map('regex_replace', '^denygroups ', '') | list }}"
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: "{{ 'ssh' if ansible_facts.os_family == 'Debian' else 'sshd' }}"
+        state: reloaded

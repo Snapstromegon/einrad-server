@@ -264,9 +264,9 @@ make deploy-production   # ansible-playbook -i deploy/inventory.yml deploy/produ
 
 The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
 aliases: the user, host name and key come from your `~/.ssh/config`. The
-preview needs `sudo` on `einrad-server` and `caddy` (add `-K` to
-`ANSIBLE_ARGS` if it asks for a password). `ANSIBLE_ARGS="--check --diff"`
-shows what would change.
+preview logs in to `einrad-server` and `caddy` as `deploy` (see
+[The deploy user](#the-deploy-user)) and needs `sudo` there.
+`ANSIBLE_ARGS="--check --diff"` shows what would change.
 
 Both run the same static musl binary (it embeds the frontend) from
 `~/<cup_dir>/bin`, with `config.toml`, `competition.toml`, `.env`, the
@@ -288,7 +288,7 @@ database and `data/` in `~/<cup_dir>`:
   stays as `bin/einrad-server.previous`. A new config only
   restarts the service. Then the playbook waits until the server answers.
 - **Preview:** runs as the systemd service `einrad-server` in
-  `~/einrad-server`, with ffmpeg from apt. The playbook then sets the
+  `~deploy/einrad-server`, as `deploy`, with ffmpeg from apt. The playbook then sets the
   `einrad-server.home.hoeser.dev` entry in the Caddyfile on `caddy` (a
   managed block; a hand-written entry for the domain is removed) and reloads
   Caddy. `-e preview_seed_demo=true` recreates the database with the demo data:
@@ -305,6 +305,48 @@ To roll back, move `bin/einrad-server.previous` back, copy the
 database from `backups/` and restart the service (`sudo systemctl restart
 einrad-server` on the preview, `supervisorctl restart einrad-server`
 on Uberspace).
+
+### The deploy user
+
+GitHub Actions deploys the preview as the user `deploy`, which
+[`deploy/bootstrap.yml`](deploy/bootstrap.yml) creates. Run it once with your
+own account, which needs `sudo` on every host, and again to change the keys:
+
+```sh
+ssh-keygen -t ed25519 -N '' -C einrad-deploy -f ~/.ssh/einrad-deploy
+ansible-playbook -i deploy/inventory.yml deploy/bootstrap.yml -K \
+  -e deploy_public_key=~/.ssh/einrad-deploy.pub
+```
+
+`deploy_public_key` is a public key or a file with one key per line (e.g. also
+your own, to deploy the preview by hand); they replace `deploy`'s
+`authorized_keys`. The playbook is idempotent and changes:
+
+- **Jumphost** (inventory group `jumphost`): the host `jump` is an alias you
+  define in your `~/.ssh/config`; its real name stays out of the repository.
+  `deploy` gets no shell, and its keys may only forward to `einrad-server:22`
+  and `caddy:22` (`restrict,port-forwarding,permitopen=…`), which is all
+  `ProxyJump` needs. The jumphost resolves these names, so clients must jump
+  to exactly them. If sshd doesn't allow `deploy` TCP forwarding, a
+  `Match User deploy` block at the end of `/etc/ssh/sshd_config` does; if
+  `AllowUsers`, `AllowGroups`, `DenyUsers`, `DenyGroups` or
+  `DisableForwarding` lock it out, the playbook stops and you fix that by
+  hand.
+- **`einrad-server` and `caddy`:** `deploy` with the keys and passwordless
+  `sudo` (`/etc/sudoers.d/deploy`, checked with `visudo`).
+
+On `einrad-server`, the services run as `deploy` from its home directory:
+the playbooks use the login user, and the preview playbook stops if that
+isn't `deploy` (log in with `-u deploy` or a `User deploy` entry in your
+`~/.ssh/config`). An instance deployed as your own user before moves over
+once, with its database:
+
+```sh
+sudo systemctl stop einrad-server
+sudo mv ~/einrad-server ~deploy/
+sudo chown -R deploy:deploy ~deploy/einrad-server
+make deploy-preview ANSIBLE_ARGS="-u deploy"   # rewrites the unit for deploy
+```
 
 ### From GitHub Actions
 

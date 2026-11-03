@@ -1,6 +1,9 @@
 cup_environment: preview
 cup_service_manager: systemd
 cup_domain: einrad-server.home.hoeser.dev
+# The user the playbook logs in as and the services run as (bootstrap.yml
+# creates it); their home directory holds cup_dir.
+preview_user: deploy
 
 cup_service_env:
   HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
