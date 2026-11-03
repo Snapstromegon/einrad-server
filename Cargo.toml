@@ -101,3 +101,7 @@ player-client = ["dep:futures-util", "dep:tokio-tungstenite"]
 # The command-line player `cup-player`: plays on the sound card of the
 # computer it runs on. Needs the ALSA headers like local-audio.
 cli-player = ["player-client", "local-audio"]
+
+[profile.release]
+# File and line numbers in backtraces, at a fraction of full debug info.
+debug = "line-tables-only"
