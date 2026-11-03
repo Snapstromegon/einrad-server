@@ -1,0 +1,154 @@
+name: Deploy 2027
+
+# Every push to 2027 builds and tests it; only if both pass, it moves the
+# latest-2027 prerelease to the commit and deploys the central 2027 instance
+# (deploy/preview.yml, https://einrad-server.home.hoeser.dev/) with the build,
+# keeping its database and config. A manual run with reseed recreates the
+# demo data. Manual runs need this file on the default branch (see the
+# README), and only deploy 2027.
+on:
+  push:
+    branches: [ "2027" ]
+  workflow_dispatch:
+    inputs:
+      reseed:
+        description: Recreate the database with the demo data (backed up first)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  URL: https://einrad-server.home.hoeser.dev/
+  TAG: latest-2027
+
+jobs:
+  # A manual run on another branch would deploy that branch.
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check the branch
+      if: github.ref != 'refs/heads/2027'
+      run: |
+        echo "::error::Deploy 2027 only deploys the branch 2027, not $GITHUB_REF_NAME."
+        exit 1
+
+  build:
+    needs: check-branch
+    uses: ./.github/workflows/build.yml
+
+  test:
+    needs: check-branch
+    uses: ./.github/workflows/pr-test.yml
+
+  deploy:
+    needs: [ build, test ]
+    runs-on: ubuntu-latest
+    environment: home
+    # Never cancelled while running: a deploy that stops halfway leaves the
+    # instance stopped. GitHub keeps one waiting run per group, so a newer
+    # one replaces it (also a waiting manual run with reseed).
+    concurrency:
+      group: deploy-2027
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      deployments: write
+
+    steps:
+    # The token can write releases: keep it out of .git/config while
+    # Ansible runs.
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    # The queue may run an older commit after a newer one (e.g. when its
+    # build took longer); the newer one releases and deploys itself.
+    - name: Check that this is the newest commit of 2027
+      id: newest
+      run: |
+        head=$(git ls-remote origin refs/heads/2027 | cut -f1)
+        if [ "$head" = "$GITHUB_SHA" ]; then
+          echo "newest=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::2027 is at $head now, which deploys itself: skipping $GITHUB_SHA."
+          echo "newest=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Download the binaries
+      if: steps.newest.outputs.newest == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.build.outputs.artifact }}
+        path: dist
+
+    - name: Create the GitHub deployment
+      id: deployment
+      if: steps.newest.outputs.newest == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # No required contexts: the needs above already waited for the tests.
+        id=$(gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id <<JSON
+        {"ref": "$GITHUB_SHA", "environment": "2027", "auto_merge": false,
+         "required_contexts": [], "description": "Central 2027 instance"}
+        JSON
+        )
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+        gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --silent \
+          -f state=in_progress -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+    # Deleted and created again, as the tag has to move to this commit; the
+    # assets are missing for a moment.
+    - name: Publish the latest-2027 prerelease
+      if: steps.newest.outputs.newest == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        chmod +x dist/einrad-server dist/seed_demo
+        mkdir release
+        cp dist/einrad-server release/einrad-server-linux
+        cp dist/seed_demo release/seed_demo-linux
+        if gh release view "$TAG" > /dev/null 2>&1; then
+          gh release delete "$TAG" --yes --cleanup-tag
+        fi
+        gh release create "$TAG" release/einrad-server-linux release/seed_demo-linux \
+          --prerelease --latest=false --target "$GITHUB_SHA" --title "Latest 2027" \
+          --notes "The 2027 branch at $GITHUB_SHA, built by run $GITHUB_RUN_ID. It moves with every push to 2027."
+
+    - name: Set up SSH
+      if: steps.newest.outputs.newest == 'true'
+      uses: ./.github/actions/home-ssh
+      with:
+        ssh-key: ${{ secrets.HOME_SSH_KEY }}
+        known-hosts: ${{ secrets.HOME_KNOWN_HOSTS }}
+        jumphost: ${{ secrets.HOME_JUMPHOST }}
+        jumphost-port: ${{ secrets.HOME_JUMPHOST_PORT }}
+
+    - name: Install Ansible
+      if: steps.newest.outputs.newest == 'true'
+      run: |
+        pipx install ansible-core
+        ansible-galaxy collection install -r deploy/requirements.yml
+
+    # No -v: the output stays free of the jumphost's name.
+    - name: Deploy
+      if: steps.newest.outputs.newest == 'true'
+      env:
+        RESEED: ${{ inputs.reseed && 'true' || 'false' }}
+      run: >-
+        ansible-playbook -i deploy/inventory.yml deploy/preview.yml
+        -e cup_binary=dist/einrad-server -e "preview_seed_demo=$RESEED"
+
+    - name: Set the deployment status
+      if: always() && steps.deployment.outputs.id
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ID: ${{ steps.deployment.outputs.id }}
+        STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+      run: >-
+        gh api "repos/$GITHUB_REPOSITORY/deployments/$ID/statuses" --silent
+        -f "state=$STATE" -f "environment_url=$URL"
+        -f "log_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

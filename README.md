@@ -251,8 +251,10 @@ short generated tones.
 There are three setups:
 
 - **Dev:** `make run` on your machine.
-- **Preview:** `einrad-server`, an Ubuntu VM, behind
-  <https://einrad-server.home.hoeser.dev/> on the `caddy` VM.
+- **Preview:** the central 2027 instance on `einrad-server`, an Ubuntu VM,
+  behind <https://einrad-server.home.hoeser.dev/> on the `caddy` VM, deployed
+  from every push to `2027` (see [The central 2027 instance](#the-central-2027-instance)).
+  The inventory group and the playbook are still called `preview`.
 - **Production:** Uberspace (`uberspace`).
 
 The Ansible playbooks in [`deploy/`](deploy) deploy preview and production,
@@ -300,7 +302,10 @@ database and `data/` in `~/<cup_dir>`:
   points `einrad-server.home.hoeser.dev` at it with the site file
   `/etc/caddy/sites/einrad-server.caddy` on `caddy` (see
   [Caddy site files](#caddy-site-files); an entry for the domain in the
-  Caddyfile itself is removed). `-e preview_seed_demo=true` recreates the database with the demo data:
+  Caddyfile itself is removed). It keeps the database and `config.toml` on
+  the VM and stops before changing anything if either is missing (see
+  [The central 2027 instance](#the-central-2027-instance)).
+  `-e preview_seed_demo=true` backs up the database and recreates it with the demo data:
   `seed_demo` is the file next to `cup_binary`, or the release's
   `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
@@ -314,6 +319,92 @@ To roll back, move `bin/einrad-server.previous` back, copy the
 database from `backups/` and restart the service (`sudo systemctl restart
 einrad-server` on the preview, `supervisorctl restart einrad-server`
 on Uberspace).
+
+### The central 2027 instance
+
+[`deploy-2027.yml`](.github/workflows/deploy-2027.yml) deploys every push to
+`2027` to <https://einrad-server.home.hoeser.dev/>:
+
+1. **Build and test** in parallel: [`build.yml`](.github/workflows/build.yml)
+   (the static musl release with `seed_demo`) and
+   [`pr-test.yml`](.github/workflows/pr-test.yml) (tests and lint). If either
+   fails, nothing is released or deployed.
+2. **Release:** the prerelease `latest-2027` is deleted and created again at
+   the commit, with the assets `einrad-server-linux` and `seed_demo-linux`.
+   Production can deploy it with `-e cup_github_tag=latest-2027` (or the
+   `tag` input of Deploy production); its default stays `latest-build`.
+3. **Deploy:** [`deploy/preview.yml`](deploy/preview.yml) with the build, as
+   `deploy` through the jumphost (the `home` environment, see
+   [From GitHub Actions](#from-github-actions)). The run shows up as a GitHub
+   deployment in the environment `2027`, with the instance's URL; a failed
+   deploy marks it failed.
+
+Deploys run one after another (concurrency `deploy-2027`) and are never
+cancelled halfway. GitHub keeps only one waiting deploy, so a newer run
+replaces a waiting one, also a manual one with `reseed` (start it again). A
+run whose commit is no longer the newest of `2027` skips release and deploy,
+as the newer commit's run does both.
+
+The instance keeps its database and `config.toml` (with real SMTP: it sends
+**real mail**, unlike the [PR previews](#pr-previews)) in
+`~deploy/einrad-server` on the VM; nothing in the repository holds them. The
+playbook stops before it changes anything if `config.toml` or the database is
+missing, or if `config.toml` still has competition sections, which the server
+would refuse. A new binary backs up the database and then migrates it on
+start.
+
+**Reseed:** Actions → Deploy 2027 → Run workflow, branch `2027`, with
+`reseed` checked, backs up the database and recreates it with the demo data
+(`-e preview_seed_demo=true`). GitHub only offers Run workflow for workflows
+on the default branch (`main`), so this needs `deploy-2027.yml` on `main`
+too: copy it there unchanged. Started on `main` (or any branch but `2027`),
+it fails before building; with `2027` picked, GitHub runs the version from
+`2027`.
+
+**Moving the instance to `deploy`, once.** The instance used to run as your
+own user from an old checkout (the unit `einrad-server` on port 3000, with
+`.env`, `config.toml`, `db.sqlite` and maybe `data/` in the checkout). The first deploy as
+`deploy` stops at the check above, with the old instance still running, but
+it has published `latest-2027`. To move the instance, on `einrad-server`:
+
+```sh
+old=~/nrw-freestyle-cup-registration   # the old checkout
+sudo install -d -o deploy -g deploy -m 0750 ~deploy/einrad-server
+# Split the old config: the competition sections go into competition.toml,
+# [photos] as [competition.photos].
+cd "$(mktemp -d)"
+awk '
+  BEGIN { out = "config.toml" }
+  /^[[:space:]]*\[/ {
+    h = $0; sub(/^[[:space:]]*\[+[[:space:]]*/, "", h); sub(/[[:space:]]*[].].*/, "", h)
+    out = h ~ /^(competition|categories|finals|timeplan|jury_categories|photos)$/ ? "competition.toml" : "config.toml"
+    if (h == "photos") sub(/\[photos\]/, "[competition.photos]")
+  }
+  { print > out }' "$old/config.toml"
+sudo install -o deploy -g deploy -m 0600 config.toml competition.toml "$old/.env" ~deploy/einrad-server/
+# Try the new binary on a copy of the database, on another port and with
+# an SMTP server that doesn't exist, so it can't send mail. Fix config.toml
+# and competition.toml until it serves http://127.0.0.1:3999/, then stop it
+# with Ctrl-C.
+sudo install -o deploy -g deploy -m 0600 "$old/db.sqlite" ~deploy/einrad-server/try.sqlite
+sudo -u deploy sh -c 'cd ~/einrad-server &&
+  curl -fsSLo try-server https://github.com/Snapstromegon/einrad-server/releases/download/latest-2027/einrad-server-linux &&
+  chmod +x try-server &&
+  DATABASE_URL="sqlite://./try.sqlite?mode=rwc" HTTP_ADDRESS=127.0.0.1:3999 SMTP_SERVER=smtp.invalid ./try-server'
+sudo sh -c 'rm -f ~deploy/einrad-server/try-server ~deploy/einrad-server/try.sqlite*'
+# Move the database (and data/, if there is one) with the old instance
+# stopped; a clean stop leaves no db.sqlite-wal behind.
+sudo systemctl stop einrad-server
+ls "$old"/db.sqlite*
+sudo install -o deploy -g deploy -m 0600 "$old/db.sqlite" ~deploy/einrad-server/
+[ ! -d "$old/data" ] || sudo cp -a "$old/data" ~deploy/einrad-server/
+sudo chown -R deploy:deploy ~deploy/einrad-server
+```
+
+Then re-run the failed Deploy 2027 run (or push to `2027`): it replaces the
+old unit (same name and port) and starts the instance as `deploy`. The old
+checkout with its database and binary stays as it is; once the new instance
+runs, delete it.
 
 ### Caddy site files
 
@@ -565,6 +656,10 @@ secrets in the `home` environment, which the
   `HostKeyAlias jump`), `einrad-server` and `caddy`.
 - `HOME_JUMPHOST`, `HOME_JUMPHOST_PORT`: the jumphost's host name and SSH
   port, as reachable from the internet.
+
+[`deploy-2027.yml`](.github/workflows/deploy-2027.yml) deploys the central
+2027 instance with them (see
+[The central 2027 instance](#the-central-2027-instance)).
 
 Workflows set up SSH with the
 [`home-ssh`](.github/actions/home-ssh/action.yml) action, after which `ssh

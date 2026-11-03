@@ -60,27 +60,8 @@
       changed_when: true
       when: cup_service_manager == 'supervisord' and service_file_stat.stat.exists
 
-    - name: Look for the database
-      ansible.builtin.stat:
-        path: "{{ app_dir }}/{{ cup_database }}"
-      register: database
-
     - name: Back up the database
-      ansible.builtin.shell:
-        cmd: |
-          set -eu
-          backup="backups/{{ cup_database | basename }}-$(date +%Y%m%dT%H%M%S)"
-          for suffix in "" -wal -shm; do
-            [ ! -e "{{ cup_database }}$suffix" ] || cp -p "{{ cup_database }}$suffix" "$backup$suffix"
-          done
-          echo "$backup"
-          # Keep the newest backups.
-          ls -1t backups/{{ cup_database | basename }}-* | grep -Ev -- '-(wal|shm)$' \
-            | tail -n +{{ cup_backups_kept + 1 }} | while read -r old; do rm -f "$old" "$old-wal" "$old-shm"; done
-        chdir: "{{ app_dir }}"
-      register: backup
-      changed_when: true
-      when: database.stat.exists and cup_backups_kept | int > 0
+      ansible.builtin.import_tasks: backup.yml
 
     - name: Keep the old binary for a rollback
       ansible.builtin.copy:

@@ -1,8 +1,15 @@
-# Installs or updates the preview on einrad-server and points
-# https://einrad-server.home.hoeser.dev/ on the caddy VM at it, with the site
-# file /etc/caddy/sites/einrad-server.caddy.
+# Installs or updates the central 2027 instance (the inventory group is called
+# preview) on einrad-server and points https://einrad-server.home.hoeser.dev/
+# on the caddy VM at it, with the site file /etc/caddy/sites/einrad-server.caddy.
+# deploy-2027.yml runs it on every push to 2027.
 #
 #   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
+#
+# It keeps the database and config.toml on the VM, and stops before changing
+# anything if config.toml (or a local config.preview.toml to upload) or the
+# database is missing, or if config.toml still has competition sections.
+# -e preview_seed_demo=true backs up the database and recreates it with the
+# demo data.
 #
 # Settings and their defaults: group_vars/all.yml and group_vars/preview.yml.
 - name: Deploy the preview
@@ -16,6 +23,64 @@
           Log in to {{ inventory_hostname }} as {{ preview_user }} (-u {{ preview_user }}
           or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
         quiet: true
+
+    # The instance keeps its config (with real SMTP) and its database on the
+    # VM. Without them the new service would replace the running one and not
+    # start, or start empty: stop before anything changes. See "The central
+    # 2027 instance" in the README for the one-time move.
+    - name: Check the config and the database on the server
+      vars:
+        app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
+        local_config: "{{ [playbook_dir | dirname, cup_config_src] | path_join }}"
+      block:
+        - name: Look for config.toml and the database
+          ansible.builtin.stat:
+            path: "{{ app_dir }}/{{ item }}"
+            get_checksum: false
+          loop: [config.toml, "{{ cup_database }}"]
+          register: server_files
+
+        - name: Check config.toml
+          ansible.builtin.assert:
+            that: server_files.results[0].stat.exists or (cup_config_src | length > 0 and local_config is file)
+            fail_msg: >-
+              There's no config.toml in {{ app_dir }} on {{ inventory_hostname }} (and no
+              {{ cup_config_src }} to upload): put the instance's config there first.
+            quiet: true
+
+        # The server refuses a config with them (they belong in
+        # competition.toml now). Only the section headers are counted, no
+        # values are printed.
+        - name: Look for competition sections in config.toml
+          ansible.builtin.command:
+            argv:
+              - grep
+              - -cE
+              - ^[[:space:]]*\[\[?[[:space:]]*(competition|categories|finals|timeplan|jury_categories|photos)[[:space:]]*[].]
+              - "{{ app_dir }}/config.toml"
+          register: competition_sections
+          changed_when: false
+          failed_when: competition_sections.rc > 1
+          check_mode: false
+          when: server_files.results[0].stat.exists and not (cup_config_src | length > 0 and local_config is file)
+
+        - name: Check for competition sections
+          ansible.builtin.assert:
+            that: competition_sections.stdout | default('0') | int == 0
+            fail_msg: >-
+              {{ app_dir }}/config.toml on {{ inventory_hostname }} still has competition sections
+              ([competition…], [[categories]], [[finals]], [[timeplan]], [[jury_categories]] or
+              [photos]): move them into competition.toml next to it ([photos] as
+              [competition.photos]).
+            quiet: true
+
+        - name: Check the database
+          ansible.builtin.assert:
+            that: server_files.results[1].stat.exists or preview_seed_demo | bool
+            fail_msg: >-
+              There's no database {{ app_dir }}/{{ cup_database }} on {{ inventory_hostname }}: move
+              the instance's database there, or create the demo data with -e preview_seed_demo=true.
+            quiet: true
 
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml
@@ -52,6 +117,10 @@
           ansible.builtin.systemd_service:
             name: "{{ cup_service }}"
             state: stopped
+
+        # seed_demo deletes the database.
+        - name: Back up the database
+          ansible.builtin.import_tasks: tasks/backup.yml
 
         - name: Run seed_demo
           ansible.builtin.command: bin/seed_demo

@@ -1,0 +1,24 @@
+# Copies the database cup_database in app_dir (with its -wal and -shm files)
+# to backups/ and keeps the newest cup_backups_kept (0 makes no backup). Run
+# it with the service stopped.
+- name: Look for the database
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/{{ cup_database }}"
+    get_checksum: false
+  register: database
+
+- name: Back up the database
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      backup="backups/{{ cup_database | basename }}-$(date +%Y%m%dT%H%M%S)"
+      for suffix in "" -wal -shm; do
+        [ ! -e "{{ cup_database }}$suffix" ] || cp -p "{{ cup_database }}$suffix" "$backup$suffix"
+      done
+      echo "$backup"
+      # Keep the newest backups.
+      ls -1t backups/{{ cup_database | basename }}-* | grep -Ev -- '-(wal|shm)$' \
+        | tail -n +{{ cup_backups_kept | int + 1 }} | while read -r old; do rm -f "$old" "$old-wal" "$old-shm"; done
+    chdir: "{{ app_dir }}"
+  changed_when: true
+  when: database.stat.exists and cup_backups_kept | int > 0
