@@ -2,9 +2,15 @@ name: Check home SSH
 
 # Checks the home environment's secrets (see the setup wizard): GitHub's
 # runners reach einrad-server and caddy as deploy through the jumphost, with
-# passwordless sudo.
+# passwordless sudo. Also runs when the SSH setup changes on 2027, as a manual
+# run needs the workflow on the default branch.
 on:
   workflow_dispatch:
+  push:
+    branches: [ "2027" ]
+    paths:
+    - .github/actions/home-ssh/**
+    - .github/workflows/check-home-ssh.yml
 
 jobs:
   check:
