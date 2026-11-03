@@ -1,12 +1,16 @@
 # Installs the binary from tasks/binary.yml and the config files into cup_dir
 # and (re)starts the service with systemd or supervisord (cup_service_manager).
 # A new binary only starts after the database was backed up with the service
-# stopped, as it migrates the database on start.
+# stopped, as it migrates the database on start (cup_backups_kept: 0 skips the
+# backup). An instance of a systemd template unit (cup_service
+# `name@instance`) installs the template `name@.service` from
+# cup_systemd_template. If the server doesn't answer, the task fails and the
+# service keeps running.
 - name: Set the paths on the server
   ansible.builtin.set_fact:
     app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
     service_file: >-
-      {{ '/etc/systemd/system/' ~ cup_service ~ '.service' if cup_service_manager == 'systemd'
+      {{ '/etc/systemd/system/' ~ (cup_service | regex_replace('@.*$', '@')) ~ '.service' if cup_service_manager == 'systemd'
          else ansible_facts.user_dir ~ '/etc/services.d/' ~ cup_service ~ '.ini' }}
 
 - name: Create the directories
@@ -26,7 +30,8 @@
     - { src: "{{ cup_competition_src }}", dest: competition.toml }
   loop_control:
     label: "{{ item.src }}"
-  when: ([playbook_dir | dirname, item.src] | path_join) is file
+  # An empty src uploads nothing.
+  when: item.src | length > 0 and ([playbook_dir | dirname, item.src] | path_join) is file
   register: config_files
 
 - name: Read the installed binary's checksum
@@ -75,7 +80,7 @@
         chdir: "{{ app_dir }}"
       register: backup
       changed_when: true
-      when: database.stat.exists
+      when: database.stat.exists and cup_backups_kept | int > 0
 
     - name: Keep the old binary for a rollback
       ansible.builtin.copy:
@@ -95,7 +100,7 @@
 - name: Install the systemd service
   become: true
   ansible.builtin.template:
-    src: cup.service.j2
+    src: "{{ cup_systemd_template }}"
     dest: "{{ service_file }}"
     mode: "0644"
   when: cup_service_manager == 'systemd'

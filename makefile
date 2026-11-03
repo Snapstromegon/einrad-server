@@ -93,3 +93,8 @@ deploy-production:
 # Mailpit for the PR previews on einrad-server, its UI behind Authelia on caddy.
 deploy-mailpit:
 	ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml $(ANSIBLE_ARGS)
+
+# The preview of one PR, e.g.
+# `make deploy-preview-pr PR=12 ANSIBLE_ARGS="-e cup_binary=<dir>/einrad-server"`.
+deploy-preview-pr:
+	ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml -e pr=$(PR) $(ANSIBLE_ARGS)

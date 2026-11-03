@@ -19,8 +19,11 @@ cup_github_seed_demo_asset: seed_demo-linux
 cup_dir: einrad-server
 cup_service: einrad-server
 cup_port: 3000
+# The unit file of a systemd service, from deploy/templates/.
+cup_systemd_template: cup.service.j2
 # The database file in cup_dir; it's backed up before every new binary starts.
 cup_database: db.sqlite
+# The newest backups kept; 0 makes no backup.
 cup_backups_kept: 10
 
 # Local files uploaded as config.toml and competition.toml, relative to the

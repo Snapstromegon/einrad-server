@@ -256,15 +256,16 @@ There are three setups:
 - **Production:** Uberspace (`uberspace`).
 
 The Ansible playbooks in [`deploy/`](deploy) deploy preview and production,
-and Mailpit for the PR previews (see [Mailpit](#mailpit)). They need the
-collections in [`deploy/requirements.yml`](deploy/requirements.yml) beyond
-`ansible-core`:
+the preview of a single PR (see [PR previews](#pr-previews)) and Mailpit for
+the PR previews (see [Mailpit](#mailpit)). They need the collections in
+[`deploy/requirements.yml`](deploy/requirements.yml) beyond `ansible-core`:
 
 ```sh
 ansible-galaxy collection install -r deploy/requirements.yml
 make deploy-preview      # ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 make deploy-production   # ansible-playbook -i deploy/inventory.yml deploy/production.yml
 make deploy-mailpit      # ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml
+make deploy-preview-pr PR=12 ANSIBLE_ARGS="-e cup_binary=<dir>/einrad-server"
 ```
 
 The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
@@ -373,6 +374,53 @@ The image is the `FROM` line of
 [`deploy/mailpit/Dockerfile`](deploy/mailpit/Dockerfile), which only exists
 so Dependabot keeps the tag current; a new tag replaces the container and
 keeps the mails. Port, domain and limit are in
+[`group_vars/preview.yml`](deploy/group_vars/preview.yml).
+
+### PR previews
+
+[`deploy/preview-pr.yml`](deploy/preview-pr.yml) installs or updates the
+preview of one PR on `einrad-server` from a build you have, with `seed_demo`
+next to the server binary:
+
+```sh
+ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml \
+  -e pr=12 -e cup_binary=<dir>/einrad-server
+```
+
+- **Instance:** `einrad-server@pr-12` of the systemd template unit
+  `/etc/systemd/system/einrad-server@.service`, as `deploy`, from
+  `~/previews/pr-12` (in `deploy`'s home), on port `20000 + 12`, with
+  `MemoryMax=512M`, `CPUWeight=50` and `RUST_LOG=debug` (which the server
+  doesn't read yet). The binary goes in like on the preview, with the shared
+  tasks of [`tasks/release.yml`](deploy/tasks/release.yml), but without
+  database backups.
+- **Config:** `~/previews/pr-12/env`, rendered from
+  [`templates/preview-pr.env.j2`](deploy/templates/preview-pr.env.j2)
+  without secrets: `BASE_URL`, `HTTP_ADDRESS` and SMTP to Mailpit
+  (`smtp://127.0.0.1:1025`). `secrets.env` next to it holds `JWT_SECRET` and
+  `RELOAD_DB_TOKEN`, generated with `openssl rand` on the first deploy and
+  kept, so logins survive a deploy. No `config.toml` or `competition.toml`.
+- **Demo data:** every run stops the instance and recreates its database
+  with `seed_demo` and `demo-data.toml`, which bring the competition. The
+  songs are downloaded once into `/var/cache/einrad-server/demo-songs`
+  (`DEMO_SONGS`), which all previews share. If `seed_demo` fails, the
+  instance starts again and the play fails.
+- **Caddy:** the site file `/etc/caddy/sites/pr-12.caddy` on `caddy` (see
+  [Caddy site files](#caddy-site-files)) serves
+  `https://pr-12.einrad-server.home.hoeser.dev/` (own certificate, HTTP-01)
+  with `X-Robots-Tag: noindex, nofollow`. It is written before the instance
+  starts.
+- **Failure:** if the server doesn't answer, the play fails and the instance
+  keeps running, for `journalctl -u einrad-server@pr-12` and a look at the
+  site.
+
+It imports [`mailpit.yml`](deploy/mailpit.yml) first, so a fresh VM gets
+Mailpit. Previews of different PRs can deploy at the same time: each has its
+own directory, port and site file. They share the unit template (every run
+writes it, the same unless a PR changes it), the Mailpit container (the
+same unless a PR changes its image) and the song cache; the seeds of all
+previews run one after another, so no song is downloaded twice at once.
+Port base, directory and cache are in
 [`group_vars/preview.yml`](deploy/group_vars/preview.yml).
 
 ### The deploy user
