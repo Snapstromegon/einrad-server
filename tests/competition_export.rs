@@ -5,7 +5,7 @@ mod common;
 
 use axum::http::{StatusCode, header};
 use common::{TestApp, rider_body};
-use nrw_freestyle_cup_registration::{config::CompetitionFile, photos::PhotosSettings};
+use einrad_server::{config::CompetitionFile, photos::PhotosSettings};
 use serde_json::{Value, json};
 
 const COMPETITION: &str = include_str!("fixtures/competition.toml");

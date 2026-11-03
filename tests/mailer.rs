@@ -3,7 +3,7 @@
 mod common;
 
 use common::mailpit::{FROM_ADDRESS, Mailpit};
-use nrw_freestyle_cup_registration::mailer::Mailer;
+use einrad_server::mailer::Mailer;
 
 #[tokio::test]
 async fn creates_transport_from_smtp_url_for_local_mail_services() {

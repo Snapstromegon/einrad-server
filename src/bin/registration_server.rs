@@ -1,6 +1,6 @@
 use clap::Parser;
 use eyre::eyre;
-use nrw_freestyle_cup_registration::{
+use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
     http_server::{HttpServer, HttpServerOptions},
     jwt::JWTConfig,
@@ -198,7 +198,7 @@ async fn shutdown_signal() {
 
 #[cfg(feature = "local-audio")]
 fn start_local_player(hub: &Arc<PlayerHub>, data_path: &std::path::Path, name: String) {
-    nrw_freestyle_cup_registration::player::local::start(hub.clone(), data_path.to_owned(), name);
+    einrad_server::player::local::start(hub.clone(), data_path.to_owned(), name);
 }
 
 #[cfg(not(feature = "local-audio"))]

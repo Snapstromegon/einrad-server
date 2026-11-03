@@ -17,7 +17,7 @@ use axum::{
     routing::any,
 };
 use common::TestApp;
-use nrw_freestyle_cup_registration::photos::PhotosSettings;
+use einrad_server::photos::PhotosSettings;
 use serde_json::{Value, json};
 use uuid::Uuid;
 

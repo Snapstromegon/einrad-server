@@ -55,7 +55,7 @@ pub struct ResolvedCategory {
 /// month (e.g. 29 February) move to the month's last day.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::seed::years_before;
+/// use einrad_server::seed::years_before;
 /// use time::macros::date;
 ///
 /// assert_eq!(years_before(date!(2027 - 06 - 01), 15.0), date!(2012 - 06 - 01));

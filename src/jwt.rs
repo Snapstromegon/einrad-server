@@ -34,7 +34,7 @@ impl JWTClaims {
 ///
 /// ```
 /// use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
-/// use nrw_freestyle_cup_registration::jwt::{JWTClaims, JWTConfig};
+/// use einrad_server::jwt::{JWTClaims, JWTConfig};
 /// use uuid::Uuid;
 ///
 /// let secret = b"a-test-secret";

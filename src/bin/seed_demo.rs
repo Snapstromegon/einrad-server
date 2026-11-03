@@ -7,7 +7,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use clap::Parser;
 use eyre::eyre;
-use nrw_freestyle_cup_registration::{
+use einrad_server::{
     config::{ConfigFile, DEFAULT_DATA_PATH, DEFAULT_DATABASE_URL},
     demo::DemoData,
 };

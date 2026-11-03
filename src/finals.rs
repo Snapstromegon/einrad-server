@@ -90,7 +90,7 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
 /// The name of a reserved slot.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::finals::finalist_label;
+/// use einrad_server::finals::finalist_label;
 ///
 /// assert_eq!(finalist_label(3, "U17–U21"), "3. Finalist (U17–U21)");
 /// assert_eq!(finalist_label(1, ""), "1. Finalist");
@@ -293,7 +293,7 @@ pub async fn check_plannable(
 /// label form a group.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::finals::{SlotGroup, group_slots};
+/// use einrad_server::finals::{SlotGroup, group_slots};
 ///
 /// let groups = group_slots(["U17", "U17", "U23+"]);
 /// assert_eq!(

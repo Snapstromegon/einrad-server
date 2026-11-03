@@ -320,7 +320,7 @@ async fn list_clubs_shows_clubs_with_owners_to_admins() {
                 "representative_name": "Owner",
                 "representative_email": "owner@cup.test",
             },
-            "code": nrw_freestyle_cup_registration::utils::club_code(&club_id),
+            "code": einrad_server::utils::club_code(&club_id),
             "amount_due": { "start_fees": 0.0, "jury_fee": 0.0, "total": 0.0, "waived": 0.0 },
             "fee_waiver": null,
             "jury": {

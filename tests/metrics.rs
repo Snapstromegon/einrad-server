@@ -66,37 +66,37 @@ async fn metrics_count_registrations_acts_and_money() {
 
     let body = scrape(&app).await;
 
-    assert!(has_line(&body, "cup_clubs 1"), "{body}");
-    assert!(has_line(&body, "cup_riders 3"), "{body}");
+    assert!(has_line(&body, "einrad_server_clubs 1"), "{body}");
+    assert!(has_line(&body, "einrad_server_riders 3"), "{body}");
     assert!(
-        has_line(&body, r#"cup_riders_by_club{club="RSV"} 3"#),
+        has_line(&body, r#"einrad_server_riders_by_club{club="RSV"} 3"#),
         "{body}"
     );
     assert!(
         has_line(
             &body,
-            r#"cup_acts{act_type="single",state="categorized"} 2"#
+            r#"einrad_server_acts{act_type="single",state="categorized"} 2"#
         ),
         "{body}"
     );
     assert!(
-        has_line(&body, r#"cup_acts{act_type="pair",state="categorized"} 1"#),
+        has_line(&body, r#"einrad_server_acts{act_type="pair",state="categorized"} 1"#),
         "{body}"
     );
-    assert!(has_line(&body, r#"cup_songs{state="missing"} 3"#), "{body}");
-    assert!(has_line(&body, "cup_registration_open 1"), "{body}");
+    assert!(has_line(&body, r#"einrad_server_songs{state="missing"} 3"#), "{body}");
+    assert!(has_line(&body, "einrad_server_registration_open 1"), "{body}");
     assert!(
-        has_line(&body, "cup_payments_received_euros 20.0"),
+        has_line(&body, "einrad_server_payments_received_euros 20.0"),
         "{body}"
     );
     // Anna 1 start, Berta 1 (pair), Carla 2 (single and pair): 4 × 15 €.
-    assert!(has_line(&body, "cup_fees_due_euros 60.0"), "{body}");
+    assert!(has_line(&body, "einrad_server_fees_due_euros 60.0"), "{body}");
     // Requests are counted by their matched route.
     assert!(
-        body.contains(r#"cup_http_requests_total{method="POST",route="/api/command/create_booking",status="200"}"#),
+        body.contains(r#"einrad_server_http_requests_total{method="POST",route="/api/command/create_booking",status="200"}"#),
         "{body}"
     );
-    assert!(body.contains("cup_build_info{version="), "{body}");
+    assert!(body.contains("einrad_server_build_info{version="), "{body}");
     assert!(body.ends_with("# EOF\n"), "{body}");
 }
 
@@ -114,14 +114,14 @@ async fn metrics_show_the_live_timeplan() {
 
     let body = scrape(&app).await;
 
-    assert!(has_line(&body, "cup_acts_performed 1"), "{body}");
-    assert!(body.contains("cup_timeplan_delay_seconds "), "{body}");
+    assert!(has_line(&body, "einrad_server_acts_performed 1"), "{body}");
+    assert!(body.contains("einrad_server_timeplan_delay_seconds "), "{body}");
     assert!(
-        body.contains(r#"cup_timeplan_entries{status="ended"} "#),
+        body.contains(r#"einrad_server_timeplan_entries{status="ended"} "#),
         "{body}"
     );
     assert!(
-        body.contains("cup_timeplan_predicted_end_timestamp_seconds "),
+        body.contains("einrad_server_timeplan_predicted_end_timestamp_seconds "),
         "{body}"
     );
 }

@@ -7,7 +7,7 @@ use askama::Template;
 ///
 /// ```
 /// use askama::Template;
-/// use nrw_freestyle_cup_registration::templates::VerifyMail;
+/// use einrad_server::templates::VerifyMail;
 ///
 /// let body = VerifyMail {
 ///     event_name: "Einradevent 2027",

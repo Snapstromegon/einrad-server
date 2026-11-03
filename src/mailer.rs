@@ -41,7 +41,7 @@ impl Mailer {
     /// ```
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// use nrw_freestyle_cup_registration::mailer::Mailer;
+    /// use einrad_server::mailer::Mailer;
     ///
     /// let mailer = Mailer::from_url("smtp://localhost:1025", "noreply@example.com");
     /// assert!(mailer.is_ok());

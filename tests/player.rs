@@ -9,7 +9,7 @@ use std::{net::SocketAddr, time::Duration};
 use axum::http::StatusCode;
 use common::TestApp;
 use futures_util::{SinkExt, StreamExt};
-use nrw_freestyle_cup_registration::player::Timing;
+use einrad_server::player::Timing;
 use serde_json::{Value, json};
 use tokio::{
     net::TcpStream,

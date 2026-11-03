@@ -707,7 +707,7 @@ impl Settings {
     /// Merges CLI/env values, the config file and the defaults. Fails with one message listing every missing required value.
     ///
     /// ```
-    /// use nrw_freestyle_cup_registration::config::{CliArgs, ConfigFile, Settings};
+    /// use einrad_server::config::{CliArgs, ConfigFile, Settings};
     ///
     /// let file = ConfigFile::parse(r#"
     ///     [smtp]

@@ -16,7 +16,7 @@ const CLUB_CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 /// club name is part of the reference anyway.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::utils::club_code;
+/// use einrad_server::utils::club_code;
 /// use uuid::Uuid;
 ///
 /// let id = Uuid::parse_str("0199d4a2-7c3e-7000-8000-00000000abcd").unwrap();
@@ -41,7 +41,7 @@ pub fn club_code(id: &Uuid) -> String {
 /// (German) message.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::utils::check_password;
+/// use einrad_server::utils::check_password;
 ///
 /// assert!(check_password("Secret123").is_ok());
 /// assert!(check_password("geheim-123").is_ok());

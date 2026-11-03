@@ -9,7 +9,7 @@ pub mod mailpit;
 
 /// Every test gets its own database in memory.
 #[allow(unused_imports)]
-pub use nrw_freestyle_cup_registration::reloadable_sqlite::{in_memory, in_memory_migrated};
+pub use einrad_server::reloadable_sqlite::{in_memory, in_memory_migrated};
 
 use std::{
     path::{Path, PathBuf},
@@ -22,7 +22,7 @@ use axum::{
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
-use nrw_freestyle_cup_registration::{
+use einrad_server::{
     competition::Features,
     config::CompetitionFile,
     http_server::{HttpServerOptions, routes::get_api_router},

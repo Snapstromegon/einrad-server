@@ -36,7 +36,7 @@ fn is_forbidden_in_group_name(c: char) -> bool {
 /// characters.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::groups::normalize_group_name;
+/// use einrad_server::groups::normalize_group_name;
 ///
 /// assert_eq!(normalize_group_name("  Die   Wirbelwinde ").unwrap(), "Die Wirbelwinde");
 /// assert!(normalize_group_name("   ").is_err());
@@ -72,7 +72,7 @@ pub fn group_name_key(name: &str) -> String {
 /// Ties are broken by the lowercased name.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::groups::group_name_sort_key;
+/// use einrad_server::groups::group_name_sort_key;
 ///
 /// let mut names = ["Zebra", "überflieger", "Uhu", "Ärger", "anker"];
 /// names.sort_by_key(|name| group_name_sort_key(name));

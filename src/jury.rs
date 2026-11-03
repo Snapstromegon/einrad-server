@@ -262,7 +262,7 @@ pub struct JudgeFields {
 /// Age in whole years on `day`.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::jury::age_on;
+/// use einrad_server::jury::age_on;
 /// use time::macros::date;
 ///
 /// assert_eq!(age_on(date!(2012 - 06 - 05), date!(2027 - 06 - 05)), 15);
@@ -529,7 +529,7 @@ pub async fn list_judges(
 /// none.
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::jury::counted_deployments;
+/// use einrad_server::jury::counted_deployments;
 ///
 /// assert_eq!(counted_deployments(true, 6, None), 6);
 /// assert_eq!(counted_deployments(true, 6, Some(2)), 2);
@@ -546,7 +546,7 @@ pub fn counted_deployments(is_trained: bool, registered: i64, max: Option<i64>) 
 /// started two Küren (Jury-Konzept, Tabelle 1).
 ///
 /// ```
-/// use nrw_freestyle_cup_registration::jury::required_deployments;
+/// use einrad_server::jury::required_deployments;
 ///
 /// assert_eq!(required_deployments(0, 4), 0);
 /// assert_eq!(required_deployments(1, 4), 4);

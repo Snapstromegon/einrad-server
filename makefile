@@ -75,8 +75,8 @@ reset: clean-frontend
 	rm -rf db.sqlite3
 
 download:
-	rsync -v uberspace:nrw-freestyle-cup-registration/db.sqlite db.sqlite
-	rsync -v -r uberspace:nrw-freestyle-cup-registration/data/ data/
+	rsync -v uberspace:einrad-server/db.sqlite db.sqlite
+	rsync -v -r uberspace:einrad-server/data/ data/
 
 sync-up:
-	rsync -v db.sqlite uberspace:nrw-freestyle-cup-registration/db.sqlite
+	rsync -v db.sqlite uberspace:einrad-server/db.sqlite

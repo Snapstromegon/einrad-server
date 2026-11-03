@@ -1,11 +1,11 @@
 [package]
-name = "nrw-freestyle-cup-registration"
+name = "einrad-server"
 version = "0.1.0"
 edition = "2024"
-default-run = "nrw-freestyle-cup-registration"
+default-run = "einrad-server"
 
 [[bin]]
-name = "nrw-freestyle-cup-registration"
+name = "einrad-server"
 path = "src/bin/registration_server.rs"
 
 [[bin]]

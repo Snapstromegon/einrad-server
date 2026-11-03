@@ -1,6 +1,6 @@
 //! Guards the OpenAPI document the frontend client is generated from.
 
-use nrw_freestyle_cup_registration::http_server::routes::get_api_openapi;
+use einrad_server::http_server::routes::get_api_openapi;
 use utoipa::openapi::HttpMethod;
 
 const COMMANDS: &[&str] = &[

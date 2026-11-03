@@ -14,7 +14,7 @@ use std::{
 use axum::http::StatusCode;
 use common::{PASSWORD, TestApp, email_for};
 use futures_util::{SinkExt, StreamExt};
-use nrw_freestyle_cup_registration::player::{
+use einrad_server::player::{
     PlaybackState, PlayerStatus, ToPlayer,
     client::{self, Options, Songs},
 };

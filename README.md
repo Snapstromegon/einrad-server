@@ -135,7 +135,7 @@ Prometheus metrics in the OpenMetrics format; without a token the endpoint
 doesn't exist. The database counts (users, clubs, riders, acts, music,
 payments, fees, the live timeplan and its delay) are read on every scrape;
 HTTP requests, mails and normalization jobs are counted as they happen. All
-metrics start with `cup_`.
+metrics start with `einrad_server_`.
 
 ```yaml
 scrape_configs:

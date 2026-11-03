@@ -35,7 +35,7 @@ impl StatusOptions {
     /// `start_register_date` until `end_judge_register_date`.
     ///
     /// ```
-    /// use nrw_freestyle_cup_registration::system_status::StatusOptions;
+    /// use einrad_server::system_status::StatusOptions;
     /// use time::{Duration, OffsetDateTime};
     ///
     /// let now = OffsetDateTime::now_utc();

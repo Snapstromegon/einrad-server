@@ -58,7 +58,7 @@ async fn the_settings_show_the_photo_password_and_the_feature_defaults() {
     let app = TestApp::new(db).await;
     common::set_photos(
         &app.db,
-        Some(&nrw_freestyle_cup_registration::photos::PhotosSettings {
+        Some(&einrad_server::photos::PhotosSettings {
             source: "https://cloud.example.org/s/AbC123".into(),
             user: None,
             password: Some("geheim".into()),

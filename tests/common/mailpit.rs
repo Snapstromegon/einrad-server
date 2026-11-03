@@ -4,7 +4,7 @@
 //! `DOCKER_HOST` at its socket, e.g.
 //! `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`.
 
-use nrw_freestyle_cup_registration::mailer::Mailer;
+use einrad_server::mailer::Mailer;
 use serde_json::Value;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,

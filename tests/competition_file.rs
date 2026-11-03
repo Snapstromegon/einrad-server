@@ -5,7 +5,7 @@ mod common;
 
 use clap::Parser;
 use common::{TempDir, in_memory_migrated};
-use nrw_freestyle_cup_registration::{
+use einrad_server::{
     competition::Competition,
     config::{CliArgs, ConfigFile, Settings},
     seed::{self, Applied, Report},

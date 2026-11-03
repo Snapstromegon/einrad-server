@@ -4,7 +4,7 @@ Reach for a `mattpocock-skills` skill first whenever one covers the task: `tdd` 
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues (Snapstromegon/nrw-freestyle-cup-registration) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues (Snapstromegon/einrad-server) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

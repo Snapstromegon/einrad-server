@@ -92,7 +92,7 @@ pub struct Metrics {
 
 impl Metrics {
     fn new() -> Self {
-        let mut registry = Registry::with_prefix("cup");
+        let mut registry = Registry::with_prefix("einrad_server");
         let mut metrics = Self {
             registry: Registry::default(),
             users: GaugeFamily::default(),

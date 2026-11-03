@@ -5,7 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TempDir, TestApp, TestResponse};
-use nrw_freestyle_cup_registration::competition::Competition;
+use einrad_server::competition::Competition;
 use serde_json::{Value, json};
 
 const COMPETITION: &str = include_str!("fixtures/competition.toml");
