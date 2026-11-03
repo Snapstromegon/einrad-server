@@ -256,8 +256,9 @@ There are three setups:
 - **Production:** Uberspace (`uberspace`).
 
 The Ansible playbooks in [`deploy/`](deploy) deploy preview and production,
-the preview of a single PR (see [PR previews](#pr-previews)) and Mailpit for
-the PR previews (see [Mailpit](#mailpit)). They need the collections in
+the preview of a single PR and its removal (see
+[PR previews](#pr-previews)) and Mailpit for the PR previews (see
+[Mailpit](#mailpit)). They need the collections in
 [`deploy/requirements.yml`](deploy/requirements.yml) beyond `ansible-core`:
 
 ```sh
@@ -266,6 +267,7 @@ make deploy-preview      # ansible-playbook -i deploy/inventory.yml deploy/previ
 make deploy-production   # ansible-playbook -i deploy/inventory.yml deploy/production.yml
 make deploy-mailpit      # ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml
 make deploy-preview-pr PR=12 ANSIBLE_ARGS="-e cup_binary=<dir>/einrad-server"
+make prune-previews PR=12   # or KEEP=[12,14]: removes PR previews
 ```
 
 The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
@@ -422,6 +424,29 @@ same unless a PR changes its image) and the song cache; the seeds of all
 previews run one after another, so no song is downloaded twice at once.
 Port base, directory and cache are in
 [`group_vars/preview.yml`](deploy/group_vars/preview.yml).
+
+[`deploy/preview-prune.yml`](deploy/preview-prune.yml) removes previews,
+either the one of a PR or every preview but those of a list (e.g. the open
+PRs):
+
+```sh
+make prune-previews PR=12           # -e pr=12: removes pr-12
+make prune-previews KEEP=[12,14]    # -e 'keep=[12,14]': removes all others
+make prune-previews KEEP=[]         # removes all previews
+```
+
+Set exactly one of `pr` (a positive integer) and `keep` (a list of them,
+also as JSON: `-e '{"keep": [12, 14]}'`); anything else stops the playbook
+before it connects. Removing a preview stops and disables
+`einrad-server@pr-12`, deletes `~/previews/pr-12` on `einrad-server` and
+the site file `/etc/caddy/sites/pr-12.caddy` on `caddy` (with
+[`caddy_site_absent.yml`](deploy/tasks/caddy_site_absent.yml), which reloads
+Caddy). The previews are found by their directories, their units (loaded or
+enabled) and their site files, so whatever a half-failed deploy left behind
+goes too. The central instance (`einrad-server.service`, `~/einrad-server`,
+`sites/einrad-server.caddy`), Mailpit and `sites/mail.caddy`, the unit
+template `einrad-server@.service` and the song cache stay. A preview that
+doesn't exist is no error, so a second run changes nothing.
 
 ### The deploy user
 

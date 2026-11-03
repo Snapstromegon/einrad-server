@@ -1,0 +1,181 @@
+# Removes PR previews of preview-pr.yml: stops and disables the unit
+# einrad-server@pr-<n>, deletes ~/previews/pr-<n> on einrad-server and the
+# site file /etc/caddy/sites/pr-<n>.caddy on the caddy VM, and reloads Caddy.
+#
+#   make prune-previews PR=<n>          # remove the preview of PR n
+#   make prune-previews KEEP=[<n>,...]  # remove every preview but these
+#   # or: ansible-playbook -i deploy/inventory.yml deploy/preview-prune.yml -e pr=<n>
+#   #     ansible-playbook -i deploy/inventory.yml deploy/preview-prune.yml -e 'keep=[12,14]'
+#
+# Set exactly one of pr and keep; `-e keep=[]` removes all previews. The
+# previews are found by their directories, units and site files, so the
+# leftovers of a half-failed deploy go too. The central instance
+# (einrad-server.service, ~/einrad-server, sites/einrad-server.caddy), Mailpit
+# with sites/mail.caddy, the unit template and the song cache stay. A preview
+# that doesn't exist is no error: a second run changes nothing.
+#
+# Settings and their defaults: group_vars/all.yml, group_vars/preview.yml and
+# group_vars/proxy.yml.
+- name: Check the input
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # -e keep=[1,2] arrives as a string, -e '{"keep": [1, 2]}' as a list.
+    keep_list: "{{ keep | from_yaml if keep is string else keep }}"
+  tasks:
+    - name: Check pr and keep
+      ansible.builtin.assert:
+        that:
+          - (pr is defined) != (keep is defined)
+          - pr is not defined or pr | string is match('^[1-9][0-9]*$')
+          - keep is not defined or (keep_list is sequence and keep_list is not string and keep_list is not mapping)
+          - keep is not defined or keep_list | map('string') | reject('match', '^[1-9][0-9]*$') | list == []
+        fail_msg: >-
+          Set either -e pr=<n> to remove the preview of PR n or -e keep=[<n>,...]
+          to remove every preview but these (-e keep=[] removes all); the
+          numbers must be positive integers.
+        quiet: true
+
+    - name: Remember the input
+      ansible.builtin.set_fact:
+        # 0 without pr.
+        prune_pr: "{{ pr | int if pr is defined else 0 }}"
+        prune_keep: "{{ keep_list | map('int') | list if keep is defined else [] }}"
+
+- name: Find the previews on einrad-server
+  hosts: preview
+  vars:
+    # Where the enabled units have their links (*.wants/).
+    systemd_unit_dir: /etc/systemd/system
+  tasks:
+    # Another user would look for the previews in its own home directory.
+    - name: Check the user
+      ansible.builtin.assert:
+        that: ansible_facts.user_id == preview_user
+        fail_msg: >-
+          Log in to {{ inventory_hostname }} as {{ preview_user }} (-u {{ preview_user }}
+          or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
+        quiet: true
+
+    - name: Find the directories
+      ansible.builtin.find:
+        paths: "{{ [ansible_facts.user_dir, preview_pr_dir] | path_join }}"
+        file_type: directory
+        patterns: ^pr-[1-9][0-9]*$
+        use_regex: true
+      register: preview_dirs
+
+    # Running, stopped and failed ones; enabled ones that aren't loaded are
+    # only links.
+    - name: Find the loaded units  # noqa: command-instead-of-module (systemd_service can't list units)
+      ansible.builtin.command: systemctl list-units --all --plain --no-legend --full einrad-server@pr-*.service
+      changed_when: false
+      register: preview_units
+
+    - name: Find the enabled units
+      ansible.builtin.find:
+        paths: "{{ systemd_unit_dir }}"
+        recurse: true
+        file_type: link
+        patterns: ^einrad-server@pr-[1-9][0-9]*\.service$
+        use_regex: true
+      register: preview_unit_links
+
+    - name: Remember the previews on einrad-server
+      vars:
+        loaded: "{{ preview_units.stdout | regex_findall('einrad-server@pr-([1-9][0-9]*)\\.service') }}"
+        enabled: >-
+          {{ preview_unit_links.files | map(attribute='path') | map('basename')
+             | map('regex_replace', '^einrad-server@pr-([0-9]+)\.service$', '\1') | map('int') | list }}
+      ansible.builtin.set_fact:
+        previews_dir: "{{ [ansible_facts.user_dir, preview_pr_dir] | path_join }}"
+        preview_dir_prs: >-
+          {{ preview_dirs.files | map(attribute='path') | map('basename')
+             | map('regex_replace', '^pr-', '') | map('int') | list }}
+        preview_unit_prs: "{{ (loaded | map('int') | list + enabled) | unique }}"
+
+- name: Find the preview sites on caddy
+  hosts: proxy
+  become: true
+  gather_facts: false
+  tasks:
+    # Without the backups of tasks/caddy_site.yml (pr-<n>.caddy.<pid>.<date>~).
+    - name: Find the site files
+      ansible.builtin.find:
+        paths: "{{ caddy_dir }}/sites"
+        patterns: ^pr-[1-9][0-9]*\.caddy$
+        use_regex: true
+      register: preview_sites
+
+    - name: Remember the previews on caddy
+      ansible.builtin.set_fact:
+        preview_site_prs: >-
+          {{ preview_sites.files | map(attribute='path') | map('basename')
+             | map('regex_replace', '^pr-([0-9]+)\.caddy$', '\1') | map('int') | list }}
+
+- name: Pick the previews to remove
+  hosts: localhost
+  gather_facts: false
+  vars:
+    found: >-
+      {{ (groups['preview'] | map('extract', hostvars) | map(attribute='preview_dir_prs') | flatten
+          + groups['preview'] | map('extract', hostvars) | map(attribute='preview_unit_prs') | flatten
+          + groups['proxy'] | map('extract', hostvars) | map(attribute='preview_site_prs') | flatten)
+         | unique | sort }}
+  tasks:
+    - name: Set prune_prs
+      ansible.builtin.set_fact:
+        prune_prs: "{{ [prune_pr | int] if prune_pr | int > 0 else found | difference(prune_keep) | sort }}"
+
+    - name: Show the previews to remove
+      ansible.builtin.debug:
+        msg: >-
+          Found: {{ found | map('regex_replace', '^', 'pr-') | join(', ') or 'none' }}.
+          Removing: {{ prune_prs | map('regex_replace', '^', 'pr-') | join(', ') or 'none' }}.
+
+- name: Remove the previews on einrad-server
+  hosts: preview
+  gather_facts: false
+  vars:
+    prune_prs: "{{ hostvars['localhost'].prune_prs }}"
+  tasks:
+    - name: Stop and disable the units
+      become: true
+      ansible.builtin.systemd_service:
+        name: einrad-server@pr-{{ item }}
+        state: stopped
+        enabled: false
+      loop: "{{ prune_prs | intersect(preview_unit_prs) }}"
+
+    # A failed unit, also one that failed while stopping, stays listed until
+    # then.
+    - name: Forget the failed units
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          unit=einrad-server@pr-{{ item }}.service
+          if systemctl is-failed --quiet "$unit"; then
+            systemctl reset-failed "$unit"
+            echo reset
+          fi
+      register: reset_failed
+      changed_when: "'reset' in reset_failed.stdout"
+      loop: "{{ prune_prs | intersect(preview_unit_prs) }}"
+
+    - name: Remove the directories
+      ansible.builtin.file:
+        path: "{{ previews_dir }}/pr-{{ item }}"
+        state: absent
+      loop: "{{ prune_prs }}"
+
+- name: Remove the preview sites on caddy
+  hosts: proxy
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Remove the site files
+      ansible.builtin.include_tasks: tasks/caddy_site_absent.yml
+      vars:
+        caddy_site: pr-{{ item }}
+      loop: "{{ hostvars['localhost'].prune_prs }}"

@@ -98,3 +98,8 @@ deploy-mailpit:
 # `make deploy-preview-pr PR=12 ANSIBLE_ARGS="-e cup_binary=<dir>/einrad-server"`.
 deploy-preview-pr:
 	ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml -e pr=$(PR) $(ANSIBLE_ARGS)
+
+# Remove the preview of one PR, `make prune-previews PR=12`, or every preview
+# but some, `make prune-previews KEEP=[12,14]` (`KEEP=[]` removes all).
+prune-previews:
+	ansible-playbook -i deploy/inventory.yml deploy/preview-prune.yml $(if $(PR),-e pr=$(PR)) $(if $(KEEP),-e 'keep=$(KEEP)') $(ANSIBLE_ARGS)
