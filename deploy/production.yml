@@ -3,10 +3,18 @@
 #
 #   make deploy-production   # or: ansible-playbook -i deploy/inventory.yml deploy/production.yml
 #
+# It stops before changing anything if config.toml (or a local
+# config.production.toml to upload) is missing in ~/<cup_dir>, or if it still
+# has competition sections. Without a database, the server creates an empty
+# one.
+#
 # Settings and their defaults: group_vars/all.yml and group_vars/production.yml.
 - name: Deploy production
   hosts: production
   tasks:
+    - name: Check the config on the server
+      ansible.builtin.import_tasks: tasks/config_check.yml
+
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml
 

@@ -1,0 +1,50 @@
+# Stops before anything changes if the instance has no config.toml in cup_dir
+# (and no local cup_config_src to upload), or if it still has competition
+# sections. Without a config the new service would replace the running one and
+# not start. A missing database is fine: the server creates it (DATABASE_URL in
+# cup_service_env). Imported by preview.yml and production.yml.
+- name: Look for config.toml and the local config
+  ansible.builtin.set_fact:
+    config_check_app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
+    config_check_upload: >-
+      {{ cup_config_src | length > 0
+         and ([playbook_dir | dirname, cup_config_src] | path_join) is file }}
+
+- name: Look for config.toml on the server
+  ansible.builtin.stat:
+    path: "{{ config_check_app_dir }}/config.toml"
+    get_checksum: false
+  register: server_config
+
+- name: Check config.toml
+  ansible.builtin.assert:
+    that: server_config.stat.exists or config_check_upload | bool
+    fail_msg: >-
+      There's no config.toml in {{ config_check_app_dir }} on {{ inventory_hostname }} (and no
+      {{ cup_config_src }} to upload): put the instance's config there first.
+    quiet: true
+
+# The server refuses a config with them (they belong in competition.toml now).
+# Only the section headers are counted, no values are printed.
+- name: Look for competition sections in config.toml
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -cE
+      - ^[[:space:]]*\[\[?[[:space:]]*(competition|categories|finals|timeplan|jury_categories|photos)[[:space:]]*[].]
+      - "{{ config_check_app_dir }}/config.toml"
+  register: competition_sections
+  changed_when: false
+  failed_when: competition_sections.rc > 1
+  check_mode: false
+  when: server_config.stat.exists and not config_check_upload | bool
+
+- name: Check for competition sections
+  ansible.builtin.assert:
+    that: competition_sections.stdout | default('0') | int == 0
+    fail_msg: >-
+      {{ config_check_app_dir }}/config.toml on {{ inventory_hostname }} still has competition sections
+      ([competition…], [[categories]], [[finals]], [[timeplan]], [[jury_categories]] or
+      [photos]): move them into competition.toml next to it ([photos] as
+      [competition.photos]).
+    quiet: true

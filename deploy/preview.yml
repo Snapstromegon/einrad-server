@@ -25,55 +25,11 @@
           or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
         quiet: true
 
-    # The instance keeps its config (with real SMTP) on the VM. Without it the
-    # new service would replace the running one and not start: stop before
-    # anything changes. See "The central 2027 instance" in the README for the
-    # one-time move. A missing database is fine: the server creates it
-    # (DATABASE_URL in cup_service_env).
+    # The instance keeps its config (with real SMTP) on the VM; a missing
+    # database is fine, the server creates it. See "The central 2027
+    # instance" in the README for the one-time move.
     - name: Check the config on the server
-      vars:
-        app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
-        local_config: "{{ [playbook_dir | dirname, cup_config_src] | path_join }}"
-      block:
-        - name: Look for config.toml
-          ansible.builtin.stat:
-            path: "{{ app_dir }}/config.toml"
-            get_checksum: false
-          register: server_config
-
-        - name: Check config.toml
-          ansible.builtin.assert:
-            that: server_config.stat.exists or (cup_config_src | length > 0 and local_config is file)
-            fail_msg: >-
-              There's no config.toml in {{ app_dir }} on {{ inventory_hostname }} (and no
-              {{ cup_config_src }} to upload): put the instance's config there first.
-            quiet: true
-
-        # The server refuses a config with them (they belong in
-        # competition.toml now). Only the section headers are counted, no
-        # values are printed.
-        - name: Look for competition sections in config.toml
-          ansible.builtin.command:
-            argv:
-              - grep
-              - -cE
-              - ^[[:space:]]*\[\[?[[:space:]]*(competition|categories|finals|timeplan|jury_categories|photos)[[:space:]]*[].]
-              - "{{ app_dir }}/config.toml"
-          register: competition_sections
-          changed_when: false
-          failed_when: competition_sections.rc > 1
-          check_mode: false
-          when: server_config.stat.exists and not (cup_config_src | length > 0 and local_config is file)
-
-        - name: Check for competition sections
-          ansible.builtin.assert:
-            that: competition_sections.stdout | default('0') | int == 0
-            fail_msg: >-
-              {{ app_dir }}/config.toml on {{ inventory_hostname }} still has competition sections
-              ([competition…], [[categories]], [[finals]], [[timeplan]], [[jury_categories]] or
-              [photos]): move them into competition.toml next to it ([photos] as
-              [competition.photos]).
-            quiet: true
+      ansible.builtin.import_tasks: tasks/config_check.yml
 
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml

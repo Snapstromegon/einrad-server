@@ -313,8 +313,11 @@ database and `data/` in `~/<cup_dir>`:
   `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
   `~/einrad-server`, and the web backend of
-  `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops if
+  `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops before
+  changing anything if `~/einrad-server/config.toml` is missing (and there's no
+  `config.production.toml` to upload) or still has competition sections, or if
   another service runs from that directory, and warns if ffmpeg is missing.
+  Without a database, the server creates an empty one.
 
 The settings and their defaults are in [`deploy/group_vars/`](deploy/group_vars).
 
