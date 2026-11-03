@@ -100,8 +100,11 @@ jobs:
         gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --silent \
           -f state=in_progress -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
-    # Deleted and created again, as the tag has to move to this commit; the
-    # assets are missing for a moment.
+    # Never deleted: the first run creates the release, later ones move its
+    # tag to this commit. The assets are uploaded separately and replaced in
+    # place, so a failed or retried upload can't take the release with it.
+    # The tag moves even without a release, as the create would keep it at
+    # its old commit.
     - name: Publish the latest-2027 prerelease
       if: steps.newest.outputs.newest == 'true'
       env:
@@ -111,12 +114,33 @@ jobs:
         mkdir release
         cp dist/einrad-server release/einrad-server-linux
         cp dist/seed_demo release/seed_demo-linux
-        if gh release view "$TAG" > /dev/null 2>&1; then
-          gh release delete "$TAG" --yes --cleanup-tag
+        notes="The 2027 branch at $GITHUB_SHA, built by run $GITHUB_RUN_ID. It moves with every push to 2027."
+        if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --silent 2> /dev/null; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" --silent \
+            -f "sha=$GITHUB_SHA" -F force=true
         fi
-        gh release create "$TAG" release/einrad-server-linux release/seed_demo-linux \
-          --prerelease --latest=false --target "$GITHUB_SHA" --title "Latest 2027" \
-          --notes "The 2027 branch at $GITHUB_SHA, built by run $GITHUB_RUN_ID. It moves with every push to 2027."
+        if gh release view "$TAG" > /dev/null 2>&1; then
+          gh release edit "$TAG" --notes "$notes"
+        else
+          gh release create "$TAG" --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Latest 2027" --notes "$notes"
+        fi
+        # --clobber replaces an asset of the same name, also one that a
+        # failed attempt left behind.
+        attempts=5
+        uploaded=false
+        for attempt in $(seq "$attempts"); do
+          if gh release upload "$TAG" release/einrad-server-linux release/seed_demo-linux --clobber; then
+            uploaded=true
+            break
+          fi
+          echo "::warning::Uploading the assets failed (attempt $attempt of $attempts)."
+          [ "$attempt" = "$attempts" ] || sleep 15
+        done
+        if [ "$uploaded" != true ]; then
+          echo "::error::Uploading the assets of $TAG failed $attempts times; the release stays, the next push uploads them again."
+          exit 1
+        fi
 
     - name: Set up SSH
       if: steps.newest.outputs.newest == 'true'

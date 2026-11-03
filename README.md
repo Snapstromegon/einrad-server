@@ -335,10 +335,15 @@ on Uberspace).
    (the static musl release with `seed_demo`) and
    [`pr-test.yml`](.github/workflows/pr-test.yml) (tests and lint). If either
    fails, nothing is released or deployed.
-2. **Release:** the prerelease `latest-2027` is deleted and created again at
-   the commit, with the assets `einrad-server-linux` and `seed_demo-linux`.
-   Production can deploy it with `-e cup_github_tag=latest-2027` (or the
-   `tag` input of Deploy production); its default stays `latest-build`.
+2. **Release:** the prerelease `latest-2027` moves to the commit, with the
+   assets `einrad-server-linux` and `seed_demo-linux`. It is never deleted:
+   the first run creates it, later runs move its tag and then replace the
+   assets in place, so they are missing only while they upload. A failed
+   upload is tried again a few times; if all fail, the run fails before
+   deploying, and the release stays at the commit with old or missing
+   assets until the next push. Production can deploy it with
+   `-e cup_github_tag=latest-2027` (or the `tag` input of Deploy
+   production); its default stays `latest-build`.
 3. **Deploy:** [`deploy/preview.yml`](deploy/preview.yml) with the build, as
    `deploy` through the jumphost (the `home` environment, see
    [From GitHub Actions](#from-github-actions)). The run shows up as a GitHub
