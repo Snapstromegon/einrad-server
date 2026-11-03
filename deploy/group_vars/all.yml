@@ -31,6 +31,9 @@ cup_backups_kept: 10
 cup_config_src: config.{{ cup_environment }}.toml
 cup_competition_src: competition.{{ cup_environment }}.toml
 
-# Environment of the service, overriding .env and config.toml.
+# Environment of the service, overriding .env and config.toml. DATABASE_URL
+# keeps the database at cup_database, where the backups look for it, and
+# mode=rwc lets the server create it on the first start.
 cup_service_env:
   HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
+  DATABASE_URL: sqlite://./{{ cup_database }}?mode=rwc

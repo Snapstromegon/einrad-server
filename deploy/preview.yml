@@ -6,8 +6,9 @@
 #   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 #
 # It keeps the database and config.toml on the VM, and stops before changing
-# anything if config.toml (or a local config.preview.toml to upload) or the
-# database is missing, or if config.toml still has competition sections.
+# anything if config.toml (or a local config.preview.toml to upload) is
+# missing, or if it still has competition sections. Without a database, the
+# server creates an empty one.
 # -e preview_seed_demo=true backs up the database and recreates it with the
 # demo data.
 #
@@ -24,25 +25,25 @@
           or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
         quiet: true
 
-    # The instance keeps its config (with real SMTP) and its database on the
-    # VM. Without them the new service would replace the running one and not
-    # start, or start empty: stop before anything changes. See "The central
-    # 2027 instance" in the README for the one-time move.
-    - name: Check the config and the database on the server
+    # The instance keeps its config (with real SMTP) on the VM. Without it the
+    # new service would replace the running one and not start: stop before
+    # anything changes. See "The central 2027 instance" in the README for the
+    # one-time move. A missing database is fine: the server creates it
+    # (DATABASE_URL in cup_service_env).
+    - name: Check the config on the server
       vars:
         app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
         local_config: "{{ [playbook_dir | dirname, cup_config_src] | path_join }}"
       block:
-        - name: Look for config.toml and the database
+        - name: Look for config.toml
           ansible.builtin.stat:
-            path: "{{ app_dir }}/{{ item }}"
+            path: "{{ app_dir }}/config.toml"
             get_checksum: false
-          loop: [config.toml, "{{ cup_database }}"]
-          register: server_files
+          register: server_config
 
         - name: Check config.toml
           ansible.builtin.assert:
-            that: server_files.results[0].stat.exists or (cup_config_src | length > 0 and local_config is file)
+            that: server_config.stat.exists or (cup_config_src | length > 0 and local_config is file)
             fail_msg: >-
               There's no config.toml in {{ app_dir }} on {{ inventory_hostname }} (and no
               {{ cup_config_src }} to upload): put the instance's config there first.
@@ -62,7 +63,7 @@
           changed_when: false
           failed_when: competition_sections.rc > 1
           check_mode: false
-          when: server_files.results[0].stat.exists and not (cup_config_src | length > 0 and local_config is file)
+          when: server_config.stat.exists and not (cup_config_src | length > 0 and local_config is file)
 
         - name: Check for competition sections
           ansible.builtin.assert:
@@ -72,14 +73,6 @@
               ([competition…], [[categories]], [[finals]], [[timeplan]], [[jury_categories]] or
               [photos]): move them into competition.toml next to it ([photos] as
               [competition.photos]).
-            quiet: true
-
-        - name: Check the database
-          ansible.builtin.assert:
-            that: server_files.results[1].stat.exists or preview_seed_demo | bool
-            fail_msg: >-
-              There's no database {{ app_dir }}/{{ cup_database }} on {{ inventory_hostname }}: move
-              the instance's database there, or create the demo data with -e preview_seed_demo=true.
             quiet: true
 
     - name: Find the binary
@@ -122,10 +115,13 @@
         - name: Back up the database
           ansible.builtin.import_tasks: tasks/backup.yml
 
+        # The same database as the service, whatever config.toml says.
         - name: Run seed_demo
           ansible.builtin.command: bin/seed_demo
           args:
             chdir: "{{ app_dir }}"
+          environment:
+            DATABASE_URL: "{{ cup_service_env.DATABASE_URL }}"
           changed_when: true
 
         - name: Start the service

@@ -7,6 +7,7 @@ preview_user: deploy
 
 cup_service_env:
   HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
+  DATABASE_URL: sqlite://./{{ cup_database }}?mode=rwc
   BASE_URL: https://{{ cup_domain }}/
 
 # Recreate the database with the demo data (seed_demo) after the deploy.

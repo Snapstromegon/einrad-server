@@ -291,8 +291,10 @@ database and `data/` in `~/<cup_dir>`:
 - **Config:** `config.<environment>.toml` and `competition.<environment>.toml`
   from the repository root (ignored by git, `config.preview.toml` …) are
   uploaded as `config.toml` and `competition.toml`. Without such a file, the
-  one on the server stays as it is. The service sets `HTTP_ADDRESS` (and on
-  the preview `BASE_URL`), which take precedence over both.
+  one on the server stays as it is. The service sets `HTTP_ADDRESS`,
+  `DATABASE_URL` (`sqlite://./db.sqlite?mode=rwc`, so the server creates the
+  database on the first start) and on the preview `BASE_URL`, which take
+  precedence over both.
 - **Update:** a new binary only starts after the service was stopped and the
   database was copied to `backups/` (the newest 10 are kept); the old binary
   stays as `bin/einrad-server.previous`. A new config only
@@ -303,8 +305,9 @@ database and `data/` in `~/<cup_dir>`:
   `/etc/caddy/sites/einrad-server.caddy` on `caddy` (see
   [Caddy site files](#caddy-site-files); an entry for the domain in the
   Caddyfile itself is removed). It keeps the database and `config.toml` on
-  the VM and stops before changing anything if either is missing (see
-  [The central 2027 instance](#the-central-2027-instance)).
+  the VM and stops before changing anything if `config.toml` is missing (see
+  [The central 2027 instance](#the-central-2027-instance)); without a
+  database, the server creates an empty one.
   `-e preview_seed_demo=true` backs up the database and recreates it with the demo data:
   `seed_demo` is the file next to `cup_binary`, or the release's
   `seed_demo-linux` asset (`latest-build` doesn't have one).
@@ -348,10 +351,10 @@ as the newer commit's run does both.
 The instance keeps its database and `config.toml` (with real SMTP: it sends
 **real mail**, unlike the [PR previews](#pr-previews)) in
 `~deploy/einrad-server` on the VM; nothing in the repository holds them. The
-playbook stops before it changes anything if `config.toml` or the database is
-missing, or if `config.toml` still has competition sections, which the server
-would refuse. A new binary backs up the database and then migrates it on
-start.
+playbook stops before it changes anything if `config.toml` is missing, or if
+it still has competition sections, which the server would refuse. Without a
+database, the server creates an empty one on start (setup mode, see above). A
+new binary backs up the database and then migrates it on start.
 
 **Reseed:** Actions → Deploy 2027 → Run workflow, branch `2027`, with
 `reseed` checked, backs up the database and recreates it with the demo data
@@ -393,7 +396,8 @@ sudo -u deploy sh -c 'cd ~/einrad-server &&
   DATABASE_URL="sqlite://./try.sqlite?mode=rwc" HTTP_ADDRESS=127.0.0.1:3999 SMTP_SERVER=smtp.invalid ./try-server'
 sudo sh -c 'rm -f ~deploy/einrad-server/try-server ~deploy/einrad-server/try.sqlite*'
 # Move the database (and data/, if there is one) with the old instance
-# stopped; a clean stop leaves no db.sqlite-wal behind.
+# stopped; a clean stop leaves no db.sqlite-wal behind. Skip this to start
+# with an empty database instead.
 sudo systemctl stop einrad-server
 ls "$old"/db.sqlite*
 sudo install -o deploy -g deploy -m 0600 "$old/db.sqlite" ~deploy/einrad-server/
