@@ -20,7 +20,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Ansible
-      run: pipx install ansible-core
+      run: |
+        pipx install ansible-core
+        # Production only needs ansible.builtin; one setup for every playbook.
+        ansible-galaxy collection install -r deploy/requirements.yml
 
     # The inventory's host alias `uberspace`, as in a local ~/.ssh/config.
     - name: Set up SSH

@@ -255,11 +255,16 @@ There are three setups:
   <https://einrad-server.home.hoeser.dev/> on the `caddy` VM.
 - **Production:** Uberspace (`uberspace`).
 
-The Ansible playbooks in [`deploy/`](deploy) deploy preview and production:
+The Ansible playbooks in [`deploy/`](deploy) deploy preview and production,
+and Mailpit for the PR previews (see [Mailpit](#mailpit)). They need the
+collections in [`deploy/requirements.yml`](deploy/requirements.yml) beyond
+`ansible-core`:
 
 ```sh
+ansible-galaxy collection install -r deploy/requirements.yml
 make deploy-preview      # ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 make deploy-production   # ansible-playbook -i deploy/inventory.yml deploy/production.yml
+make deploy-mailpit      # ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml
 ```
 
 The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
@@ -345,6 +350,30 @@ parallel deploys never edit the same file. The task files in
 `caddy_dir` and `caddy_reload_command` in
 [`group_vars/proxy.yml`](deploy/group_vars/proxy.yml) say where the Caddyfile
 is and how Caddy reloads.
+
+### Mailpit
+
+The PR previews send their mails to one shared
+[Mailpit](https://mailpit.axllent.org/) on `einrad-server`; nobody receives
+them, and you read them at <https://mail.einrad-server.home.hoeser.dev/>
+behind Authelia. The instance of the preview playbook
+(`einrad-server.home.hoeser.dev`) sends real mail and doesn't use it.
+[`deploy/mailpit.yml`](deploy/mailpit.yml) (`make deploy-mailpit`) is
+idempotent and
+
+- installs `docker.io` and `python3-docker` from apt and runs the container
+  `mailpit` with `restart: unless-stopped`: SMTP on `127.0.0.1:1025` only
+  (no TLS, no login), the UI and API on port `8025` of the VM, for `caddy`.
+  The mails are in the Docker volume `mailpit`; beyond 5000 the oldest go.
+- writes the site file `/etc/caddy/sites/mail.caddy` on `caddy` (see
+  [Caddy site files](#caddy-site-files)), which puts `import authelia` in
+  front of `einrad-server:8025`.
+
+The image is the `FROM` line of
+[`deploy/mailpit/Dockerfile`](deploy/mailpit/Dockerfile), which only exists
+so Dependabot keeps the tag current; a new tag replaces the container and
+keeps the mails. Port, domain and limit are in
+[`group_vars/preview.yml`](deploy/group_vars/preview.yml).
 
 ### The deploy user
 

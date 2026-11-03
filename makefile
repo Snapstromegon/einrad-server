@@ -89,3 +89,7 @@ deploy-preview:
 
 deploy-production:
 	ansible-playbook -i deploy/inventory.yml deploy/production.yml $(ANSIBLE_ARGS)
+
+# Mailpit for the PR previews on einrad-server, its UI behind Authelia on caddy.
+deploy-mailpit:
+	ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml $(ANSIBLE_ARGS)

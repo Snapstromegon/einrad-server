@@ -13,3 +13,12 @@ cup_service_env:
 # seed_demo is the file next to cup_binary or the release's
 # cup_github_seed_demo_asset.
 preview_seed_demo: false
+
+# Mailpit (mailpit.yml) catches the mails of the PR previews; the instance of
+# preview.yml sends real mail and doesn't use it. SMTP listens on 127.0.0.1
+# only, the UI on the LAN for caddy, which serves it at mailpit_domain behind
+# Authelia.
+mailpit_domain: mail.einrad-server.home.hoeser.dev
+mailpit_smtp_port: 1025
+mailpit_ui_port: 8025
+mailpit_max_messages: 5000

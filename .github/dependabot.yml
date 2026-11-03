@@ -13,3 +13,9 @@ updates:
     directory: "/frontend" # Location of package manifests
     schedule:
       interval: "daily"
+  # Mailpit's image tag; deploy/mailpit.yml reads it from the Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/deploy/mailpit"
+    schedule:
+      interval: "weekly"
+    target-branch: "2027"
