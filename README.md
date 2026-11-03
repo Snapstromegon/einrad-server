@@ -244,3 +244,78 @@ run downloads them (about 80 MB, needs `curl`) into `demo-songs/` next to the
 demo file (`--songs` / `DEMO_SONGS` for another directory) and later runs
 reuse them. Songs that can't be downloaded, and all songs in the tests, are
 short generated tones.
+
+
+## Deployment
+
+There are three setups:
+
+- **Dev:** `make run` on your machine.
+- **Preview:** `einrad-server`, an Ubuntu VM, behind
+  <https://einrad-server.home.hoeser.dev/> on the `caddy` VM.
+- **Production:** Uberspace (`uberspace`).
+
+The Ansible playbooks in [`deploy/`](deploy) deploy preview and production:
+
+```sh
+make deploy-preview      # ansible-playbook -i deploy/inventory.yml deploy/preview.yml
+make deploy-production   # ansible-playbook -i deploy/inventory.yml deploy/production.yml
+```
+
+The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
+aliases: the user, host name and key come from your `~/.ssh/config`. The
+preview needs `sudo` on `einrad-server` and `caddy` (add `-K` to
+`ANSIBLE_ARGS` if it asks for a password). `ANSIBLE_ARGS="--check --diff"`
+shows what would change; the build needs `rsync` here.
+
+Both run the same static musl binary (it embeds the frontend) from
+`~/<cup_dir>/bin`, with `config.toml`, `competition.toml`, `.env`, the
+database and `data/` in `~/<cup_dir>`:
+
+- **Binary:** the preview builds this working tree (uncommitted changes
+  included) on `einrad-server` ([`deploy/build.yml`](deploy/build.yml), the
+  `build` host): it copies everything git doesn't ignore to
+  `~/einrad-server-build` and runs `make centos-release` there.
+  Production downloads the `latest-build` release, built by GitHub Actions from
+  `main`. `-e cup_binary_source=build|github` switches, `-e cup_binary=<file>`
+  deploys a binary you already have.
+- **Config:** `config.<environment>.toml` and `competition.<environment>.toml`
+  from the repository root (ignored by git, `config.preview.toml` …) are
+  uploaded as `config.toml` and `competition.toml`. Without such a file, the
+  one on the server stays as it is. The service sets `HTTP_ADDRESS` (and on
+  the preview `BASE_URL`), which take precedence over both.
+- **Update:** a new binary only starts after the service was stopped and the
+  database was copied to `backups/` (the newest 10 are kept); the old binary
+  stays as `bin/einrad-server.previous`. A new config only
+  restarts the service. Then the playbook waits until the server answers.
+- **Preview:** runs as the systemd service `einrad-server` in
+  `~/einrad-server`, with ffmpeg from apt. The playbook then sets the
+  `einrad-server.home.hoeser.dev` entry in the Caddyfile on `caddy` (a
+  managed block; a hand-written entry for the domain is removed) and reloads
+  Caddy. `-e preview_seed_demo=true` recreates the database with the demo data
+  (`seed_demo`, needs the build).
+- **Production:** runs as the supervisord service `einrad-server` in
+  `~/einrad-server`, and the web backend of
+  `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops if
+  another service runs from that directory, and warns if ffmpeg is missing.
+
+The settings and their defaults are in [`deploy/group_vars/`](deploy/group_vars).
+
+To roll back, move `bin/einrad-server.previous` back, copy the
+database from `backups/` and restart the service (`sudo systemctl restart
+einrad-server` on the preview, `supervisorctl restart einrad-server`
+on Uberspace).
+
+### From GitHub Actions
+
+[`deploy-production.yml`](.github/workflows/deploy-production.yml) runs the
+production playbook on demand (Actions → Deploy production → Run workflow).
+It needs these secrets in the `production` environment:
+
+- `UBERSPACE_HOST`, `UBERSPACE_USER`: the SSH host name and user.
+- `UBERSPACE_SSH_KEY`: a private key whose public key is in the Uberspace's
+  `~/.ssh/authorized_keys`.
+- `UBERSPACE_KNOWN_HOSTS`: the host's line from `ssh-keyscan <host>`.
+
+The preview isn't reachable from GitHub's runners; deploying it from Actions
+would need a self-hosted runner in the home network.

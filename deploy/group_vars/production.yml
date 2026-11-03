@@ -1,0 +1,5 @@
+cup_environment: production
+cup_service_manager: supervisord
+cup_binary_source: github
+# The web backend `uberspace web backend set <domain> --http --port <cup_port>`.
+cup_domain: anmeldung.lmfreestyle27.de

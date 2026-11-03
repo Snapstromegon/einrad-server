@@ -1,0 +1,95 @@
+# Installs or updates the preview on einrad-server and points
+# https://einrad-server.home.hoeser.dev/ on the caddy VM at it.
+#
+#   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
+#
+# Settings and their defaults: group_vars/all.yml and group_vars/preview.yml.
+- name: Build the release
+  ansible.builtin.import_playbook: build.yml
+  vars:
+    deploy_group: preview
+
+- name: Deploy the preview
+  hosts: preview
+  tasks:
+    - name: Find the binary
+      ansible.builtin.import_tasks: tasks/binary.yml
+
+    - name: Install ffmpeg and curl
+      become: true
+      ansible.builtin.apt:
+        name: [ffmpeg, curl]
+        update_cache: true
+        cache_valid_time: 3600
+
+    # The old demo playbook's service had the same name: installing the
+    # release stops it and replaces its unit. Its checkout in
+    # ~/nrw-freestyle-cup-registration stays.
+    - name: Install the release
+      ansible.builtin.import_tasks: tasks/release.yml
+
+    - name: Recreate the demo data
+      when: preview_seed_demo | bool
+      block:
+        - name: Upload seed_demo and demo-data.toml
+          ansible.builtin.copy:
+            src: "{{ item.src }}"
+            dest: "{{ app_dir }}/{{ item.dest }}"
+            mode: "{{ item.mode }}"
+          loop:
+            - { src: "{{ cup_binary_path | dirname }}/seed_demo", dest: bin/seed_demo, mode: "0755" }
+            - { src: "{{ playbook_dir | dirname }}/demo-data.toml", dest: demo-data.toml, mode: "0644" }
+          loop_control:
+            label: "{{ item.dest }}"
+
+        - name: Stop the service
+          become: true
+          ansible.builtin.systemd_service:
+            name: "{{ cup_service }}"
+            state: stopped
+
+        - name: Run seed_demo
+          ansible.builtin.command: bin/seed_demo
+          args:
+            chdir: "{{ app_dir }}"
+          changed_when: true
+
+        - name: Start the service
+          become: true
+          ansible.builtin.systemd_service:
+            name: "{{ cup_service }}"
+            state: started
+
+- name: Point the preview domain at the preview
+  hosts: proxy
+  become: true
+  vars:
+    preview_host: "{{ groups['preview'] | first }}"
+    domain: "{{ hostvars[preview_host].cup_domain }}"
+    marker: "# {mark} ANSIBLE MANAGED: {{ domain }}"
+  tasks:
+    # A site block for the domain that isn't in the managed block, e.g. the
+    # hand-written one from before.
+    - name: Remove other entries of {{ domain }}
+      ansible.builtin.replace:
+        path: /etc/caddy/Caddyfile
+        regexp: (?<!{{ marker | replace('{mark}', 'BEGIN') | regex_escape }}\n)^{{ domain | regex_escape }} \{\n[^{}]*\}\n
+        validate: caddy validate --adapter caddyfile --config %s
+      notify: Reload Caddy
+
+    - name: Add {{ domain }}
+      ansible.builtin.blockinfile:
+        path: /etc/caddy/Caddyfile
+        marker: "{{ marker }}"
+        block: |
+          {{ domain }} {
+          	reverse_proxy "http://{{ preview_host }}:{{ hostvars[preview_host].cup_port }}"
+          }
+        validate: caddy validate --adapter caddyfile --config %s
+      notify: Reload Caddy
+
+  handlers:
+    - name: Reload Caddy
+      ansible.builtin.systemd_service:
+        name: caddy
+        state: reloaded

@@ -1,0 +1,30 @@
+# Settings shared by preview and production. Override them in the group's
+# file or on the command line, e.g. `-e cup_binary=path/to/binary`.
+
+# Where the server binary comes from:
+# - build: this working tree, built on the build host (build.yml)
+# - github: the release asset of cup_github_tag, built by GitHub Actions
+# Setting cup_binary to a local file (relative to the repository) skips both,
+# e.g. in CI after its own build.
+cup_binary_source: build
+cup_github_repo: Snapstromegon/einrad-server
+cup_github_tag: latest-build
+cup_github_asset: einrad-server-linux
+
+# The directory the server runs in, relative to the home directory. It holds
+# config.toml, competition.toml, .env, the database, data/, bin/ and backups/.
+cup_dir: einrad-server
+cup_service: einrad-server
+cup_port: 3000
+# The database file in cup_dir; it's backed up before every new binary starts.
+cup_database: db.sqlite
+cup_backups_kept: 10
+
+# Local files uploaded as config.toml and competition.toml, relative to the
+# repository. A missing file leaves the one on the server as it is.
+cup_config_src: config.{{ cup_environment }}.toml
+cup_competition_src: competition.{{ cup_environment }}.toml
+
+# Environment of the service, overriding .env and config.toml.
+cup_service_env:
+  HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}

@@ -1,0 +1,45 @@
+# Finds the server binary on this machine (cup_binary, the build from
+# build.yml or the GitHub release) and sets cup_binary_path and
+# cup_binary_checksum.
+- name: Use the given binary, the build or the GitHub release
+  delegate_to: localhost
+  run_once: true
+  vars:
+    repo_root: "{{ playbook_dir | dirname }}"
+    build_dir: "{{ repo_root }}/target/deploy/build"
+    download_dir: "{{ repo_root }}/target/deploy"
+  block:
+    - name: Create the download directory
+      ansible.builtin.file:
+        path: "{{ download_dir }}"
+        state: directory
+        mode: "0755"
+      when: cup_binary is not defined and cup_binary_source == 'github'
+
+    - name: Download {{ cup_github_asset }} of {{ cup_github_tag }}
+      ansible.builtin.get_url:
+        url: https://github.com/{{ cup_github_repo }}/releases/download/{{ cup_github_tag }}/{{ cup_github_asset }}
+        dest: "{{ download_dir }}/{{ cup_github_tag }}-{{ cup_github_asset }}"
+        mode: "0755"
+        # The tag moves with every build of main.
+        force: true
+      when: cup_binary is not defined and cup_binary_source == 'github'
+
+    - name: Pick the binary
+      ansible.builtin.set_fact:
+        # cup_binary is relative to the repository.
+        cup_binary_path: >-
+          {{ [repo_root, cup_binary] | path_join if cup_binary is defined
+             else build_dir ~ '/einrad-server' if cup_binary_source == 'build'
+             else download_dir ~ '/' ~ cup_github_tag ~ '-' ~ cup_github_asset }}
+
+    - name: Read the binary's checksum
+      ansible.builtin.stat:
+        path: "{{ cup_binary_path }}"
+        checksum_algorithm: sha256
+      register: local_binary
+      failed_when: not local_binary.stat.exists
+
+    - name: Remember the checksum
+      ansible.builtin.set_fact:
+        cup_binary_checksum: "{{ local_binary.stat.checksum }}"

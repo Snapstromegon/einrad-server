@@ -80,3 +80,10 @@ download:
 
 sync-up:
 	rsync -v db.sqlite uberspace:einrad-server/db.sqlite
+
+# Deploy with Ansible (see deploy/), e.g. `make deploy-preview ANSIBLE_ARGS="--check --diff"`.
+deploy-preview:
+	ansible-playbook -i deploy/inventory.yml deploy/preview.yml $(ANSIBLE_ARGS)
+
+deploy-production:
+	ansible-playbook -i deploy/inventory.yml deploy/production.yml $(ANSIBLE_ARGS)

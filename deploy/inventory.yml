@@ -1,0 +1,20 @@
+# Host names are SSH host aliases: user, host name and key come from
+# ~/.ssh/config, nothing about the login is set here.
+all:
+  children:
+    preview:
+      hosts:
+        einrad-server:
+    production:
+      hosts:
+        uberspace:
+          # Uberspace 7 runs CentOS 7, whose python3 is too old for Ansible.
+          ansible_python_interpreter: /usr/bin/python3.11
+    # Builds the release (x86_64, unlike an ARM laptop), see build.yml.
+    build:
+      hosts:
+        einrad-server:
+    # The reverse proxy in front of the preview.
+    proxy:
+      hosts:
+        caddy:

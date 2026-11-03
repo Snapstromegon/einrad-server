@@ -1,0 +1,116 @@
+# Builds the release from this working tree on the build host (x86_64, see
+# inventory.yml) and fetches the binaries to target/deploy/build/. Imported by
+# preview.yml and production.yml with deploy_group set; it only builds if
+# that group's host has cup_binary_source=build and no cup_binary.
+#
+# The build is a static musl binary (make centos-release), so it runs on
+# Ubuntu as well as on Uberspace's CentOS 7.
+- name: Build the release
+  hosts: build
+  gather_facts: false
+  vars:
+    target: "{{ groups[deploy_group] | first }}"
+    repo_root: "{{ playbook_dir | dirname }}"
+    cargo_bin: "{{ ansible_facts.user_dir }}/.cargo/bin"
+    nvm_dir: "{{ ansible_facts.user_dir }}/.nvm"
+    build_dir: "{{ ansible_facts.user_dir }}/{{ build_checkout }}"
+    musl_release: "{{ build_dir }}/target/x86_64-unknown-linux-musl/release"
+  tasks:
+    - name: Skip the build
+      ansible.builtin.meta: end_play
+      when: hostvars[target].cup_binary is defined or hostvars[target].cup_binary_source != 'build'
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Install the build packages
+      become: true
+      ansible.builtin.apt:
+        name: [build-essential, curl, git, musl-tools, pkg-config, rsync]
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Rust
+      ansible.builtin.shell:
+        cmd: set -o pipefail && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+        executable: /bin/bash
+        creates: "{{ cargo_bin }}/rustup"
+
+    - name: Update Rust
+      ansible.builtin.command: "{{ cargo_bin }}/rustup update stable --no-self-update"
+      register: rustup_update
+      changed_when: "' updated - ' in rustup_update.stdout + rustup_update.stderr"
+      when: build_update_toolchain | bool
+
+    - name: Add the musl target
+      ansible.builtin.command: "{{ cargo_bin }}/rustup target add x86_64-unknown-linux-musl"
+      register: rustup_target
+      changed_when: "'installing component' in rustup_target.stderr"
+
+    - name: Install sqlx-cli
+      ansible.builtin.command: "{{ cargo_bin }}/cargo install sqlx-cli --locked --no-default-features --features rustls,sqlite"
+      args:
+        creates: "{{ cargo_bin }}/sqlx"
+
+    - name: Install nvm
+      ansible.builtin.shell:
+        cmd: set -o pipefail && curl -sSf https://raw.githubusercontent.com/nvm-sh/nvm/{{ build_nvm_version }}/install.sh | bash
+        executable: /bin/bash
+        creates: "{{ nvm_dir }}/nvm.sh"
+
+    - name: Install Node.js {{ build_node_version }}
+      ansible.builtin.shell:
+        cmd: . "$NVM_DIR/nvm.sh" && nvm install {{ build_node_version }} && nvm which {{ build_node_version }}
+        executable: /bin/bash
+      environment:
+        NVM_DIR: "{{ nvm_dir }}"
+      register: nvm_install
+      changed_when: "'is already installed' not in nvm_install.stdout + nvm_install.stderr"
+
+    # Plain rsync over the same SSH host alias, so ~/.ssh/config applies.
+    - name: Copy the working tree (without what git ignores)
+      delegate_to: localhost
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - --archive
+          - --delete
+          - --itemize-changes
+          - --exclude=/.git
+          - "--filter=:- .gitignore"
+          - "{{ repo_root }}/"
+          - "{{ inventory_hostname }}:{{ build_dir }}/"
+      register: rsync
+      changed_when: rsync.stdout != ''
+
+    - name: Create the target directory
+      ansible.builtin.file:
+        path: "{{ build_dir }}/target"
+        state: directory
+        mode: "0755"
+
+    # Migrations changed in place would fail on the old one.
+    - name: Remove the build database
+      ansible.builtin.file:
+        path: "{{ build_dir }}/target/build.sqlite{{ item }}"
+        state: absent
+      loop: ["", -wal, -shm, -journal]
+
+    - name: Build the release (takes a while)
+      ansible.builtin.command: make centos-release
+      args:
+        chdir: "{{ build_dir }}"
+      environment:
+        PATH: "{{ nvm_install.stdout_lines | last | dirname }}:{{ cargo_bin }}:{{ ansible_facts.env.PATH }}"
+        # The build migrates its own database for the sqlx macros.
+        DATABASE_URL: sqlite://{{ build_dir }}/target/build.sqlite?mode=rwc
+      changed_when: true
+      async: 3600
+      poll: 10
+
+    - name: Fetch the binaries
+      ansible.builtin.fetch:
+        src: "{{ musl_release }}/{{ item }}"
+        dest: "{{ repo_root }}/target/deploy/build/{{ item }}"
+        flat: true
+      loop: [einrad-server, seed_demo]

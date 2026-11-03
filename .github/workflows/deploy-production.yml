@@ -1,0 +1,44 @@
+name: Deploy production
+
+# Runs deploy/production.yml with the binary of a release (default: the
+# latest-build release of build-binary.yml).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag of the binary
+        default: latest-build
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency: deploy-production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Ansible
+      run: pipx install ansible-core
+
+    # The inventory's host alias `uberspace`, as in a local ~/.ssh/config.
+    - name: Set up SSH
+      env:
+        SSH_KEY: ${{ secrets.UBERSPACE_SSH_KEY }}
+        KNOWN_HOSTS: ${{ secrets.UBERSPACE_KNOWN_HOSTS }}
+        HOST: ${{ secrets.UBERSPACE_HOST }}
+        USER_NAME: ${{ secrets.UBERSPACE_USER }}
+      run: |
+        install -m 700 -d ~/.ssh
+        install -m 600 /dev/null ~/.ssh/uberspace
+        printf '%s\n' "$SSH_KEY" > ~/.ssh/uberspace
+        printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+        printf 'Host uberspace\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/uberspace\n' "$HOST" "$USER_NAME" > ~/.ssh/config
+
+    - name: Deploy
+      env:
+        TAG: ${{ inputs.tag }}
+      run: >-
+        ansible-playbook -i deploy/inventory.yml deploy/production.yml
+        -e cup_binary_source=github -e "cup_github_tag=$TAG"
