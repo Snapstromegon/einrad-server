@@ -4,11 +4,6 @@
 #   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 #
 # Settings and their defaults: group_vars/all.yml and group_vars/preview.yml.
-- name: Build the release
-  ansible.builtin.import_playbook: build.yml
-  vars:
-    deploy_group: preview
-
 - name: Deploy the preview
   hosts: preview
   tasks:
@@ -37,7 +32,7 @@
             dest: "{{ app_dir }}/{{ item.dest }}"
             mode: "{{ item.mode }}"
           loop:
-            - { src: "{{ cup_binary_path | dirname }}/seed_demo", dest: bin/seed_demo, mode: "0755" }
+            - { src: "{{ cup_seed_demo_path }}", dest: bin/seed_demo, mode: "0755" }
             - { src: "{{ playbook_dir | dirname }}/demo-data.toml", dest: demo-data.toml, mode: "0644" }
           loop_control:
             label: "{{ item.dest }}"

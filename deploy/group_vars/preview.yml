@@ -7,5 +7,6 @@ cup_service_env:
   BASE_URL: https://{{ cup_domain }}/
 
 # Recreate the database with the demo data (seed_demo) after the deploy.
-# Needs the binaries of a local build.
+# seed_demo is the file next to cup_binary or the release's
+# cup_github_seed_demo_asset.
 preview_seed_demo: false

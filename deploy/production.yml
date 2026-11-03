@@ -4,11 +4,6 @@
 #   make deploy-production   # or: ansible-playbook -i deploy/inventory.yml deploy/production.yml
 #
 # Settings and their defaults: group_vars/all.yml and group_vars/production.yml.
-- name: Build the release
-  ansible.builtin.import_playbook: build.yml
-  vars:
-    deploy_group: production
-
 - name: Deploy production
   hosts: production
   tasks:

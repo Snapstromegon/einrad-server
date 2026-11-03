@@ -266,19 +266,18 @@ The hosts in [`deploy/inventory.yml`](deploy/inventory.yml) are SSH host
 aliases: the user, host name and key come from your `~/.ssh/config`. The
 preview needs `sudo` on `einrad-server` and `caddy` (add `-K` to
 `ANSIBLE_ARGS` if it asks for a password). `ANSIBLE_ARGS="--check --diff"`
-shows what would change; the build needs `rsync` here.
+shows what would change.
 
 Both run the same static musl binary (it embeds the frontend) from
 `~/<cup_dir>/bin`, with `config.toml`, `competition.toml`, `.env`, the
 database and `data/` in `~/<cup_dir>`:
 
-- **Binary:** the preview builds this working tree (uncommitted changes
-  included) on `einrad-server` ([`deploy/build.yml`](deploy/build.yml), the
-  `build` host): it copies everything git doesn't ignore to
-  `~/einrad-server-build` and runs `make centos-release` there.
-  Production downloads the `latest-build` release, built by GitHub Actions from
-  `main`. `-e cup_binary_source=build|github` switches, `-e cup_binary=<file>`
-  deploys a binary you already have.
+- **Binary:** built by GitHub Actions only, nothing builds on the servers.
+  Both download a GitHub release, by default `latest-build`, built from `main`
+  by [`build-binary.yml`](.github/workflows/build-binary.yml);
+  `-e cup_github_tag=<tag>` picks another release, `-e cup_binary=<file>`
+  deploys a binary you already have (e.g. `make centos-release` or an artifact
+  of [`build.yml`](.github/workflows/build.yml)).
 - **Config:** `config.<environment>.toml` and `competition.<environment>.toml`
   from the repository root (ignored by git, `config.preview.toml` …) are
   uploaded as `config.toml` and `competition.toml`. Without such a file, the
@@ -292,8 +291,9 @@ database and `data/` in `~/<cup_dir>`:
   `~/einrad-server`, with ffmpeg from apt. The playbook then sets the
   `einrad-server.home.hoeser.dev` entry in the Caddyfile on `caddy` (a
   managed block; a hand-written entry for the domain is removed) and reloads
-  Caddy. `-e preview_seed_demo=true` recreates the database with the demo data
-  (`seed_demo`, needs the build).
+  Caddy. `-e preview_seed_demo=true` recreates the database with the demo data:
+  `seed_demo` is the file next to `cup_binary`, or the release's
+  `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
   `~/einrad-server`, and the web backend of
   `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops if

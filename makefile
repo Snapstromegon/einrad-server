@@ -81,7 +81,9 @@ download:
 sync-up:
 	rsync -v db.sqlite uberspace:einrad-server/db.sqlite
 
-# Deploy with Ansible (see deploy/), e.g. `make deploy-preview ANSIBLE_ARGS="--check --diff"`.
+# Deploy with Ansible (see deploy/) a GitHub release or a binary you have, e.g.
+# `make deploy-preview ANSIBLE_ARGS="-e cup_github_tag=<tag>"` or
+# `ANSIBLE_ARGS="-e cup_binary=<file>"`; `--check --diff` shows what would change.
 deploy-preview:
 	ansible-playbook -i deploy/inventory.yml deploy/preview.yml $(ANSIBLE_ARGS)
 

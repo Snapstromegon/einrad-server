@@ -1,9 +1,0 @@
-# The checkout on the build host, relative to the home directory.
-build_checkout: einrad-server-build
-
-# Node.js major version for the frontend build, installed with nvm.
-build_node_version: "26"
-build_nvm_version: v0.40.3
-
-# Run `rustup update stable` before building.
-build_update_toolchain: false
