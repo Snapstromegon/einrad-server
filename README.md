@@ -380,9 +380,31 @@ keeps the mails. Port, domain and limit are in
 
 ### PR previews
 
+Every non-draft PR into `2027` from a branch of this repository gets its own
+preview at
+`https://pr-<n>.einrad-server.home.hoeser.dev/`, with fresh demo data on
+every push. [`preview.yml`](.github/workflows/preview.yml) builds the PR with
+[`build.yml`](.github/workflows/build.yml) and runs
+[`deploy/preview-pr.yml`](deploy/preview-pr.yml) from the PR's own checkout,
+through the jumphost (see [From GitHub Actions](#from-github-actions)),
+without waiting for the tests:
+
+- **When:** on opening, reopening, a push, and when a draft becomes ready.
+  Drafts get no preview unless they carry the label `preview`; adding that
+  label also redeploys any PR. Other labels change nothing, and a PR turned
+  back into a draft keeps the preview it has.
+- **Skipped:** PRs from forks and events dependabot triggers, as neither gets
+  the secrets. Labelling a dependabot PR `preview` deploys it.
+- **Updates:** a new push cancels the running build or deploy of the PR and
+  starts over.
+- **In the PR:** the GitHub deployment `preview-pr-<n>` shows the preview as
+  in progress, then links to it ("View deployment"), or shows it failed (also
+  when the build failed or a newer push cancelled it), with the run as its
+  log. There are no comments.
+
 [`deploy/preview-pr.yml`](deploy/preview-pr.yml) installs or updates the
 preview of one PR on `einrad-server` from a build you have, with `seed_demo`
-next to the server binary:
+next to the server binary; to deploy one by hand:
 
 ```sh
 ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml \
@@ -549,4 +571,7 @@ Workflows set up SSH with the
 einrad-server`, `ssh caddy` and Ansible with `deploy/inventory.yml` work.
 [`check-home-ssh.yml`](.github/workflows/check-home-ssh.yml) (Actions → Check
 home SSH → Run workflow) checks the secrets: it connects to both hosts as
-`deploy` and runs `sudo`.
+`deploy` and runs `sudo`. [`preview.yml`](.github/workflows/preview.yml)
+deploys the [PR previews](#pr-previews) this way; it only uses the
+environment `home` for its secrets (`deployment: false`), so the PR shows only
+the deployment `preview-pr-<n>`.
