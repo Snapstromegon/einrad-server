@@ -288,10 +288,11 @@ database and `data/` in `~/<cup_dir>`:
   stays as `bin/einrad-server.previous`. A new config only
   restarts the service. Then the playbook waits until the server answers.
 - **Preview:** runs as the systemd service `einrad-server` in
-  `~deploy/einrad-server`, as `deploy`, with ffmpeg from apt. The playbook then sets the
-  `einrad-server.home.hoeser.dev` entry in the Caddyfile on `caddy` (a
-  managed block; a hand-written entry for the domain is removed) and reloads
-  Caddy. `-e preview_seed_demo=true` recreates the database with the demo data:
+  `~deploy/einrad-server`, as `deploy`, with ffmpeg from apt. The playbook then
+  points `einrad-server.home.hoeser.dev` at it with the site file
+  `/etc/caddy/sites/einrad-server.caddy` on `caddy` (see
+  [Caddy site files](#caddy-site-files); an entry for the domain in the
+  Caddyfile itself is removed). `-e preview_seed_demo=true` recreates the database with the demo data:
   `seed_demo` is the file next to `cup_binary`, or the release's
   `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
@@ -305,6 +306,45 @@ To roll back, move `bin/einrad-server.previous` back, copy the
 database from `backups/` and restart the service (`sudo systemctl restart
 einrad-server` on the preview, `supervisorctl restart einrad-server`
 on Uberspace).
+
+### Caddy site files
+
+Each site deployed to `caddy` has its own file in `/etc/caddy/sites/`, so
+parallel deploys never edit the same file. The task files in
+[`deploy/tasks/`](deploy/tasks) do the work:
+
+- [`caddy_setup.yml`](deploy/tasks/caddy_setup.yml) creates `sites/` and
+  appends a managed block to `/etc/caddy/Caddyfile`: the snippet
+  `(authelia)` (Authelia's `forward_auth` on `127.0.0.1:9091`, as
+  `monitoring.home.hoeser.dev` uses it) and then
+  `import /etc/caddy/sites/*.caddy`. The hand-written site blocks stay as
+  they are. It is idempotent; the preview playbook runs it every time.
+- [`caddy_site.yml`](deploy/tasks/caddy_site.yml) writes
+  `sites/<caddy_site>.caddy` with `caddy_site_content`, checks the whole
+  config with `caddy validate` and reloads Caddy. If Caddy rejects it, the
+  old file comes back and the task fails. The file is written to a hidden
+  temp file and renamed, and the import skips hidden files, so a parallel
+  run never sees half a file. As another run's broken file only stays until
+  that run puts its old one back, the check tries 3 more times, 5 seconds
+  apart, unless Caddy names this site file in the error.
+- [`caddy_site_absent.yml`](deploy/tasks/caddy_site_absent.yml) removes
+  `sites/<caddy_site>.caddy` and reloads Caddy.
+
+```yaml
+- name: Add the site
+  ansible.builtin.include_tasks: tasks/caddy_site.yml
+  vars:
+    caddy_site: mail
+    caddy_site_content: |
+      mail.einrad-server.home.hoeser.dev {
+      	import authelia
+      	reverse_proxy "http://einrad-server:8025"
+      }
+```
+
+`caddy_dir` and `caddy_reload_command` in
+[`group_vars/proxy.yml`](deploy/group_vars/proxy.yml) say where the Caddyfile
+is and how Caddy reloads.
 
 ### The deploy user
 

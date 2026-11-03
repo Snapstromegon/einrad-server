@@ -1,0 +1,65 @@
+# Writes the site file sites/<caddy_site>.caddy with caddy_site_content,
+# checks the whole Caddy config and reloads Caddy. If Caddy rejects the
+# config, the old file comes back and the task fails. Needs
+# tasks/caddy_setup.yml once.
+#
+# Parallel runs for different sites don't break each other: the copy module
+# writes a hidden temp file and renames it, and `import sites/*.caddy` skips
+# hidden files, so a validation never reads a half-written file. A broken
+# file of another run is only there until that run puts its old file back,
+# so the check tries again unless Caddy names this file in the error.
+- name: Check the site name
+  ansible.builtin.assert:
+    that: caddy_site is match('^[a-z0-9][a-z0-9.-]*$')
+    fail_msg: caddy_site must be a file name without .caddy, e.g. pr-12.
+    quiet: true
+
+- name: Write the site file {{ caddy_site }}
+  ansible.builtin.copy:
+    content: "{{ caddy_site_content }}"
+    dest: "{{ caddy_dir }}/sites/{{ caddy_site }}.caddy"
+    mode: "0644"
+    # Named <file>.<pid>.<date>~, which the import skips.
+    backup: true
+  register: caddy_site_file
+
+- name: Load the site file  # noqa: no-handler (task files have no handlers)
+  when: caddy_site_file is changed
+  block:
+    - name: Check the Caddy config
+      ansible.builtin.command: caddy validate --adapter caddyfile --config {{ caddy_dir }}/Caddyfile
+      changed_when: false
+      register: caddy_validate
+      until: caddy_validate.rc == 0 or caddy_site_file.dest in caddy_validate.stderr
+      retries: 3
+      delay: 5
+
+    - name: Reload Caddy
+      ansible.builtin.command: "{{ caddy_reload_command }}"
+      changed_when: true
+
+  rescue:
+    - name: Put the old site file back
+      ansible.builtin.copy:
+        src: "{{ caddy_site_file.backup_file }}"
+        dest: "{{ caddy_site_file.dest }}"
+        remote_src: true
+        mode: "0644"
+      when: caddy_site_file.backup_file is defined
+
+    - name: Remove the new site file
+      ansible.builtin.file:
+        path: "{{ caddy_site_file.dest }}"
+        state: absent
+      when: caddy_site_file.backup_file is not defined
+
+    - name: Report the rejected site file
+      ansible.builtin.fail:
+        msg: "Caddy rejected the site file {{ caddy_site }}: {{ ansible_failed_result.stderr_lines | default([]) | last | default(ansible_failed_result.msg) }}"
+
+  always:
+    - name: Remove the backup of the site file
+      ansible.builtin.file:
+        path: "{{ caddy_site_file.backup_file }}"
+        state: absent
+      when: caddy_site_file.backup_file is defined

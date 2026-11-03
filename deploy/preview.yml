@@ -1,5 +1,6 @@
 # Installs or updates the preview on einrad-server and points
-# https://einrad-server.home.hoeser.dev/ on the caddy VM at it.
+# https://einrad-server.home.hoeser.dev/ on the caddy VM at it, with the site
+# file /etc/caddy/sites/einrad-server.caddy.
 #
 #   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 #
@@ -70,30 +71,39 @@
   vars:
     preview_host: "{{ groups['preview'] | first }}"
     domain: "{{ hostvars[preview_host].cup_domain }}"
-    marker: "# {mark} ANSIBLE MANAGED: {{ domain }}"
   tasks:
-    # A site block for the domain that isn't in the managed block, e.g. the
-    # hand-written one from before.
+    - name: Set up the site files
+      ansible.builtin.import_tasks: tasks/caddy_setup.yml
+
+    # The domain moved to its site file; Caddy rejects it twice, so these go
+    # first.
+    - name: Remove the old managed block of {{ domain }}
+      ansible.builtin.blockinfile:
+        path: "{{ caddy_dir }}/Caddyfile"
+        marker: "# {mark} ANSIBLE MANAGED: {{ domain }}"
+        state: absent
+        validate: caddy validate --adapter caddyfile --config %s
+      notify: Reload Caddy
+
+    # A site block for the domain in the Caddyfile, e.g. the hand-written one
+    # from before.
     - name: Remove other entries of {{ domain }}
       ansible.builtin.replace:
-        path: /etc/caddy/Caddyfile
-        regexp: (?<!{{ marker | replace('{mark}', 'BEGIN') | regex_escape }}\n)^{{ domain | regex_escape }} \{\n[^{}]*\}\n
+        path: "{{ caddy_dir }}/Caddyfile"
+        regexp: ^{{ domain | regex_escape }} \{\n[^{}]*\}\n
         validate: caddy validate --adapter caddyfile --config %s
       notify: Reload Caddy
 
     - name: Add {{ domain }}
-      ansible.builtin.blockinfile:
-        path: /etc/caddy/Caddyfile
-        marker: "{{ marker }}"
-        block: |
+      ansible.builtin.include_tasks: tasks/caddy_site.yml
+      vars:
+        caddy_site: "{{ hostvars[preview_host].cup_service }}"
+        caddy_site_content: |
           {{ domain }} {
           	reverse_proxy "http://{{ preview_host }}:{{ hostvars[preview_host].cup_port }}"
           }
-        validate: caddy validate --adapter caddyfile --config %s
-      notify: Reload Caddy
 
   handlers:
     - name: Reload Caddy
-      ansible.builtin.systemd_service:
-        name: caddy
-        state: reloaded
+      ansible.builtin.command: "{{ caddy_reload_command }}"
+      changed_when: true
