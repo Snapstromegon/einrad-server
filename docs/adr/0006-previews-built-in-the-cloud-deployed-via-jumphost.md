@@ -12,7 +12,7 @@ The price of the jumphost is that a private key with passwordless sudo on `einra
 
 ## Decisions made along the way
 
-- **Release builds everywhere.** Previews were first planned as debug builds for speed; they switched to the same static musl release build as production, because the frontend is only embedded in release builds and a preview should run what production runs. `[profile.release]` keeps `debug = "line-tables-only"` so backtraces show file and line.
+- **Release builds everywhere.** Previews were first planned as debug builds for speed; they switched to the same static musl release build as production, because the frontend is only embedded in release builds and a preview should run what production runs. It is a plain release build without debug info: line tables (`debug = "line-tables-only"`) were tried first, but they made the binaries about four times larger (≈135 MB instead of ≈35 MB) and every deploy upload slow, so they were dropped; a debug build is the tool when file and line are needed.
 - **Cloud-only builds.** The build host (building on the VM) is removed; a reusable workflow builds `einrad-server` and `seed_demo` as a workflow artifact for the previews and the central 2027 instance. Production's `build-binary.yml` stays as it is until production switches.
 - **`deploy` owns the apps on `einrad-server`.** The services run as `deploy` from its home directory, so the playbooks need no `become_user`.
 - **One Caddy file per site.** The Caddyfile imports `/etc/caddy/sites/*.caddy`; a preview adds and removes only its own file, and existing sites stay untouched.
@@ -22,7 +22,7 @@ The price of the jumphost is that a private key with passwordless sudo on `einra
 
 ## Consequences
 
-- The line tables make the binary larger than a plain release build; if that ever hurts (e.g. on the Uberspace production host), they're the first thing to drop.
+- Backtraces from deployed binaries show function names but no file and line.
 - Production still deploys `latest-build` from `main`; switching it to `latest-2027` is a later, explicit step.
 - In the Ansible inventory the group `preview` and `deploy/preview.yml` are the central 2027 instance, not a PR preview.
 - A PR's preview deploys with that PR's own `deploy/`, so a PR can change how previews are deployed, but also break its own preview.
