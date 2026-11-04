@@ -1,0 +1,149 @@
+name: PR preview teardown
+
+# Removes the PR previews of preview.yml with deploy/preview-prune.yml from
+# 2027 (a closed PR's branch may be gone) and marks their GitHub deployments
+# preview-pr-<n> inactive:
+# - teardown: when a PR into 2027 closes (merged or not, draft or not), its
+#   preview. Skipped for forks and for events dependabot triggers, which get
+#   no secrets; the nightly run removes what they leave.
+# - reconcile: nightly and by hand, every preview but those of the open PRs
+#   that should have one (see .github/scripts/preview-deployments.sh).
+#
+# Scheduled runs and Run workflow need this file on the default branch (see
+# the README): copy it to main unchanged. Both always prune with 2027's
+# deploy/, whichever branch the run started on.
+on:
+  pull_request:
+    branches: [ '2027' ]
+    types: [ closed ]
+  schedule:
+  - cron: '17 3 * * *'
+  workflow_dispatch:
+
+# A teardown shares preview-pr-<n> with preview.yml and cancels a running
+# deploy of the PR (reopening the PR cancels the teardown in turn). A skipped
+# teardown gets a group of its own, so it doesn't cancel one: the condition
+# is teardown's `if`, keep both the same. A running reconcile is never
+# cancelled; GitHub keeps one waiting run per group, so a newer one replaces
+# it.
+concurrency:
+  group: >-
+    ${{ github.event_name != 'pull_request' && 'preview-reconcile'
+    || github.event.pull_request.head.repo.full_name == github.repository
+    && github.actor != 'dependabot[bot]'
+    && format('preview-pr-{0}', github.event.pull_request.number)
+    || format('preview-teardown-skipped-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  teardown:
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # Only for the secrets.
+    environment:
+      name: home
+      deployment: false
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+    # 2027, not the PR's merge commit, which may be gone: removing goes by
+    # 2027's deploy/ and scripts, also for a PR that changed them.
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.base.ref }}
+        persist-credentials: false
+
+    - name: Install Ansible
+      run: |
+        pipx install ansible-core
+        ansible-galaxy collection install -r deploy/requirements.yml
+
+    - name: Set up SSH
+      uses: ./.github/actions/home-ssh
+      with:
+        ssh-key: ${{ secrets.HOME_SSH_KEY }}
+        known-hosts: ${{ secrets.HOME_KNOWN_HOSTS }}
+        jumphost: ${{ secrets.HOME_JUMPHOST }}
+        jumphost-port: ${{ secrets.HOME_JUMPHOST_PORT }}
+
+    # No -v: the jumphost's name stays out of the log.
+    - name: Remove the preview
+      env:
+        PR: ${{ github.event.pull_request.number }}
+      run: >-
+        ansible-playbook -i deploy/inventory.yml deploy/preview-prune.yml
+        -e "{\"pr\": $PR}"
+
+    - name: Mark the deployments inactive
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: .github/scripts/preview-deployments.sh deactivate --pr "$PR"
+
+  reconcile:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Only for the secrets.
+    environment:
+      name: home
+      deployment: false
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: '2027'
+        persist-credentials: false
+
+    - name: Install Ansible
+      run: |
+        pipx install ansible-core
+        ansible-galaxy collection install -r deploy/requirements.yml
+
+    - name: Set up SSH
+      uses: ./.github/actions/home-ssh
+      with:
+        ssh-key: ${{ secrets.HOME_SSH_KEY }}
+        known-hosts: ${{ secrets.HOME_KNOWN_HOSTS }}
+        jumphost: ${{ secrets.HOME_JUMPHOST }}
+        jumphost-port: ${{ secrets.HOME_JUMPHOST_PORT }}
+
+    # Right before the prune, after everything slow: a PR that gets a preview
+    # after this is only removed if its deploy finishes within the seconds
+    # until the playbook has looked for the previews, and a deploy builds for
+    # minutes first.
+    - name: List the open PRs with a preview
+      id: open
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        keep=$(.github/scripts/preview-deployments.sh open-previews)
+        echo "Keeping the previews of: $keep"
+        echo "keep=$keep" >> "$GITHUB_OUTPUT"
+
+    - name: Remove the other previews
+      env:
+        KEEP: ${{ steps.open.outputs.keep }}
+      run: >-
+        ansible-playbook -i deploy/inventory.yml deploy/preview-prune.yml
+        -e "{\"keep\": $KEEP}"
+
+    # Also the deployments a teardown missed, but not those of PRs that got a
+    # preview while the playbook ran (the script lists them again).
+    - name: Mark their deployments inactive
+      env:
+        GH_TOKEN: ${{ github.token }}
+        KEEP: ${{ steps.open.outputs.keep }}
+      run: .github/scripts/preview-deployments.sh deactivate --keep "$KEEP"

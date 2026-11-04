@@ -501,7 +501,8 @@ without waiting for the tests:
 - **When:** on opening, reopening, a push, and when a draft becomes ready.
   Drafts get no preview unless they carry the label `preview`; adding that
   label also redeploys any PR. Other labels change nothing, and a PR turned
-  back into a draft keeps the preview it has.
+  back into a draft keeps the preview it has until the next nightly
+  reconcile (see [Removing previews](#removing-previews)).
 - **Skipped:** PRs from forks and events dependabot triggers, as neither gets
   the secrets. Labelling a dependabot PR `preview` deploys it.
 - **Updates:** a new push cancels the running build or deploy of the PR and
@@ -509,7 +510,8 @@ without waiting for the tests:
 - **In the PR:** the GitHub deployment `preview-pr-<n>` shows the preview as
   in progress, then links to it ("View deployment"), or shows it failed (also
   when the build failed or a newer push cancelled it), with the run as its
-  log. There are no comments.
+  log. There are no comments. Closing the PR removes the preview and marks
+  the deployment inactive.
 
 [`deploy/preview-pr.yml`](deploy/preview-pr.yml) installs or updates the
 preview of one PR on `einrad-server` from a build you have, with `seed_demo`
@@ -578,6 +580,49 @@ goes too. The central instance (`einrad-server.service`, `~/einrad-server`,
 `sites/einrad-server.caddy`), Mailpit and `sites/mail.caddy`, the unit
 template `einrad-server@.service` and the song cache stay. A preview that
 doesn't exist is no error, so a second run changes nothing.
+
+#### Removing previews
+
+[`preview-teardown.yml`](.github/workflows/preview-teardown.yml) runs
+[`deploy/preview-prune.yml`](deploy/preview-prune.yml) through the jumphost,
+always from a checkout of `2027` (a closed PR's branch may be gone), and
+marks the deployments `preview-pr-<n>` of the removed previews inactive with
+[`.github/scripts/preview-deployments.sh`](.github/scripts/preview-deployments.sh):
+
+- **Teardown:** closing a PR into `2027` (merged or not, draft or not)
+  removes its preview (`-e '{"pr": 12}'`). It shares the concurrency group
+  `preview-pr-<n>` with [`preview.yml`](.github/workflows/preview.yml), so it
+  cancels a running deploy of the PR; reopening the PR cancels the teardown
+  and deploys again. Forks and closes by dependabot are skipped (no
+  secrets); the reconcile removes what they leave.
+- **Reconcile:** every night at 03:17 UTC and by hand (Actions → PR preview
+  teardown → Run workflow), it removes every preview but those of the open
+  PRs into `2027` that should have one: from a branch of this repository,
+  not a draft or labelled `preview` (dependabot's included, as the list only
+  keeps previews). Leftovers of a skipped or failed teardown and previews of
+  PRs turned back into drafts go. It also marks every deployment of a
+  removed preview inactive that isn't yet, e.g. when a cancelled deploy
+  marked it failed after the teardown, but not those of PRs that got a
+  preview while the playbook ran (it lists the open PRs again). A running
+  reconcile is never cancelled; GitHub keeps one waiting run, so a newer one
+  replaces it.
+- **Race:** the open PRs are listed right before the playbook, after the
+  SSH and Ansible setup. A PR that only gets its preview after the listing
+  would lose it if its deploy finished in the seconds until the playbook has
+  looked for the previews; a deploy builds for minutes first, and the next
+  push or `preview` label deploys it again. A teardown and a reconcile can
+  remove the same preview at once; if one of them fails over it, the next
+  run cleans up.
+- **Environments:** the workflow token can't delete environments (that
+  needs the administration permission), so `preview-pr-<n>` stays listed
+  under Settings → Environments with an inactive deployment. Delete old ones
+  by hand if they get in the way:
+  `gh api -X DELETE repos/Snapstromegon/einrad-server/environments/preview-pr-12`.
+- **Default branch:** GitHub runs scheduled workflows and offers Run
+  workflow only for workflow files on the default branch (`main`), so the
+  reconcile needs `preview-teardown.yml` on `main` too: copy it there
+  unchanged (the teardown runs from the PR's own copy). It checks out
+  `2027` itself, so it prunes with `2027`'s `deploy/` from either branch.
 
 ### The deploy user
 
@@ -685,6 +730,8 @@ einrad-server`, `ssh caddy` and Ansible with `deploy/inventory.yml` work.
 [`check-home-ssh.yml`](.github/workflows/check-home-ssh.yml) (Actions → Check
 home SSH → Run workflow) checks the secrets: it connects to both hosts as
 `deploy` and runs `sudo`. [`preview.yml`](.github/workflows/preview.yml)
-deploys the [PR previews](#pr-previews) this way; it only uses the
-environment `home` for its secrets (`deployment: false`), so the PR shows only
-the deployment `preview-pr-<n>`.
+deploys the [PR previews](#pr-previews) this way and
+[`preview-teardown.yml`](.github/workflows/preview-teardown.yml) removes them
+(see [Removing previews](#removing-previews)); both only use the environment
+`home` for its secrets (`deployment: false`), so the PR shows only the
+deployment `preview-pr-<n>`.
