@@ -287,7 +287,13 @@ database and `data/` in `~/<cup_dir>`:
   by [`build-binary.yml`](.github/workflows/build-binary.yml);
   `-e cup_github_tag=<tag>` picks another release, `-e cup_binary=<file>`
   deploys a binary you already have (e.g. `make centos-release` or an artifact
-  of [`build.yml`](.github/workflows/build.yml)).
+  of [`build.yml`](.github/workflows/build.yml)). The VMs may have CPUs
+  without AVX, so [`.cargo/config.toml`](.cargo/config.toml) builds the C code
+  in the binary (SQLite, ring) for baseline x86-64 like the Rust code;
+  otherwise it gets the C compiler's default, which can crash with SIGILL
+  there. `build.yml` checks this with
+  [`check-cpu-baseline.sh`](.github/scripts/check-cpu-baseline.sh) on an
+  emulated CPU without AVX.
 - **Config:** `config.<environment>.toml` and `competition.<environment>.toml`
   from the repository root (ignored by git, `config.preview.toml` …) are
   uploaded as `config.toml` and `competition.toml`. Without such a file, the

@@ -34,11 +34,12 @@ jobs:
       with:
         shared-key: musl-release
 
-    # The runner image has pkg-config and libssl-dev already.
-    - name: Install musl-tools
+    # The runner image has pkg-config and libssl-dev already. qemu-user for
+    # the CPU check below.
+    - name: Install musl-tools and qemu-user
       run: |
         sudo apt-get update
-        sudo apt-get install -y musl-tools
+        sudo apt-get install -y musl-tools qemu-user
 
     # Prebuilt, instead of compiling it on every cold cache.
     - name: Install sqlx-cli
@@ -68,6 +69,14 @@ jobs:
 
     - name: Build release binaries
       run: make centos-release
+
+    # The servers may lack AVX: the C code must be built for baseline x86-64
+    # (.cargo/config.toml), or the binaries crash with SIGILL (#284).
+    - name: Check the binaries run on CPUs without AVX
+      run: >-
+        .github/scripts/check-cpu-baseline.sh
+        target/x86_64-unknown-linux-musl/release/einrad-server
+        target/x86_64-unknown-linux-musl/release/seed_demo
 
     # Both files land at the artifact's root.
     - name: Upload binaries artifact
