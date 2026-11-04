@@ -6,8 +6,8 @@
 
 /* Design tokens. Custom properties inherit into the components' shadow DOM. */
 :root {
-  --cup-blue: #002d56;
-  --cup-blue-2: #99add7;
+  --cup-blue: #7b1fa2; /* Demo for the PR preview flow (was #002d56). */
+  --cup-blue-2: #ce93d8; /* Demo (was #99add7). */
   --cup-green: #009036;
   --cup-red: #e2001a;
   --cup-amber: #b26a00;
