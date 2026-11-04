@@ -6,10 +6,7 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs::{DirBuilder, File},
-    io::AsyncWriteExt,
-};
+use tokio::fs::DirBuilder;
 use tracing::instrument;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -117,10 +114,9 @@ pub async fn save_act_song(
         .create(path.parent().unwrap())
         .await
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    File::create(&path)
-        .await
-        .map_err(|e| HttpError::ErrorMessages(e.to_string()))?
-        .write_all(&data)
+    // Unlike `File::write_all`, this only returns once the whole song is
+    // written: the normalization below reads it right away.
+    tokio::fs::write(&path, &data)
         .await
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let previous_normalized = sqlx::query_scalar!(

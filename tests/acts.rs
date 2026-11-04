@@ -238,6 +238,62 @@ async fn save_act_song_stores_file_and_metadata() {
     assert_eq!(act["song_file_name"], "Mein Lied.mp3");
 }
 
+/// The normalization starts right after the upload and reads the file, so the
+/// song must be written when the command answers. A named pipe makes the
+/// write wait for a reader that starts late.
+#[cfg(unix)]
+#[tokio::test]
+async fn save_act_song_answers_after_the_song_is_written() {
+    use std::{
+        io::Read,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
+
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (cookie, single, _) = club_with_acts(&app).await;
+    let path = app.data_path().join(format!("{single}.mp3"));
+    let mkfifo = std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(mkfifo.success());
+    // More than a pipe holds, so the write blocks until the reader reads.
+    let contents = vec![7u8; 1024 * 1024];
+    let reading = Arc::new(AtomicBool::new(false));
+    let reader = std::thread::spawn({
+        let reading = reading.clone();
+        move || {
+            let mut file = std::fs::File::open(path).unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+            reading.store(true, Ordering::SeqCst);
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            data
+        }
+    });
+
+    let response = app
+        .post_file(
+            &format!("/api/command/save_act_song?act_id={single}"),
+            "Mein Lied.mp3",
+            &contents,
+            Some(&cookie),
+        )
+        .await;
+
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert!(
+        reading.load(Ordering::SeqCst),
+        "answered before the song was written"
+    );
+    assert_eq!(reader.join().unwrap(), contents);
+}
+
 #[tokio::test]
 async fn save_act_song_replaces_previous_upload() {
     let db = common::in_memory_migrated().await;
