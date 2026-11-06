@@ -35,19 +35,22 @@ const matches: Record<Preset, (club: MailClub) => boolean> = {
 export const presetClubIds = (clubs: readonly MailClub[], preset: Preset) =>
   clubs.filter(matches[preset]).map((club) => club.id);
 
+/** Whether the sender sees the clubs' open amounts (club balances). */
+export const showsMoney = (clubs: readonly MailClub[]) =>
+  clubs.some((club) => club.open_amount != null);
+
 /**
- * The presets for `clubs`: the open amount only when the sender sees club
- * balances, the jury deployments only with the jury data (and while the
- * jury registration is on).
+ * Whether the sender sees the clubs' missing jury deployments (jury data,
+ * while the jury registration is on).
  */
+export const showsJury = (clubs: readonly MailClub[]) =>
+  clubs.some((club) => club.missing_deployments != null);
+
+/** The presets for `clubs`: money and jury only when the sender sees them. */
 export const presets = (clubs: readonly MailClub[]): Preset[] => [
   "all",
-  ...(clubs.some((club) => club.open_amount != null)
-    ? (["open_amount"] as const)
-    : []),
-  ...(clubs.some((club) => club.missing_deployments != null)
-    ? (["missing_deployments"] as const)
-    : []),
+  ...(showsMoney(clubs) ? (["open_amount"] as const) : []),
+  ...(showsJury(clubs) ? (["missing_deployments"] as const) : []),
   "missing_music",
 ];
 
@@ -70,6 +73,16 @@ export const deliveryLabels: Record<DeliveryStatus, string> = {
   sent: "gesendet",
   failed: "fehlgeschlagen",
 };
+
+/** The chip tone (`adminStyles`) of each status. */
+export const deliveryTones: Record<DeliveryStatus, string> = {
+  pending: "warn",
+  sent: "ok",
+  failed: "bad",
+};
+
+/** "1 Mail", "3 Mails". */
+export const mailCount = (n: number) => (n === 1 ? "1 Mail" : `${n} Mails`);
 
 /** How many mails of a club mail went out, failed or are still pending. */
 export const deliveryCounts = (

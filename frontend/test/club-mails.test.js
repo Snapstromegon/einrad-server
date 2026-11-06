@@ -3,6 +3,7 @@ import { describe, test } from "vite-plus/test";
 import {
   cleanExtraRecipients,
   deliveryCounts,
+  mailCount,
   presetClubIds,
   presets,
 } from "../src/ts/club-mails.ts";
@@ -85,5 +86,13 @@ describe("deliveryCounts", () => {
       failed: 1,
       pending: 1,
     });
+  });
+});
+
+describe("mailCount", () => {
+  test("counts mails in German", () => {
+    assert.equal(mailCount(1), "1 Mail");
+    assert.equal(mailCount(0), "0 Mails");
+    assert.equal(mailCount(3), "3 Mails");
   });
 });

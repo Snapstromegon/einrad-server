@@ -8,13 +8,17 @@ import {
   cleanExtraRecipients,
   deliveryCounts,
   deliveryLabels,
+  deliveryTones,
   type ExtraRow,
   type MailClub,
+  mailCount,
   type Preset,
   presetClubIds,
   presetLabels,
   presets,
   type SentClubMail,
+  showsJury,
+  showsMoney,
 } from "../../club-mails";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
@@ -23,10 +27,6 @@ import { formatDateTime, formatMoney } from "../../utils";
 type ClubMailOptions = schemas.ClubMailOptions;
 type PreparedMails = schemas.PreparedMails;
 type RenderedMail = schemas.RenderedMail;
-
-const mailCount = (n: number) => (n === 1 ? "1 Mail" : `${n} Mails`);
-
-const statusTone = { sent: "ok", failed: "bad", pending: "warn" } as const;
 
 /**
  * Club mails (Rundmail, Admin, Juryleitung and Kasse): one mail written as a
@@ -161,7 +161,7 @@ export default class CupViewAdminMails extends LitElement {
   }
 
   private renderForm(options: ClubMailOptions) {
-    const mails = this.selected.size + cleanExtraRecipients(this.extra).length;
+    const mails = this.mailTotal();
     return html`<section>
         <h2>Empfänger</h2>
         <div class="toolbar">
@@ -220,9 +220,10 @@ export default class CupViewAdminMails extends LitElement {
             options.reply_to
               ? html`Antworten gehen an <b>${options.reply_to}</b>.`
               : html`Ohne Kontakt-E-Mail des Wettkampfs (unter Wettkampf)
-                gehen Antworten an die Absenderadresse, die niemand liest.`
+                gehen Antworten an die Absenderadresse, die niemand liest;
+                jede Mail endet dann mit dem Hinweis, nicht zu antworten.`
           }
-          Die Mail geht genau so raus, wie sie hier steht.
+          Die Vorschau zeigt jede Mail genau so, wie sie rausgeht.
         </p>
         ${
           this.error
@@ -252,8 +253,8 @@ export default class CupViewAdminMails extends LitElement {
   }
 
   private renderClubs(clubs: MailClub[]) {
-    const money = clubs.some((club) => club.open_amount != null);
-    const jury = clubs.some((club) => club.missing_deployments != null);
+    const money = showsMoney(clubs);
+    const jury = showsJury(clubs);
     if (!clubs.length) {
       return html`<p class="empty">Noch keine Vereine.</p>`;
     }
@@ -382,26 +383,21 @@ export default class CupViewAdminMails extends LitElement {
       )}`;
   }
 
+  /** One mail; `sent` adds how it went, for the log. */
   private renderMail(
     mail: Pick<RenderedMail, "club_name" | "to" | "subject" | "body">,
     open: boolean,
-    status?: schemas.SentMail,
+    sent?: schemas.SentMail,
   ) {
     return html`<details class="block" ?open=${open}>
       <summary>
         <span>${mail.club_name ?? "ohne Verein"}</span>
         <span class="muted">${mail.to.join(", ")}</span>
-        ${
-          status
-            ? html`<span class="chip ${statusTone[status.status]}"
-                >${deliveryLabels[status.status]}</span
-              >`
-            : nothing
-        }
+        ${sent ? this.renderStatus(sent.status) : nothing}
       </summary>
       ${
-        status?.error
-          ? html`<div class="inner text-bad">${status.error}</div>`
+        sent?.error
+          ? html`<div class="inner text-bad">${sent.error}</div>`
           : nothing
       }
       <div class="inner"><b>${mail.subject}</b></div>
@@ -409,16 +405,22 @@ export default class CupViewAdminMails extends LitElement {
     </details>`;
   }
 
+  private renderStatus(status: schemas.DeliveryStatus, count?: number) {
+    return html`<span class="chip ${deliveryTones[status]}"
+      >${count ?? ""} ${deliveryLabels[status]}</span
+    >`;
+  }
+
   private renderSent(sent: SentClubMail) {
-    const counts = deliveryCounts(sent.recipients);
-    const failed = counts.failed + counts.pending;
+    const counts = deliveryCounts(sent.mails);
+    const notSent = counts.failed + counts.pending;
     return html`<div
-      class=${failed ? "warn-banner" : "ok-banner"}
+      class=${notSent ? "warn-banner" : "ok-banner"}
       role="status"
     >
       ${mailCount(counts.sent)} gesendet${
-        failed
-          ? html`, ${mailCount(failed)} nicht – siehe „Gesendet“. Du kannst
+        notSent
+          ? html`, ${mailCount(notSent)} nicht – siehe „Gesendet“. Du kannst
               die Vereine erneut auswählen und noch einmal senden.`
           : "."
       }
@@ -431,44 +433,35 @@ export default class CupViewAdminMails extends LitElement {
     }
     return repeat(
       log,
-      (mail) => mail.id,
-      (mail) => {
-        const counts = deliveryCounts(mail.recipients);
+      (clubMail) => clubMail.id,
+      (clubMail) => {
+        const counts = deliveryCounts(clubMail.mails);
+        const statuses = (["sent", "failed", "pending"] as const).filter(
+          (status) => counts[status] || status === "sent",
+        );
         return html`<details class="block">
           <summary>
-            <span class="nowrap">${formatDateTime(mail.sent_at)}</span>
-            <span>${mail.subject}</span>
-            <span class="muted">${mail.sender_name}</span>
+            <span class="nowrap">${formatDateTime(clubMail.sent_at)}</span>
+            <span>${clubMail.subject}</span>
+            <span class="muted">${clubMail.sender_name}</span>
             <span class="chips">
-              <span class="chip ok">${counts.sent} gesendet</span>
-              ${
-                counts.failed
-                  ? html`<span class="chip bad"
-                      >${counts.failed} fehlgeschlagen</span
-                    >`
-                  : nothing
-              }
-              ${
-                counts.pending
-                  ? html`<span class="chip warn"
-                      >${counts.pending} ausstehend</span
-                    >`
-                  : nothing
-              }
+              ${repeat(statuses, (status) =>
+                this.renderStatus(status, counts[status]),
+              )}
             </span>
           </summary>
           <div class="inner">
             <p class="small muted">
               Wie geschrieben${
-                mail.reply_to ? `, Antworten an ${mail.reply_to}` : ""
+                clubMail.reply_to ? `, Antworten an ${clubMail.reply_to}` : ""
               }:
             </p>
-            <div><b>${mail.subject}</b></div>
+            <div><b>${clubMail.subject}</b></div>
           </div>
-          <pre class="mail-text">${mail.body}</pre>
+          <pre class="mail-text">${clubMail.body}</pre>
           <div class="inner">
-            ${repeat(mail.recipients, (recipient) =>
-              this.renderMail(recipient, false, recipient),
+            ${repeat(clubMail.mails, (mail) =>
+              this.renderMail(mail, false, mail),
             )}
           </div>
         </details>`;
@@ -549,6 +542,14 @@ export default class CupViewAdminMails extends LitElement {
     };
   }
 
+  /**
+   * How many mails go out: one per ticked club and typed-in address; the
+   * server leaves out an address that already gets the same club's mail.
+   */
+  private mailTotal() {
+    return this.selected.size + cleanExtraRecipients(this.extra).length;
+  }
+
   private showPreview = async () => {
     this.error = "";
     this.sent = null;
@@ -565,16 +566,14 @@ export default class CupViewAdminMails extends LitElement {
   };
 
   private send = async () => {
-    const mail = this.mail();
-    const count = this.selected.size + (mail.extra_recipients ?? []).length;
-    if (!confirm(`${mailCount(count)} jetzt senden?`)) {
+    if (!confirm(`${mailCount(this.mailTotal())} jetzt senden?`)) {
       return;
     }
     this.error = "";
     this.sent = null;
     this.busy = true;
     try {
-      this.sent = await unwrap(client.sendClubMail({ body: mail }));
+      this.sent = await unwrap(client.sendClubMail({ body: this.mail() }));
       this.preview = null;
       this.log.run();
     } catch (error) {
