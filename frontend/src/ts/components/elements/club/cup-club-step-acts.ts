@@ -112,34 +112,34 @@ export default class CupClubStepActs extends LitElement {
         align-items: flex-start;
         gap: 0.125rem;
         padding: 0.75rem;
-        border: 2px solid var(--cup-border);
+        border: 2px solid var(--color-border);
         border-radius: 0.625rem;
-        background: var(--cup-surface);
+        background: var(--color-surface);
         font: inherit;
         text-align: left;
-        color: var(--cup-text);
+        color: var(--color-text);
         cursor: pointer;
       }
 
       .kind:hover {
-        border-color: var(--cup-blue-2);
+        border-color: var(--color-primary-border);
       }
 
       .kind[aria-pressed="true"] {
-        border-color: var(--cup-blue);
-        background: color-mix(in srgb, var(--cup-blue-2) 18%, var(--cup-surface));
+        border-color: var(--color-primary-strong);
+        background: var(--color-primary-soft);
       }
 
       .kind .material-icon {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
       }
 
       .kind strong {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
       }
 
       .kind small {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .unassigned {
@@ -150,11 +150,11 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .unassigned .chip.target {
-        outline: 2px solid var(--cup-blue);
+        outline: 2px solid var(--color-primary-strong);
       }
 
       .title-missing {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       .new-details {
@@ -164,7 +164,7 @@ export default class CupClubStepActs extends LitElement {
       .new-form {
         margin-top: 1rem;
         padding-top: 1rem;
-        border-top: 1px solid var(--cup-border);
+        border-top: 1px solid var(--color-border);
         display: flex;
         flex-direction: column;
         gap: 0.75rem;
@@ -182,9 +182,9 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .act {
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 0.625rem;
-        background: var(--cup-surface);
+        background: var(--color-surface);
       }
 
       .act + .act {
@@ -192,7 +192,7 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .act.target {
-        outline: 3px solid var(--cup-blue-2);
+        outline: 3px solid var(--color-focus);
       }
 
       .act > .head {
@@ -211,7 +211,7 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .act > .head:hover {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
         border-radius: 0.625rem;
       }
 
@@ -229,7 +229,7 @@ export default class CupClubStepActs extends LitElement {
 
       .head .title .riders {
         font-size: 0.875rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -243,7 +243,7 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .head .chevron {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         transition: rotate 0.15s;
       }
 
@@ -260,7 +260,7 @@ export default class CupClubStepActs extends LitElement {
 
       .body h4 {
         font-size: 0.875rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         margin-bottom: 0.375rem;
       }
 
@@ -320,11 +320,11 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .pick.selected {
-        background: color-mix(in srgb, var(--cup-blue-2) 25%, var(--cup-surface));
+        background: var(--color-primary-soft);
       }
 
       .pick.conflict {
-        border-color: var(--cup-amber);
+        border-color: var(--color-warning);
       }
 
       .pick label {
@@ -335,7 +335,7 @@ export default class CupClubStepActs extends LitElement {
       }
 
       .pick small {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .danger-zone {
@@ -344,7 +344,7 @@ export default class CupClubStepActs extends LitElement {
         gap: 0.5rem;
         justify-content: flex-end;
         padding-top: 0.75rem;
-        border-top: 1px solid var(--cup-border);
+        border-top: 1px solid var(--color-border);
       }
 
       .group-settings {
@@ -590,7 +590,7 @@ export default class CupClubStepActs extends LitElement {
 
       <div class="next-step">
         <button
-          class="btn blue"
+          class="btn primary"
           @click=${this.goToNext}
         >
           Weiter: ${this.juryStep ? "Jury" : "Startgeld"}
@@ -947,7 +947,7 @@ export default class CupClubStepActs extends LitElement {
           ></cup-rider-picker>
         </label>
         <button
-          class="btn primary"
+          class="btn secondary"
           ?disabled=${!chosen || this.creating}
         >
           <i class="material-icon">add</i> Einzelkür anlegen
@@ -1038,7 +1038,7 @@ export default class CupClubStepActs extends LitElement {
             : nothing
         }
         <button
-          class="btn primary"
+          class="btn secondary"
           ?disabled=${
             !this.newRider ||
             !this.newPartner ||
@@ -1113,7 +1113,7 @@ export default class CupClubStepActs extends LitElement {
           ${otherGroupOptions}
         </datalist>
         <button
-          class="btn primary"
+          class="btn secondary"
           ?disabled=${
             !action ||
             this.creating ||
@@ -1510,7 +1510,7 @@ export default class CupClubStepActs extends LitElement {
       </label>
       <div class="actions">
         <button
-          class="btn primary small"
+          class="btn secondary small"
           ?disabled=${!changed || this.busy.has(act.id)}
         >
           <i class="material-icon">save</i> Speichern
@@ -1569,7 +1569,7 @@ export default class CupClubStepActs extends LitElement {
               aria-label="Musikdatei"
               ?disabled=${uploading}
             />
-            <button class="btn blue small" ?disabled=${uploading}>
+            <button class="btn primary small" ?disabled=${uploading}>
               <i class="material-icon">cloud_upload</i>
               ${uploading ? "Lädt hoch…" : act.song_file ? "Ersetzen" : "Hochladen"}
             </button>

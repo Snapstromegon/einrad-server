@@ -105,7 +105,7 @@ export default class CupClubStepRiders extends LitElement {
 
       .added {
         margin-top: 0.5rem;
-        color: var(--cup-green);
+        color: var(--color-ok-strong);
         font-size: 0.9rem;
       }
 
@@ -118,23 +118,23 @@ export default class CupClubStepRiders extends LitElement {
         text-align: left;
         font-size: 0.8rem;
         font-weight: 600;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         padding: 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
       }
 
       td {
         padding: 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
         vertical-align: middle;
       }
 
       tr.target td {
-        background: color-mix(in srgb, var(--cup-blue-2) 25%, var(--cup-surface));
+        background: var(--color-primary-soft);
       }
 
       tr.editing td {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       td.name {
@@ -189,7 +189,7 @@ export default class CupClubStepRiders extends LitElement {
             "acts acts";
           gap: 0.25rem 0.5rem;
           padding: 0.75rem 0;
-          border-bottom: 1px solid var(--cup-border);
+          border-bottom: 1px solid var(--color-border);
         }
 
         tr.editing {
@@ -207,7 +207,7 @@ export default class CupClubStepRiders extends LitElement {
 
         td.birth {
           grid-area: birth;
-          color: var(--cup-muted);
+          color: var(--color-text-muted);
           font-size: 0.9rem;
         }
 
@@ -344,7 +344,7 @@ export default class CupClubStepRiders extends LitElement {
 
       <div class="next-step">
         <button
-          class="btn blue"
+          class="btn primary"
           ?disabled=${this.data.riders.length === 0}
           @click=${this.goToActs}
         >
@@ -464,7 +464,7 @@ export default class CupClubStepRiders extends LitElement {
             </option>
           </select></label
         >
-        <button class="btn primary" ?disabled=${this.adding}>
+        <button class="btn secondary" ?disabled=${this.adding}>
           <i class="material-icon">person_add</i> Hinzufügen
         </button>
       </form>

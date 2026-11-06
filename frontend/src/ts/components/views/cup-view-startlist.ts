@@ -159,9 +159,9 @@ export default class CupViewStartlist extends LitElement {
     css`
       header {
         display: grid;
-        background: #002d56;
+        background: var(--color-primary);
         padding: 2rem 0;
-        color: #fff;
+        color: var(--color-on-primary);
         grid-template-columns: 1fr 2fr;
         grid-template-rows: auto auto auto;
         grid-template-areas: "img h1" "img date" "img location";
@@ -248,16 +248,16 @@ export default class CupViewStartlist extends LitElement {
       }
 
       tr:nth-child(odd) td {
-        background-color: #0001;
+        background-color: var(--color-surface-2);
       }
 
       tr:hover td,
       tr:hover th {
-        background-color: #0002;
+        background-color: var(--color-hover);
       }
 
       .error {
-        color: #e2001a;
+        color: var(--color-error-strong);
       }
 
       nav a {

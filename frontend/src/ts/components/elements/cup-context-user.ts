@@ -43,7 +43,7 @@ export default class CupContextUser extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      background: #fff;
+      background: var(--color-surface);
       padding: 2rem;
       border-radius: 0.5rem;
 
@@ -55,20 +55,21 @@ export default class CupContextUser extends LitElement {
 
       & button,
       a {
-        background: #009036;
-        color: #fff;
+        background: var(--color-secondary-strong);
+        color: var(--color-on-secondary-strong);
         border: none;
         border-radius: 0.5rem;
         cursor: pointer;
       }
 
       & #register {
-        background: #002d56;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
       }
 
       & #pw-reset {
-        background: #fff;
-        color: #e2001a;
+        background: var(--color-surface);
+        color: var(--color-error-strong);
       }
     }
 
@@ -98,8 +99,8 @@ export default class CupContextUser extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }
