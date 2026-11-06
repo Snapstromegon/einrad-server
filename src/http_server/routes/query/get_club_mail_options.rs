@@ -4,7 +4,7 @@ use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
-    club_mails::{self, ClubMailOptions, Sender},
+    club_mails::{self, Access, ClubMailOptions},
     competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     reloadable_sqlite::ReloadableSqlite,
@@ -35,6 +35,6 @@ pub async fn get_club_mail_options(
     let db = db.get().await.clone();
     let features = Features::current(&db, &http_options.features).await?;
     Ok(Json(
-        club_mails::options(&db, Sender::of(&granted), features.jury_registration).await?,
+        club_mails::options(&db, Access::of(&granted, features)).await?,
     ))
 }

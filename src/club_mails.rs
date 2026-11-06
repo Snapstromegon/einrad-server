@@ -6,20 +6,23 @@
 //! no includes or imports, only the variables in [`VARIABLES`], and a fuel
 //! limit. A template is checked before anything is sent.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 
 use minijinja::{
     AutoEscape, Environment, UndefinedBehavior,
     value::{Serde, Value},
 };
 use time::OffsetDateTime;
-use tracing::warn;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
     bookings::{paid_by_club, round_cents},
-    competition::Competition,
+    competition::{Competition, ResolvedFeatures},
     fees::fees_by_club,
     http_server::{HttpError, extractor::auth::Auth},
     mailer::{Mailer, TextMail},
@@ -234,38 +237,48 @@ impl ClubData {
     }
 }
 
-/// Who may use a variable, besides holding the permission to send club
-/// mails: the same rule as the club list's balances and jury obligation.
+/// What a variable needs besides the permission to send club mails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Access {
-    Everyone,
-    /// Money: with the permission to see club balances.
+pub enum Needs {
+    Nothing,
+    /// Money: the permission to see club balances.
     Balances,
-    /// The jury obligation: with the jury or the club balances.
+    /// The jury obligation: the jury or the club balances, while the jury
+    /// registration is on.
     Jury,
 }
 
-/// What the sender of a mail may see of the clubs.
+/// What the sender of a club mail may use of the clubs' data: the same rule
+/// as the club list's balances and jury obligation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Sender {
+pub struct Access {
+    /// Money: with the permission to see club balances.
     pub balances: bool,
+    /// The jury obligation: with the jury or the club balances, while the
+    /// jury registration is on.
     pub jury: bool,
+    /// Whether the jury registration is on: then the amount due includes
+    /// the jury fee.
+    pub jury_registration: bool,
 }
 
-impl Sender {
-    pub fn of(auth: &Auth) -> Self {
+impl Access {
+    /// What `auth` may use with the competition's `features`.
+    pub fn of(auth: &Auth, features: ResolvedFeatures) -> Self {
         let balances = auth.can(Permission::ViewClubBalances);
         Self {
             balances,
-            jury: balances || auth.can(Permission::ManageJury),
+            jury: features.jury_registration && (balances || auth.can(Permission::ManageJury)),
+            jury_registration: features.jury_registration,
         }
     }
 
-    pub fn may(self, access: Access) -> bool {
-        match access {
-            Access::Everyone => true,
-            Access::Balances => self.balances,
-            Access::Jury => self.jury,
+    /// Whether a variable that `needs` this may be used.
+    pub fn allows(self, needs: Needs) -> bool {
+        match needs {
+            Needs::Nothing => true,
+            Needs::Balances => self.balances,
+            Needs::Jury => self.jury,
         }
     }
 }
@@ -276,7 +289,7 @@ pub struct Variable {
     pub name: &'static str,
     /// What it holds, in German for the mail form.
     pub description: &'static str,
-    pub access: Access,
+    pub needs: Needs,
     value: fn(&ClubData) -> Value,
 }
 
@@ -287,58 +300,58 @@ pub const VARIABLES: &[Variable] = &[
     Variable {
         name: "club_name",
         description: "Name des Vereins",
-        access: Access::Everyone,
+        needs: Needs::Nothing,
         value: |club| Value::from(club.name.clone()),
     },
     Variable {
         name: "club_code",
         description: "Vereinscode für den Verwendungszweck, z. B. EV-K7Q3",
-        access: Access::Everyone,
+        needs: Needs::Nothing,
         value: |club| Value::from(club.code.clone()),
     },
     Variable {
         name: "contact_name",
         description: "Name der Kontaktperson des Vereins",
-        access: Access::Everyone,
+        needs: Needs::Nothing,
         value: |club| Value::from(club.contact_name.clone()),
     },
     Variable {
         name: "amount_due",
-        description: "Betrag: Startgeld und Jurygebühr, ohne Erlasse (Zahl in €)",
-        access: Access::Balances,
+        description: "Betrag: Startgeld und Jurygebühr abzüglich Erlasse (Zahl in €)",
+        needs: Needs::Balances,
         value: |club| Value::from(club.amount_due),
     },
     Variable {
         name: "paid",
         description: "Gezahlt (Zahl in €)",
-        access: Access::Balances,
+        needs: Needs::Balances,
         value: |club| Value::from(club.paid),
     },
     Variable {
         name: "open_amount",
         description: "Offen: Betrag minus Gezahlt, negativ bei Überzahlung (Zahl in €)",
-        access: Access::Balances,
+        needs: Needs::Balances,
         value: |club| Value::from(club.open_amount()),
     },
     Variable {
         name: "missing_deployments",
         description: "Fehlende Juryeinsätze",
-        access: Access::Jury,
+        needs: Needs::Jury,
         value: |club| Value::from(club.missing_deployments),
     },
     Variable {
         name: "missing_music",
         description: "Küren ohne Musik, jede mit name (Gruppe oder FahrerInnen), type (z. B. Einzelkür) und title (Kürtitel)",
-        access: Access::Everyone,
+        needs: Needs::Nothing,
         value: |club| Value::from(Serde(&club.missing_music)),
     },
 ];
 
-/// The variables of `club` that `sender` may use, for a template.
-fn context(club: &ClubData, sender: Sender) -> Value {
+/// The variables of `club` that `access` allows, for a template.
+fn context(club: &ClubData, access: Access) -> Value {
     let variables: BTreeMap<&str, Value> = VARIABLES
         .iter()
-        .filter(|variable| sender.may(variable.access))
+        .filter(|variable| access.allows(variable.needs))
         .map(|variable| (variable.name, (variable.value)(club)))
         .collect();
     Value::from(variables)
@@ -416,15 +429,15 @@ pub struct RenderedMail {
 struct MailTemplate<'a> {
     subject: &'a str,
     body: &'a str,
-    sender: Sender,
+    access: Access,
     /// The variables it uses, in the order of [`VARIABLES`].
     uses: Vec<&'static str>,
 }
 
 impl<'a> MailTemplate<'a> {
-    /// Checks the template against what `sender` may use; the message is
+    /// Checks the template against what `access` allows; the message is
     /// German.
-    fn check(subject: &'a str, body: &'a str, sender: Sender) -> Result<Self, String> {
+    fn check(subject: &'a str, body: &'a str, access: Access) -> Result<Self, String> {
         let env = environment();
         let known: HashSet<&str> = VARIABLES
             .iter()
@@ -451,12 +464,13 @@ impl<'a> MailTemplate<'a> {
             }
             let forbidden: Vec<_> = VARIABLES
                 .iter()
-                .filter(|v| !sender.may(v.access) && undeclared.contains(v.name))
+                .filter(|v| !access.allows(v.needs) && undeclared.contains(v.name))
                 .map(|v| v.name)
                 .collect();
             if !forbidden.is_empty() {
                 return Err(format!(
-                    "Keine Berechtigung für {} im {part}",
+                    "Nicht verfügbar im {part}: {} (Beträge nur für Kasse und Admin, \
+                     Juryeinsätze nur mit der Jury-Anmeldung).",
                     forbidden.join(", ")
                 ));
             }
@@ -465,7 +479,7 @@ impl<'a> MailTemplate<'a> {
         let template = Self {
             subject,
             body,
-            sender,
+            access,
             uses: VARIABLES
                 .iter()
                 .map(|v| v.name)
@@ -481,7 +495,7 @@ impl<'a> MailTemplate<'a> {
         let env = environment();
         let context = club.map_or_else(
             || Value::from(BTreeMap::<&str, Value>::new()),
-            |club| context(club, self.sender),
+            |club| context(club, self.access),
         );
         let render = |part: &str, source: &str| {
             env.render_str(source, context.clone())
@@ -509,20 +523,25 @@ fn template_error(part: &str, error: &minijinja::Error) -> String {
 /// Every mail of a club mail, ready to send.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct PreparedMails {
-    /// Where answers go: the competition's contact email. Without one,
-    /// answers go to the sender address, which nobody reads.
+    /// Where answers go: the competition's contact email. Without one, every
+    /// mail ends with [`NO_REPLY_NOTE`].
     pub reply_to: Option<String>,
     pub mails: Vec<RenderedMail>,
 }
 
+/// Ends every club mail without a Reply-To: answers would go to the sender
+/// address, which nobody reads. The same note as the other mails'.
+pub const NO_REPLY_NOTE: &str =
+    "P.S.: Bitte nicht auf diese Mail antworten - das Postfach wird nicht gelesen.";
+
 /// Checks `input` and renders every mail, before anything is sent: one per
-/// club, then one per typed-in address. `jury_registration`: whether the
-/// feature is on, see `Features`.
+/// club, then one per typed-in address. An address gets each mail once:
+/// a club given twice, or a typed-in address that already gets that
+/// club's mail, adds nothing.
 pub async fn prepare(
     db: &sqlx::SqlitePool,
     input: &ClubMailInput,
-    sender: Sender,
-    jury_registration: bool,
+    access: Access,
 ) -> Result<PreparedMails, HttpError> {
     let invalid = |message: String| HttpError::ErrorMessages(message);
     if input.subject.trim().is_empty() {
@@ -547,7 +566,7 @@ pub async fn prepare(
                 .map_err(|_| invalid(format!("Ungültige Adresse: {email}")))
         })
         .collect::<Result<_, _>>()?;
-    let template = MailTemplate::check(&input.subject, &input.body, sender).map_err(invalid)?;
+    let template = MailTemplate::check(&input.subject, &input.body, access).map_err(invalid)?;
     if let Some((email, _)) = extra.iter().find(|(_, club_id)| club_id.is_none())
         && !template.uses.is_empty()
     {
@@ -568,39 +587,61 @@ pub async fn prepare(
             club_ids.push(*id);
         }
     }
-    let clubs: HashMap<Uuid, ClubData> = ClubData::load(db, &club_ids, jury_registration)
+    let clubs: HashMap<Uuid, ClubData> = ClubData::load(db, &club_ids, access.jury_registration)
         .await?
         .ok_or(HttpError::NotFound)?
         .into_iter()
         .map(|club| (club.id, club))
         .collect();
-    let mail = |club: Option<&ClubData>, to: Vec<String>| {
-        let (subject, body) = template.render(club)?;
-        Ok(RenderedMail {
-            club_id: club.map(|club| club.id),
-            club_name: club.map(|club| club.name.clone()),
-            to,
-            subject,
-            body,
+    let reply_to = reply_to(db).await?;
+
+    // Each mail once per address: (address, club whose data it has).
+    let mut covered: HashSet<(String, Option<Uuid>)> = HashSet::new();
+    let mut recipients: Vec<(Option<&ClubData>, Vec<String>)> = Vec::new();
+    let mut seen_clubs = HashSet::new();
+    for id in &input.club_ids {
+        if !seen_clubs.insert(*id) {
+            continue;
+        }
+        let club = &clubs[id];
+        let to = club.recipients();
+        for address in &to {
+            if address.parse::<lettre::Address>().is_err() {
+                return Err(invalid(format!(
+                    "{} hat eine ungültige Adresse: {address}. Korrigiere sie oder wähle \
+                     den Verein ab.",
+                    club.name
+                )));
+            }
+            covered.insert((address.to_lowercase(), Some(club.id)));
+        }
+        recipients.push((Some(club), to));
+    }
+    for (email, club_id) in &extra {
+        if covered.insert((email.to_lowercase(), *club_id)) {
+            recipients.push((club_id.map(|id| &clubs[&id]), vec![email.clone()]));
+        }
+    }
+    let mails = recipients
+        .into_iter()
+        .map(|(club, to)| {
+            let (subject, body) = template.render(club)?;
+            let body = if reply_to.is_some() {
+                body
+            } else {
+                format!("{}\n\n{NO_REPLY_NOTE}", body.trim_end())
+            };
+            Ok(RenderedMail {
+                club_id: club.map(|club| club.id),
+                club_name: club.map(|club| club.name.clone()),
+                to,
+                subject,
+                body,
+            })
         })
-    };
-    let mut seen = HashSet::new();
-    let mails = input
-        .club_ids
-        .iter()
-        .filter(|id| seen.insert(**id))
-        .map(|id| mail(Some(&clubs[id]), clubs[id].recipients()))
-        .chain(
-            extra
-                .iter()
-                .map(|(email, club_id)| mail(club_id.map(|id| &clubs[&id]), vec![email.clone()])),
-        )
         .collect::<Result<_, String>>()
         .map_err(invalid)?;
-    Ok(PreparedMails {
-        reply_to: reply_to(db).await?,
-        mails,
-    })
+    Ok(PreparedMails { reply_to, mails })
 }
 
 /// A club as the mail form lists it, to choose the recipients.
@@ -639,22 +680,16 @@ pub struct ClubMailOptions {
     pub reply_to: Option<String>,
 }
 
-/// The mail form's clubs and variables for `sender`. `jury_registration`:
-/// whether the feature is on, see `Features`.
-pub async fn options(
-    db: &sqlx::SqlitePool,
-    sender: Sender,
-    jury_registration: bool,
-) -> sqlx::Result<ClubMailOptions> {
-    let clubs = ClubData::load_all(db, jury_registration)
+/// The mail form's clubs, and the variables `access` allows.
+pub async fn options(db: &sqlx::SqlitePool, access: Access) -> sqlx::Result<ClubMailOptions> {
+    let clubs = ClubData::load_all(db, access.jury_registration)
         .await?
         .into_iter()
         .map(|club| {
             let own = club.has_own_representative();
             MailClub {
-                open_amount: sender.balances.then(|| club.open_amount()),
-                missing_deployments: (sender.jury && jury_registration)
-                    .then_some(club.missing_deployments),
+                open_amount: access.balances.then(|| club.open_amount()),
+                missing_deployments: access.jury.then_some(club.missing_deployments),
                 missing_music: club.missing_music.len() as i64,
                 representative_name: own.then(|| club.representative_name.clone()),
                 representative_email: own.then(|| club.representative_email.clone()),
@@ -669,7 +704,7 @@ pub async fn options(
         clubs,
         variables: VARIABLES
             .iter()
-            .filter(|variable| sender.may(variable.access))
+            .filter(|variable| access.allows(variable.needs))
             .map(|variable| VariableInfo {
                 name: variable.name,
                 description: variable.description,
@@ -719,7 +754,7 @@ pub struct SentClubMail {
     pub subject: String,
     pub body: String,
     pub reply_to: Option<String>,
-    pub recipients: Vec<SentMail>,
+    pub mails: Vec<SentMail>,
 }
 
 /// One mail of a club mail as it went out.
@@ -738,13 +773,14 @@ pub struct SentMail {
     pub error: Option<String>,
 }
 
-/// Keeps `prepared`, a club mail `sender` sends, before it goes out: every
-/// mail as pending. Returns the entry, in the order of `prepared`.
+/// Keeps `prepared`, a club mail `author` writes, before anything goes out:
+/// every mail as pending. Returns the log entry, mails in the order of
+/// `prepared`, for [`send`].
 pub async fn record(
     db: &sqlx::SqlitePool,
-    sender: &Auth,
+    author: &Auth,
     input: &ClubMailInput,
-    prepared: &PreparedMails,
+    prepared: PreparedMails,
 ) -> sqlx::Result<SentClubMail> {
     let id = Uuid::now_v7();
     let sent_at = OffsetDateTime::now_utc();
@@ -756,39 +792,39 @@ pub async fn record(
         "#,
         id,
         sent_at,
-        sender.user_id,
-        sender.name,
+        author.user_id,
+        author.name,
         input.subject,
         input.body,
         prepared.reply_to,
     )
     .execute(&mut *tx)
     .await?;
-    let mut recipients = Vec::with_capacity(prepared.mails.len());
-    for mail in &prepared.mails {
-        let to = serde_json::to_string(&mail.to).expect("addresses serialize");
-        let recipient_id = sqlx::query_scalar!(
+    let mut mails = Vec::with_capacity(prepared.mails.len());
+    for mail in prepared.mails {
+        let addresses = serde_json::to_string(&mail.to).expect("addresses serialize");
+        let mail_id = sqlx::query_scalar!(
             r#"
-            INSERT INTO club_mail_recipients (mail_id, club_id, club_name, recipients, subject, body)
+            INSERT INTO club_mail_messages (mail_id, club_id, club_name, addresses, subject, body)
             VALUES (?, ?, ?, ?, ?, ?)
             RETURNING id as "id!: i64"
             "#,
             id,
             mail.club_id,
             mail.club_name,
-            to,
+            addresses,
             mail.subject,
             mail.body,
         )
         .fetch_one(&mut *tx)
         .await?;
-        recipients.push(SentMail {
-            id: recipient_id,
+        mails.push(SentMail {
+            id: mail_id,
             club_id: mail.club_id,
-            club_name: mail.club_name.clone(),
-            to: mail.to.clone(),
-            subject: mail.subject.clone(),
-            body: mail.body.clone(),
+            club_name: mail.club_name,
+            to: mail.to,
+            subject: mail.subject,
+            body: mail.body,
             status: DeliveryStatus::Pending,
             error: None,
         });
@@ -797,55 +833,61 @@ pub async fn record(
     Ok(SentClubMail {
         id,
         sent_at,
-        sender_name: sender.name.clone(),
+        sender_name: author.name.clone(),
         subject: input.subject.clone(),
         body: input.body.clone(),
-        reply_to: prepared.reply_to.clone(),
-        recipients,
+        reply_to: prepared.reply_to,
+        mails,
     })
 }
 
-/// Sends every pending mail of `mail` one by one and keeps whether it went
-/// out; one that fails doesn't stop the others.
+/// Sends the mails of `club_mail` one by one and keeps whether each went
+/// out. Nothing stops it halfway: a mail that fails, or a status the
+/// database doesn't take, doesn't keep the others from going out. Owns its
+/// arguments, so it can run on after the request is gone.
 pub async fn send(
-    db: &sqlx::SqlitePool,
-    mailer: &Mailer,
-    mail: &mut SentClubMail,
-) -> sqlx::Result<()> {
-    for recipient in &mut mail.recipients {
-        let to: Vec<&str> = recipient.to.iter().map(String::as_str).collect();
+    db: sqlx::SqlitePool,
+    mailer: Arc<Mailer>,
+    mut club_mail: SentClubMail,
+) -> SentClubMail {
+    for mail in &mut club_mail.mails {
+        let to: Vec<&str> = mail.to.iter().map(String::as_str).collect();
         let result = mailer
             .send(&TextMail {
                 to: &to,
-                reply_to: mail.reply_to.as_deref(),
-                subject: &recipient.subject,
-                body: &recipient.body,
+                reply_to: club_mail.reply_to.as_deref(),
+                subject: &mail.subject,
+                body: &mail.body,
             })
             .await;
-        if let Err(error) = &result {
-            warn!("Club mail {} to {to:?} failed: {error}", mail.id);
-        }
-        recipient.status = if result.is_ok() {
-            DeliveryStatus::Sent
-        } else {
-            DeliveryStatus::Failed
+        (mail.status, mail.error) = match result {
+            Ok(()) => (DeliveryStatus::Sent, None),
+            Err(error) => {
+                warn!("Club mail {} to {to:?} failed: {error}", club_mail.id);
+                (DeliveryStatus::Failed, Some(error.to_string()))
+            }
         };
-        recipient.error = result.err().map(|error| error.to_string());
-        sqlx::query!(
-            "UPDATE club_mail_recipients SET status = ?, error = ? WHERE id = ?",
-            recipient.status,
-            recipient.error,
-            recipient.id,
+        if let Err(error) = sqlx::query!(
+            "UPDATE club_mail_messages SET status = ?, error = ? WHERE id = ?",
+            mail.status,
+            mail.error,
+            mail.id,
         )
-        .execute(db)
-        .await?;
+        .execute(&db)
+        .await
+        {
+            error!(
+                "Couldn't keep the status of club mail {} to {to:?}: {error}",
+                club_mail.id
+            );
+        }
     }
-    Ok(())
+    club_mail
 }
 
 /// Every club mail sent, newest first.
 pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
-    let mails = sqlx::query!(
+    let club_mails = sqlx::query!(
         r#"
         SELECT
             id as "id!: Uuid",
@@ -860,47 +902,53 @@ pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
     )
     .fetch_all(db)
     .await?;
-    let recipients = sqlx::query!(
+    let mails = sqlx::query!(
         r#"
         SELECT
             id as "id!: i64",
             mail_id as "mail_id!: Uuid",
             club_id as "club_id: Uuid",
             club_name,
-            recipients,
+            addresses,
             subject,
             body,
             status as "status!: DeliveryStatus",
             error
-        FROM club_mail_recipients
+        FROM club_mail_messages
         ORDER BY id
         "#
     )
     .fetch_all(db)
     .await?;
-    let mut by_mail: HashMap<Uuid, Vec<SentMail>> = HashMap::new();
-    for row in recipients {
-        by_mail.entry(row.mail_id).or_default().push(SentMail {
+    let mut by_club_mail: HashMap<Uuid, Vec<SentMail>> = HashMap::new();
+    for row in mails {
+        by_club_mail.entry(row.mail_id).or_default().push(SentMail {
             id: row.id,
             club_id: row.club_id,
             club_name: row.club_name,
-            to: serde_json::from_str(&row.recipients).unwrap_or_default(),
+            to: serde_json::from_str(&row.addresses).unwrap_or_else(|error| {
+                warn!(
+                    "Club mail {} has unreadable addresses: {error}",
+                    row.mail_id
+                );
+                Vec::new()
+            }),
             subject: row.subject,
             body: row.body,
             status: row.status,
             error: row.error,
         });
     }
-    Ok(mails
+    Ok(club_mails
         .into_iter()
-        .map(|mail| SentClubMail {
-            recipients: by_mail.remove(&mail.id).unwrap_or_default(),
-            id: mail.id,
-            sent_at: mail.sent_at,
-            sender_name: mail.user_name,
-            subject: mail.subject,
-            body: mail.body,
-            reply_to: mail.reply_to,
+        .map(|club_mail| SentClubMail {
+            mails: by_club_mail.remove(&club_mail.id).unwrap_or_default(),
+            id: club_mail.id,
+            sent_at: club_mail.sent_at,
+            sender_name: club_mail.user_name,
+            subject: club_mail.subject,
+            body: club_mail.body,
+            reply_to: club_mail.reply_to,
         })
         .collect())
 }

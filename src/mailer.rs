@@ -55,6 +55,7 @@ impl Mailer {
         })
     }
 
+    /// Sends one plain text mail to `to`.
     pub async fn send_text(&self, to: &str, subject: &str, body: &str) -> Result<(), MailError> {
         self.send(&TextMail {
             to: &[to],
@@ -70,7 +71,7 @@ impl Mailer {
         let from = self
             .from_address
             .parse()
-            .map_err(|_| MailError::Sender(self.from_address.clone()))?;
+            .map_err(|_| MailError::FromAddress(self.from_address.clone()))?;
         let mut builder = lettre::Message::builder()
             .from(from)
             .subject(mail.subject)
@@ -107,16 +108,19 @@ pub struct TextMail<'a> {
     pub body: &'a str,
 }
 
-/// Why a mail wasn't sent.
+/// Why a mail wasn't sent. The messages are German.
 #[derive(Debug, thiserror::Error)]
 pub enum MailError {
+    /// A recipient or Reply-To that isn't an address.
     #[error("Ungültige Adresse: {0}")]
     Address(String),
     /// The configured sender address (the SMTP user) isn't an address.
     #[error("Ungültige Absenderadresse: {0}")]
-    Sender(String),
+    FromAddress(String),
+    /// The message couldn't be put together, e.g. without a recipient.
     #[error("Die Mail lässt sich nicht erstellen: {0}")]
     Message(#[from] lettre::error::Error),
+    /// The mail server couldn't be reached or refused the mail.
     #[error(transparent)]
     Smtp(#[from] lettre::transport::smtp::Error),
 }

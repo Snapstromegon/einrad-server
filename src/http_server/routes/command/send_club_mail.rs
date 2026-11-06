@@ -4,7 +4,7 @@ use axum::{Extension, Json};
 use tracing::{info, instrument};
 
 use crate::{
-    club_mails::{self, ClubMailInput, Sender, SentClubMail},
+    club_mails::{self, Access, ClubMailInput, SentClubMail},
     competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     mailer::Mailer,
@@ -41,19 +41,16 @@ pub async fn send_club_mail(
 ) -> Result<Json<SentClubMail>, HttpError> {
     let db = db.get().await.clone();
     let features = Features::current(&db, &http_options.features).await?;
-    let prepared = club_mails::prepare(
-        &db,
-        &input,
-        Sender::of(&granted),
-        features.jury_registration,
-    )
-    .await?;
+    let prepared = club_mails::prepare(&db, &input, Access::of(&granted, features)).await?;
     info!(
         "{} sends a club mail of {} mails",
         granted.name,
         prepared.mails.len()
     );
-    let mut sent = club_mails::record(&db, &granted, &input, &prepared).await?;
-    club_mails::send(&db, &mailer, &mut sent).await?;
+    let club_mail = club_mails::record(&db, &granted, &input, prepared).await?;
+    // On its own task, so all mails go out even if the request goes away.
+    let sent = tokio::spawn(club_mails::send(db, mailer, club_mail))
+        .await
+        .map_err(|_| HttpError::InternalServerError)?;
     Ok(Json(sent))
 }
