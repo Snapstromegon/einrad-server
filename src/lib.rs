@@ -1,5 +1,6 @@
 pub mod act_type;
 pub mod bookings;
+pub mod club_mails;
 pub mod competition;
 pub mod config;
 pub mod demo;

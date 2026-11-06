@@ -32,6 +32,8 @@ pub struct Mailpit {
 pub struct Mail {
     pub from: String,
     pub to: Vec<String>,
+    /// Where answers go, if not to the sender.
+    pub reply_to: Vec<String>,
     pub subject: String,
     pub text: String,
 }
@@ -117,12 +119,8 @@ impl Mailpit {
             let message = self.get_json(&format!("/message/{id}")).await;
             mails.push(Mail {
                 from: message["From"]["Address"].as_str().unwrap().to_string(),
-                to: message["To"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|to| to["Address"].as_str().unwrap().to_string())
-                    .collect(),
+                to: addresses(&message["To"]),
+                reply_to: addresses(&message["ReplyTo"]),
                 subject: message["Subject"].as_str().unwrap().to_string(),
                 // SMTP transfers lines with CRLF endings.
                 text: message["Text"].as_str().unwrap().replace("\r\n", "\n"),
@@ -130,6 +128,17 @@ impl Mailpit {
         }
         mails
     }
+}
+
+/// The addresses of a list of Mailpit's `{ Name, Address }`.
+fn addresses(list: &Value) -> Vec<String> {
+    list.as_array()
+        .map(|list| {
+            list.iter()
+                .map(|to| to["Address"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn free_port() -> u16 {

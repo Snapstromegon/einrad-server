@@ -23,7 +23,7 @@ pub enum HttpError {
     #[error("Database error: {0}")]
     DBError(#[from] sqlx::Error),
     #[error("Mail error: {0}")]
-    MailError(#[from] lettre::transport::smtp::Error),
+    MailError(#[from] crate::mailer::MailError),
     #[error("{0}")]
     ErrorMessages(String),
     #[error("Invalid credentials")]

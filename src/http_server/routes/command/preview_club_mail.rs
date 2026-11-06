@@ -1,0 +1,47 @@
+use std::sync::Arc;
+
+use axum::{Extension, Json};
+use tracing::instrument;
+
+use crate::{
+    club_mails::{self, ClubMailInput, PreparedMails, Sender},
+    competition::Features,
+    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    reloadable_sqlite::ReloadableSqlite,
+    roles::permit,
+};
+
+/// Renders a club mail (Rundmail) as `send_club_mail` would send it, without
+/// sending or keeping anything. Admin, jury lead and treasurer.
+#[utoipa::path(
+    post,
+    tags=["command", "club"],
+    path="/preview_club_mail",
+    request_body=ClubMailInput,
+    responses(
+        (status=200, content_type="application/json", body=PreparedMails),
+        (status=401, content_type="application/json", body=ClientError),
+        (status=403, content_type="application/json", body=ClientError),
+        (status=404, content_type="application/json", body=ClientError),
+        (status=500, content_type="application/json", body=ClientError),
+    ),
+)]
+#[instrument(skip(db, http_options, input))]
+#[axum::debug_handler]
+pub async fn preview_club_mail(
+    Extension(db): Extension<ReloadableSqlite>,
+    Extension(http_options): Extension<Arc<HttpServerOptions>>,
+    granted: Granted<permit::MailClubs>,
+    Json(input): Json<ClubMailInput>,
+) -> Result<Json<PreparedMails>, HttpError> {
+    let db = db.get().await.clone();
+    let features = Features::current(&db, &http_options.features).await?;
+    let prepared = club_mails::prepare(
+        &db,
+        &input,
+        Sender::of(&granted),
+        features.jury_registration,
+    )
+    .await?;
+    Ok(Json(prepared))
+}
