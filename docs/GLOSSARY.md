@@ -228,6 +228,9 @@ A booking that has nothing to do with the event, e.g. account fees; it counts fo
 **Paid** (Gezahlt):
 The sum of a club's payments.
 
+**Open amount** (Offen):
+What a club still has to pay: its amount due less what it paid; negative when it overpaid.
+
 **Fee waiver** (Gebühr erlassen):
 The organizer dropping fees, always in full and with a waiver reason: for a club all its fees (start fees and jury fee), for a rider all their start fees, for an act its start for every rider. It lowers the amount due; it is never a booking.
 _Avoid_: Rabatt, discount, Gutschrift (for a waiver)
