@@ -127,3 +127,10 @@ describe("adminPages", () => {
     assert.ok(adminPages(admin).includes("/admin-judges"));
   });
 });
+
+describe("club mails", () => {
+  test("whoever may mail clubs reaches the Rundmail page", () => {
+    assert.equal(canOpen("/admin-mails", ["mail_clubs"]), true);
+    assert.equal(canOpen("/admin-mails", ["view_clubs", "check_in"]), false);
+  });
+});
