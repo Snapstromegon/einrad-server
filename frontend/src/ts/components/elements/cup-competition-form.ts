@@ -41,7 +41,7 @@ const COLOR_LABELS: Record<ColorRole, { name: string; hint: string }> = {
   },
   secondary: {
     name: "Sekundärfarbe",
-    hint: "Akzente, z. B. die Schaltflächen zum Anmelden und Registrieren.",
+    hint: "Akzente, z. B. die Login-Schaltfläche und Schaltflächen im Vereinsbereich.",
   },
 };
 
