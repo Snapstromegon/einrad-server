@@ -34,7 +34,7 @@ const featureValue = (on: boolean | null | undefined) =>
 const featureSetting = (value: string) =>
   value === "on" ? true : value === "off" ? false : null;
 
-const COLORS: Record<ColorRole, { name: string; hint: string }> = {
+const COLOR_LABELS: Record<ColorRole, { name: string; hint: string }> = {
   primary: {
     name: "Primärfarbe",
     hint: "Kopfzeilen, Schaltflächen, Links und die Anzeigen in der Halle.",
@@ -133,6 +133,10 @@ export default class CupCompetitionForm extends LitElement {
         color: var(--color-warning-strong);
       }
 
+      .color-field small.error {
+        color: var(--color-error-strong);
+      }
+
       .color {
         display: flex;
         align-items: center;
@@ -217,6 +221,8 @@ export default class CupCompetitionForm extends LitElement {
   @state() private referencePrefix = "";
   /** The colors as edited; `null` is the default. */
   @state() private colors: Colors = { primary: null, secondary: null };
+  /** Why a typed color wasn't taken. */
+  @state() private colorErrors: Partial<Record<ColorRole, string>> = {};
   /** The default colors built into the frontend. */
   private defaults = defaultColors();
 
@@ -645,7 +651,7 @@ export default class CupCompetitionForm extends LitElement {
   }
 
   private renderColor(role: ColorRole) {
-    const { name, hint } = COLORS[role];
+    const { name, hint } = COLOR_LABELS[role];
     const color = this.colors[role];
     const shown = color ?? this.defaults[role];
     const warning = colorWarning(shown);
@@ -663,9 +669,6 @@ export default class CupCompetitionForm extends LitElement {
           class="inline"
           data-role=${role}
           aria-label="${name} als Hex-Code"
-          pattern="[ ]*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})[ ]*"
-          title="Eine Farbe als #rgb oder #rrggbb"
-          required
           spellcheck="false"
           .value=${shown}
           @change=${this.typeColor}
@@ -683,6 +686,13 @@ export default class CupCompetitionForm extends LitElement {
       <small
         >${hint}${color === null ? " Zurzeit die Standardfarbe." : nothing}</small
       >
+      ${
+        this.colorErrors[role]
+          ? html`<small class="error" role="alert"
+              >${this.colorErrors[role]}</small
+            >`
+          : nothing
+      }
       ${warning ? html`<small class="warn">${warning}</small>` : nothing}
     </div>`;
   }
@@ -692,15 +702,23 @@ export default class CupCompetitionForm extends LitElement {
     this.setColor(input.dataset.role as ColorRole, input.value);
   }
 
-  /** A typed color; the input's pattern explains one that isn't. */
+  /**
+   * A typed color. One that isn't goes back to the color before, with a
+   * note, so the form can always be saved.
+   */
   private typeColor(event: Event) {
     const input = event.target as HTMLInputElement;
+    const role = input.dataset.role as ColorRole;
     const color = normalizeColor(input.value);
     if (color) {
-      this.setColor(input.dataset.role as ColorRole, color);
-    } else {
-      input.reportValidity();
+      this.setColor(role, color);
+      return;
     }
+    this.colorErrors = {
+      ...this.colorErrors,
+      [role]: `„${input.value.trim()}“ ist keine Farbe: #rgb oder #rrggbb.`,
+    };
+    input.value = this.colors[role] ?? this.defaults[role];
   }
 
   private resetColor(event: Event) {
@@ -711,7 +729,8 @@ export default class CupCompetitionForm extends LitElement {
   /** Changes a color and shows it on the whole page, not yet saved. */
   private setColor(role: ColorRole, color: string | null) {
     this.colors = { ...this.colors, [role]: color };
-    this.saved = false;
+    this.colorErrors = { ...this.colorErrors, [role]: undefined };
+    this.edited();
     previewColors(this.colors);
   }
 

@@ -41,12 +41,12 @@ const luminance = (color: string) => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 
-const ratio = (a: number, b: number) =>
-  (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-
-/** The WCAG contrast of two `#rrggbb` colors, 1 to 21. */
-export const contrastRatio = (a: string, b: string) =>
-  ratio(luminance(a), luminance(b));
+/**
+ * The WCAG contrast of a `#rrggbb` color on white (the luminance 1), 1 to
+ * 21.
+ */
+export const contrastOnWhite = (color: string) =>
+  1.05 / (luminance(color) + 0.05);
 
 /** What a color needs on the white pages to stand out (WCAG 1.4.11). */
 const MIN_CONTRAST = 3;
@@ -62,8 +62,7 @@ export const colorWarning = (value: string): string | null => {
   if (!color) {
     return null;
   }
-  // White has the luminance 1.
-  const contrast = ratio(luminance(color), 1);
+  const contrast = contrastOnWhite(color);
   if (contrast >= MIN_CONTRAST) {
     return null;
   }

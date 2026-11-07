@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
   colorWarning,
-  contrastRatio,
+  contrastOnWhite,
   normalizeColor,
 } from "../src/ts/colors.ts";
 
@@ -31,13 +31,13 @@ describe("normalizeColor", () => {
   });
 });
 
-describe("contrastRatio", () => {
-  test("is the WCAG contrast of two colors", () => {
-    assert.equal(contrastRatio("#000000", "#ffffff"), 21);
-    assert.equal(contrastRatio("#ffffff", "#ffffff"), 1);
+describe("contrastOnWhite", () => {
+  test("is the WCAG contrast of a color on white", () => {
+    assert.equal(contrastOnWhite("#000000"), 21);
+    assert.equal(contrastOnWhite("#ffffff"), 1);
     // Known values, e.g. from the WebAIM contrast checker.
-    assert.equal(contrastRatio("#002d56", "#ffffff").toFixed(2), "13.91");
-    assert.equal(contrastRatio("#ffffff", "#767676").toFixed(2), "4.54");
+    assert.equal(contrastOnWhite("#002d56").toFixed(2), "13.91");
+    assert.equal(contrastOnWhite("#767676").toFixed(2), "4.54");
   });
 });
 
