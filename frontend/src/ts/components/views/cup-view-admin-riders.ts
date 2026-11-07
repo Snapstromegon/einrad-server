@@ -88,9 +88,9 @@ export default class CupViewAdminRiders extends LitElement {
       }
 
       .chip.current {
-        background: var(--cup-blue);
-        border-color: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary-strong);
+        border-color: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
       }
 
       .dense tbody tr.group-head > th .chip.current {

@@ -4,10 +4,13 @@
 //! file gives the same file again.
 //!
 //! In the file: the competition with its id, the features it sets, the
-//! photos with their password, the categories with explicit birthday bounds,
-//! the finals, the timeplan entries and the jury categories. Not in it:
-//! anything clubs entered, bookings, fee waivers, users and roles, the act
-//! order, timeplan progress, finals placements and the jury plan.
+//! photos with their password, an SVG logo, the colors it sets, the
+//! categories with explicit birthday bounds, the finals, the timeplan
+//! entries and the jury categories. Not in it: a raster logo (only SVG fits
+//! into the file; the header says so), default colors (an import keeps the
+//! colors, like the logo, unless the file sets them), anything clubs
+//! entered, bookings, fee waivers, users and roles, the act order, timeplan
+//! progress, finals placements and the jury plan.
 
 use time::{Date, OffsetDateTime};
 
@@ -15,10 +18,11 @@ use crate::{
     act_type::ActType,
     competition::Competition,
     config::{
-        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, JuryCategoryConfig,
-        TimeplanEntryConfig,
+        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig,
+        JuryCategoryConfig, TimeplanEntryConfig,
     },
     finals,
+    logo::{self, Format},
     seed::{OPEN_FROM_BIRTHDAY, OPEN_TO_BIRTHDAY},
     timeplan::EntryKind,
 };
@@ -40,10 +44,45 @@ fn bound(value: Option<OffsetDateTime>, open: Date) -> Option<Date> {
     value.map(|value| value.date()).filter(|date| *date != open)
 }
 
+/// The current competition as a competition file.
+pub struct Export {
+    pub file: CompetitionFile,
+    /// The format of a logo the file leaves out, e.g. "PNG": only an SVG
+    /// logo fits into the file.
+    pub logo_left_out: Option<&'static str>,
+}
+
+impl Export {
+    /// The file's content, with a header on what's in it.
+    pub fn content(&self) -> Result<String, String> {
+        let note = self
+            .logo_left_out
+            .map(|format| {
+                format!(
+                    "# The competition's logo is a {format} image, which the file leaves out:\n\
+                     # only an SVG logo fits into it. An import into this database keeps the\n\
+                     # logo; elsewhere, upload it again in the admin UI.\n\n"
+                )
+            })
+            .unwrap_or_default();
+        Ok(format!("{HEADER}{note}{}", self.file.to_toml()?))
+    }
+}
+
 /// The current competition as a competition file; `None` without one.
-pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<CompetitionFile>> {
+pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Export>> {
     let Some(competition) = Competition::current(&mut *conn).await? else {
         return Ok(None);
+    };
+    let (logo_svg, logo_left_out) = match logo::load(&mut *conn).await? {
+        None => (Branding::Keep, None),
+        Some(stored) => match stored.svg() {
+            Some(svg) => (Branding::Set(svg), None),
+            None => (
+                Branding::Keep,
+                Some(stored.format().map_or("raster", Format::name)),
+            ),
+        },
     };
 
     let categories = sqlx::query!(
@@ -159,16 +198,17 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Co
     })
     .collect();
 
-    Ok(Some(CompetitionFile {
-        competition: CompetitionConfig::from(&competition),
-        categories,
-        finals: final_configs,
-        timeplan,
-        jury_categories,
+    Ok(Some(Export {
+        file: CompetitionFile {
+            competition: CompetitionConfig {
+                logo_svg,
+                ..CompetitionConfig::from(&competition)
+            },
+            categories,
+            finals: final_configs,
+            timeplan,
+            jury_categories,
+        },
+        logo_left_out,
     }))
-}
-
-/// The exported file's content, with a header on what's in it.
-pub fn to_file_content(file: &CompetitionFile) -> Result<String, String> {
-    Ok(format!("{HEADER}{}", file.to_toml()?))
 }

@@ -1,5 +1,8 @@
+mod colors;
 pub mod command;
+mod etag;
 pub mod http_types;
+mod logo;
 mod photos;
 pub mod query;
 
@@ -110,6 +113,7 @@ fn status_description(status: &str) -> &'static str {
         "403" => "Not allowed",
         "404" => "Not found",
         "409" => "Conflict with the current state",
+        "413" => "Too large",
         "500" => "Internal server error",
         _ => "Response",
     }
@@ -126,6 +130,11 @@ pub fn get_api_router(
     let (router, openapi) = get_openapi_router();
     router
         .route("/api/ws/player", get(player::ws::player_ws))
+        .route("/api/competition/logo", get(logo::competition_logo))
+        .route(
+            "/api/competition/colors.css",
+            get(colors::competition_colors),
+        )
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))

@@ -147,13 +147,13 @@ export default class CupViewAdminMusicControl extends LitElement {
         align-items: baseline;
         gap: 0 0.75rem;
         padding: 0.375rem 0.75rem;
-        border-right: 1px solid var(--cup-border);
-        border-bottom: 1px solid var(--cup-border);
-        background: var(--cup-surface-2);
+        border-right: 1px solid var(--color-border);
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-surface-2);
       }
 
       #overview .label {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-weight: 600;
       }
 
@@ -165,28 +165,28 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       #overview.ok .delay {
-        color: var(--tone-ok-fg);
+        color: var(--color-ok-strong);
       }
 
       #overview.warn {
-        background: var(--tone-warn-bg);
+        background: var(--color-warning-soft);
       }
 
       #overview.warn .delay {
-        color: var(--tone-warn-fg);
+        color: var(--color-warning-strong);
       }
 
       #overview.bad {
-        background: var(--tone-bad-bg);
+        background: var(--color-error-soft);
       }
 
       #overview.bad .delay {
-        color: var(--tone-bad-fg);
+        color: var(--color-error-strong);
       }
 
       #overview .facts {
         grid-column: 1 / -1;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       #next {
@@ -194,13 +194,13 @@ export default class CupViewAdminMusicControl extends LitElement {
         display: flex;
         flex-direction: column;
         min-height: 0;
-        border-right: 1px solid var(--cup-border);
+        border-right: 1px solid var(--color-border);
       }
 
       #next h2 {
         margin: 0;
         padding: 2px 6px;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
         font-size: 1em;
       }
 
@@ -275,7 +275,7 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       .status .timer.over {
-        color: var(--tone-bad-fg);
+        color: var(--color-error-strong);
       }
 
       .current {
@@ -288,7 +288,7 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       .big {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-size: 2.4em;
         font-weight: 700;
         line-height: 1.15;
@@ -321,7 +321,7 @@ export default class CupViewAdminMusicControl extends LitElement {
 
       .missing .btn {
         padding: 0 0.4em;
-        border-color: color-mix(in srgb, currentColor 45%, transparent);
+        border-color: var(--color-border-strong);
         color: inherit;
         font-weight: inherit;
         white-space: normal;
@@ -343,7 +343,7 @@ export default class CupViewAdminMusicControl extends LitElement {
 
       .description {
         white-space: pre-line;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .song {
@@ -364,7 +364,7 @@ export default class CupViewAdminMusicControl extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 1.2em;
       }
 
@@ -373,19 +373,19 @@ export default class CupViewAdminMusicControl extends LitElement {
         max-height: 40%;
         overflow: auto;
         padding: 0.375rem 0.625rem;
-        border: 1px solid var(--cup-border);
-        border-left: 6px solid var(--cup-blue-2);
+        border: 1px solid var(--color-border);
+        border-left: 6px solid var(--color-primary-border);
         border-radius: 4px;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       .next-card.warn {
-        border-color: var(--cup-amber);
+        border-color: var(--color-warning);
       }
 
       .next-card.bad {
-        border-color: var(--cup-red);
-        background: var(--tone-bad-bg);
+        border-color: var(--color-error);
+        background: var(--color-error-soft);
       }
 
       .next-card header {
@@ -397,7 +397,7 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       .next-card header b {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-size: 1.1em;
         text-transform: uppercase;
         letter-spacing: 0.04em;
@@ -462,7 +462,7 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       .players .btn .kind {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 11px;
         font-weight: 400;
       }
@@ -478,13 +478,13 @@ export default class CupViewAdminMusicControl extends LitElement {
         flex-direction: column;
         gap: 0.25rem;
         padding: 0.375rem 0.625rem;
-        border: 1px solid var(--cup-border);
-        border-left: 6px solid var(--cup-blue);
+        border: 1px solid var(--color-border);
+        border-left: 6px solid var(--color-primary-strong);
         border-radius: 4px;
       }
 
       .remote.offline {
-        border-left-color: var(--cup-red);
+        border-left-color: var(--color-error);
         opacity: 0.85;
       }
 
@@ -504,7 +504,7 @@ export default class CupViewAdminMusicControl extends LitElement {
       }
 
       .remote .cue-label.none {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-weight: 400;
         font-style: italic;
       }
@@ -544,7 +544,7 @@ export default class CupViewAdminMusicControl extends LitElement {
 
       .transport .volume input {
         width: 10rem;
-        accent-color: var(--cup-blue);
+        accent-color: var(--color-primary-strong);
       }
 
       @media (max-width: 900px) {

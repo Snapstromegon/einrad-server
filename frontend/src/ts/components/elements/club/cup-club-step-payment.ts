@@ -49,7 +49,7 @@ export default class CupClubStepPayment extends LitElement {
       }
 
       dl.bank dt {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       dl.bank dd {
@@ -65,7 +65,7 @@ export default class CupClubStepPayment extends LitElement {
 
       figcaption {
         font-size: 0.8rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       table {
@@ -76,13 +76,13 @@ export default class CupClubStepPayment extends LitElement {
       th,
       td {
         padding: 0.375rem 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
         text-align: left;
       }
 
       th {
         font-size: 0.8rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .num {

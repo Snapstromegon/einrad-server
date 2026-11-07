@@ -110,7 +110,7 @@ export default class CupViewAdminAwards extends LitElement {
         align-items: center;
         gap: 0.375rem;
         padding: 3px 4px;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
       }
 
       li .label {
@@ -127,12 +127,12 @@ export default class CupViewAdminAwards extends LitElement {
       }
 
       li.played .label {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         text-decoration: line-through;
       }
 
       li.playing {
-        background: var(--tone-ok-bg);
+        background: var(--color-ok-soft);
       }
 
       li.playing .label {
@@ -144,8 +144,8 @@ export default class CupViewAdminAwards extends LitElement {
         display: grid;
         gap: 0.25rem;
         padding: 0.375rem 0.625rem;
-        border: 1px solid var(--cup-border);
-        border-left: 6px solid var(--cup-amber);
+        border: 1px solid var(--color-border);
+        border-left: 6px solid var(--color-warning);
         border-radius: 4px;
       }
 

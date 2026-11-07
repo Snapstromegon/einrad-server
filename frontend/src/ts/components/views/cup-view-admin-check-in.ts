@@ -176,8 +176,8 @@ export default class CupViewAdminCheckIn extends LitElement {
         z-index: 5;
         margin: -0.5rem -0.75rem 0;
         padding: 0.25rem 0.75rem 0.125rem;
-        background: var(--cup-surface);
-        border-bottom: 1px solid var(--cup-border);
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
       }
 
       /* Table headers stick below the shell's bar and the own bar. */
@@ -265,10 +265,10 @@ export default class CupViewAdminCheckIn extends LitElement {
         min-height: 22px;
         padding: 0 0.5em;
         border: 1px solid
-          color-mix(in srgb, var(--cup-muted) 45%, var(--cup-border));
+          var(--color-border-strong);
         border-radius: 4px;
-        background: var(--cup-surface);
-        color: var(--cup-muted);
+        background: var(--color-surface);
+        color: var(--color-text-muted);
         font: inherit;
         font-weight: 600;
         white-space: nowrap;
@@ -283,23 +283,23 @@ export default class CupViewAdminCheckIn extends LitElement {
       }
 
       button.toggle.yes {
-        background: var(--tone-ok-bg);
-        border-color: var(--cup-green);
-        color: var(--tone-ok-fg);
+        background: var(--color-ok-soft);
+        border-color: var(--color-ok);
+        color: var(--color-ok-strong);
       }
 
       tr.bad button.toggle.no {
-        border-color: var(--cup-red);
-        color: var(--tone-bad-fg);
+        border-color: var(--color-error);
+        color: var(--color-error-strong);
       }
 
       button.toggle:hover:not(:disabled) {
-        border-color: var(--cup-blue);
-        box-shadow: 0 0 0 1px var(--cup-blue);
+        border-color: var(--color-primary-strong);
+        box-shadow: 0 0 0 1px var(--color-primary-strong);
       }
 
       button.toggle:focus-visible {
-        outline: 2px solid var(--cup-blue-2);
+        outline: 2px solid var(--color-focus);
         outline-offset: 1px;
       }
 
@@ -315,15 +315,15 @@ export default class CupViewAdminCheckIn extends LitElement {
       /* The row Enter acts on (selected with the arrow keys). */
       .dense tbody tr.active > td {
         box-shadow:
-          inset 0 2px 0 var(--cup-blue),
-          inset 0 -2px 0 var(--cup-blue);
+          inset 0 2px 0 var(--color-primary-strong),
+          inset 0 -2px 0 var(--color-primary-strong);
       }
 
       .dense tbody tr.active > td:first-child {
         box-shadow:
-          inset 2px 0 0 var(--cup-blue),
-          inset 0 2px 0 var(--cup-blue),
-          inset 0 -2px 0 var(--cup-blue);
+          inset 2px 0 0 var(--color-primary-strong),
+          inset 0 2px 0 var(--color-primary-strong),
+          inset 0 -2px 0 var(--color-primary-strong);
       }
 
       .start {
@@ -343,19 +343,19 @@ export default class CupViewAdminCheckIn extends LitElement {
       .start .rep {
         padding: 0 0.25em;
         border-radius: 3px;
-        background: var(--tone-warn-bg);
-        color: var(--tone-warn-fg);
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
         font-size: 0.9em;
         font-weight: 700;
       }
 
       .start .gci {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 0.9em;
       }
 
       .start .gci.all {
-        color: var(--tone-ok-fg);
+        color: var(--color-ok-strong);
       }
 
       .start.ended {
@@ -367,7 +367,7 @@ export default class CupViewAdminCheckIn extends LitElement {
         display: inline-block;
         min-width: 4.5em;
         margin-left: 0.25em;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 11px;
         text-align: left;
       }

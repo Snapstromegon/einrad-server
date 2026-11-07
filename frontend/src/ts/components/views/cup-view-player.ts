@@ -97,11 +97,11 @@ export default class CupViewPlayer extends LitElement {
         gap: 0.75rem;
         margin: 0.5rem 0;
         padding: 0.75rem 1rem;
-        border: 2px solid var(--cup-border);
+        border: 2px solid var(--color-border);
         border-left-width: 12px;
         border-radius: 6px;
-        background: var(--cup-surface-2);
-        color: var(--cup-muted);
+        background: var(--color-surface-2);
+        color: var(--color-text-muted);
         font-size: 1.6em;
         font-weight: 700;
         line-height: 1.2;
@@ -118,22 +118,22 @@ export default class CupViewPlayer extends LitElement {
       }
 
       .player-status.active {
-        border-color: var(--cup-green);
-        background: var(--tone-ok-bg);
-        color: var(--tone-ok-fg);
+        border-color: var(--color-ok);
+        background: var(--color-ok-soft);
+        color: var(--color-ok-strong);
         font-size: 2.2em;
       }
 
       .player-status.offline {
-        border-color: var(--cup-red);
-        background: var(--tone-bad-bg);
-        color: var(--tone-bad-fg);
+        border-color: var(--color-error);
+        background: var(--color-error-soft);
+        color: var(--color-error-strong);
       }
 
       .player-status.stray {
-        border-color: var(--cup-amber);
-        background: var(--tone-warn-bg);
-        color: var(--tone-warn-fg);
+        border-color: var(--color-warning);
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
       }
 
       .player-status .btn {
@@ -166,12 +166,12 @@ export default class CupViewPlayer extends LitElement {
         gap: 0.375rem;
         margin: 0.5rem 0;
         padding: 0.5rem 0.75rem;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 4px;
       }
 
       .song .label {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-size: 1.8em;
         font-weight: 700;
         line-height: 1.2;
@@ -179,7 +179,7 @@ export default class CupViewPlayer extends LitElement {
       }
 
       .song .label.empty {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-weight: 400;
         font-style: italic;
       }

@@ -558,6 +558,13 @@ export const normalizationLabel = (status: string | null | undefined) =>
         ? "Lautstärke angeglichen"
         : "";
 
+/**
+ * The competition's logo, or the one built into the server without its own
+ * (#286). `version` gets a changed logo past the browser's cache.
+ */
+export const competitionLogo = (version = 0) =>
+  version ? `/api/competition/logo?v=${version}` : "/api/competition/logo";
+
 /** Name of the current competition, with a generic fallback. */
 export const competitionName = (competition: Competition | null | undefined) =>
   competition?.name ?? "Einradevent";

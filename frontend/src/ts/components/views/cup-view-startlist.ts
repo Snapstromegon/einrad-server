@@ -15,6 +15,7 @@ import {
   actParticipantsLabel,
   blockActs,
   blockOf,
+  competitionLogo,
   competitionName,
   formatDateRange,
   formatTime,
@@ -159,9 +160,9 @@ export default class CupViewStartlist extends LitElement {
     css`
       header {
         display: grid;
-        background: #002d56;
+        background: var(--color-primary);
         padding: 2rem 0;
-        color: #fff;
+        color: var(--color-on-primary);
         grid-template-columns: 1fr 2fr;
         grid-template-rows: auto auto auto;
         grid-template-areas: "img h1" "img date" "img location";
@@ -174,6 +175,8 @@ export default class CupViewStartlist extends LitElement {
         min-height: 0;
         height: 7rem;
         max-height: 100%;
+        /* The competition's logo can have any shape. */
+        object-fit: contain;
       }
 
       header h1 {
@@ -248,16 +251,16 @@ export default class CupViewStartlist extends LitElement {
       }
 
       tr:nth-child(odd) td {
-        background-color: #0001;
+        background-color: var(--color-surface-2);
       }
 
       tr:hover td,
       tr:hover th {
-        background-color: #0002;
+        background-color: var(--color-hover);
       }
 
       .error {
-        color: #e2001a;
+        color: var(--color-error-strong);
       }
 
       nav a {
@@ -347,7 +350,7 @@ export default class CupViewStartlist extends LitElement {
 
   override render() {
     return html`<header>
-        <img src="/assets/images/nrw-freestyle-cup.svg" />
+        <img src=${competitionLogo()} />
         <h1>Startliste ${competitionName(this.systemStatus?.competition)}</h1>
         <span class="date"
           >${

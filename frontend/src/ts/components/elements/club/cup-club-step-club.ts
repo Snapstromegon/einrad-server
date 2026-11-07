@@ -35,7 +35,7 @@ export default class CupClubStepClub extends LitElement {
       }
 
       dl.club dt {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       dl.club dd {
@@ -97,7 +97,7 @@ export default class CupClubStepClub extends LitElement {
         gap: 0.25rem;
         padding: 0.75rem;
         border-radius: 0.5rem;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       ol.how li::before {
@@ -107,18 +107,18 @@ export default class CupClubStepClub extends LitElement {
         width: 1.75rem;
         height: 1.75rem;
         border-radius: 50%;
-        background: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
         font-weight: 700;
       }
 
       ol.how strong {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
       }
 
       ol.how span {
         font-size: 0.9rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
     `,
   ];
@@ -176,7 +176,7 @@ export default class CupClubStepClub extends LitElement {
                     @input=${this.onNameInput}
                 /></label>
                 <div class="actions">
-                  <button class="btn primary" ?disabled=${this.saving}>
+                  <button class="btn secondary" ?disabled=${this.saving}>
                     <i class="material-icon">save</i> Speichern
                   </button>
                   <button
@@ -257,7 +257,7 @@ export default class CupClubStepClub extends LitElement {
 
       <div class="next-step">
         <button
-          class="btn blue"
+          class="btn primary"
           @click=${this.goToRiders}
         >
           Weiter: FahrerInnen anlegen <i class="material-icon">arrow_forward</i>
@@ -318,7 +318,7 @@ export default class CupClubStepClub extends LitElement {
                   @input=${this.onResponsibleEmailInput}
               /></label>
               <div class="actions">
-                <button class="btn primary" ?disabled=${this.savingResponsible}>
+                <button class="btn secondary" ?disabled=${this.savingResponsible}>
                   <i class="material-icon">save</i> Speichern
                 </button>
                 ${

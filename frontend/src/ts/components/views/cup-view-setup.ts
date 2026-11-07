@@ -24,11 +24,11 @@ export default class CupViewSetup extends LitElement {
     }
 
     h1 {
-      color: #002d56;
+      color: var(--color-primary-strong);
     }
 
     a {
-      color: #002d56;
+      color: var(--color-primary-strong);
     }
   `;
 

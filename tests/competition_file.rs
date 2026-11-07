@@ -8,6 +8,7 @@ use common::{TempDir, in_memory_migrated};
 use einrad_server::{
     competition::Competition,
     config::{CliArgs, ConfigFile, Settings},
+    logo,
     seed::{self, Applied, Report},
 };
 use sqlx::SqlitePool;
@@ -153,6 +154,106 @@ async fn features_and_photos_come_with_the_competition() {
         "{:?}",
         second.warnings
     );
+}
+
+/// The test competition file with `logo_svg` set to `value` (TOML).
+fn with_logo(value: &str) -> String {
+    COMPETITION.replacen(
+        "max_fee_per_rider = 45\n",
+        &format!("max_fee_per_rider = 45\nlogo_svg = {value}\n"),
+        1,
+    )
+}
+
+const SVG_LOGO: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>"#;
+
+#[tokio::test]
+async fn a_logo_comes_with_the_file_and_stays_unless_a_replace_sets_it() {
+    let db = in_memory_migrated().await;
+    let dir = TempDir::new();
+    write(&dir, "config.toml", SYSTEM_CONFIG);
+    let competition = write(
+        &dir,
+        "competition.toml",
+        &with_logo(&format!("'{SVG_LOGO}'")),
+    );
+    start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    let logo = |db| async move { logo::load(&db).await.unwrap().map(|logo| logo.data) };
+    assert_eq!(logo(db.clone()).await, Some(SVG_LOGO.as_bytes().to_vec()));
+
+    // A changed logo is a difference like any other.
+    let other = SVG_LOGO.replace("10 10", "20 20");
+    write(&dir, "competition.toml", &with_logo(&format!("'{other}'")));
+    let second = start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    assert_eq!(second.applied, Applied::Ignored);
+    assert!(
+        second.warnings.iter().any(|w| w.contains("the logo")),
+        "{:?}",
+        second.warnings
+    );
+
+    // A file without one keeps it, even on a replace.
+    write(&dir, "competition.toml", COMPETITION);
+    let replace = [
+        "--competition",
+        competition.as_str(),
+        "--replace-competition",
+    ];
+    let report = start(&db, &dir, &replace).await.unwrap();
+    assert_eq!(report.applied, Applied::Unchanged);
+    assert_eq!(logo(db.clone()).await, Some(SVG_LOGO.as_bytes().to_vec()));
+
+    // An empty logo_svg resets it to the built-in default.
+    write(&dir, "competition.toml", &with_logo("\"\""));
+    let report = start(&db, &dir, &replace).await.unwrap();
+    assert!(
+        matches!(report.applied, Applied::Replaced(_)),
+        "{:?}",
+        report.applied
+    );
+    assert_eq!(logo(db.clone()).await, None);
+}
+
+#[tokio::test]
+async fn a_file_with_other_colors_is_ignored_with_a_warning_naming_them() {
+    let db = in_memory_migrated().await;
+    let dir = TempDir::new();
+    write(&dir, "config.toml", SYSTEM_CONFIG);
+    let with_color = |color: &str| {
+        COMPETITION.replacen(
+            "max_fee_per_rider = 45\n",
+            &format!("max_fee_per_rider = 45\nprimary_color = \"{color}\"\n"),
+            1,
+        )
+    };
+    let competition = write(&dir, "competition.toml", &with_color("#cc0055"));
+    start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    let primary = |db| async move {
+        Competition::current(&db)
+            .await
+            .unwrap()
+            .and_then(|c| c.primary_color)
+            .map(|color| color.to_string())
+    };
+    assert_eq!(primary(db.clone()).await.as_deref(), Some("#cc0055"));
+
+    write(&dir, "competition.toml", &with_color("#1a6b3c"));
+    let report = start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    assert_eq!(report.applied, Applied::Ignored);
+    assert!(
+        report.warnings.iter().any(|w| w.contains("the colors")),
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(primary(db.clone()).await.as_deref(), Some("#cc0055"));
 }
 
 #[tokio::test]

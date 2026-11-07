@@ -81,6 +81,13 @@ pub struct TestResponse {
     pub body: Value,
 }
 
+/// A response whose body stays bytes; see [`TestApp::get_raw`].
+pub struct RawResponse {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub bytes: Vec<u8>,
+}
+
 impl TestResponse {
     /// Returns the `name=value` pair of the `jwt` cookie set by this response.
     pub fn jwt_cookie(&self) -> Option<String> {
@@ -350,6 +357,28 @@ impl TestApp {
 
     pub async fn get(&self, uri: &str, cookie: Option<&str>) -> TestResponse {
         self.request(Method::GET, uri, None, cookie).await
+    }
+
+    /// A GET with extra request headers, e.g. `If-None-Match`, whose body
+    /// stays bytes, e.g. an image.
+    pub async fn get_raw(&self, uri: &str, headers: &[(header::HeaderName, &str)]) -> RawResponse {
+        let mut builder = Request::builder().method(Method::GET).uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(name, *value);
+        }
+        let request = builder.body(Body::empty()).unwrap();
+        let response = self.router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
+        RawResponse {
+            status,
+            headers,
+            bytes,
+        }
     }
 
     /// Serves the app on a free local port, e.g. for websocket tests, with

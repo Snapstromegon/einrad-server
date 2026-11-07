@@ -77,14 +77,14 @@ export default class CupWaveform extends LitElement {
     css`
       :host {
         display: block;
-        --wave-rest: var(--cup-muted, #888);
-        --wave-played: var(--cup-blue, #2563eb);
-        --wave-head: var(--cup-red, #c00);
-        --wave-loud: var(--tone-warn-bg, #fef3c7);
-        --wave-loud-bar: var(--tone-warn-fg, #b45309);
-        --wave-over: var(--tone-bad-bg, #fee2e2);
-        --wave-over-bar: var(--tone-bad-fg, #b91c1c);
-        --wave-silence: var(--cup-surface-2, #eee);
+        --wave-rest: var(--color-text-muted);
+        --wave-played: var(--color-primary-strong);
+        --wave-head: var(--color-error-strong);
+        --wave-loud: var(--color-warning-soft);
+        --wave-loud-bar: var(--color-warning-strong);
+        --wave-over: var(--color-error-soft);
+        --wave-over-bar: var(--color-error-strong);
+        --wave-silence: var(--color-surface-2);
       }
 
       :host([compact]) {
@@ -119,7 +119,7 @@ export default class CupWaveform extends LitElement {
         justify-content: space-between;
         font-size: 0.8rem;
         font-variant-numeric: tabular-nums;
-        color: var(--cup-muted, #666);
+        color: var(--color-text-muted);
       }
 
       /* The chip of the loudest moment, below its marker. */
@@ -138,7 +138,7 @@ export default class CupWaveform extends LitElement {
         align-items: center;
         gap: 0.2em;
         padding: 0 0.5em;
-        border: 1px solid color-mix(in srgb, var(--wave-loud-bar) 40%, transparent);
+        border: 1px solid var(--color-warning-border);
         border-radius: 999px;
         background: var(--wave-loud);
         color: var(--wave-loud-bar);
@@ -164,11 +164,11 @@ export default class CupWaveform extends LitElement {
       }
 
       .loudest:hover {
-        background: color-mix(in srgb, var(--wave-loud-bar) 18%, var(--wave-loud));
+        box-shadow: inset 0 0 0 100vmax var(--color-hover);
       }
 
       .loudest:focus-visible {
-        outline: 2px solid var(--cup-blue-2, #3b82f6);
+        outline: 2px solid var(--color-focus);
         outline-offset: 1px;
       }
 
@@ -178,7 +178,8 @@ export default class CupWaveform extends LitElement {
 
       :host([compact]) .times,
       :host([compact]) .marks,
-      :host([readonly]) .marks {
+      :host([readonly]) .marks,
+      .probe {
         display: none;
       }
 
@@ -223,6 +224,8 @@ export default class CupWaveform extends LitElement {
   private loud: ReturnType<typeof loudestStretch> = null;
 
   @query("canvas") private canvas?: HTMLCanvasElement;
+  /** Resolves the colours for the canvas (see `draw`). */
+  @query(".probe") private probe?: HTMLElement;
 
   private audio: HTMLAudioElement | null = null;
   private observer = new MutationObserver(() => this.syncAudioSrc());
@@ -258,6 +261,7 @@ export default class CupWaveform extends LitElement {
           @pointerup=${this.onPointerUp}
           @pointercancel=${this.onPointerUp}
         ></canvas>
+        <span class="probe"></span>
         <div class="marks">
           ${
             this.loud
@@ -501,8 +505,16 @@ export default class CupWaveform extends LitElement {
     if (!context) {
       return;
     }
-    const style = getComputedStyle(this);
-    const color = (name: string) => style.getPropertyValue(name).trim();
+    // The tokens are relative colours, which not every canvas understands:
+    // draw with the computed colours instead.
+    const colors = new Map<string, string>();
+    const color = (name: string) => {
+      if (!colors.has(name) && this.probe) {
+        this.probe.style.color = `var(${name})`;
+        colors.set(name, getComputedStyle(this.probe).color);
+      }
+      return colors.get(name) ?? "";
+    };
     context.clearRect(0, 0, width, height);
 
     const total = this.total || this.peaks?.duration || 0;

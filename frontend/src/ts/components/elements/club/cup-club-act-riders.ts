@@ -70,18 +70,18 @@ export default class CupClubActRiders extends LitElement {
       }
 
       cup-rider-picker.add {
-        --picker-placeholder: var(--cup-blue);
+        --picker-placeholder: var(--color-primary-strong);
       }
 
       .and {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .fixed {
         padding: 0.4rem 0.5rem;
-        border: 1px dashed var(--cup-border);
+        border: 1px dashed var(--color-border);
         border-radius: 0.375rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .member {
@@ -90,8 +90,8 @@ export default class CupClubActRiders extends LitElement {
         gap: 0.125rem;
         padding: 0.125rem 0.125rem 0.125rem 0.625rem;
         border-radius: 100vh;
-        border: 1px solid var(--cup-border);
-        background: var(--cup-surface-2);
+        border: 1px solid var(--color-border);
+        background: var(--color-surface-2);
         font-size: 0.9rem;
       }
 
@@ -99,24 +99,24 @@ export default class CupClubActRiders extends LitElement {
         padding-right: 0.625rem;
         border-style: dashed;
         background: none;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .member.replacement {
-        border-color: var(--cup-amber);
+        border-color: var(--color-warning);
       }
 
       .member.conflict {
-        border-color: var(--cup-red);
+        border-color: var(--color-error);
       }
 
       .member .repl {
         margin-left: 0.25rem;
         padding: 0 0.375rem;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 100vh;
-        background: var(--cup-surface);
-        color: var(--cup-muted);
+        background: var(--color-surface);
+        color: var(--color-text-muted);
         font: inherit;
         font-size: 0.7rem;
         font-weight: 700;
@@ -124,9 +124,9 @@ export default class CupClubActRiders extends LitElement {
       }
 
       .member .repl[aria-pressed="true"] {
-        background: var(--cup-amber);
-        border-color: var(--cup-amber);
-        color: #fff;
+        background: var(--color-warning-strong);
+        border-color: var(--color-warning-strong);
+        color: var(--color-on-warning-strong);
       }
 
       .member .icon-btn {
@@ -136,15 +136,15 @@ export default class CupClubActRiders extends LitElement {
       .note {
         margin-top: 0.375rem;
         font-size: 0.8rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .note.error {
-        color: var(--cup-red);
+        color: var(--color-error-strong);
       }
 
       .note.warn {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       .banner {

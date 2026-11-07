@@ -12,7 +12,12 @@ import { type User, userContext } from "../../contexts/user";
 import { adminPages, can } from "../../roles";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { clubPortalStyles } from "../../styles/club-portal";
-import { competitionName, formatDate, formatDateRange } from "../../utils";
+import {
+  competitionLogo,
+  competitionName,
+  formatDate,
+  formatDateRange,
+} from "../../utils";
 import { keyed } from "lit/directives/keyed.js";
 import "../elements/club/cup-club-portal.js";
 
@@ -35,7 +40,7 @@ export default class CupViewHome extends LitElement {
       :host {
         display: block;
         min-height: 100dvh;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       .topbar {
@@ -47,13 +52,16 @@ export default class CupViewHome extends LitElement {
         gap: 0.75rem;
         height: 3.5rem;
         padding: 0 1.5rem;
-        background: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary);
+        color: var(--color-on-primary);
       }
 
       .topbar img {
         height: 2.25rem;
         width: auto;
+        /* The competition's logo can have any shape. */
+        max-width: 6rem;
+        object-fit: contain;
       }
 
       .topbar .event {
@@ -71,7 +79,7 @@ export default class CupViewHome extends LitElement {
       }
 
       .topbar .event small {
-        color: var(--cup-blue-2);
+        color: var(--color-on-primary-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -82,9 +90,9 @@ export default class CupViewHome extends LitElement {
         align-items: center;
         gap: 0.25rem;
         padding: 0 0.25rem 0 0.625rem;
-        border: 1px solid color-mix(in srgb, #fff 30%, transparent);
+        border: 1px solid var(--color-on-primary-border);
         border-radius: 100vh;
-        color: #fff;
+        color: var(--color-on-primary);
       }
 
       .club-switch .material-icon {
@@ -103,18 +111,19 @@ export default class CupViewHome extends LitElement {
 
       .club-switch select option,
       .club-switch select optgroup {
-        color: var(--cup-text);
-        background: var(--cup-surface);
+        color: var(--color-text);
+        background: var(--color-surface);
       }
 
       /* Another club than the own: hard to miss. */
       .club-switch.foreign {
-        background: var(--cup-amber);
-        border-color: var(--cup-amber);
+        background: var(--color-warning-strong);
+        color: var(--color-on-warning-strong);
+        border-color: var(--color-warning-strong);
       }
 
       .topbar .user {
-        color: var(--cup-blue-2);
+        color: var(--color-on-primary-muted);
         font-size: 0.875rem;
         white-space: nowrap;
       }
@@ -125,10 +134,10 @@ export default class CupViewHome extends LitElement {
         align-items: center;
         gap: 0.25rem;
         padding: 0.375rem 0.75rem;
-        border: 1px solid color-mix(in srgb, #fff 30%, transparent);
+        border: 1px solid var(--color-on-primary-border);
         border-radius: 100vh;
         background: none;
-        color: #fff;
+        color: var(--color-on-primary);
         font: inherit;
         font-size: 0.875rem;
         text-decoration: none;
@@ -136,7 +145,7 @@ export default class CupViewHome extends LitElement {
       }
 
       .topbar .top-btn:hover {
-        background: color-mix(in srgb, #fff 12%, transparent);
+        background: var(--color-on-primary-hover);
       }
 
       .topbar .top-btn .material-icon {
@@ -264,7 +273,7 @@ export default class CupViewHome extends LitElement {
     // The first organizer page the user's roles open.
     const orgaPage = adminPages(this.user?.permissions ?? [])[0];
     return html`<header class="topbar">
-      <img src="/assets/images/nrw-freestyle-cup.svg" alt="" />
+      <img src=${competitionLogo()} alt="" />
       <span class="event">
         <strong>Anmeldung ${competitionName(competition)}</strong>
         ${
@@ -347,7 +356,7 @@ export default class CupViewHome extends LitElement {
       }
       <div class="actions" style="margin-top:1rem">
         <button
-          class="btn blue"
+          class="btn primary"
           ?disabled=${this.mailSent}
           @click=${this.reverifyMail}
         >
@@ -400,7 +409,7 @@ export default class CupViewHome extends LitElement {
             .value=${this.clubName}
             @input=${this.onClubNameInput}
         /></label>
-        <button class="btn primary" ?disabled=${this.creating}>
+        <button class="btn secondary" ?disabled=${this.creating}>
           <i class="material-icon">add_circle</i> Verein anlegen
         </button>
       </form>

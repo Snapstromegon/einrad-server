@@ -2,6 +2,7 @@ import { consume } from "@lit/context";
 import { css, html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { type User, userContext } from "../../contexts/user";
+import { competitionLogo } from "../../utils";
 
 @customElement("cup-centered-icon-box")
 export default class CupCenteredIconBox extends LitElement {
@@ -17,13 +18,13 @@ export default class CupCenteredIconBox extends LitElement {
       justify-content: center;
       align-items: center;
       height: 100dvh;
-      background: #99add7;
+      background: var(--color-primary-border);
       padding: 1rem;
     }
 
     #wrapper {
       display: flex;
-      background: #fff;
+      background: var(--color-surface);
       border-radius: 0.5rem;
       overflow: hidden;
       flex-wrap: wrap;
@@ -36,13 +37,15 @@ export default class CupCenteredIconBox extends LitElement {
         place-items: center;
         justify-content: center;
         padding: 2rem;
-        background: #002d56;
+        background: var(--color-primary);
 
         & img {
           width: 100%;
           max-width: 12rem;
           max-height: 12rem;
           height: 100%;
+          /* The competition's logo can have any shape. */
+          object-fit: contain;
         }
       }
     }
@@ -54,7 +57,7 @@ export default class CupCenteredIconBox extends LitElement {
   override render() {
     return html`<div id="wrapper">
       <aside>
-        <img src="/assets/images/nrw-freestyle-cup.svg" />
+        <img src=${competitionLogo()} />
       </aside>
       <main><slot></slot></main>
     </div>`;

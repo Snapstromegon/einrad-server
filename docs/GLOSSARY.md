@@ -14,6 +14,10 @@ _Avoid_: Event, Cup, Meisterschaft (as a term in the tool)
 The file that imports a competition with its categories, finals, timeplan and jury categories; applied only when the database has no competition yet, or on purpose as a replace (`--replace-competition` or the import in the admin UI). The database stays the source of the competition (ADR 0005).
 _Avoid_: Config (for the competition)
 
+**Branding**:
+The competition's logo and colors on every page; without its own, the competition shows the default built into the server, and a replace keeps it unless the competition file sets it (ADR 0009).
+_Avoid_: Theme, design (for the logo and colors)
+
 **Setup mode**:
 The server running without a competition, until an admin imports the competition file in the admin UI; everyone else sees "noch nicht eröffnet".
 
@@ -192,6 +196,9 @@ The public screen in the hall showing what's running now and next.
 
 **Moderation screen** (Moderation):
 The screen for the announcer with the current and next act and the delay.
+
+**Display** (Anzeige):
+A screen in the hall that shows the event and isn't operated: the info board and the moderation screen.
 
 ### Money
 
