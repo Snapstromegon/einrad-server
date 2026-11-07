@@ -1,5 +1,6 @@
 pub mod command;
 pub mod http_types;
+mod logo;
 mod photos;
 pub mod query;
 
@@ -126,6 +127,7 @@ pub fn get_api_router(
     let (router, openapi) = get_openapi_router();
     router
         .route("/api/ws/player", get(player::ws::player_ws))
+        .route("/api/competition/logo", get(logo::competition_logo))
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))

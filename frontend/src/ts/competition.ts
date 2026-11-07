@@ -9,6 +9,7 @@ export type Dropped = schemas.Dropped;
 
 export const partNames: Record<Part, string> = {
   settings: "Einstellungen",
+  logo: "Logo",
   categories: "Kategorien",
   finals: "Finals",
   timeplan: "Zeitplan",

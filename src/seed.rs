@@ -19,11 +19,12 @@ use crate::{
     act_type::ActType,
     competition::{Competition, upsert_competition},
     config::{
-        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
+        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
         TimeplanEntryConfig,
     },
     finals::{self, SlotGroup},
     jury::JudgeTask,
+    logo::{self, Logo},
     reloadable_sqlite::begin_write,
     roles::Role,
     timeplan::EntryKind,
@@ -511,6 +512,7 @@ pub enum Applied {
 #[serde(rename_all = "snake_case")]
 pub enum Part {
     Settings,
+    Logo,
     Categories,
     Finals,
     Timeplan,
@@ -522,6 +524,7 @@ impl Part {
     fn describe(self) -> &'static str {
         match self {
             Part::Settings => "the competition settings",
+            Part::Logo => "the logo",
             Part::Categories => "the categories",
             Part::Finals => "the finals",
             Part::Timeplan => "the timeplan",
@@ -848,6 +851,7 @@ fn db_error(e: sqlx::Error) -> String {
 #[derive(Debug, PartialEq)]
 struct Snapshot {
     competition: Vec<String>,
+    logo: Vec<String>,
     categories: Vec<String>,
     finals: Vec<String>,
     timeplan: Vec<String>,
@@ -873,6 +877,8 @@ impl Snapshot {
                 FROM competition"#,
             )
             .await?,
+            // `write` only touches the logo if it changes.
+            logo: rows(r#"SELECT json_array(mime_type, updated_at) FROM competition_logo"#).await?,
             categories: rows(
                 r#"SELECT json_array(name, description, from_birthday, to_birthday, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds,
@@ -911,6 +917,7 @@ impl Snapshot {
     fn differences(&self, other: &Self) -> Vec<Part> {
         [
             (self.competition != other.competition, Part::Settings),
+            (self.logo != other.logo, Part::Logo),
             (self.categories != other.categories, Part::Categories),
             (self.finals != other.finals, Part::Finals),
             (self.timeplan != other.timeplan, Part::Timeplan),
@@ -1042,6 +1049,7 @@ async fn write(
     upsert_competition(&mut *conn, &competition)
         .await
         .map_err(db_error)?;
+    write_logo(conn, &competition).await.map_err(db_error)?;
     // The app uses one competition. A row left over from an earlier id
     // would win in `Competition::current` if it starts later.
     sqlx::query!("DELETE FROM competition WHERE id != ?", competition.id)
@@ -1251,6 +1259,29 @@ async fn write(
         }
     }
     Ok(dropped)
+}
+
+/// Applies the file's `logo_svg`: the logo is kept unless the file sets it
+/// (ADR 0009), and only written if it changes, so an unchanged file changes
+/// nothing.
+async fn write_logo(
+    conn: &mut sqlx::SqliteConnection,
+    competition: &CompetitionConfig,
+) -> sqlx::Result<()> {
+    match &competition.logo_svg {
+        Branding::Keep => Ok(()),
+        Branding::Reset => logo::remove(&mut *conn).await,
+        Branding::Set(svg) => {
+            let new = Logo::from(svg);
+            let current = logo::load(&mut *conn).await?;
+            if current.is_some_and(|current| {
+                current.mime_type == new.mime_type && current.data == new.data
+            }) {
+                return Ok(());
+            }
+            logo::store(&mut *conn, &competition.id, &new).await
+        }
+    }
 }
 
 /// The remap file's content, with how to fill it in.

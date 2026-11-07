@@ -43,6 +43,8 @@ export default class CupCenteredIconBox extends LitElement {
           max-width: 12rem;
           max-height: 12rem;
           height: 100%;
+          /* The competition's logo can have any shape. */
+          object-fit: contain;
         }
       }
     }
@@ -54,7 +56,7 @@ export default class CupCenteredIconBox extends LitElement {
   override render() {
     return html`<div id="wrapper">
       <aside>
-        <img src="/assets/images/nrw-freestyle-cup.svg" />
+        <img src="/api/competition/logo" />
       </aside>
       <main><slot></slot></main>
     </div>`;

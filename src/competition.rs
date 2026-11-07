@@ -1,7 +1,7 @@
 use time::{Date, OffsetDateTime};
 
 use crate::{
-    config::{CompetitionConfig, JuryConfig, PaymentConfig},
+    config::{Branding, CompetitionConfig, JuryConfig, PaymentConfig},
     photos::PhotosSettings,
     system_status::StatusOptions,
 };
@@ -313,6 +313,9 @@ impl From<&Competition> for CompetitionConfig {
             }),
             features: competition.features.clone(),
             photos: competition.photos.clone(),
+            // The logo isn't part of the competition's row (see
+            // `crate::logo`).
+            logo_svg: Branding::Keep,
         }
     }
 }

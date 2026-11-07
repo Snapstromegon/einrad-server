@@ -174,6 +174,8 @@ export default class CupViewStartlist extends LitElement {
         min-height: 0;
         height: 7rem;
         max-height: 100%;
+        /* The competition's logo can have any shape. */
+        object-fit: contain;
       }
 
       header h1 {
@@ -347,7 +349,7 @@ export default class CupViewStartlist extends LitElement {
 
   override render() {
     return html`<header>
-        <img src="/assets/images/nrw-freestyle-cup.svg" />
+        <img src="/api/competition/logo" />
         <h1>Startliste ${competitionName(this.systemStatus?.competition)}</h1>
         <span class="date"
           >${

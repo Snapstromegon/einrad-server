@@ -54,6 +54,9 @@ export default class CupViewHome extends LitElement {
       .topbar img {
         height: 2.25rem;
         width: auto;
+        /* The competition's logo can have any shape. */
+        max-width: 6rem;
+        object-fit: contain;
       }
 
       .topbar .event {
@@ -264,7 +267,7 @@ export default class CupViewHome extends LitElement {
     // The first organizer page the user's roles open.
     const orgaPage = adminPages(this.user?.permissions ?? [])[0];
     return html`<header class="topbar">
-      <img src="/assets/images/nrw-freestyle-cup.svg" alt="" />
+      <img src="/api/competition/logo" alt="" />
       <span class="event">
         <strong>Anmeldung ${competitionName(competition)}</strong>
         ${
