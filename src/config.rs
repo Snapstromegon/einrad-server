@@ -316,15 +316,21 @@ pub enum Branding<T> {
 }
 
 impl<T> Branding<T> {
+    /// A setting as the admin UI saves it: `None` is the default.
+    pub fn set_or_reset(value: Option<T>) -> Self {
+        value.map_or(Branding::Reset, Branding::Set)
+    }
+
     pub fn is_keep(&self) -> bool {
         matches!(self, Branding::Keep)
     }
-}
 
-/// A setting the admin UI saves: `None` is the default.
-impl<T> From<Option<T>> for Branding<T> {
-    fn from(value: Option<T>) -> Self {
-        value.map_or(Branding::Reset, Branding::Set)
+    /// The value it sets; `None` if it keeps or resets it.
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Branding::Set(value) => Some(value),
+            Branding::Keep | Branding::Reset => None,
+        }
     }
 }
 

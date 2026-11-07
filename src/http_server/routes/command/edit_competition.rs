@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 use crate::{
     colors,
     competition::{Competition, upsert_competition},
-    config::{CompetitionConfig, is_valid_iban},
+    config::{Branding, CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::{Photos, PhotosSettings},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
@@ -105,8 +105,8 @@ pub async fn edit_competition(
     colors::write(
         &mut *transaction,
         &competition.id,
-        &competition.primary_color.clone().into(),
-        &competition.secondary_color.clone().into(),
+        &Branding::set_or_reset(competition.primary_color.clone()),
+        &Branding::set_or_reset(competition.secondary_color.clone()),
     )
     .await?;
     transaction.commit().await?;

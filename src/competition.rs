@@ -287,17 +287,9 @@ impl From<&CompetitionConfig> for Competition {
             }),
             features: config.features.clone(),
             photos: config.photos.clone(),
-            primary_color: set(&config.primary_color),
-            secondary_color: set(&config.secondary_color),
+            primary_color: config.primary_color.value().cloned(),
+            secondary_color: config.secondary_color.value().cloned(),
         }
-    }
-}
-
-/// The color a branding setting sets; `None` if it keeps or resets it.
-fn set(color: &Branding<HexColor>) -> Option<HexColor> {
-    match color {
-        Branding::Set(color) => Some(color.clone()),
-        Branding::Keep | Branding::Reset => None,
     }
 }
 

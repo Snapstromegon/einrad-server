@@ -88,13 +88,9 @@ pub async fn write(
     primary: &Branding<HexColor>,
     secondary: &Branding<HexColor>,
 ) -> sqlx::Result<()> {
-    let keep = |color: &Branding<HexColor>| color.is_keep();
-    let value = |color: &Branding<HexColor>| match color {
-        Branding::Set(color) => Some(color.to_string()),
-        Branding::Keep | Branding::Reset => None,
-    };
-    let (keep_primary, primary) = (keep(primary), value(primary));
-    let (keep_secondary, secondary) = (keep(secondary), value(secondary));
+    let value = |color: &Branding<HexColor>| color.value().map(HexColor::to_string);
+    let (keep_primary, primary) = (primary.is_keep(), value(primary));
+    let (keep_secondary, secondary) = (secondary.is_keep(), value(secondary));
     sqlx::query!(
         r#"
         UPDATE competition SET
