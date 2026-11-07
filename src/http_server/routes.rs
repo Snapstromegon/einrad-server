@@ -1,4 +1,5 @@
 pub mod command;
+mod etag;
 pub mod http_types;
 mod logo;
 mod photos;

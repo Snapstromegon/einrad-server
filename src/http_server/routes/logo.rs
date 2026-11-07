@@ -9,7 +9,7 @@ use axum::{
         HeaderMap, HeaderValue, StatusCode,
         header::{
             CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE,
-            IF_NONE_MATCH, LAST_MODIFIED, X_CONTENT_TYPE_OPTIONS,
+            LAST_MODIFIED, X_CONTENT_TYPE_OPTIONS,
         },
     },
     response::{IntoResponse, Response},
@@ -19,6 +19,7 @@ use time::{
 };
 use tracing::warn;
 
+use super::etag::{fnv1a, if_none_match};
 use crate::{
     logo::{self, Format},
     reloadable_sqlite::ReloadableSqlite,
@@ -33,18 +34,7 @@ const HTTP_DATE: &[BorrowedFormatItem<'_>] = macros::format_description!(
     "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT"
 );
 
-/// FNV-1a, so the default logo's ETag changes with the logo.
-const fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut index = 0;
-    while index < bytes.len() {
-        hash ^= bytes[index] as u64;
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-        index += 1;
-    }
-    hash
-}
-
+/// So the default logo's ETag changes with the logo.
 const DEFAULT_HASH: u64 = fnv1a(logo::DEFAULT_SVG);
 
 /// The competition's logo, or the built-in default without one.
@@ -107,14 +97,8 @@ pub async fn competition_logo(
 /// Whether the browser's copy is current: by the ETag if it sends one,
 /// otherwise by the date (to the second, as HTTP dates go).
 fn not_modified(request: &HeaderMap, etag: &str, updated_at: Option<OffsetDateTime>) -> bool {
-    if let Some(tags) = request
-        .get(IF_NONE_MATCH)
-        .and_then(|value| value.to_str().ok())
-    {
-        return tags
-            .split(',')
-            .map(|tag| tag.trim().trim_start_matches("W/"))
-            .any(|tag| tag == etag || tag == "*");
+    if let Some(matches) = if_none_match(request, etag) {
+        return matches;
     }
     let since = request
         .get(IF_MODIFIED_SINCE)
