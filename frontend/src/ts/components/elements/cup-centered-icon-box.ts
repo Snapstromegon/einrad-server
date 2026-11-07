@@ -2,6 +2,7 @@ import { consume } from "@lit/context";
 import { css, html, LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { type User, userContext } from "../../contexts/user";
+import { competitionLogo } from "../../utils";
 
 @customElement("cup-centered-icon-box")
 export default class CupCenteredIconBox extends LitElement {
@@ -56,7 +57,7 @@ export default class CupCenteredIconBox extends LitElement {
   override render() {
     return html`<div id="wrapper">
       <aside>
-        <img src="/api/competition/logo" />
+        <img src=${competitionLogo()} />
       </aside>
       <main><slot></slot></main>
     </div>`;

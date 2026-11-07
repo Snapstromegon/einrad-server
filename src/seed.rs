@@ -1273,10 +1273,10 @@ async fn write_logo(
         Branding::Reset => logo::remove(&mut *conn).await,
         Branding::Set(svg) => {
             let new = Logo::from(svg);
-            let current = logo::load(&mut *conn).await?;
-            if current.is_some_and(|current| {
-                current.mime_type == new.mime_type && current.data == new.data
-            }) {
+            if logo::load(&mut *conn)
+                .await?
+                .is_some_and(|current| current.is(&new))
+            {
                 return Ok(());
             }
             logo::store(&mut *conn, &competition.id, &new).await

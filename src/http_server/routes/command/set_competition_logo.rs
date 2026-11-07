@@ -3,7 +3,6 @@ use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::save_act_song::Upload;
 use crate::{
     competition::Competition,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -15,20 +14,32 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetCompetitionLogoResponse {}
 
-/// Uploads the competition's logo, replacing an earlier one (#286). The type
-/// comes from the content: PNG, JPEG, WebP or SVG, up to 1 MiB. Raster
-/// logos are scaled down to 512 px on the long edge and lose their metadata;
-/// SVG logos are stored as they are, but refused if they could run scripts
-/// or load other files (see `crate::logo`). Admin.
+/// The multipart body: the logo as its only file.
+#[derive(ToSchema, Debug)]
+pub struct LogoUpload {
+    #[allow(dead_code)]
+    #[schema(value_type = String, format = Binary)]
+    pub file: Vec<u8>,
+}
+
+/// Upload the competition's logo.
+///
+/// Replaces an earlier logo (#286). The format comes from the content: PNG,
+/// JPEG, WebP or SVG, up to 1 MiB. Raster logos are scaled down to 512 px on
+/// the long edge and lose their metadata; SVG logos are stored as they are,
+/// but refused if they could run scripts or load other files (see
+/// `crate::logo`). Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],
     path="/set_competition_logo",
-    request_body=Upload,
+    request_body=LogoUpload,
     responses(
         (status=200, content_type="application/json", body=SetCompetitionLogoResponse),
+        (status=400, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=413, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -61,7 +72,8 @@ pub async fn set_competition_logo(
     logo::store(&db, &competition.id, &logo).await?;
     info!(
         "Set the logo of competition {} ({})",
-        competition.id, logo.mime_type
+        competition.id,
+        logo.format.name()
     );
     Ok(Json(SetCompetitionLogoResponse {}))
 }

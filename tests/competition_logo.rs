@@ -168,6 +168,16 @@ async fn svg_logos_that_could_run_scripts_or_load_things_are_refused() {
             r#"<!DOCTYPE svg [<!ENTITY name "Max Müller">]><svg {NS}><text>&name;</text></svg>"#
         ),
         format!(r#"<?xml-stylesheet href="https://example.org/style.css"?><svg {NS}/>"#),
+        // Links set by an animation, and files loaded by CSS.
+        format!(
+            r#"<svg {NS}><image><set attributeName="xlink:href" to="https://example.org/tracker.png"/></image></svg>"#
+        ),
+        format!(
+            r##"<svg {NS}><image><animate attributeName="href" values="#a;https://example.org/b.png"/></image></svg>"##
+        ),
+        format!(r#"<svg {NS}><rect style="fill: URL( 'https://example.org/fill.svg#p' )"/></svg>"#),
+        format!(r#"<svg {NS}><style>@import "https://example.org/style.css";</style></svg>"#),
+        format!(r#"<svg {NS}><style>rect {{ fill: url(//example.org/fill.svg#p) }}</style></svg>"#),
     ] {
         let response = upload(&app, &admin, "logo.svg", unsafe_svg.as_bytes()).await;
         assert_ne!(response.status, StatusCode::OK, "{unsafe_svg}");
@@ -198,6 +208,9 @@ async fn svg_logos_that_could_run_scripts_or_load_things_are_refused() {
         String::from_utf8(DEFAULT_LOGO.to_vec()).unwrap(),
         format!(
             "<svg {NS}><defs><circle id=\"dot\" r=\"1\"/></defs><use xlink:href=\"#dot\"/><image href=\"data:image/png;base64,iVBORw0KGgo=\"/></svg>"
+        ),
+        format!(
+            r##"<svg {NS}><style>.a {{ fill: url(#g) }}</style><linearGradient id="g"/><rect class="a" style="stroke: url( '#g' )"/><animate attributeName="opacity" values="0;1"/></svg>"##
         ),
     ] {
         let response = upload(&app, &admin, "logo.svg", safe_svg.as_bytes()).await;

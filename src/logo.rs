@@ -21,8 +21,6 @@ use time::OffsetDateTime;
 pub const DEFAULT_SVG: &[u8] =
     include_bytes!("../frontend/src/public/assets/images/nrw-freestyle-cup.svg");
 
-pub const SVG: &str = "image/svg+xml";
-
 /// The largest logo, uploaded or in the competition file.
 pub const MAX_SIZE: usize = 1024 * 1024;
 /// The longest edge of a stored raster logo, in pixels; larger ones are
@@ -57,40 +55,58 @@ pub enum LogoError {
     UnsafeSvg(String),
 }
 
-/// The type of an image, told from its first bytes.
+/// The format of a logo, told from its content.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub enum Format {
     Png,
     Jpeg,
     Webp,
     Svg,
 }
 
-impl Kind {
-    fn of(bytes: &[u8]) -> Option<Kind> {
+impl Format {
+    /// The format of `bytes` by their first bytes; anything text that starts
+    /// like XML might be an SVG.
+    fn of(bytes: &[u8]) -> Option<Format> {
         if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-            Some(Kind::Png)
+            Some(Format::Png)
         } else if bytes.starts_with(b"\xff\xd8\xff") {
-            Some(Kind::Jpeg)
+            Some(Format::Jpeg)
         } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-            Some(Kind::Webp)
+            Some(Format::Webp)
         } else if std::str::from_utf8(bytes).is_ok_and(|text| {
             text.trim_start_matches('\u{feff}')
                 .trim_start()
                 .starts_with('<')
         }) {
-            Some(Kind::Svg)
+            Some(Format::Svg)
         } else {
             None
         }
     }
 
-    fn mime_type(self) -> &'static str {
+    pub fn from_mime_type(mime_type: &str) -> Option<Format> {
+        [Format::Png, Format::Jpeg, Format::Webp, Format::Svg]
+            .into_iter()
+            .find(|format| format.mime_type() == mime_type)
+    }
+
+    pub fn mime_type(self) -> &'static str {
         match self {
-            Kind::Png => "image/png",
-            Kind::Jpeg => "image/jpeg",
-            Kind::Webp => "image/webp",
-            Kind::Svg => SVG,
+            Format::Png => "image/png",
+            Format::Jpeg => "image/jpeg",
+            Format::Webp => "image/webp",
+            Format::Svg => "image/svg+xml",
+        }
+    }
+
+    /// The name for people, e.g. "PNG".
+    pub fn name(self) -> &'static str {
+        match self {
+            Format::Png => "PNG",
+            Format::Jpeg => "JPEG",
+            Format::Webp => "WebP",
+            Format::Svg => "SVG",
         }
     }
 }
@@ -98,42 +114,28 @@ impl Kind {
 /// A logo ready to store.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Logo {
-    pub mime_type: &'static str,
+    pub format: Format,
     pub data: Vec<u8>,
 }
 
 impl Logo {
-    /// An uploaded logo, its type told from its content.
+    /// An uploaded logo, its format told from its content.
     pub fn from_upload(bytes: &[u8]) -> Result<Logo, LogoError> {
         if bytes.len() > MAX_SIZE {
             return Err(LogoError::TooLarge);
         }
-        let kind = Kind::of(bytes).ok_or(LogoError::Unsupported)?;
-        let data = match kind {
-            Kind::Svg => {
-                // `Kind::of` checked that it's text.
+        let format = Format::of(bytes).ok_or(LogoError::Unsupported)?;
+        let data = match format {
+            Format::Svg => {
+                // `Format::of` checked that it's text.
                 let text = std::str::from_utf8(bytes).map_err(|_| LogoError::Unsupported)?;
                 return Ok(Logo::from(&text.parse::<SvgLogo>()?));
             }
-            Kind::Png => scale(bytes, ImageFormat::Png)?,
-            Kind::Jpeg => scale(bytes, ImageFormat::Jpeg)?,
-            Kind::Webp => scale(bytes, ImageFormat::WebP)?,
+            Format::Png => scale(bytes, ImageFormat::Png)?,
+            Format::Jpeg => scale(bytes, ImageFormat::Jpeg)?,
+            Format::Webp => scale(bytes, ImageFormat::WebP)?,
         };
-        Ok(Logo {
-            mime_type: kind.mime_type(),
-            data,
-        })
-    }
-}
-
-/// The name of a logo's format for people, e.g. "PNG" for `image/png`.
-pub fn format_name(mime_type: &str) -> &'static str {
-    match mime_type {
-        "image/png" => "PNG",
-        "image/jpeg" => "JPEG",
-        "image/webp" => "WebP",
-        SVG => "SVG",
-        _ => "raster",
+        Ok(Logo { format, data })
     }
 }
 
@@ -149,7 +151,7 @@ impl FromStr for SvgLogo {
         if text.len() > MAX_SIZE {
             return Err(LogoError::TooLarge);
         }
-        if Kind::of(text.as_bytes()) != Some(Kind::Svg) {
+        if Format::of(text.as_bytes()) != Some(Format::Svg) {
             return Err(LogoError::NotAnSvg);
         }
         check_svg(text)?;
@@ -166,7 +168,7 @@ impl fmt::Display for SvgLogo {
 impl From<&SvgLogo> for Logo {
     fn from(svg: &SvgLogo) -> Self {
         Logo {
-            mime_type: SVG,
+            format: Format::Svg,
             data: svg.0.as_bytes().to_vec(),
         }
     }
@@ -255,6 +257,25 @@ fn check_svg(text: &str) -> Result<(), LogoError> {
         if name == "script" || name == "foreignobject" {
             return unsafe_svg(&format!("<{}>", node.tag_name().name()));
         }
+        // An animation could set a link the check below never sees.
+        if name.starts_with("animate") || name == "set" {
+            let animated = node
+                .attributes()
+                .find(|attribute| attribute.name().eq_ignore_ascii_case("attributeName"))
+                .map(|attribute| attribute.value().trim().to_ascii_lowercase());
+            if animated.is_some_and(|animated| animated == "href" || animated.ends_with(":href")) {
+                return unsafe_svg("eine Animation eines Verweises");
+            }
+        }
+        if name == "style" {
+            let css: String = node
+                .descendants()
+                .filter_map(|child| child.text())
+                .collect();
+            if css_loads_files(&css) {
+                return unsafe_svg("CSS, das andere Dateien lädt");
+            }
+        }
         for attribute in node.attributes() {
             let name = attribute.name().to_ascii_lowercase();
             if name.starts_with("on") {
@@ -270,6 +291,9 @@ fn check_svg(text: &str) -> Result<(), LogoError> {
                 .to_ascii_lowercase();
             if value.contains("javascript:") {
                 return unsafe_svg("einen javascript:-Verweis");
+            }
+            if name == "style" && css_loads_files(attribute.value()) {
+                return unsafe_svg("CSS, das andere Dateien lädt");
             }
             if name == "href" && !is_internal_reference(&value) {
                 return unsafe_svg(&format!(
@@ -290,12 +314,47 @@ fn is_internal_reference(href: &str) -> bool {
             .any(|format| href.starts_with(&format!("data:image/{format}")))
 }
 
+/// Whether CSS loads another file: an `@import`, or a `url()` that isn't
+/// a fragment or an embedded image.
+fn css_loads_files(css: &str) -> bool {
+    let css = css
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    css.contains("@import")
+        || css
+            .split("url(")
+            .skip(1)
+            .any(|url| !is_internal_reference(url.trim_start_matches(['\'', '"'])))
+}
+
 /// The logo as the database has it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredLogo {
     pub mime_type: String,
     pub data: Vec<u8>,
     pub updated_at: OffsetDateTime,
+}
+
+impl StoredLogo {
+    pub fn format(&self) -> Option<Format> {
+        Format::from_mime_type(&self.mime_type)
+    }
+
+    /// The logo as SVG, e.g. for the competition file; `None` for a raster
+    /// logo.
+    pub fn svg(&self) -> Option<SvgLogo> {
+        if self.format() != Some(Format::Svg) {
+            return None;
+        }
+        std::str::from_utf8(&self.data).ok()?.parse().ok()
+    }
+
+    /// Whether it's `logo`, so storing that changes nothing.
+    pub fn is(&self, logo: &Logo) -> bool {
+        self.format() == Some(logo.format) && self.data == logo.data
+    }
 }
 
 /// The current competition's logo; `None` without one, so the default
@@ -334,6 +393,7 @@ pub async fn store(
     logo: &Logo,
 ) -> sqlx::Result<()> {
     let now = OffsetDateTime::now_utc();
+    let mime_type = logo.format.mime_type();
     sqlx::query!(
         r#"
         INSERT INTO competition_logo (competition_id, mime_type, data, updated_at)
@@ -344,7 +404,7 @@ pub async fn store(
             updated_at = excluded.updated_at
         "#,
         competition_id,
-        logo.mime_type,
+        mime_type,
         logo.data,
         now,
     )

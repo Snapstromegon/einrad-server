@@ -111,6 +111,7 @@ fn status_description(status: &str) -> &'static str {
         "403" => "Not allowed",
         "404" => "Not found",
         "409" => "Conflict with the current state",
+        "413" => "Too large",
         "500" => "Internal server error",
         _ => "Response",
     }

@@ -11,6 +11,7 @@ import {
 import { adminStyles } from "../../styles/admin";
 import "../elements/cup-competition-form.js";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { competitionLogo } from "../../utils";
 
 type Preview = schemas.Preview;
 
@@ -19,10 +20,6 @@ const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
   name,
   url: URL.createObjectURL(new Blob([content], { type: "application/toml" })),
 });
-
-/** The competition's logo; `version` gets a changed one past the cache. */
-const logoUrl = (version: number) =>
-  version ? `/api/competition/logo?v=${version}` : "/api/competition/logo";
 
 /**
  * The competition itself (Admin, ADR 0005): editing it ("Wettkampf
@@ -145,7 +142,7 @@ export default class CupViewAdminCompetition extends LitElement {
       </p>
       <img
         class="logo"
-        src=${logoUrl(this.logoVersion)}
+        src=${competitionLogo(this.logoVersion)}
         alt="Logo des Wettkampfs"
       />
       <input
@@ -201,7 +198,7 @@ export default class CupViewAdminCompetition extends LitElement {
       this.logoVersion = Date.now();
       document
         .querySelector<HTMLLinkElement>('link[rel="icon"]')
-        ?.setAttribute("href", logoUrl(this.logoVersion));
+        ?.setAttribute("href", competitionLogo(this.logoVersion));
     } catch (error) {
       this.logoError = failureText(context, error);
     } finally {

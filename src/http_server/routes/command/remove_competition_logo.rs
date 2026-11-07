@@ -13,8 +13,9 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RemoveCompetitionLogoResponse {}
 
-/// Removes the competition's logo: the logo built into the binary applies
-/// again (#286). Admin.
+/// Remove the competition's logo.
+///
+/// The logo built into the binary applies again (#286). Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],

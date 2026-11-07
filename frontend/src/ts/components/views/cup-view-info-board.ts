@@ -19,6 +19,7 @@ import {
   blockOf,
   breakEnd,
   customOf,
+  competitionLogo,
   competitionName,
   currentTimeplanAct,
   currentTimeplanBreak,
@@ -531,7 +532,7 @@ export default class CupViewInfoBoard extends LitElement {
           <h1>${competitionName(this.systemStatus?.competition)}</h1>
           <img
             id="logo"
-            src="/api/competition/logo"
+            src=${competitionLogo()}
             alt=${competitionName(this.systemStatus?.competition)}
           />
           ${this.renderPhotosQr()}

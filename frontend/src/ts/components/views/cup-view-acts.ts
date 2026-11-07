@@ -8,7 +8,7 @@ import {
   type SystemStatus,
   systemStatusContext,
 } from "../../contexts/systemStatus";
-import { competitionName, formatDateRange } from "../../utils";
+import { competitionLogo, competitionName, formatDateRange } from "../../utils";
 
 @customElement("cup-view-acts")
 export default class CupViewActs extends LitElement {
@@ -106,7 +106,7 @@ export default class CupViewActs extends LitElement {
 
   override render() {
     return html`<header>
-        <img src="/api/competition/logo" />
+        <img src=${competitionLogo()} />
         <h1>Anmeldung ${competitionName(this.systemStatus?.competition)}</h1>
         <span class="date"
           >${

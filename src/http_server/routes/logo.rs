@@ -19,7 +19,10 @@ use time::{
 };
 use tracing::warn;
 
-use crate::{logo, reloadable_sqlite::ReloadableSqlite};
+use crate::{
+    logo::{self, Format},
+    reloadable_sqlite::ReloadableSqlite,
+};
 
 /// Opened on its own, an SVG logo runs no scripts and loads nothing
 /// (ADR 0009).
@@ -78,15 +81,23 @@ pub async fn competition_logo(
         return (StatusCode::NOT_MODIFIED, headers).into_response();
     }
 
-    let (mime_type, data) = match updated_at {
-        None => (logo::SVG.to_string(), logo::DEFAULT_SVG.to_vec()),
+    let stored = match updated_at {
+        None => None,
+        // `None` if it was removed in between.
         Some(_) => match logo::load(&db).await {
-            Ok(Some(stored)) => (stored.mime_type, stored.data),
-            // Removed in between.
-            Ok(None) => (logo::SVG.to_string(), logo::DEFAULT_SVG.to_vec()),
+            Ok(stored) => stored,
             Err(e) => return failed(e),
         },
     };
+    let (mime_type, data) = stored.map_or_else(
+        || {
+            (
+                Format::Svg.mime_type().to_string(),
+                logo::DEFAULT_SVG.to_vec(),
+            )
+        },
+        |stored| (stored.mime_type, stored.data),
+    );
     if let Ok(value) = HeaderValue::from_str(&mime_type) {
         headers.insert(CONTENT_TYPE, value);
     }

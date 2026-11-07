@@ -12,7 +12,12 @@ import { type User, userContext } from "../../contexts/user";
 import { adminPages, can } from "../../roles";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { clubPortalStyles } from "../../styles/club-portal";
-import { competitionName, formatDate, formatDateRange } from "../../utils";
+import {
+  competitionLogo,
+  competitionName,
+  formatDate,
+  formatDateRange,
+} from "../../utils";
 import { keyed } from "lit/directives/keyed.js";
 import "../elements/club/cup-club-portal.js";
 
@@ -267,7 +272,7 @@ export default class CupViewHome extends LitElement {
     // The first organizer page the user's roles open.
     const orgaPage = adminPages(this.user?.permissions ?? [])[0];
     return html`<header class="topbar">
-      <img src="/api/competition/logo" alt="" />
+      <img src=${competitionLogo()} alt="" />
       <span class="event">
         <strong>Anmeldung ${competitionName(competition)}</strong>
         ${

@@ -15,6 +15,7 @@ import {
   actParticipantsLabel,
   blockActs,
   blockOf,
+  competitionLogo,
   competitionName,
   formatDateRange,
   formatTime,
@@ -349,7 +350,7 @@ export default class CupViewStartlist extends LitElement {
 
   override render() {
     return html`<header>
-        <img src="/api/competition/logo" />
+        <img src=${competitionLogo()} />
         <h1>Startliste ${competitionName(this.systemStatus?.competition)}</h1>
         <span class="date"
           >${

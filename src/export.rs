@@ -21,7 +21,7 @@ use crate::{
         JuryCategoryConfig, TimeplanEntryConfig,
     },
     finals,
-    logo::{self, SvgLogo},
+    logo::{self, Format},
     seed::{OPEN_FROM_BIRTHDAY, OPEN_TO_BIRTHDAY},
     timeplan::EntryKind,
 };
@@ -75,13 +75,12 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     };
     let (logo_svg, logo_left_out) = match logo::load(&mut *conn).await? {
         None => (Branding::Keep, None),
-        Some(stored) => match std::str::from_utf8(&stored.data)
-            .ok()
-            .filter(|_| stored.mime_type == logo::SVG)
-            .and_then(|text| text.parse::<SvgLogo>().ok())
-        {
+        Some(stored) => match stored.svg() {
             Some(svg) => (Branding::Set(svg), None),
-            None => (Branding::Keep, Some(logo::format_name(&stored.mime_type))),
+            None => (
+                Branding::Keep,
+                Some(stored.format().map_or("raster", Format::name)),
+            ),
         },
     };
 
