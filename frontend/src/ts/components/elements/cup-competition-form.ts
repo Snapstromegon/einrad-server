@@ -4,6 +4,17 @@ import { customElement, state } from "lit/decorators.js";
 import { failureText, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
 import {
+  COLOR_ROLES,
+  type ColorRole,
+  type Colors,
+  colorWarning,
+  defaultColors,
+  endPreview,
+  normalizeColor,
+  previewColors,
+  reloadColors,
+} from "../../colors";
+import {
   referenceExample,
   toLocalInput,
   toOffsetTime,
@@ -11,6 +22,7 @@ import {
 import { SYSTEM_STATUS_CHANGED } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { darkColors, displayColors, lightColors } from "../../styles/theme";
 
 type Settings = schemas.CompetitionSettings;
 type Competition = schemas.Competition;
@@ -22,11 +34,30 @@ const featureValue = (on: boolean | null | undefined) =>
 const featureSetting = (value: string) =>
   value === "on" ? true : value === "off" ? false : null;
 
+const COLORS: Record<ColorRole, { name: string; hint: string }> = {
+  primary: {
+    name: "Primärfarbe",
+    hint: "Kopfzeilen, Schaltflächen, Links und die Anzeigen in der Halle.",
+  },
+  secondary: {
+    name: "Sekundärfarbe",
+    hint: "Akzente, z. B. die Schaltflächen zum Anmelden und Registrieren.",
+  },
+};
+
+/** The schemes the preview shows, each as a sample. */
+const SAMPLES = [
+  ["light", "Hell"],
+  ["dark", "Dunkel (Dark Mode)"],
+  ["display", "Anzeige (Info-Board)"],
+] as const;
+
 /**
  * "Wettkampf bearbeiten" (Admin, ADR 0005): the competition's settings,
  * also while the registration is open. Saving validates like the competition
  * file and applies right away. The id can't change, the determining day not
- * once categories exist.
+ * once categories exist. The colors (ADR 0009) show on the whole page while
+ * editing them, until they're saved or the page is left.
  */
 @customElement("cup-competition-form")
 export default class CupCompetitionForm extends LitElement {
@@ -34,6 +65,9 @@ export default class CupCompetitionForm extends LitElement {
     resetStyles,
     iconStyles,
     adminStyles,
+    lightColors(".sample.light"),
+    darkColors(".sample.dark"),
+    displayColors(".sample.display"),
     css`
       fieldset {
         margin: 0.75rem 0;
@@ -84,6 +118,91 @@ export default class CupCompetitionForm extends LitElement {
         color: var(--color-text-muted);
         background: var(--color-surface-2);
       }
+
+      .color-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+      }
+
+      .color-field small {
+        color: var(--color-text-muted);
+      }
+
+      .color-field small.warn {
+        color: var(--color-warning-strong);
+      }
+
+      .color {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+
+      .color input[type="color"] {
+        width: 2.5rem;
+        height: 1.75rem;
+        padding: 1px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: 4px;
+        background: var(--color-surface);
+        cursor: pointer;
+      }
+
+      .color input.inline {
+        width: 6rem;
+        font-family: ui-monospace, monospace;
+      }
+
+      .samples {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+      }
+
+      .sample {
+        overflow: hidden;
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        background: var(--color-surface);
+        color: var(--color-text);
+      }
+
+      .sample-head {
+        padding: 0.25rem 0.5rem;
+        background: var(--color-primary);
+        color: var(--color-on-primary);
+        font-weight: 650;
+      }
+
+      .sample-body {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.5rem;
+      }
+
+      .sample-link {
+        color: var(--color-primary-strong);
+        text-decoration: underline;
+      }
+
+      .sample-button {
+        padding: 2px 10px;
+        border-radius: 4px;
+      }
+
+      .sample-button.primary {
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
+      }
+
+      .sample-button.secondary {
+        background: var(--color-secondary-strong);
+        color: var(--color-on-secondary-strong);
+      }
     `,
   ];
 
@@ -96,16 +215,30 @@ export default class CupCompetitionForm extends LitElement {
   @state() private jury = false;
   /** The Verwendungszweck's prefix as typed, for its example. */
   @state() private referencePrefix = "";
+  /** The colors as edited; `null` is the default. */
+  @state() private colors: Colors = { primary: null, secondary: null };
+  /** The default colors built into the frontend. */
+  private defaults = defaultColors();
 
   private settings = new Task(this, {
     task: async () => {
       const settings = await unwrap(client.getCompetitionSettings());
       this.jury = !!settings.competition.jury;
       this.referencePrefix = settings.competition.payment_reference ?? "";
+      this.colors = {
+        primary: settings.competition.primary_color ?? null,
+        secondary: settings.competition.secondary_color ?? null,
+      };
       return settings;
     },
     args: () => [],
   });
+
+  override disconnectedCallback() {
+    super.disconnectedCallback?.();
+    // Left without saving: back to the saved colors.
+    endPreview();
+  }
 
   override render() {
     return this.settings.render({
@@ -463,6 +596,8 @@ export default class CupCompetitionForm extends LitElement {
           </div>
         </fieldset>
 
+        ${this.renderColors()}
+
         ${
           this.error
             ? html`<div class="error-banner" role="alert">${this.error}</div>`
@@ -480,6 +615,104 @@ export default class CupCompetitionForm extends LitElement {
           </button>
         </div>
       </form>`;
+  }
+
+  private renderColors() {
+    const fields = COLOR_ROLES.map((role) => this.renderColor(role));
+    const samples = SAMPLES.map(
+      ([scheme, name]) =>
+        html`<div class="sample ${scheme}">
+          <div class="sample-head">${name}</div>
+          <div class="sample-body">
+            <span class="sample-link">Startliste</span>
+            <span class="sample-button primary">Speichern</span>
+            <span class="sample-button secondary">Anmelden</span>
+            <span class="chip info">Hinweis</span>
+          </div>
+        </div>`,
+    );
+    return html`<fieldset>
+      <legend>Erscheinungsbild</legend>
+      <p class="muted">
+        Die Farben aller Seiten, z. B. passend zum Logo. Alle anderen Farben
+        leiten sich daraus ab, hell, dunkel und für die Anzeigen; Texte bleiben
+        lesbar. Die Seite zeigt sie gleich zur Probe, gespeichert werden sie mit
+        „Speichern“.
+      </p>
+      <div class="fields">${fields}</div>
+      <div class="samples" role="group" aria-label="Vorschau">${samples}</div>
+    </fieldset>`;
+  }
+
+  private renderColor(role: ColorRole) {
+    const { name, hint } = COLORS[role];
+    const color = this.colors[role];
+    const shown = color ?? this.defaults[role];
+    const warning = colorWarning(shown);
+    return html`<div class="color-field">
+      <span id="${role}-color">${name}</span>
+      <span class="color">
+        <input
+          type="color"
+          data-role=${role}
+          aria-labelledby="${role}-color"
+          .value=${shown}
+          @input=${this.pickColor}
+        />
+        <input
+          class="inline"
+          data-role=${role}
+          aria-label="${name} als Hex-Code"
+          pattern="[ ]*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})[ ]*"
+          title="Eine Farbe als #rgb oder #rrggbb"
+          required
+          spellcheck="false"
+          .value=${shown}
+          @change=${this.typeColor}
+        />
+        <button
+          type="button"
+          class="btn small"
+          data-role=${role}
+          ?disabled=${color === null}
+          @click=${this.resetColor}
+        >
+          Standard
+        </button>
+      </span>
+      <small
+        >${hint}${color === null ? " Zurzeit die Standardfarbe." : nothing}</small
+      >
+      ${warning ? html`<small class="warn">${warning}</small>` : nothing}
+    </div>`;
+  }
+
+  private pickColor(event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.setColor(input.dataset.role as ColorRole, input.value);
+  }
+
+  /** A typed color; the input's pattern explains one that isn't. */
+  private typeColor(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const color = normalizeColor(input.value);
+    if (color) {
+      this.setColor(input.dataset.role as ColorRole, color);
+    } else {
+      input.reportValidity();
+    }
+  }
+
+  private resetColor(event: Event) {
+    const button = event.currentTarget as HTMLButtonElement;
+    this.setColor(button.dataset.role as ColorRole, null);
+  }
+
+  /** Changes a color and shows it on the whole page, not yet saved. */
+  private setColor(role: ColorRole, color: string | null) {
+    this.colors = { ...this.colors, [role]: color };
+    this.saved = false;
+    previewColors(this.colors);
   }
 
   private edited() {
@@ -547,6 +780,8 @@ export default class CupCompetitionForm extends LitElement {
       features: {
         jury_registration: featureSetting(text("feature_jury_registration")),
       },
+      primary_color: this.colors.primary,
+      secondary_color: this.colors.secondary,
     };
     const source = text("photos_source");
     const photos = source
@@ -565,6 +800,9 @@ export default class CupCompetitionForm extends LitElement {
       );
       this.warnings = result.warnings;
       this.saved = true;
+      // The saved colors now come from the server.
+      await reloadColors();
+      endPreview();
       await this.settings.run();
       window.dispatchEvent(new Event(SYSTEM_STATUS_CHANGED));
     } catch (error) {

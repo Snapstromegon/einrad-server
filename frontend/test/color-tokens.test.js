@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "vite-plus/test";
 import {
+  darkColors,
   displayColors,
   lightColors,
   SCHEME_TOKENS,
@@ -247,6 +248,13 @@ const resolve = (name, tokens) => {
   assert.ok(value, `${name} is not defined`);
   if (value.startsWith("#")) return fromHex(value);
   if (varName(value)) return resolve(varName(value), tokens);
+  // var(--a, fallback): the fallback where --a is unset.
+  const withFallback = value.match(/^var\((--[\w-]+), (.*)\)$/);
+  if (withFallback) {
+    const [, other, fallback] = withFallback;
+    if (tokens.has(other)) return resolve(other, tokens);
+    return resolve(name, new Map([...tokens, [name, fallback]]));
+  }
   const relative = value.match(/^(oklch|color)\(from (.*)\)$/);
   assert.ok(relative, `${name}: can't compute ${value}`);
   const [origin, ...args] = splitArgs(relative[2]);
@@ -321,7 +329,36 @@ describe("color tokens", () => {
       "The @supports block in style.css should read:\n" +
         expected.map(([name, hex]) => `${name}: ${hex};`).join("\n"),
     );
-    assert.equal(fallback.size, derived.length);
+    // Besides the derived colors, it pins the base colors to the defaults.
+    assert.equal(fallback.size, derived.length + 2);
+  });
+
+  // The server's /api/competition/colors.css sets these (ADR 0009).
+  const competition = (primary, secondary) => [
+    ["--competition-primary-color", primary],
+    ["--competition-secondary-color", secondary],
+  ];
+  const base = (tokens) =>
+    ["primary", "secondary"].map((role) => toHex(resolve(token(role), tokens)));
+
+  test("a competition's colors are the base colors, defaults without them", () => {
+    assert.deepEqual(base(root), [
+      root.get("--color-default-primary"),
+      root.get("--color-default-secondary"),
+    ]);
+    assert.deepEqual(
+      base(new Map([...root, ...competition("#cc0055", "#1a6b3c")])),
+      ["#cc0055", "#1a6b3c"],
+    );
+  });
+
+  test("old browsers keep the default colors, which their fixed values fit", () => {
+    const old = new Map([
+      ...root,
+      ...competition("#cc0055", "#1a6b3c"),
+      ...fallback,
+    ]);
+    assert.deepEqual(base(old), base(root));
   });
 
   test("the page is light, dark mode switches to the dark scheme", () => {
@@ -335,6 +372,10 @@ describe("color tokens", () => {
       assert.ok(root.has(`--color-dark-${name}`), name);
     }
     assert.equal(dark.size, SCHEME_TOKENS.length);
+  });
+
+  test("a part of a page can be dark like dark mode", () => {
+    assert.deepEqual(fragment(darkColors), dark);
   });
 
   const roles = ["primary", "secondary", "ok", "warning", "error"];
@@ -364,7 +405,10 @@ describe("color tokens", () => {
   };
   // Base colors (primary, secondary) a competition might set.
   const palettes = {
-    default: [root.get(token("primary")), root.get(token("secondary"))],
+    default: [
+      root.get("--color-default-primary"),
+      root.get("--color-default-secondary"),
+    ],
     "very light": ["#ffe14d", "#a8e6ff"],
     "very dark": ["#1a0b2e", "#3d0c0c"],
     white: ["#ffffff", "#ffffff"],
@@ -380,8 +424,7 @@ describe("color tokens", () => {
         const tokens = new Map([
           ...root,
           ...aliases,
-          [token("primary"), primary],
-          [token("secondary"), secondary],
+          ...competition(primary, secondary),
         ]);
         const low = pairs
           .map(([fg, bg]) => [

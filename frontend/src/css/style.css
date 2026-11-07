@@ -14,6 +14,12 @@
  * --color-secondary re-themes every page. The status colors (ok, warning,
  * error) keep their hues whatever the brand colors are.
  *
+ * A competition's own primary and secondary color (ADR 0009) come from the
+ * server's /api/competition/colors.css as --competition-primary-color and
+ * --competition-secondary-color; without them, the defaults apply. Not as
+ * --color-primary itself: the build puts this file after that one, and this
+ * :root rule would win.
+ *
  * Variants of a color X:
  * - --color-X: the base color itself, for full-strength borders and marks.
  * - --color-X-strong: X as text, icons and filled buttons. It has 4.5:1
@@ -41,8 +47,16 @@
   color-scheme: light;
 
   /* Base colors. */
-  --color-primary: #002d56;
-  --color-secondary: #009036;
+  --color-default-primary: #002d56;
+  --color-default-secondary: #009036;
+  --color-primary: var(
+    --competition-primary-color,
+    var(--color-default-primary)
+  );
+  --color-secondary: var(
+    --competition-secondary-color,
+    var(--color-default-secondary)
+  );
   --color-ok: #009036;
   --color-warning: #b26a00;
   --color-error: #e2001a;
@@ -375,8 +389,8 @@
 /*
  * Browsers without relative colors as used above (before Chrome 119, Safari
  * 18 and Firefox 128; Safari 16.4-17 have an earlier draft) get the default
- * palette as fixed values, light and dark; colors set by a competition don't
- * reach the derived tokens there. test/color-tokens.test.js computes the
+ * palette as fixed values, light and dark, and the default base colors: a
+ * competition's own colors don't reach them. test/color-tokens.test.js computes the
  * formulas for the default colors and fails, listing the right values, when
  * these differ.
  */
@@ -385,6 +399,9 @@
     (color: color(from red xyz-d65 calc(x * min(1, 0.15 / y)) y z))
 ) {
   :root {
+    /* The fixed values fit only the default colors. */
+    --color-primary: var(--color-default-primary);
+    --color-secondary: var(--color-default-secondary);
     --color-on-primary: #ffffff;
     --color-on-primary-muted: #b9bcc1;
     --color-on-primary-border: #ffffff54;

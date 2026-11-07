@@ -98,9 +98,9 @@ export default class CupViewAdminCompetition extends LitElement {
                   Der Wettkampf als Wettkampfdatei, ohne die Daten der Vereine:
                   Einstellungen, Kategorien, Finals, Zeitplan und
                   Jury-Kategorien. Der Import nimmt sie unverändert, z. B. für
-                  eine Testinstanz. Ein SVG-Logo ist dabei, ein anderes Logo
-                  nicht. Sie enthält das Foto-Passwort: nur über
-                  vertrauenswürdige Wege weitergeben.
+                  eine Testinstanz. Ein SVG-Logo und eigene Farben sind dabei,
+                  ein anderes Logo nicht. Sie enthält das Foto-Passwort: nur
+                  über vertrauenswürdige Wege weitergeben.
                 </p>
                 <div class="toolbar">
                   <a class="btn" href="/api/query/export_competition" download
@@ -122,8 +122,9 @@ export default class CupViewAdminCompetition extends LitElement {
             competition
               ? html`Sie ersetzt die Einstellungen, Kategorien, Finals, den
                 Zeitplan und die Jury-Kategorien. Die Daten der Vereine
-                bleiben, die ID des Wettkampfs auch. Das Logo bleibt, außer
-                die Datei setzt es mit <code>logo_svg</code>.`
+                bleiben, die ID des Wettkampfs auch. Logo und Farben bleiben,
+                außer die Datei setzt sie (<code>logo_svg</code>,
+                <code>primary_color</code>, <code>secondary_color</code>).`
               : html`Sie legt den Wettkampf an.`
           }
         </p>

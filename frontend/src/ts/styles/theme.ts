@@ -77,3 +77,10 @@ export const displayColors = (selector: string): CSSResult =>
  */
 export const lightColors = (selector: string): CSSResult =>
   scheme(selector, "light", () => "light");
+
+/**
+ * The dark scheme of dark mode, whatever the device prefers, e.g. for the
+ * preview of a competition's colors.
+ */
+export const darkColors = (selector: string): CSSResult =>
+  scheme(selector, "dark", () => "dark");
