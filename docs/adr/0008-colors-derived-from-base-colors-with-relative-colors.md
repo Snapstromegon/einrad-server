@@ -12,6 +12,6 @@ There are three schemes, and components see only the unprefixed tokens: light (`
 
 ## Consequences
 
-- Browsers without relative colors get the default palette as fixed values (light and dark) from an `@supports not (…)` block. Its probe uses a channel in `calc()` and the `xyz-d65` space, so Safari 16.4–17, which implement an earlier draft, get the fixed values too. There, competition colors reach only the base tokens, not the derived ones.
+- Browsers without relative colors get the default palette as fixed values (light and dark) from an `@supports not (…)` block. Its probe uses a channel in `calc()` and the `xyz-d65` space, so Safari 16.4–17, which implement an earlier draft, get the fixed values too. There, the base colors stay the defaults as well, so a competition's own colors don't reach them (ADR 0009).
 - `frontend/test/color-tokens.test.js` computes the formulas itself. It fails when the fixed values differ from the formulas for the default colors (and lists the right ones), and it checks the contrast of the pairs components use, in every scheme, for several base colors from very light to very dark.
 - The default look shifts slightly where a color had less than 4.5:1: the green of filled buttons and status text is darker (`#007e2e` instead of `#009036`), and so are amber texts.
