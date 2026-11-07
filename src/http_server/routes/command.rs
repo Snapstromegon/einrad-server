@@ -39,6 +39,7 @@ mod move_category_down;
 mod move_category_up;
 mod move_timeplan_down;
 mod move_timeplan_up;
+mod preview_club_mail;
 mod preview_competition_import;
 mod register;
 mod reload_db;
@@ -52,6 +53,7 @@ mod resend_mail_validation;
 mod reset_block_order;
 mod reset_password;
 mod save_act_song;
+mod send_club_mail;
 mod set_act_music_started;
 mod set_act_order;
 mod set_act_withdrawn;
@@ -156,5 +158,7 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(assign_judge::assign_judge))
         .routes(routes!(set_jury_plan_published::set_jury_plan_published))
         .routes(routes!(unassign_judge::unassign_judge))
+        .routes(routes!(send_club_mail::send_club_mail))
+        .routes(routes!(preview_club_mail::preview_club_mail))
         .layer(DefaultBodyLimit::max(save_act_song::MAX_REQUEST_SIZE))
 }

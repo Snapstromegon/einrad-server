@@ -77,6 +77,7 @@ async fn whoami_lists_roles_and_their_permissions() {
         strings(&response.body["permissions"]),
         [
             "check_songs",
+            "mail_clubs",
             "manage_payments",
             "view_club_balances",
             "view_club_contacts",

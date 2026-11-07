@@ -3,6 +3,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 mod export_competition;
 mod get_act;
 mod get_club;
+mod get_club_mail_options;
 mod get_competition_settings;
 mod get_photos;
 mod get_playback;
@@ -16,6 +17,7 @@ mod list_check_ins;
 mod list_club_acts;
 mod list_club_groups;
 mod list_club_judges;
+mod list_club_mails;
 mod list_club_pair_requests;
 mod list_club_riders;
 mod list_clubs;
@@ -65,4 +67,6 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_club_judges::list_club_judges))
         .routes(routes!(list_judges::list_judges))
         .routes(routes!(list_jury_plan::list_jury_plan))
+        .routes(routes!(list_club_mails::list_club_mails))
+        .routes(routes!(get_club_mail_options::get_club_mail_options))
 }

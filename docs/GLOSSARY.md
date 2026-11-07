@@ -81,6 +81,10 @@ _Avoid_: Contact, Verantwortlicher (without "Vereins-")
 **Club code** (Vereinscode):
 A short code identifying the club in bank transfer references, unchanged when the club is renamed.
 
+**Club mail** (Rundmail):
+A mail the organizer team writes once and sends to selected clubs, each club getting its own copy with its own data, addressed to its club contact and club representative.
+_Avoid_: Newsletter, Massenmail, Serienbrief
+
 **Rider** (FahrerIn):
 A person of a club who rides in acts.
 _Avoid_: Starter, StarterIn, TeilnehmerIn, athlete
@@ -231,6 +235,9 @@ A booking that has nothing to do with the event, e.g. account fees; it counts fo
 **Paid** (Gezahlt):
 The sum of a club's payments.
 
+**Open amount** (Offen):
+What a club still has to pay: its amount due less what it paid; negative when it overpaid.
+
 **Fee waiver** (Gebühr erlassen):
 The organizer dropping fees, always in full and with a waiver reason: for a club all its fees (start fees and jury fee), for a rider all their start fees, for an act its start for every rider. It lowers the amount due; it is never a booking.
 _Avoid_: Rabatt, discount, Gutschrift (for a waiver)
@@ -294,6 +301,7 @@ An award for each rider of the first three places of a final, and for each group
 
 - A member of the **Organizer team** holds one or more **Roles**; the same user can also be a **Club contact**, and neither widens the other.
 - A **Club** has **Riders**, registers **Acts** and **Judges**, and owes an **Amount due**.
+- A **Club mail** gives each selected **Club** its own mail, to its **Club contact** and **Club representative**; addresses the organizer types in get one each, with the data of the club they're assigned to.
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
 - A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
 - An **Act** belongs to one **Category** once it is complete and not withdrawn; a **Category** belongs to one **Heat**.

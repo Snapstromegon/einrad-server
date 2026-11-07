@@ -64,6 +64,7 @@ const PAGES: Record<string, readonly (readonly Permission[])[]> = {
   "/admin-awards": [["control_music"]],
   "/admin-medals": [["view_medals"]],
   "/admin-judges": [["manage_jury"]],
+  "/admin-mails": [["mail_clubs"]],
   "/admin-moderation": [["view_moderation"]],
   "/player": [["control_music"]],
 };

@@ -40,6 +40,7 @@ const adminLinks: NavLink[] = [
   { href: "/admin-awards", label: "Siegerehrung" },
   { href: "/admin-medals", label: "Medaillen" },
   { href: "/admin-judges", label: "Jury", jury: true },
+  { href: "/admin-mails", label: "Rundmail" },
 ];
 
 /** Display screens, opened in a new tab. */

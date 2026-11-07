@@ -128,6 +128,8 @@ permissions! {
     ViewInternalEntries,
     /// Mark songs as checked.
     CheckSongs,
+    /// Send club mails (Rundmail) and read the ones sent.
+    MailClubs,
 }
 
 impl Role {
@@ -146,6 +148,7 @@ impl Role {
                 P::ViewMedals,
                 P::ViewModeration,
                 P::ViewInternalEntries,
+                P::MailClubs,
             ],
             Role::Treasurer => &[
                 P::ManagePayments,
@@ -153,6 +156,7 @@ impl Role {
                 P::ViewClubBalances,
                 P::ViewClubContacts,
                 P::ViewRiders,
+                P::MailClubs,
             ],
             // Birthdates for the ID and age check at the desk.
             Role::CheckIn => &[
@@ -235,6 +239,7 @@ mod tests {
                     P::ViewMedals,
                     P::ViewModeration,
                     P::ViewInternalEntries,
+                    P::MailClubs,
                 ],
             ),
             (
@@ -245,6 +250,7 @@ mod tests {
                     P::ViewClubBalances,
                     P::ViewClubContacts,
                     P::ViewRiders,
+                    P::MailClubs,
                 ],
             ),
             (
@@ -303,6 +309,26 @@ mod tests {
                     "{role:?} {permission:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn admins_the_jury_lead_and_the_treasurer_mail_clubs() {
+        let roles = [
+            (Role::Admin, true),
+            (Role::JuryLead, true),
+            (Role::Treasurer, true),
+            (Role::CheckIn, false),
+            (Role::MusicControl, false),
+            (Role::Moderation, false),
+            (Role::MusicCheck, false),
+        ];
+        for (role, mails) in roles {
+            assert_eq!(
+                role.permissions().contains(&P::MailClubs),
+                mails,
+                "{role:?}"
+            );
         }
     }
 
