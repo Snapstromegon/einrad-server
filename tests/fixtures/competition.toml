@@ -35,6 +35,7 @@ day = 2027-06-06
 
 [[jury_categories]]
 name = "Kleingruppe Expert"
+deployments = 1
 needed_technical = 3
 needed_performance = 3
 needed_dismounts = 2

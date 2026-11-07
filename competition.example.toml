@@ -809,16 +809,20 @@ day = 2027-06-05
 
 [[jury_categories]]
 name = "Kleingruppe Junior Expert"
+deployments = 1
 day = 2027-06-05
 
 [[jury_categories]]
 name = "Kleingruppe Expert"
+deployments = 1
 day = 2027-06-05
 
 [[jury_categories]]
 name = "Großgruppe Junior Expert"
+deployments = 1
 day = 2027-06-05
 
 [[jury_categories]]
 name = "Großgruppe Expert"
+deployments = 1
 day = 2027-06-05

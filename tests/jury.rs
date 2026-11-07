@@ -156,7 +156,7 @@ async fn jury_categories_are_seeded_from_the_config_in_order() {
         vec![
             json!(["Einzel W – Junior Expert Vorlauf", 2, null, 5, 5, 3]),
             json!(["Finale 1 EW", 1, "2027-06-06", 5, 5, 3]),
-            json!(["Kleingruppe Expert", 2, null, 3, 3, 2]),
+            json!(["Kleingruppe Expert", 1, null, 3, 3, 2]),
         ]
     );
 
@@ -714,8 +714,8 @@ async fn clubs_owe_a_fee_for_missing_einsaetze() {
         per_judge,
         vec![
             json!(["Anna", 3, 3]),
-            json!(["Berta", 4, 2]),
-            json!(["Carla", 2, 0])
+            json!(["Berta", 3, 2]),
+            json!(["Carla", 1, 0])
         ]
     );
 }

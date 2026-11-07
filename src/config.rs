@@ -580,7 +580,8 @@ pub struct FinalConfig {
 #[serde(deny_unknown_fields)]
 pub struct JuryCategoryConfig {
     pub name: String,
-    /// Jury deployments (Einsätze) it counts for; a heat counts 2, a final 1.
+    /// Jury deployments (Einsätze) it counts for; a heat counts 2, a final
+    /// or group 1.
     #[serde(default = "default_category_deployments")]
     pub deployments: i64,
     /// The day it runs; within the event.
