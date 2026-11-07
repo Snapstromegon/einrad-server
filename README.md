@@ -253,7 +253,7 @@ There are three setups:
 - **Dev:** `make run` on your machine.
 - **Preview:** the central 2027 instance on `einrad-server`, an Ubuntu VM,
   behind <https://einrad-server.home.hoeser.dev/> on the `caddy` VM, deployed
-  from every push to `2027` (see [The central 2027 instance](#the-central-2027-instance)).
+  from every push to `main` (see [The central 2027 instance](#the-central-2027-instance)).
   The inventory group and the playbook are still called `preview`.
 - **Production:** Uberspace (`uberspace`).
 
@@ -335,7 +335,7 @@ on Uberspace).
 ### The central 2027 instance
 
 [`deploy-2027.yml`](.github/workflows/deploy-2027.yml) deploys every push to
-`2027` to <https://einrad-server.home.hoeser.dev/>:
+`main` to <https://einrad-server.home.hoeser.dev/>:
 
 1. **Build and test** in parallel: [`build.yml`](.github/workflows/build.yml)
    (the static musl release with `seed_demo`) and
@@ -359,7 +359,7 @@ on Uberspace).
 Deploys run one after another (concurrency `deploy-2027`) and are never
 cancelled halfway. GitHub keeps only one waiting deploy, so a newer run
 replaces a waiting one, also a manual one with `reseed` (start it again). A
-run whose commit is no longer the newest of `2027` skips release and deploy,
+run whose commit is no longer the newest of `main` skips release and deploy,
 as the newer commit's run does both.
 
 The instance keeps its database and `config.toml` (with real SMTP: it sends
@@ -370,13 +370,10 @@ it still has competition sections, which the server would refuse. Without a
 database, the server creates an empty one on start (setup mode, see above). A
 new binary backs up the database and then migrates it on start.
 
-**Reseed:** Actions → Deploy 2027 → Run workflow, branch `2027`, with
+**Reseed:** Actions → Deploy 2027 → Run workflow, branch `main`, with
 `reseed` checked, backs up the database and recreates it with the demo data
-(`-e preview_seed_demo=true`). GitHub only offers Run workflow for workflows
-on the default branch (`main`), so this needs `deploy-2027.yml` on `main`
-too: copy it there unchanged. Started on `main` (or any branch but `2027`),
-it fails before building; with `2027` picked, GitHub runs the version from
-`2027`.
+(`-e preview_seed_demo=true`). Select `main` when starting the workflow;
+started on any other branch, it fails before building.
 
 **Moving the instance to `deploy`, once.** The instance used to run as your
 own user from an old checkout (the unit `einrad-server` on port 3000, with
@@ -419,7 +416,7 @@ sudo install -o deploy -g deploy -m 0600 "$old/db.sqlite" ~deploy/einrad-server/
 sudo chown -R deploy:deploy ~deploy/einrad-server
 ```
 
-Then re-run the failed Deploy 2027 run (or push to `2027`): it replaces the
+Then re-run the failed Deploy 2027 run (or push to `main`): it replaces the
 old unit (same name and port) and starts the instance as `deploy`. The old
 checkout with its database and binary stays as it is; once the new instance
 runs, delete it.
@@ -489,7 +486,7 @@ keeps the mails. Port, domain and limit are in
 
 ### PR previews
 
-Every non-draft PR into `2027` from a branch of this repository gets its own
+Every non-draft PR into `main` from a branch of this repository gets its own
 preview at
 `https://pr-<n>.einrad-server.home.hoeser.dev/`, with fresh demo data on
 every push. [`preview.yml`](.github/workflows/preview.yml) builds the PR with
@@ -585,11 +582,11 @@ doesn't exist is no error, so a second run changes nothing.
 
 [`preview-teardown.yml`](.github/workflows/preview-teardown.yml) runs
 [`deploy/preview-prune.yml`](deploy/preview-prune.yml) through the jumphost,
-always from a checkout of `2027` (a closed PR's branch may be gone), and
+always from a checkout of `main` (a closed PR's branch may be gone), and
 marks the deployments `preview-pr-<n>` of the removed previews inactive with
 [`.github/scripts/preview-deployments.sh`](.github/scripts/preview-deployments.sh):
 
-- **Teardown:** closing a PR into `2027` (merged or not, draft or not)
+- **Teardown:** closing a PR into `main` (merged or not, draft or not)
   removes its preview (`-e '{"pr": 12}'`). It shares the concurrency group
   `preview-pr-<n>` with [`preview.yml`](.github/workflows/preview.yml), so it
   cancels a running deploy of the PR; reopening the PR cancels the teardown
@@ -597,7 +594,7 @@ marks the deployments `preview-pr-<n>` of the removed previews inactive with
   secrets); the reconcile removes what they leave.
 - **Reconcile:** every night at 03:17 UTC and by hand (Actions → PR preview
   teardown → Run workflow), it removes every preview but those of the open
-  PRs into `2027` that should have one: from a branch of this repository,
+  PRs into `main` that should have one: from a branch of this repository,
   not a draft or labelled `preview` (dependabot's included, as the list only
   keeps previews). Leftovers of a skipped or failed teardown and previews of
   PRs turned back into drafts go. It also marks every deployment of a
@@ -620,9 +617,8 @@ marks the deployments `preview-pr-<n>` of the removed previews inactive with
   `gh api -X DELETE repos/Snapstromegon/einrad-server/environments/preview-pr-12`.
 - **Default branch:** GitHub runs scheduled workflows and offers Run
   workflow only for workflow files on the default branch (`main`), so the
-  reconcile needs `preview-teardown.yml` on `main` too: copy it there
-  unchanged (the teardown runs from the PR's own copy). It checks out
-  `2027` itself, so it prunes with `2027`'s `deploy/` from either branch.
+  reconcile needs `preview-teardown.yml` on `main`. It checks out `main`
+  itself, so it prunes with `main`'s `deploy/` from either branch.
 
 ### The deploy user
 

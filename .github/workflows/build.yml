@@ -28,7 +28,7 @@ jobs:
         targets: x86_64-unknown-linux-musl
 
     # GitHub scopes caches by branch: a branch reads its own and a PR also
-    # those of its base branch (2027), so a new PR starts warm.
+    # those of its base branch (main), so a new PR starts warm.
     - name: Cache cargo registry + target
       uses: Swatinem/rust-cache@v2
       with:

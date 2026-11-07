@@ -1,14 +1,14 @@
 name: Deploy 2027
 
-# Every push to 2027 builds and tests it; only if both pass, it moves the
+# Every push to main builds and tests it; only if both pass, it moves the
 # latest-2027 prerelease to the commit and deploys the central 2027 instance
 # (deploy/preview.yml, https://einrad-server.home.hoeser.dev/) with the build,
 # keeping its database and config. A manual run with reseed recreates the
 # demo data. Manual runs need this file on the default branch (see the
-# README), and only deploy 2027.
+# README), and only deploy main.
 on:
   push:
-    branches: [ "2027" ]
+    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       reseed:
@@ -29,9 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check the branch
-      if: github.ref != 'refs/heads/2027'
+      if: github.ref != 'refs/heads/main'
       run: |
-        echo "::error::Deploy 2027 only deploys the branch 2027, not $GITHUB_REF_NAME."
+        echo "::error::Deploy 2027 only deploys the branch main, not $GITHUB_REF_NAME."
         exit 1
 
   build:
@@ -66,14 +66,14 @@ jobs:
 
     # The queue may run an older commit after a newer one (e.g. when its
     # build took longer); the newer one releases and deploys itself.
-    - name: Check that this is the newest commit of 2027
+    - name: Check that this is the newest commit of main
       id: newest
       run: |
-        head=$(git ls-remote origin refs/heads/2027 | cut -f1)
+        head=$(git ls-remote origin refs/heads/main | cut -f1)
         if [ "$head" = "$GITHUB_SHA" ]; then
           echo "newest=true" >> "$GITHUB_OUTPUT"
         else
-          echo "::notice::2027 is at $head now, which deploys itself: skipping $GITHUB_SHA."
+          echo "::notice::main is at $head now, which deploys itself: skipping $GITHUB_SHA."
           echo "newest=false" >> "$GITHUB_OUTPUT"
         fi
 
@@ -114,7 +114,7 @@ jobs:
         mkdir release
         cp dist/einrad-server release/einrad-server-linux
         cp dist/seed_demo release/seed_demo-linux
-        notes="The 2027 branch at $GITHUB_SHA, built by run $GITHUB_RUN_ID. It moves with every push to 2027."
+        notes="The main branch at $GITHUB_SHA, built by run $GITHUB_RUN_ID. It moves with every push to main."
         if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --silent 2> /dev/null; then
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" --silent \
             -f "sha=$GITHUB_SHA" -F force=true

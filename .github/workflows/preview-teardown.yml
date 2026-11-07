@@ -1,20 +1,20 @@
 name: PR preview teardown
 
 # Removes the PR previews of preview.yml with deploy/preview-prune.yml from
-# 2027 (a closed PR's branch may be gone) and marks their GitHub deployments
+# main (a closed PR's branch may be gone) and marks their GitHub deployments
 # preview-pr-<n> inactive:
-# - teardown: when a PR into 2027 closes (merged or not, draft or not), its
+# - teardown: when a PR into main closes (merged or not, draft or not), its
 #   preview. Skipped for forks and for events dependabot triggers, which get
 #   no secrets; the nightly run removes what they leave.
 # - reconcile: nightly and by hand, every preview but those of the open PRs
 #   that should have one (see .github/scripts/preview-deployments.sh).
 #
 # Scheduled runs and Run workflow need this file on the default branch (see
-# the README): copy it to main unchanged. Both always prune with 2027's
-# deploy/, whichever branch the run started on.
+# the README): keep it on main. Both always prune with main's deploy/,
+# whichever branch the run started on.
 on:
   pull_request:
-    branches: [ '2027' ]
+    branches: [ main ]
     types: [ closed ]
   schedule:
   - cron: '17 3 * * *'
@@ -53,8 +53,8 @@ jobs:
       deployments: write
 
     steps:
-    # 2027, not the PR's merge commit, which may be gone: removing goes by
-    # 2027's deploy/ and scripts, also for a PR that changed them.
+    # main, not the PR's merge commit, which may be gone: removing goes by
+    # main's deploy/ and scripts, also for a PR that changed them.
     - name: Checkout code
       uses: actions/checkout@v4
       with:
@@ -104,7 +104,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        ref: '2027'
+        ref: 'main'
         persist-credentials: false
 
     - name: Install Ansible

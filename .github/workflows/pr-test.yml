@@ -1,9 +1,9 @@
 name: PR Test
 
-# Also called by the 2027 pipeline, whose deploy waits for it.
+# Also called by the 2027 deploy pipeline, whose deploy waits for it.
 on:
   pull_request:
-    branches: [ main, '2027' ]
+    branches: [ main ]
   workflow_call:
 
 jobs:

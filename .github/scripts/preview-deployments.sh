@@ -2,7 +2,7 @@
 # The GitHub side of the PR previews, for preview-teardown.yml:
 #
 #   .github/scripts/preview-deployments.sh open-previews
-#     Prints the open PRs into 2027 that should have a preview as a JSON list,
+#     Prints the open PRs into main that should have a preview as a JSON list,
 #     e.g. [12,14]: from a branch of this repository, not a draft or labelled
 #     `preview`. Also dependabot's: the list only keeps previews, and one of
 #     its PRs has a preview only if a person triggered one.
@@ -21,7 +21,7 @@
 # status' log.
 set -euo pipefail
 
-BASE=2027
+BASE=main
 
 usage() {
   cat >&2 <<USAGE

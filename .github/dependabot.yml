@@ -9,7 +9,6 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
-    target-branch: "2027"
   - package-ecosystem: "npm" # See documentation for possible values
     directory: "/frontend" # Location of package manifests
     schedule:
@@ -19,4 +18,3 @@ updates:
     directory: "/deploy/mailpit"
     schedule:
       interval: "weekly"
-    target-branch: "2027"

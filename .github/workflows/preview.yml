@@ -1,6 +1,6 @@
 name: PR preview
 
-# Builds a PR into 2027 and deploys it to https://pr-<n>.einrad-server.home.hoeser.dev/
+# Builds a PR into main and deploys it to https://pr-<n>.einrad-server.home.hoeser.dev/
 # with deploy/preview-pr.yml from the PR's own checkout, without waiting for
 # the tests. The PR shows it as the GitHub deployment preview-pr-<n>.
 #
@@ -11,7 +11,7 @@ name: PR preview
 # - adding any other label, which changes nothing.
 on:
   pull_request:
-    branches: [ '2027' ]
+    branches: [ main ]
     types: [ opened, synchronize, reopened, ready_for_review, labeled ]
 
 # A new push cancels the running deploy of the PR. A run that skips (e.g.
