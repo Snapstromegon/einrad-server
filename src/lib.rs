@@ -1,5 +1,6 @@
 pub mod act_type;
 pub mod bookings;
+pub mod colors;
 pub mod competition;
 pub mod config;
 pub mod demo;
@@ -12,6 +13,7 @@ pub mod groups;
 pub mod http_server;
 pub mod jury;
 pub mod jwt;
+pub mod logo;
 pub mod mailer;
 pub mod metrics;
 pub mod normalize;

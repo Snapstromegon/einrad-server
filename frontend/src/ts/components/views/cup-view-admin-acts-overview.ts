@@ -106,8 +106,8 @@ export default class CupViewAdminActsOverview extends LitElement {
         z-index: 10;
         margin: -0.5rem -0.75rem 0;
         padding: 0.25rem 0.75rem 0;
-        background: var(--cup-surface);
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.1);
+        background: var(--color-surface);
+        box-shadow: 0 0.125rem 0.25rem var(--color-shadow);
       }
 
       /* Table headers stick below the shell's bar and the own header. */
@@ -145,8 +145,8 @@ export default class CupViewAdminActsOverview extends LitElement {
       }
 
       details.block.warn > summary {
-        background: var(--tone-warn-bg);
-        color: var(--tone-warn-fg);
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
       }
 
       .toolbar input[type="search"].inline {
@@ -183,7 +183,7 @@ export default class CupViewAdminActsOverview extends LitElement {
       }
 
       .cat-toggle:focus-visible {
-        outline: 2px solid var(--cup-blue-2);
+        outline: 2px solid var(--color-focus);
         outline-offset: 1px;
       }
 
@@ -283,18 +283,18 @@ export default class CupViewAdminActsOverview extends LitElement {
 
       .table-wrap.categories {
         margin: 0.375rem 0;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 4px;
       }
 
       .icon-btn.playing,
       .icon-btn.active {
-        color: var(--cup-blue);
-        background: var(--tone-info-bg);
+        color: var(--color-primary-strong);
+        background: var(--color-primary-soft);
       }
 
       .reason {
-        color: var(--tone-warn-fg);
+        color: var(--color-warning-strong);
       }
     `,
   ];

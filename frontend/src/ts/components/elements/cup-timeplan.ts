@@ -6,6 +6,7 @@ import { PollController, unwrap } from "../../api";
 import { client } from "../../apiClient";
 import type { schemas } from "../../apiClient";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { displayColors } from "../../styles/theme";
 import {
   type ActsEntry,
   actClubNames,
@@ -72,6 +73,8 @@ export default class CupTimeplan extends LitElement {
   static override styles = [
     resetStyles,
     iconStyles,
+    // The public look is the displays' dark one.
+    displayColors("#wrapper:not(.dense)"),
     css`
       #wrapper {
         display: flex;
@@ -79,21 +82,29 @@ export default class CupTimeplan extends LitElement {
         max-height: 100%;
         position: relative;
         overflow: inherit;
-        background: #002d56;
+        background: var(--color-surface);
 
         & > section {
-          background: #002d56;
-          color: #fff;
+          background: var(--color-surface);
+          color: var(--color-text);
           padding: 1rem;
           &.category-header {
             position: sticky;
             top: 0;
-            background: linear-gradient(to right, #002242 66%, #00224200);
+            background: linear-gradient(
+              to right,
+              var(--color-surface-2) 66%,
+              transparent
+            );
           }
         }
 
         .event {
-          background: linear-gradient(to right, #400 66%, #fff0);
+          background: linear-gradient(
+            to right,
+            var(--color-error-soft) 66%,
+            transparent
+          );
         }
 
         /* Breaks inside a block, e.g. an extra warm-up. */
@@ -101,7 +112,11 @@ export default class CupTimeplan extends LitElement {
           font-style: italic;
 
           &.running {
-            background: linear-gradient(to right, #00509a 66%, #00509a00);
+            background: linear-gradient(
+              to right,
+              var(--color-highlight) 66%,
+              transparent
+            );
           }
 
           &.ended {
@@ -123,15 +138,15 @@ export default class CupTimeplan extends LitElement {
       .day {
         margin: 0;
         padding: 0.5rem 1rem;
-        background: #fff;
-        color: #002d56;
+        background: var(--color-text);
+        color: var(--color-surface);
         font-size: 1.25rem;
       }
 
       .dense > .day {
         padding: 2px 6px;
         font-size: 0.8rem;
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
         color: inherit;
       }
 
@@ -146,13 +161,12 @@ export default class CupTimeplan extends LitElement {
         line-height: 1;
       }
 
-      /* Admin pages: the darker status green, readable as text. */
       .ci.yes {
-        color: var(--ci-yes-color, var(--tone-ok-fg, var(--cup-green)));
+        color: var(--color-ok-strong);
       }
 
       .ci.no {
-        color: var(--ci-no-color, var(--cup-muted));
+        color: var(--color-text-muted);
       }
 
       .ci.yes::before {
@@ -163,21 +177,15 @@ export default class CupTimeplan extends LitElement {
         content: "○";
       }
 
-      /* Dark display look: brighter markers. */
-      #wrapper:not(.dense) {
-        --ci-yes-color: #6fdc8c;
-        --ci-no-color: rgb(255 255 255 / 60%);
-      }
-
       .chip {
         display: inline-flex;
         align-items: center;
         gap: 0.2em;
         padding: 0 0.45em;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 999px;
-        background: var(--cup-surface-2);
-        color: var(--cup-text);
+        background: var(--color-surface-2);
+        color: var(--color-text);
         font-size: 11px;
         font-weight: 600;
         line-height: 16px;
@@ -187,21 +195,21 @@ export default class CupTimeplan extends LitElement {
       }
 
       .chip.ok {
-        background: color-mix(in srgb, var(--cup-green) 12%, var(--cup-surface));
-        color: color-mix(in srgb, var(--cup-green) 70%, black);
-        border-color: color-mix(in srgb, var(--cup-green) 35%, var(--cup-surface));
+        background: var(--color-ok-soft);
+        color: var(--color-ok-strong);
+        border-color: var(--color-ok-border);
       }
 
       .chip.warn {
-        background: color-mix(in srgb, var(--cup-amber) 14%, var(--cup-surface));
-        color: color-mix(in srgb, var(--cup-amber) 78%, black);
-        border-color: color-mix(in srgb, var(--cup-amber) 40%, var(--cup-surface));
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
+        border-color: var(--color-warning-border);
       }
 
       .chip.bad {
-        background: color-mix(in srgb, var(--cup-red) 10%, var(--cup-surface));
-        color: color-mix(in srgb, var(--cup-red) 80%, black);
-        border-color: color-mix(in srgb, var(--cup-red) 35%, var(--cup-surface));
+        background: var(--color-error-soft);
+        color: var(--color-error-strong);
+        border-color: var(--color-error-border);
       }
 
       .chip .material-icon {
@@ -218,22 +226,22 @@ export default class CupTimeplan extends LitElement {
       }
 
       .song.ok {
-        color: var(--cup-green);
+        color: var(--color-ok-strong);
       }
 
       .song.warn {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       .song.bad {
-        color: var(--cup-red);
+        color: var(--color-error-strong);
       }
 
       /* ---------- Dense admin list ---------- */
 
       #wrapper.dense {
-        background: var(--cup-surface);
-        color: var(--cup-text);
+        background: var(--color-surface);
+        color: var(--color-text);
         font-size: 13px;
         line-height: 1.3;
         font-variant-numeric: tabular-nums;
@@ -277,7 +285,7 @@ export default class CupTimeplan extends LitElement {
         gap: 0.375rem;
         min-height: 1.4rem;
         padding: 1px 6px;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
         white-space: nowrap;
       }
 
@@ -285,14 +293,14 @@ export default class CupTimeplan extends LitElement {
         position: sticky;
         top: 0;
         z-index: 1;
-        background: color-mix(in srgb, var(--cup-blue-2) 30%, var(--cup-surface));
-        color: var(--cup-blue);
+        background: var(--color-primary-soft);
+        color: var(--color-primary-strong);
         font-weight: 700;
-        border-bottom-color: var(--cup-blue-2);
+        border-bottom-color: var(--color-primary-border);
       }
 
       .dense > .cat .count {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-weight: 400;
       }
 
@@ -301,7 +309,7 @@ export default class CupTimeplan extends LitElement {
       }
 
       .dense > .act.current {
-        background: color-mix(in srgb, var(--cup-blue-2) 45%, var(--cup-surface));
+        background: var(--color-highlight);
         font-weight: 600;
       }
 
@@ -310,23 +318,23 @@ export default class CupTimeplan extends LitElement {
       }
 
       .dense > .act.call {
-        background: color-mix(in srgb, var(--cup-red) 10%, var(--cup-surface));
+        background: var(--color-error-soft);
       }
 
       .dense > .custom {
-        background: var(--cup-surface-2);
-        color: var(--cup-muted);
+        background: var(--color-surface-2);
+        color: var(--color-text-muted);
         font-style: italic;
       }
 
       .dense > .pause {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-style: italic;
       }
 
       .dense > .pause.running {
-        background: color-mix(in srgb, var(--cup-blue-2) 45%, var(--cup-surface));
-        color: var(--cup-text);
+        background: var(--color-highlight);
+        color: var(--color-text);
         font-weight: 600;
       }
 
@@ -336,7 +344,7 @@ export default class CupTimeplan extends LitElement {
 
       .dense .act-cat {
         flex: none;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 0.85em;
         font-weight: 600;
       }
@@ -344,7 +352,7 @@ export default class CupTimeplan extends LitElement {
       .dense .time {
         flex: none;
         min-width: 2.75em;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-style: normal;
       }
 
@@ -365,7 +373,7 @@ export default class CupTimeplan extends LitElement {
 
       .dense .club,
       .dense .clubs {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 0.92em;
       }
     `,

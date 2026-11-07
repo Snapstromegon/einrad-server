@@ -48,34 +48,34 @@ export default class CupRiderPicker extends LitElement {
       width: 100%;
       font: inherit;
       font-size: var(--picker-font-size, 1rem);
-      color: var(--cup-text);
+      color: var(--color-text);
       padding: var(--picker-padding, 0.4rem 1.75rem 0.4rem 0.5rem);
-      border: 1px solid var(--cup-border);
+      border: 1px solid var(--color-border);
       border-radius: 0.375rem;
-      background: var(--cup-surface);
+      background: var(--color-surface);
       text-overflow: ellipsis;
     }
 
     input::placeholder {
-      color: var(--picker-placeholder, var(--cup-muted));
+      color: var(--picker-placeholder, var(--color-text-muted));
     }
 
     input:focus-visible {
-      outline: 2px solid var(--cup-blue-2);
+      outline: 2px solid var(--color-focus);
       outline-offset: 0;
-      border-color: var(--cup-blue);
+      border-color: var(--color-primary-strong);
     }
 
     input:disabled {
-      background: var(--cup-surface-2);
-      color: var(--cup-muted);
+      background: var(--color-surface-2);
+      color: var(--color-text-muted);
     }
 
     .chevron {
       position: absolute;
       right: 0.5rem;
       pointer-events: none;
-      color: var(--cup-muted);
+      color: var(--color-text-muted);
       font-family: "Material Symbols Outlined";
       font-size: 18px;
       line-height: 1;
@@ -88,11 +88,11 @@ export default class CupRiderPicker extends LitElement {
       padding: 0.25rem 0;
       max-height: min(20rem, 50vh);
       overflow-y: auto;
-      border: 1px solid var(--cup-border);
+      border: 1px solid var(--color-border);
       border-radius: 0.5rem;
-      background: var(--cup-surface);
-      color: var(--cup-text);
-      box-shadow: 0 6px 24px rgb(0 0 0 / 0.15);
+      background: var(--color-surface);
+      color: var(--color-text);
+      box-shadow: 0 6px 24px var(--color-shadow);
       font-size: 0.9rem;
     }
 
@@ -106,7 +106,7 @@ export default class CupRiderPicker extends LitElement {
       padding: 0.375rem 0.75rem 0.125rem;
       font-size: 0.75rem;
       font-weight: 700;
-      color: var(--cup-muted);
+      color: var(--color-text-muted);
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
@@ -117,7 +117,7 @@ export default class CupRiderPicker extends LitElement {
     }
 
     .option.active {
-      background: color-mix(in srgb, var(--cup-blue-2) 30%, var(--cup-surface));
+      background: var(--color-primary-soft);
     }
 
     .option.selected {
@@ -125,12 +125,12 @@ export default class CupRiderPicker extends LitElement {
     }
 
     .option .detail {
-      color: var(--cup-muted);
+      color: var(--color-text-muted);
     }
 
     .empty {
       padding: 0.375rem 0.75rem;
-      color: var(--cup-muted);
+      color: var(--color-text-muted);
     }
   `;
 

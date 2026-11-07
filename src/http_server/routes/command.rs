@@ -42,6 +42,7 @@ mod move_timeplan_up;
 mod preview_competition_import;
 mod register;
 mod reload_db;
+mod remove_competition_logo;
 mod rename_club;
 mod rename_club_group;
 mod replace_act_rider;
@@ -59,6 +60,7 @@ mod set_checked_in;
 mod set_club_group_members;
 mod set_club_group_type;
 mod set_club_responsible;
+mod set_competition_logo;
 mod set_fee_waived;
 mod set_final_placement;
 mod set_final_published;
@@ -142,6 +144,8 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(import_competition::import_competition))
         .routes(routes!(edit_competition::edit_competition))
+        .routes(routes!(set_competition_logo::set_competition_logo))
+        .routes(routes!(remove_competition_logo::remove_competition_logo))
         .routes(routes!(apply_jury_remap::apply_jury_remap))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))

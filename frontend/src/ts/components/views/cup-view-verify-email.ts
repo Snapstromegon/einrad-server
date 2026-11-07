@@ -47,8 +47,8 @@ export default class CupViewVerifyEmail extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }

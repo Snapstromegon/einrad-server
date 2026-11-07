@@ -11,6 +11,9 @@
 #   registrations are matched to the new jury categories by name; the others
 #   are written to data_path/remap/ to fill in. A file that changes nothing
 #   replaces nothing.
+# - The logo and the colors are the exception (ADR 0009): a replace keeps
+#   them unless the file sets logo_svg, primary_color or secondary_color; ""
+#   resets one to the default built into the server.
 # - The competition's id never changes once created.
 #
 # The photo password below ends up in the database; share a file with it only
@@ -40,6 +43,23 @@ contact_email = "info@example.org"
 announcement_url = "https://example.org/ausschreibung/"
 # Optional: where the info board's photo QR code leads, e.g. a share link.
 photos_url = "https://fotos.example.org"
+# Optional: the logo on every page and as favicon, as SVG (up to 1 MiB, no
+# scripts, event attributes like onload, <foreignObject> or links to other
+# files). PNG, JPEG and WebP logos are uploaded in the admin UI. Left out, a
+# replace keeps the current logo; "" resets it to the one built into the
+# server.
+# logo_svg = '''
+# <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+#   <circle cx="50" cy="50" r="45" fill="#002d56"/>
+# </svg>
+# '''
+# Optional: the primary and secondary color of every page, e.g. from the
+# logo, as "#rrggbb" or "#rgb". All other colors are derived from them, light,
+# dark and for the info board; texts stay readable whatever the colors. Left
+# out, a replace keeps the current color; "" resets it to the default built
+# into the server (the blue and green below).
+# primary_color = "#002d56"
+# secondary_color = "#009036"
 
 [competition.payment]
 # Optional: leave it out until the deadline is decided.

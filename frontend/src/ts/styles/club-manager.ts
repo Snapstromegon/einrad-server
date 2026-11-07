@@ -12,7 +12,7 @@ import { css } from "lit";
  * - The first tbody row is the add row (`tr.addRow` with a full-width
  *   `button.addButton`, or the inputs); `td.actionCol` holds a row's buttons.
  *   Both are hidden in print.
- * - Pill buttons `.blue`, `.green`, `.red` (icon buttons add `.material-icon`),
+ * - Pill buttons `.primary`, `.ok`, `.error` (icon buttons add `.material-icon`),
  *   the `#summary` table, `.error-banner` (with a close button at its end),
  *   small `.badge` labels (+ `.muted`), `.muted` and `.warn` texts.
  */
@@ -24,19 +24,19 @@ export const clubManagerStyles = css`
     margin-bottom: 0.5em;
   }
 
-  .blue {
-    background: var(--cup-blue);
-    color: #fff;
+  .primary {
+    background: var(--color-primary-strong);
+    color: var(--color-on-primary-strong);
   }
 
-  .green {
-    background: var(--cup-green);
-    color: #fff;
+  .ok {
+    background: var(--color-ok-strong);
+    color: var(--color-on-ok-strong);
   }
 
-  .red {
-    background: var(--cup-red);
-    color: #fff;
+  .error {
+    background: var(--color-error-strong);
+    color: var(--color-on-error-strong);
   }
 
   table {
@@ -53,23 +53,23 @@ export const clubManagerStyles = css`
   }
 
   tr {
-    border: 0.1rem solid #ddd;
+    border: 0.1rem solid var(--color-border);
     border-radius: 0.5rem;
   }
 
   tbody tr:nth-child(odd) {
-    background: #f8f8f8;
+    background: var(--color-surface-2);
   }
 
   tbody tr:hover {
-    background: #eee;
+    background: var(--color-hover);
   }
 
   th,
   td {
     padding: 0.25rem;
     height: 100%;
-    border: 0.1rem solid #ddd;
+    border: 0.1rem solid var(--color-border);
   }
 
   td > label {
@@ -107,19 +107,19 @@ export const clubManagerStyles = css`
   }
 
   .muted {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
   }
 
   .warn {
-    color: var(--cup-amber);
+    color: var(--color-warning-strong);
   }
 
   .badge {
     display: inline-block;
     padding: 0 0.4em;
     border-radius: 100vh;
-    background: var(--cup-blue-2);
-    color: var(--cup-blue);
+    background: var(--color-highlight);
+    color: var(--color-primary-strong);
     font-size: 0.75em;
     font-weight: 600;
     line-height: 1.5;
@@ -128,9 +128,9 @@ export const clubManagerStyles = css`
   }
 
   .badge.muted {
-    background: var(--cup-surface-2);
-    color: var(--cup-muted);
-    border: 1px solid var(--cup-border);
+    background: var(--color-surface-2);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
   }
 
   .error-banner {
@@ -139,10 +139,10 @@ export const clubManagerStyles = css`
     gap: 0.5rem;
     margin: 0.5rem 0;
     padding: 0.5rem;
-    border: 0.1rem solid var(--cup-red);
+    border: 0.1rem solid var(--color-error);
     border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--cup-red) 6%, var(--cup-surface));
-    color: var(--cup-red);
+    background: var(--color-error-soft);
+    color: var(--color-error-strong);
     white-space: pre-line;
   }
 

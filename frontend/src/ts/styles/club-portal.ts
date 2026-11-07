@@ -4,9 +4,9 @@ import { css } from "lit";
  * Shared look of the club portal's steps (cup-club-portal and its
  * cup-club-step-* children). Use after the reset and the icon styles.
  *
- * - `.card`: a white panel; `.card > header` its title row (`h3` + actions).
- * - Buttons: `.btn` (outlined), `.btn.primary` (green), `.btn.blue`,
- *   `.btn.danger`; `.btn.small`; icon-only buttons are `.icon-btn` from
+ * - `.card`: a panel; `.card > header` its title row (`h3` + actions).
+ * - Buttons: `.btn` (outlined), `.btn.secondary` (the main action, in the
+ *   secondary color), `.btn.primary`, `.btn.danger`; `.btn.small`; icon-only buttons are `.icon-btn` from
  *   `iconStyles`.
  * - `.field` labels a form control (`<label class="field"><span>Name</span>
  *   <input></label>`), `.form-row` lines them up and wraps.
@@ -17,21 +17,21 @@ import { css } from "lit";
  */
 export const clubPortalStyles = css`
   :host {
-    color: var(--cup-text);
+    color: var(--color-text);
   }
 
   h2 {
     font-size: 1.5rem;
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   h3 {
     font-size: 1.1rem;
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   a {
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   .step-intro {
@@ -42,13 +42,13 @@ export const clubPortalStyles = css`
   }
 
   .step-intro p {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     max-width: 70ch;
   }
 
   .card {
-    background: var(--cup-surface);
-    border: 1px solid var(--cup-border);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 0.75rem;
     padding: 1rem;
   }
@@ -77,10 +77,10 @@ export const clubPortalStyles = css`
     gap: 0.375rem;
     min-height: 2.25rem;
     padding: 0.375rem 0.875rem;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-radius: 100vh;
-    background: var(--cup-surface);
-    color: var(--cup-blue);
+    background: var(--color-surface);
+    color: var(--color-primary-strong);
     font: inherit;
     font-weight: 600;
     cursor: pointer;
@@ -89,12 +89,12 @@ export const clubPortalStyles = css`
   }
 
   .btn:hover:not(:disabled) {
-    background: var(--cup-surface-2);
+    background: var(--color-surface-2);
   }
 
   .btn:focus-visible,
   .toggle-chip:focus-visible {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
 
@@ -102,32 +102,32 @@ export const clubPortalStyles = css`
     font-size: 20px;
   }
 
+  .btn.secondary {
+    background: var(--color-secondary-strong);
+    border-color: var(--color-secondary-strong);
+    color: var(--color-on-secondary-strong);
+  }
+
+  .btn.secondary:hover:not(:disabled) {
+    background: var(--color-secondary-hover);
+  }
+
   .btn.primary {
-    background: var(--cup-green);
-    border-color: var(--cup-green);
-    color: #fff;
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+    color: var(--color-on-primary-strong);
   }
 
   .btn.primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--cup-green) 85%, #000);
-  }
-
-  .btn.blue {
-    background: var(--cup-blue);
-    border-color: var(--cup-blue);
-    color: #fff;
-  }
-
-  .btn.blue:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--cup-blue) 85%, #fff);
+    background: var(--color-primary-hover);
   }
 
   .btn.danger {
-    color: var(--cup-red);
+    color: var(--color-error-strong);
   }
 
   .btn.danger:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--cup-red) 8%, var(--cup-surface));
+    background: var(--color-error-soft);
   }
 
   .btn.small {
@@ -153,7 +153,7 @@ export const clubPortalStyles = css`
     flex-direction: column;
     gap: 0.25rem;
     font-size: 0.875rem;
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     min-width: 0;
   }
 
@@ -170,20 +170,20 @@ export const clubPortalStyles = css`
   textarea {
     font: inherit;
     font-size: 1rem;
-    color: var(--cup-text);
+    color: var(--color-text);
     padding: 0.4rem 0.5rem;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-radius: 0.375rem;
-    background: var(--cup-surface);
+    background: var(--color-surface);
     min-width: 0;
   }
 
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: 0;
-    border-color: var(--cup-blue);
+    border-color: var(--color-primary-strong);
   }
 
   textarea {
@@ -208,8 +208,8 @@ export const clubPortalStyles = css`
     gap: 0.25rem;
     padding: 0.0625rem 0.5rem;
     border-radius: 100vh;
-    background: color-mix(in srgb, var(--cup-blue-2) 35%, var(--cup-surface));
-    color: var(--cup-blue);
+    background: var(--color-highlight);
+    color: var(--color-primary-strong);
     font-size: 0.8rem;
     font-weight: 600;
     line-height: 1.5;
@@ -221,23 +221,23 @@ export const clubPortalStyles = css`
   }
 
   .chip.ok {
-    background: color-mix(in srgb, var(--cup-green) 12%, var(--cup-surface));
-    color: var(--cup-green);
+    background: var(--color-ok-soft);
+    color: var(--color-ok-strong);
   }
 
   .chip.warn {
-    background: color-mix(in srgb, var(--cup-amber) 12%, var(--cup-surface));
-    color: var(--cup-amber);
+    background: var(--color-warning-soft);
+    color: var(--color-warning-strong);
   }
 
   .chip.error {
-    background: color-mix(in srgb, var(--cup-red) 10%, var(--cup-surface));
-    color: var(--cup-red);
+    background: var(--color-error-soft);
+    color: var(--color-error-strong);
   }
 
   .chip.muted {
-    background: var(--cup-surface-2);
-    color: var(--cup-muted);
+    background: var(--color-surface-2);
+    color: var(--color-text-muted);
   }
 
   .toggle-chip {
@@ -245,10 +245,10 @@ export const clubPortalStyles = css`
     align-items: center;
     gap: 0.25rem;
     padding: 0.25rem 0.75rem;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-radius: 100vh;
-    background: var(--cup-surface);
-    color: var(--cup-muted);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
     font: inherit;
     font-size: 0.875rem;
     cursor: pointer;
@@ -259,9 +259,9 @@ export const clubPortalStyles = css`
   }
 
   .toggle-chip[aria-pressed="true"] {
-    background: var(--cup-blue);
-    border-color: var(--cup-blue);
-    color: #fff;
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+    color: var(--color-on-primary-strong);
   }
 
   .toolbar {
@@ -283,8 +283,8 @@ export const clubPortalStyles = css`
     gap: 0.5rem;
     padding: 0.625rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid var(--cup-border);
-    background: var(--cup-surface-2);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
     white-space: pre-line;
     margin-bottom: 1rem;
   }
@@ -298,27 +298,27 @@ export const clubPortalStyles = css`
   }
 
   .banner.error {
-    border-color: var(--cup-red);
-    background: color-mix(in srgb, var(--cup-red) 6%, var(--cup-surface));
-    color: var(--cup-red);
+    border-color: var(--color-error);
+    background: var(--color-error-soft);
+    color: var(--color-error-strong);
   }
 
   .banner.warn {
-    border-color: color-mix(in srgb, var(--cup-amber) 50%, var(--cup-surface));
-    background: color-mix(in srgb, var(--cup-amber) 8%, var(--cup-surface));
-    color: var(--cup-amber);
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-soft);
+    color: var(--color-warning-strong);
   }
 
   .banner.info {
-    border-color: var(--cup-blue-2);
-    background: color-mix(in srgb, var(--cup-blue-2) 15%, var(--cup-surface));
-    color: var(--cup-blue);
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
   }
 
   .banner.ok {
-    border-color: color-mix(in srgb, var(--cup-green) 50%, var(--cup-surface));
-    background: color-mix(in srgb, var(--cup-green) 8%, var(--cup-surface));
-    color: var(--cup-green);
+    border-color: var(--color-ok-border);
+    background: var(--color-ok-soft);
+    color: var(--color-ok-strong);
   }
 
   .empty {
@@ -328,22 +328,22 @@ export const clubPortalStyles = css`
     gap: 0.5rem;
     padding: 2rem 1rem;
     text-align: center;
-    color: var(--cup-muted);
-    border: 2px dashed var(--cup-border);
+    color: var(--color-text-muted);
+    border: 2px dashed var(--color-border);
     border-radius: 0.75rem;
   }
 
   .empty > .material-icon {
     font-size: 40px;
-    color: var(--cup-blue-2);
+    color: var(--color-primary-border);
   }
 
   .muted {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
   }
 
   .hint {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
@@ -376,41 +376,42 @@ export const clubPortalStyles = css`
     gap: 0.25rem;
     padding: 1rem;
     border-radius: 0.75rem;
-    border: 1px solid var(--cup-border);
-    background: var(--cup-surface);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
   }
 
   .tile span {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
   .tile strong {
     font-size: 1.5rem;
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   .tile.open {
-    background: var(--cup-blue);
-    border-color: var(--cup-blue);
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
   }
 
   .tile.open span {
-    color: var(--cup-blue-2);
+    color: var(--color-on-primary-strong);
+    opacity: 0.75;
   }
 
   .tile.open strong {
-    color: #fff;
+    color: var(--color-on-primary-strong);
   }
 
   .tile.done {
-    background: var(--cup-green);
-    border-color: var(--cup-green);
+    background: var(--color-ok-strong);
+    border-color: var(--color-ok-strong);
   }
 
   .tile.done span,
   .tile.done strong {
-    color: #fff;
+    color: var(--color-on-ok-strong);
   }
 
   @media print {

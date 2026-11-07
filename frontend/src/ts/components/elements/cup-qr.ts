@@ -22,8 +22,13 @@ export default class CupQr extends LitElement {
       display: block;
       width: 100%;
       height: auto;
-      background: #fff;
+      /* Scanners need dark modules on a light background, in dark mode too. */
+      background: white; /* color-literal-ok: QR code */
       print-color-adjust: exact;
+    }
+
+    path {
+      fill: black; /* color-literal-ok: QR code */
     }
   `;
 
@@ -61,7 +66,7 @@ export default class CupQr extends LitElement {
       aria-label=${this.label}
       shape-rendering="crispEdges"
     >
-      ${svg`<path d=${path} fill="#000" />`}
+      ${svg`<path d=${path} />`}
     </svg>`;
   }
 }

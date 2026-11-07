@@ -269,12 +269,12 @@ export default class CupViewAdminTimeplan extends LitElement {
       }
 
       tr.editing > td {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
       }
 
       /* Day headings of events over several days. */
       tr.day-row > td {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
         font-weight: 700;
       }
 
@@ -291,11 +291,11 @@ export default class CupViewAdminTimeplan extends LitElement {
       }
 
       tr.drop-into > td {
-        box-shadow: inset 0 0 0 2px var(--cup-blue);
+        box-shadow: inset 0 0 0 2px var(--color-primary-strong);
       }
 
       .dense tbody tr.slots-row > td {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
         padding: 0.25rem 0.5rem 0.5rem 2.5rem;
       }
 
@@ -321,8 +321,8 @@ export default class CupViewAdminTimeplan extends LitElement {
         align-items: center;
         gap: 0.5rem;
         padding: 0.125rem 0.25rem;
-        background: var(--cup-surface);
-        border: 1px solid var(--cup-border);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
         border-radius: 0.25rem;
       }
 
@@ -331,16 +331,16 @@ export default class CupViewAdminTimeplan extends LitElement {
       }
 
       ol.slots > li.break {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
       }
 
       ol.slots > li.locked {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       ol.slots > li.current {
-        border-color: var(--cup-blue);
-        box-shadow: inset 3px 0 0 var(--cup-blue);
+        border-color: var(--color-primary-strong);
+        box-shadow: inset 3px 0 0 var(--color-primary-strong);
       }
 
       ol.slots > li.dragging {
@@ -348,19 +348,19 @@ export default class CupViewAdminTimeplan extends LitElement {
       }
 
       ol.slots > li.drop-before {
-        box-shadow: 0 -3px 0 var(--cup-blue);
+        box-shadow: 0 -3px 0 var(--color-primary-strong);
       }
 
       ol.slots > li.end-zone {
         display: block;
         border-style: dashed;
         text-align: center;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       ol.slots > li.empty-hint {
         display: block;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         background: none;
         border-style: dashed;
       }
@@ -369,7 +369,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         display: flex;
         flex-wrap: wrap;
         gap: 0.25rem;
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
       }
 
       .slot-who {
@@ -390,8 +390,8 @@ export default class CupViewAdminTimeplan extends LitElement {
       }
 
       .chip.foreign {
-        background: var(--tone-warn-bg);
-        color: var(--tone-warn-fg);
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
       }
     `,
   ];

@@ -273,7 +273,7 @@ export default class CupClubActManager extends LitElement {
           <input type="file" accept=".mp3,audio/mpeg" ?disabled=${uploading} />
           <button
             type="submit"
-            class="blue material-icon"
+            class="primary material-icon"
             title="Musik hochladen"
             aria-label="Musik hochladen"
             ?disabled=${uploading}
@@ -289,7 +289,7 @@ export default class CupClubActManager extends LitElement {
       </td>
       <td class="actionCol">
         <button
-          class="green material-icon"
+          class="ok material-icon"
           title="Speichern"
           aria-label="Speichern"
           @click=${
@@ -300,7 +300,7 @@ export default class CupClubActManager extends LitElement {
           save
         </button>
         <button
-          class="red material-icon"
+          class="error material-icon"
           title="Abbrechen"
           aria-label="Abbrechen"
           @click=${
@@ -372,7 +372,7 @@ export default class CupClubActManager extends LitElement {
                   // eslint-disable-next-line lit/no-template-arrow
                   () => this.enableActEdit(act)
                 }
-                class="blue material-icon"
+                class="primary material-icon"
                 title="Bearbeiten"
                 aria-label="Bearbeiten"
               >

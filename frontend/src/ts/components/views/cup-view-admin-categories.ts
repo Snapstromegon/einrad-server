@@ -223,7 +223,7 @@ export default class CupViewAdminCategories extends LitElement {
       }
 
       tr.editing > td {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
         vertical-align: top;
       }
 

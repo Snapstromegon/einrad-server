@@ -31,17 +31,7 @@ export const adminStyles = css`
     display: block;
     font-size: 13px;
     line-height: 1.35;
-    color: var(--cup-text);
-
-    /* Status tones, readable as text on the page and on their background. */
-    --tone-ok-fg: color-mix(in srgb, var(--cup-green) 70%, black);
-    --tone-ok-bg: color-mix(in srgb, var(--cup-green) 12%, var(--cup-surface));
-    --tone-warn-fg: color-mix(in srgb, var(--cup-amber) 78%, black);
-    --tone-warn-bg: color-mix(in srgb, var(--cup-amber) 14%, var(--cup-surface));
-    --tone-bad-fg: color-mix(in srgb, var(--cup-red) 80%, black);
-    --tone-bad-bg: color-mix(in srgb, var(--cup-red) 10%, var(--cup-surface));
-    --tone-info-fg: var(--cup-blue);
-    --tone-info-bg: color-mix(in srgb, var(--cup-blue-2) 28%, var(--cup-surface));
+    color: var(--color-text);
 
     /* Height of a dense table's header row; group heads stick below it. */
     --dense-head-h: 1.5rem;
@@ -51,7 +41,7 @@ export const adminStyles = css`
   h2,
   h3,
   h4 {
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
     font-weight: 650;
     line-height: 1.2;
   }
@@ -76,23 +66,23 @@ export const adminStyles = css`
   }
 
   a {
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
     text-underline-offset: 2px;
   }
 
   input[type="checkbox"],
   input[type="radio"] {
-    accent-color: var(--cup-blue);
+    accent-color: var(--color-primary-strong);
     vertical-align: middle;
   }
 
   kbd {
     font: 11px/1.3 ui-monospace, monospace;
     padding: 0 0.25em;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-bottom-width: 2px;
     border-radius: 3px;
-    background: var(--cup-surface-2);
+    background: var(--color-surface-2);
   }
 
   /* ---------- Dense tables ---------- */
@@ -118,7 +108,7 @@ export const adminStyles = css`
   .dense th,
   .dense td {
     padding: 2px 6px;
-    border-bottom: 1px solid var(--cup-border);
+    border-bottom: 1px solid var(--color-border);
     text-align: left;
     vertical-align: middle;
     white-space: nowrap;
@@ -129,11 +119,11 @@ export const adminStyles = css`
     top: var(--admin-sticky-top, 0px);
     z-index: 2;
     height: var(--dense-head-h);
-    background: var(--cup-surface-2);
-    color: var(--cup-muted);
+    background: var(--color-surface-2);
+    color: var(--color-text-muted);
     font-size: 0.92em;
     font-weight: 600;
-    border-bottom-color: color-mix(in srgb, var(--cup-muted) 45%, var(--cup-border));
+    border-bottom-color: var(--color-border-strong);
   }
 
   .dense th.sortable {
@@ -142,7 +132,7 @@ export const adminStyles = css`
   }
 
   .dense th.sortable:hover {
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   .dense th[aria-sort="ascending"]::after,
@@ -150,7 +140,7 @@ export const adminStyles = css`
     content: "▲";
     font-size: 0.75em;
     margin-left: 0.25em;
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   .dense th[aria-sort="descending"]::after {
@@ -162,38 +152,38 @@ export const adminStyles = css`
   }
 
   .dense tbody tr:nth-child(even) > td {
-    background: color-mix(in srgb, var(--cup-surface-2) 55%, var(--cup-surface));
+    background: var(--color-surface-2);
   }
 
   .dense tbody tr.ok > td {
-    background: var(--tone-ok-bg);
+    background: var(--color-ok-soft);
   }
 
   .dense tbody tr.warn > td {
-    background: var(--tone-warn-bg);
+    background: var(--color-warning-soft);
   }
 
   .dense tbody tr.bad > td {
-    background: var(--tone-bad-bg);
+    background: var(--color-error-soft);
   }
 
   .dense tbody tr.info > td {
-    background: var(--tone-info-bg);
+    background: var(--color-primary-soft);
   }
 
   .dense tbody tr.muted > td {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
   }
 
   /* The running act, the selected row, … */
   .dense tbody tr.current > td {
-    background: color-mix(in srgb, var(--cup-blue-2) 45%, var(--cup-surface));
+    background: var(--color-highlight);
     font-weight: 600;
   }
 
   /* An overlay, so hover keeps the row's status colour visible. */
   .dense tbody tr:hover > td {
-    box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--cup-blue) 7%, transparent);
+    box-shadow: inset 0 0 0 100vmax var(--color-hover);
   }
 
   /* Sticky sub-header inside a tbody, e.g. "EM U15 · 12 FahrerInnen". */
@@ -201,11 +191,11 @@ export const adminStyles = css`
     position: sticky;
     top: calc(var(--admin-sticky-top, 0px) + var(--dense-head-h));
     z-index: 1;
-    background: color-mix(in srgb, var(--cup-blue-2) 30%, var(--cup-surface));
-    color: var(--cup-blue);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
     font-weight: 700;
     text-align: left;
-    border-bottom-color: var(--cup-blue-2);
+    border-bottom-color: var(--color-primary-border);
   }
 
   .dense tbody tr.group-head > th .muted,
@@ -219,8 +209,8 @@ export const adminStyles = css`
     bottom: 0;
     z-index: 1;
     font-weight: 700;
-    background: var(--cup-surface-2);
-    border-top: 2px solid color-mix(in srgb, var(--cup-muted) 60%, var(--cup-border));
+    background: var(--color-surface-2);
+    border-top: 2px solid var(--color-border-strong);
     border-bottom: none;
   }
 
@@ -272,10 +262,10 @@ export const adminStyles = css`
     align-items: center;
     gap: 0.2em;
     padding: 0 0.45em;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-radius: 999px;
-    background: var(--cup-surface-2);
-    color: var(--cup-text);
+    background: var(--color-surface-2);
+    color: var(--color-text);
     font-size: 11px;
     font-weight: 600;
     line-height: 16px;
@@ -284,32 +274,32 @@ export const adminStyles = css`
   }
 
   .chip.ok {
-    background: var(--tone-ok-bg);
-    color: var(--tone-ok-fg);
-    border-color: color-mix(in srgb, var(--cup-green) 35%, var(--cup-surface));
+    background: var(--color-ok-soft);
+    color: var(--color-ok-strong);
+    border-color: var(--color-ok-border);
   }
 
   .chip.warn {
-    background: var(--tone-warn-bg);
-    color: var(--tone-warn-fg);
-    border-color: color-mix(in srgb, var(--cup-amber) 40%, var(--cup-surface));
+    background: var(--color-warning-soft);
+    color: var(--color-warning-strong);
+    border-color: var(--color-warning-border);
   }
 
   .chip.bad {
-    background: var(--tone-bad-bg);
-    color: var(--tone-bad-fg);
-    border-color: color-mix(in srgb, var(--cup-red) 35%, var(--cup-surface));
+    background: var(--color-error-soft);
+    color: var(--color-error-strong);
+    border-color: var(--color-error-border);
   }
 
   .chip.info {
-    background: var(--tone-info-bg);
-    color: var(--tone-info-fg);
-    border-color: var(--cup-blue-2);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-color: var(--color-primary-border);
   }
 
   .chip.muted {
     background: transparent;
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     font-weight: 400;
   }
 
@@ -328,13 +318,13 @@ export const adminStyles = css`
   }
 
   button.chip:hover {
-    border-color: var(--cup-blue-2);
+    border-color: var(--color-primary-border);
   }
 
   button.chip[aria-pressed="true"] {
-    background: var(--cup-blue);
-    border-color: var(--cup-blue);
-    color: #fff;
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+    color: var(--color-on-primary-strong);
   }
 
   /* ---------- Toolbar and KPI strip ---------- */
@@ -373,27 +363,27 @@ export const adminStyles = css`
   }
 
   .kpi {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     white-space: nowrap;
   }
 
   .kpi b {
-    color: var(--cup-text);
+    color: var(--color-text);
     font-size: 1.15em;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
 
   .kpi.ok b {
-    color: var(--tone-ok-fg);
+    color: var(--color-ok-strong);
   }
 
   .kpi.warn b {
-    color: var(--tone-warn-fg);
+    color: var(--color-warning-strong);
   }
 
   .kpi.bad b {
-    color: var(--tone-bad-fg);
+    color: var(--color-error-strong);
   }
 
   /* ---------- Buttons and inputs ---------- */
@@ -403,10 +393,10 @@ export const adminStyles = css`
     align-items: center;
     gap: 0.25rem;
     padding: 2px 10px;
-    border: 1px solid color-mix(in srgb, var(--cup-muted) 40%, var(--cup-border));
+    border: 1px solid var(--color-border-strong);
     border-radius: 4px;
-    background: var(--cup-surface);
-    color: var(--cup-text);
+    background: var(--color-surface);
+    color: var(--color-text);
     font: inherit;
     line-height: 1.3;
     white-space: nowrap;
@@ -415,12 +405,12 @@ export const adminStyles = css`
   }
 
   .btn:hover:not(:disabled) {
-    background: var(--cup-surface-2);
-    border-color: var(--cup-blue-2);
+    background: var(--color-surface-2);
+    border-color: var(--color-primary-border);
   }
 
   .btn:focus-visible {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: 1px;
   }
 
@@ -434,25 +424,25 @@ export const adminStyles = css`
   }
 
   .btn.primary {
-    background: var(--cup-blue);
-    border-color: var(--cup-blue);
-    color: #fff;
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+    color: var(--color-on-primary-strong);
   }
 
   .btn.primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--cup-blue) 85%, black);
-    border-color: color-mix(in srgb, var(--cup-blue) 85%, black);
+    background: var(--color-primary-hover);
+    border-color: var(--color-primary-hover);
   }
 
   .btn.danger {
-    color: var(--tone-bad-fg);
-    border-color: color-mix(in srgb, var(--cup-red) 45%, var(--cup-surface));
+    color: var(--color-error-strong);
+    border-color: var(--color-error-border);
   }
 
   .btn.danger:hover:not(:disabled) {
-    background: var(--cup-red);
-    border-color: var(--cup-red);
-    color: #fff;
+    background: var(--color-error-strong);
+    border-color: var(--color-error-strong);
+    color: var(--color-on-error-strong);
   }
 
   .btn.small {
@@ -462,9 +452,9 @@ export const adminStyles = css`
   }
 
   .btn[aria-pressed="true"] {
-    background: var(--tone-info-bg);
-    border-color: var(--cup-blue);
-    color: var(--cup-blue);
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary-strong);
+    color: var(--color-primary-strong);
   }
 
   input.inline,
@@ -474,9 +464,9 @@ export const adminStyles = css`
     color: inherit;
     line-height: 1.2;
     padding: 1px 4px;
-    border: 1px solid color-mix(in srgb, var(--cup-muted) 35%, var(--cup-border));
+    border: 1px solid var(--color-border-strong);
     border-radius: 3px;
-    background: var(--cup-surface);
+    background: var(--color-surface);
     max-width: 100%;
     vertical-align: middle;
   }
@@ -493,22 +483,22 @@ export const adminStyles = css`
   input.inline:focus,
   select.inline:focus,
   textarea.inline:focus {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: -1px;
-    border-color: var(--cup-blue);
+    border-color: var(--color-primary-strong);
   }
 
   input.inline.invalid,
   select.inline.invalid,
   textarea.inline.invalid {
-    border-color: var(--cup-red);
-    background: var(--tone-bad-bg);
+    border-color: var(--color-error);
+    background: var(--color-error-soft);
   }
 
   /* Separate rule: an unsupported selector would drop the whole list. */
   input.inline:user-invalid {
-    border-color: var(--cup-red);
-    background: var(--tone-bad-bg);
+    border-color: var(--color-error);
+    background: var(--color-error-soft);
   }
 
   /* ---------- Banners ---------- */
@@ -529,27 +519,27 @@ export const adminStyles = css`
   }
 
   .error-banner {
-    color: var(--tone-bad-fg);
-    background: var(--tone-bad-bg);
-    border-color: var(--cup-red);
+    color: var(--color-error-strong);
+    background: var(--color-error-soft);
+    border-color: var(--color-error);
   }
 
   .warn-banner {
-    color: var(--tone-warn-fg);
-    background: var(--tone-warn-bg);
-    border-color: var(--cup-amber);
+    color: var(--color-warning-strong);
+    background: var(--color-warning-soft);
+    border-color: var(--color-warning);
   }
 
   .ok-banner {
-    color: var(--tone-ok-fg);
-    background: var(--tone-ok-bg);
-    border-color: var(--cup-green);
+    color: var(--color-ok-strong);
+    background: var(--color-ok-soft);
+    border-color: var(--color-ok);
   }
 
   .info-banner {
-    color: var(--tone-info-fg);
-    background: var(--tone-info-bg);
-    border-color: var(--cup-blue);
+    color: var(--color-primary-strong);
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary-strong);
   }
 
   /* A close button (icon-btn) at the end of a banner. */
@@ -574,11 +564,11 @@ export const adminStyles = css`
   }
 
   .ci.yes {
-    color: var(--tone-ok-fg);
+    color: var(--color-ok-strong);
   }
 
   .ci.no {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
   }
 
   .ci.yes:empty::before {
@@ -593,9 +583,9 @@ export const adminStyles = css`
   button.ci {
     width: 1.75em;
     height: 1.5em;
-    border: 1px solid color-mix(in srgb, var(--cup-muted) 40%, var(--cup-border));
+    border: 1px solid var(--color-border-strong);
     border-radius: 3px;
-    background: var(--cup-surface);
+    background: var(--color-surface);
     font: inherit;
     font-weight: 700;
     cursor: pointer;
@@ -603,12 +593,12 @@ export const adminStyles = css`
   }
 
   button.ci.yes {
-    background: var(--tone-ok-bg);
-    border-color: var(--cup-green);
+    background: var(--color-ok-soft);
+    border-color: var(--color-ok);
   }
 
   button.ci:hover:not(:disabled) {
-    border-color: var(--cup-blue);
+    border-color: var(--color-primary-strong);
   }
 
   button.ci:disabled {
@@ -620,9 +610,9 @@ export const adminStyles = css`
 
   details.block {
     margin: 0.375rem 0;
-    border: 1px solid var(--cup-border);
+    border: 1px solid var(--color-border);
     border-radius: 4px;
-    background: var(--cup-surface);
+    background: var(--color-surface);
   }
 
   details.block > summary {
@@ -632,8 +622,8 @@ export const adminStyles = css`
     gap: 0.125rem 0.75rem;
     padding: 3px 8px;
     border-radius: 4px;
-    background: var(--cup-surface-2);
-    color: var(--cup-blue);
+    background: var(--color-surface-2);
+    color: var(--color-primary-strong);
     font-weight: 650;
     list-style: none;
     cursor: pointer;
@@ -648,12 +638,12 @@ export const adminStyles = css`
     content: "▸";
     display: inline-block;
     width: 0.75em;
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     transition: transform 0.1s;
   }
 
   details.block[open] > summary {
-    border-bottom: 1px solid var(--cup-border);
+    border-bottom: 1px solid var(--color-border);
     border-radius: 4px 4px 0 0;
   }
 
@@ -662,7 +652,7 @@ export const adminStyles = css`
   }
 
   details.block > summary:focus-visible {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: -2px;
   }
 
@@ -704,7 +694,7 @@ export const adminStyles = css`
   }
 
   .muted {
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
   }
 
   .small {
@@ -717,24 +707,24 @@ export const adminStyles = css`
 
   .empty {
     padding: 0.25rem 0.5rem;
-    color: var(--cup-muted);
+    color: var(--color-text-muted);
     font-style: italic;
   }
 
   .text-ok {
-    color: var(--tone-ok-fg);
+    color: var(--color-ok-strong);
   }
 
   .text-warn {
-    color: var(--tone-warn-fg);
+    color: var(--color-warning-strong);
   }
 
   .text-bad {
-    color: var(--tone-bad-fg);
+    color: var(--color-error-strong);
   }
 
   .text-info {
-    color: var(--tone-info-fg);
+    color: var(--color-primary-strong);
   }
 
   .print-only {

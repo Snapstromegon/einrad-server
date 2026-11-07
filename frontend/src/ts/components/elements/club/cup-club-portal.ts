@@ -113,12 +113,12 @@ export default class CupClubPortal extends LitElement {
         gap: 0.125rem;
         padding: 0.5rem 0.625rem 0.75rem;
         margin-bottom: 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
       }
 
       .club-name strong {
         font-size: 1.15rem;
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
       }
 
       nav ol {
@@ -141,12 +141,12 @@ export default class CupClubPortal extends LitElement {
       }
 
       nav a:hover {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       nav a[aria-current="step"] {
-        background: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
       }
 
       nav .num {
@@ -156,25 +156,25 @@ export default class CupClubPortal extends LitElement {
         width: 2rem;
         height: 2rem;
         border-radius: 50%;
-        border: 2px solid var(--cup-border);
+        border: 2px solid var(--color-border);
         font-weight: 700;
-        color: var(--cup-muted);
-        background: var(--cup-surface);
+        color: var(--color-text-muted);
+        background: var(--color-surface);
       }
 
       nav .done .num {
-        border-color: var(--cup-green);
-        background: var(--cup-green);
-        color: #fff;
+        border-color: var(--color-ok-strong);
+        background: var(--color-ok-strong);
+        color: var(--color-on-ok-strong);
       }
 
       nav .open .num {
-        border-color: var(--cup-amber);
-        color: var(--cup-amber);
+        border-color: var(--color-warning);
+        color: var(--color-warning-strong);
       }
 
       nav a[aria-current="step"] .num {
-        border-color: #fff;
+        border-color: var(--color-on-primary-strong);
       }
 
       nav .label {
@@ -185,14 +185,15 @@ export default class CupClubPortal extends LitElement {
       nav .summary {
         grid-area: summary;
         font-size: 0.8rem;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       nav a[aria-current="step"] .summary {
-        color: var(--cup-blue-2);
+        color: var(--color-on-primary-strong);
+        opacity: 0.75;
       }
 
       nav .state {
@@ -201,11 +202,11 @@ export default class CupClubPortal extends LitElement {
       }
 
       nav .open .state {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       nav a[aria-current="step"] .state {
-        color: #fff;
+        color: var(--color-on-primary-strong);
       }
 
       /* Steps that need a club first. */
@@ -226,7 +227,7 @@ export default class CupClubPortal extends LitElement {
       }
 
       .facts dt {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .facts dd {
@@ -235,11 +236,11 @@ export default class CupClubPortal extends LitElement {
       }
 
       .facts .soon {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       .facts .past {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-weight: normal;
         text-decoration: line-through;
       }
@@ -250,8 +251,8 @@ export default class CupClubPortal extends LitElement {
         justify-content: space-between;
         gap: 0.5rem;
         padding: 0.75rem 1rem;
-        background: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
         text-decoration: none;
       }
 
@@ -260,7 +261,8 @@ export default class CupClubPortal extends LitElement {
       }
 
       .amount.paid {
-        background: var(--cup-green);
+        background: var(--color-ok-strong);
+        color: var(--color-on-ok-strong);
       }
 
       details.issues summary {
@@ -269,7 +271,7 @@ export default class CupClubPortal extends LitElement {
         gap: 0.5rem;
         cursor: pointer;
         font-weight: 600;
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         list-style: none;
       }
 
@@ -311,7 +313,7 @@ export default class CupClubPortal extends LitElement {
       }
 
       .issues button:hover {
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       .issues .material-icon {
@@ -319,29 +321,29 @@ export default class CupClubPortal extends LitElement {
       }
 
       .issues .error .material-icon {
-        color: var(--cup-red);
+        color: var(--color-error-strong);
       }
 
       .issues .warn .material-icon {
-        color: var(--cup-amber);
+        color: var(--color-warning-strong);
       }
 
       .issues .info .material-icon {
-        color: var(--cup-blue-2);
+        color: var(--color-primary-border);
       }
 
       .all-done {
         display: flex;
         gap: 0.5rem;
         align-items: center;
-        color: var(--cup-green);
+        color: var(--color-ok-strong);
         font-weight: 600;
       }
 
       .loading {
         padding: 3rem;
         text-align: center;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       @media (max-width: 960px) {
@@ -378,8 +380,8 @@ export default class CupClubPortal extends LitElement {
           z-index: 5;
           margin: 0 -1rem;
           padding: 0.5rem 1rem;
-          background: var(--cup-surface-2);
-          border-bottom: 1px solid var(--cup-border);
+          background: var(--color-surface-2);
+          border-bottom: 1px solid var(--color-border);
           border-radius: 0;
           border-left: none;
           border-right: none;

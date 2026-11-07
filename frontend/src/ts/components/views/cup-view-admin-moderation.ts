@@ -21,6 +21,7 @@ import {
   isGroupActType,
   songFile,
 } from "../../utils";
+import { displayColors } from "../../styles/theme";
 import "../elements/cup-act-participants.js";
 import "../elements/cup-timeplan.js";
 import "../elements/cup-waveform.js";
@@ -45,233 +46,223 @@ function shownSlots(live: Live) {
  */
 @customElement("cup-view-admin-moderation")
 export default class CupViewAdminModeration extends LitElement {
-  static override styles = css`
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    :host {
-      display: block;
-      font-family: "Mona Sans", sans-serif;
-      color: #fff;
-      --ok: #6fdc8c;
-      --warn: #ffc24d;
-      --bad: #ff7a7a;
-      --muted: rgb(255 255 255 / 65%);
-    }
-
-    #wrapper {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(18rem, 34vw);
-      height: 100dvh;
-      background: #002242;
-    }
-
-    main {
-      display: flex;
-      flex-direction: column;
-      gap: 2.5vh;
-      min-height: 0;
-      padding: 3vh 3vw;
-      overflow: hidden;
-    }
-
-    aside {
-      min-height: 0;
-      overflow: hidden;
-      background: #002d56;
-    }
-
-    .muted {
-      color: var(--muted);
-    }
-
-    .ok {
-      color: var(--ok);
-    }
-
-    .warn {
-      color: var(--warn);
-    }
-
-    .bad {
-      color: var(--bad);
-    }
-
-    /* ---------- Clock and delay ---------- */
-
-    header {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 1vh 3vw;
-    }
-
-    .clock {
-      font-size: 7vh;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      line-height: 1;
-    }
-
-    .delay {
-      display: grid;
-      justify-items: end;
-      line-height: 1;
-    }
-
-    .delay .label {
-      font-size: 2.6vh;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .delay .value {
-      font-size: 7vh;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .delay .end {
-      font-size: 2.2vh;
-      color: var(--muted);
-      margin-top: 0.6vh;
-    }
-
-    /* ---------- Current phase ---------- */
-
-    .phase {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0.5vh 1.5vw;
-      font-size: 2.8vh;
-    }
-
-    .chip {
-      padding: 0.2vh 0.8vw;
-      border-radius: 999px;
-      background: rgb(255 255 255 / 14%);
-      font-weight: 650;
-    }
-
-    .current {
-      display: flex;
-      flex-direction: column;
-      gap: 1.5vh;
-      min-height: 0;
-    }
-
-    h1 {
-      font-size: 6vh;
-      line-height: 1.1;
-    }
-
-    h2 {
-      font-size: 3.4vh;
-      font-weight: 500;
-    }
-
-    cup-act-participants {
-      font-size: 3.4vh;
-      --ci-yes-color: var(--ok);
-      --ci-no-color: var(--muted);
-      --cup-muted: var(--muted);
-    }
-
-    .description {
-      font-size: 2.6vh;
-      color: var(--muted);
-    }
-
-    /* ---------- Progress ---------- */
-
-    .progress {
-      display: grid;
-      gap: 0.8vh;
-    }
-
-    .progress .time {
-      font-size: 5vh;
-      font-weight: 650;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .progress .time small {
-      font-size: 2.6vh;
-      font-weight: 400;
-      color: var(--muted);
-    }
-
-    .bar {
-      height: 1.6vh;
-      border-radius: 1vh;
-      background: rgb(255 255 255 / 14%);
-      overflow: hidden;
-    }
-
-    .bar > div {
-      height: 100%;
-      background: var(--ok);
-      transition: width 1s linear;
-    }
-
-    .bar.over > div {
-      background: var(--bad);
-    }
-
-    cup-waveform {
-      --wave-rest: rgb(255 255 255 / 45%);
-      --wave-played: #6cb4ff;
-      --wave-head: #fff;
-      --wave-loud: rgb(255 194 77 / 18%);
-      --wave-loud-bar: var(--warn);
-      --wave-over: rgb(255 122 122 / 18%);
-      --wave-over-bar: var(--bad);
-      --wave-silence: rgb(255 255 255 / 6%);
-      --cup-muted: var(--muted);
-      --wave-height: 14vh;
-      font-size: 2vh;
-    }
-
-    /* ---------- Next ---------- */
-
-    .next {
-      margin-top: auto;
-      padding-top: 2vh;
-      border-top: 1px solid rgb(255 255 255 / 20%);
-      display: grid;
-      gap: 0.8vh;
-    }
-
-    .next .label {
-      font-size: 2.2vh;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-    }
-
-    .next h2 {
-      font-size: 3.6vh;
-      font-weight: 650;
-    }
-
-    .next cup-act-participants {
-      font-size: 2.8vh;
-    }
-
-    @media (max-width: 50rem) {
-      #wrapper {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(0, 1fr);
-        height: auto;
-        min-height: 100dvh;
+  static override styles = [
+    displayColors(":host"),
+    css`
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
-    }
-  `;
+
+      :host {
+        display: block;
+        font-family: "Mona Sans", sans-serif;
+        color: var(--color-text);
+      }
+
+      #wrapper {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(18rem, 34vw);
+        height: 100dvh;
+        background: var(--color-surface-2);
+      }
+
+      main {
+        display: flex;
+        flex-direction: column;
+        gap: 2.5vh;
+        min-height: 0;
+        padding: 3vh 3vw;
+        overflow: hidden;
+      }
+
+      aside {
+        min-height: 0;
+        overflow: hidden;
+        background: var(--color-surface);
+      }
+
+      .muted {
+        color: var(--color-text-muted);
+      }
+
+      .ok {
+        color: var(--color-ok-strong);
+      }
+
+      .warn {
+        color: var(--color-warning-strong);
+      }
+
+      .bad {
+        color: var(--color-error-strong);
+      }
+
+      /* ---------- Clock and delay ---------- */
+
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 1vh 3vw;
+      }
+
+      .clock {
+        font-size: 7vh;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+      }
+
+      .delay {
+        display: grid;
+        justify-items: end;
+        line-height: 1;
+      }
+
+      .delay .label {
+        font-size: 2.6vh;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .delay .value {
+        font-size: 7vh;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .delay .end {
+        font-size: 2.2vh;
+        color: var(--color-text-muted);
+        margin-top: 0.6vh;
+      }
+
+      /* ---------- Current phase ---------- */
+
+      .phase {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5vh 1.5vw;
+        font-size: 2.8vh;
+      }
+
+      .chip {
+        padding: 0.2vh 0.8vw;
+        border-radius: 999px;
+        background: var(--color-hover);
+        font-weight: 650;
+      }
+
+      .current {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5vh;
+        min-height: 0;
+      }
+
+      h1 {
+        font-size: 6vh;
+        line-height: 1.1;
+      }
+
+      h2 {
+        font-size: 3.4vh;
+        font-weight: 500;
+      }
+
+      cup-act-participants {
+        font-size: 3.4vh;
+      }
+
+      .description {
+        font-size: 2.6vh;
+        color: var(--color-text-muted);
+      }
+
+      /* ---------- Progress ---------- */
+
+      .progress {
+        display: grid;
+        gap: 0.8vh;
+      }
+
+      .progress .time {
+        font-size: 5vh;
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .progress .time small {
+        font-size: 2.6vh;
+        font-weight: 400;
+        color: var(--color-text-muted);
+      }
+
+      .bar {
+        height: 1.6vh;
+        border-radius: 1vh;
+        background: var(--color-hover);
+        overflow: hidden;
+      }
+
+      .bar > div {
+        height: 100%;
+        background: var(--color-ok-strong);
+        transition: width 1s linear;
+      }
+
+      .bar.over > div {
+        background: var(--color-error-strong);
+      }
+
+      cup-waveform {
+        --wave-rest: var(--color-border-strong);
+        --wave-head: var(--color-text);
+        --wave-silence: var(--color-surface);
+        --wave-height: 14vh;
+        font-size: 2vh;
+      }
+
+      /* ---------- Next ---------- */
+
+      .next {
+        margin-top: auto;
+        padding-top: 2vh;
+        border-top: 1px solid var(--color-border);
+        display: grid;
+        gap: 0.8vh;
+      }
+
+      .next .label {
+        font-size: 2.2vh;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--color-text-muted);
+      }
+
+      .next h2 {
+        font-size: 3.6vh;
+        font-weight: 650;
+      }
+
+      .next cup-act-participants {
+        font-size: 2.8vh;
+      }
+
+      @media (max-width: 50rem) {
+        #wrapper {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto minmax(0, 1fr);
+          height: auto;
+          min-height: 100dvh;
+        }
+      }
+    `,
+  ];
 
   @state() private timeplan?: Timeplan;
   @state() private playback?: Playback;

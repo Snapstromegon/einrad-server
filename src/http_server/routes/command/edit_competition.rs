@@ -6,8 +6,9 @@ use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
+    colors,
     competition::{Competition, upsert_competition},
-    config::{CompetitionConfig, is_valid_iban},
+    config::{Branding, CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::{Photos, PhotosSettings},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
@@ -100,6 +101,14 @@ pub async fn edit_competition(
     let config = CompetitionConfig::from(&competition);
     config.validate().map_err(HttpError::ErrorMessages)?;
     upsert_competition(&mut *transaction, &config).await?;
+    // The form sets both colors; `None` is the default (ADR 0009).
+    colors::write(
+        &mut *transaction,
+        &competition.id,
+        &Branding::set_or_reset(competition.primary_color.clone()),
+        &Branding::set_or_reset(competition.secondary_color.clone()),
+    )
+    .await?;
     transaction.commit().await?;
     info!("Edited competition {}", competition.id);
     photos.configure(competition.photos.as_ref());

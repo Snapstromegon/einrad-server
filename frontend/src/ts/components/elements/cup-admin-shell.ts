@@ -79,8 +79,8 @@ export default class CupAdminShell extends LitElement {
       :host {
         display: block;
         min-height: 100dvh;
-        background: var(--cup-surface);
-        color: var(--cup-text);
+        background: var(--color-surface);
+        color: var(--color-text);
       }
 
       header {
@@ -93,11 +93,11 @@ export default class CupAdminShell extends LitElement {
         gap: 0.125rem 0.375rem;
         min-height: var(--admin-bar-h);
         padding: 0.1875rem 0.5rem;
-        background: var(--cup-blue);
-        color: #fff;
+        background: var(--color-primary);
+        color: var(--color-on-primary);
         font-size: 13px;
         line-height: 1.2;
-        box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+        box-shadow: 0 1px 3px var(--color-shadow);
       }
 
       .brand {
@@ -106,7 +106,7 @@ export default class CupAdminShell extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: #fff;
+        color: var(--color-on-primary);
         font-weight: 700;
         text-decoration: none;
       }
@@ -121,25 +121,25 @@ export default class CupAdminShell extends LitElement {
       nav a {
         padding: 0.25rem 0.4rem;
         border-radius: 3px;
-        color: rgb(255 255 255 / 88%);
+        color: var(--color-on-primary-muted);
         text-decoration: none;
         white-space: nowrap;
       }
 
       nav a:hover {
-        background: rgb(255 255 255 / 14%);
-        color: #fff;
+        background: var(--color-on-primary-hover);
+        color: var(--color-on-primary);
       }
 
       nav a.active {
-        background: var(--cup-surface);
-        color: var(--cup-blue);
+        background: var(--color-surface);
+        color: var(--color-primary-strong);
         font-weight: 650;
       }
 
       nav a:focus-visible,
       .brand:focus-visible {
-        outline: 2px solid var(--cup-blue-2);
+        outline: 2px solid var(--color-focus);
         outline-offset: 1px;
       }
 
@@ -152,7 +152,7 @@ export default class CupAdminShell extends LitElement {
         align-items: center;
         gap: 0.2rem;
         padding-inline: 0.3rem;
-        color: rgb(255 255 255 / 72%);
+        color: var(--color-on-primary-muted);
         font-size: 12px;
       }
 
@@ -168,27 +168,27 @@ export default class CupAdminShell extends LitElement {
 
       .cap {
         padding: 0 0.45em;
-        border: 1px solid rgb(255 255 255 / 35%);
+        border: 1px solid var(--color-on-primary-border);
         border-radius: 999px;
         font-size: 11px;
         font-weight: 600;
         line-height: 16px;
         white-space: nowrap;
-        color: rgb(255 255 255 / 78%);
+        color: var(--color-on-primary-muted);
       }
 
       .cap.open {
         border-color: transparent;
-        background: var(--cup-green);
-        color: #fff;
+        background: var(--color-ok-strong);
+        color: var(--color-on-ok-strong);
       }
 
       .logout {
-        color: #fff;
+        color: var(--color-on-primary);
       }
 
       .logout:hover:not(:disabled) {
-        background: rgb(255 255 255 / 14%);
+        background: var(--color-on-primary-hover);
       }
 
       :host([fullscreen]) {
@@ -222,12 +222,12 @@ export default class CupAdminShell extends LitElement {
 
       .denied h1 {
         margin-bottom: 0.5rem;
-        color: var(--cup-red);
+        color: var(--color-error-strong);
         font-size: 1.4em;
       }
 
       .denied a {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
       }
 
       /* Keep the bar on one line on common laptop widths. */

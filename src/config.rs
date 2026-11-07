@@ -18,7 +18,8 @@ use time::{
 use url::Url;
 
 use crate::{
-    act_type::ActType, competition::Features, photos::PhotosSettings, timeplan::EntryKind,
+    act_type::ActType, colors::HexColor, competition::Features, logo::SvgLogo,
+    photos::PhotosSettings, timeplan::EntryKind,
 };
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
@@ -288,6 +289,74 @@ pub struct CompetitionConfig {
     /// Where the info board's photos come from; without it there are none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photos: Option<PhotosSettings>,
+    /// The competition's logo as SVG; raster logos are uploaded in the
+    /// admin UI. A replace keeps the logo unless the file sets it.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub logo_svg: Branding<SvgLogo>,
+    /// The primary color of every page, e.g. from the logo, as `#rgb` or
+    /// `#rrggbb`; the frontend derives all other colors from it and the
+    /// secondary color. A replace keeps it unless the file sets it.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub primary_color: Branding<HexColor>,
+    /// The secondary color, like the primary color.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub secondary_color: Branding<HexColor>,
+}
+
+/// A branding setting of the competition file, like the logo (ADR 0009): a
+/// replace keeps what the database has unless the file sets it. Left out,
+/// it's kept; an empty string resets it to the default built into the
+/// binary; any other value sets it, checked by `T`'s `FromStr`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Branding<T> {
+    #[default]
+    Keep,
+    Reset,
+    Set(T),
+}
+
+impl<T> Branding<T> {
+    /// A setting as the admin UI saves it: `None` is the default.
+    pub fn set_or_reset(value: Option<T>) -> Self {
+        value.map_or(Branding::Reset, Branding::Set)
+    }
+
+    pub fn is_keep(&self) -> bool {
+        matches!(self, Branding::Keep)
+    }
+
+    /// The value it sets; `None` if it keeps or resets it.
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Branding::Set(value) => Some(value),
+            Branding::Keep | Branding::Reset => None,
+        }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Branding<T>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        if value.is_empty() {
+            return Ok(Branding::Reset);
+        }
+        value.parse().map(Branding::Set).map_err(D::Error::custom)
+    }
+}
+
+impl<T: std::fmt::Display> Serialize for Branding<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            // Left out of the file by `skip_serializing_if`.
+            Branding::Keep => serializer.serialize_none(),
+            Branding::Reset => serializer.serialize_str(""),
+            Branding::Set(value) => serializer.serialize_str(&value.to_string()),
+        }
+    }
 }
 
 /// Rules of the Jury-Konzept Einrad Freestyle (Stand 15.09.2025), which are

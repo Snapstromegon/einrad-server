@@ -117,8 +117,8 @@ export default class CupClubStepJury extends LitElement {
 
       table.list > thead > tr > th {
         padding: 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
-        color: var(--cup-muted);
+        border-bottom: 1px solid var(--color-border);
+        color: var(--color-text-muted);
         font-size: 0.8rem;
         font-weight: 600;
         text-align: left;
@@ -126,13 +126,13 @@ export default class CupClubStepJury extends LitElement {
 
       table.list > * > tr > td {
         padding: 0.5rem;
-        border-bottom: 1px solid var(--cup-border);
+        border-bottom: 1px solid var(--color-border);
         vertical-align: middle;
       }
 
       table.list > tfoot > tr > td {
-        background: var(--cup-surface-2);
-        border-top: 2px solid var(--cup-border);
+        background: var(--color-surface-2);
+        border-top: 2px solid var(--color-border);
         border-bottom: none;
         font-weight: 600;
       }
@@ -160,7 +160,7 @@ export default class CupClubStepJury extends LitElement {
       }
 
       table.list .material-icon.trained {
-        color: var(--cup-green);
+        color: var(--color-ok-strong);
       }
 
       table.list > thead > tr > th.num,
@@ -175,18 +175,18 @@ export default class CupClubStepJury extends LitElement {
       }
 
       .sum.none {
-        background: color-mix(in srgb, var(--cup-red) 20%, var(--cup-surface));
-        color: var(--cup-red);
+        background: var(--color-error-soft);
+        color: var(--color-error-strong);
       }
 
       .sum.below {
-        background: color-mix(in srgb, var(--cup-amber) 30%, var(--cup-surface));
-        color: color-mix(in srgb, var(--cup-amber) 70%, var(--cup-text));
+        background: var(--color-warning-soft);
+        color: var(--color-warning-strong);
       }
 
       .sum.met {
-        background: color-mix(in srgb, var(--cup-green) 20%, var(--cup-surface));
-        color: var(--cup-green);
+        background: var(--color-ok-soft);
+        color: var(--color-ok-strong);
       }
 
       table.list .unit {
@@ -216,7 +216,7 @@ export default class CupClubStepJury extends LitElement {
             "regs regs regs";
           gap: 0.25rem 0.5rem;
           padding: 0.75rem 0;
-          border-bottom: 1px solid var(--cup-border);
+          border-bottom: 1px solid var(--color-border);
         }
 
         table.judges > tbody > tr > td {
@@ -244,7 +244,7 @@ export default class CupClubStepJury extends LitElement {
 
         table.judges > tbody > tr > td.age {
           grid-area: age;
-          color: var(--cup-muted);
+          color: var(--color-text-muted);
           font-size: 0.9rem;
         }
 
@@ -263,8 +263,8 @@ export default class CupClubStepJury extends LitElement {
         table.judges > tfoot > tr {
           display: flex;
           justify-content: space-between;
-          background: var(--cup-surface-2);
-          border-top: 2px solid var(--cup-border);
+          background: var(--color-surface-2);
+          border-top: 2px solid var(--color-border);
         }
 
         table.judges > tfoot > tr > td:empty {
@@ -282,19 +282,19 @@ export default class CupClubStepJury extends LitElement {
         height: 1.75rem;
         margin: -0.25rem 0 0.75rem;
         border-radius: 0.5rem;
-        border: 1px solid var(--cup-border);
-        background: var(--cup-surface);
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
         overflow: hidden;
       }
 
       /* Light fills, so the label on top stays readable. */
       .progress .bar {
         height: 100%;
-        background: color-mix(in srgb, var(--cup-amber) 35%, var(--cup-surface));
+        background: var(--color-warning-border);
       }
 
       .progress .bar.full {
-        background: color-mix(in srgb, var(--cup-green) 35%, var(--cup-surface));
+        background: var(--color-ok-border);
       }
 
       .progress span {
@@ -316,7 +316,7 @@ export default class CupClubStepJury extends LitElement {
       .grid-wrap {
         flex: 1 1 100%;
         overflow-x: auto;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 0.5rem;
       }
 
@@ -327,8 +327,8 @@ export default class CupClubStepJury extends LitElement {
 
       table.grid th {
         padding: 0.5rem 0.75rem;
-        background: var(--cup-surface-2);
-        color: var(--cup-muted);
+        background: var(--color-surface-2);
+        color: var(--color-text-muted);
         font-size: 0.8rem;
         font-weight: 600;
         text-align: left;
@@ -341,22 +341,22 @@ export default class CupClubStepJury extends LitElement {
 
       table.grid th.task abbr {
         display: block;
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-size: 1rem;
         text-decoration: none;
       }
 
       table.grid td {
         padding: 0;
-        border-top: 1px solid var(--cup-border);
+        border-top: 1px solid var(--color-border);
       }
 
       table.grid tbody tr:nth-child(even) {
-        background: color-mix(in srgb, var(--cup-surface-2) 50%, transparent);
+        background: var(--color-surface-2);
       }
 
       table.grid tbody tr:hover {
-        background: color-mix(in srgb, var(--cup-blue-2) 20%, transparent);
+        background: var(--color-hover);
       }
 
       table.grid td.category {
@@ -371,23 +371,23 @@ export default class CupClubStepJury extends LitElement {
       }
 
       table.grid td.count {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       table.grid tfoot td {
-        border-top: 2px solid var(--cup-border);
-        background: var(--cup-surface-2);
+        border-top: 2px solid var(--color-border);
+        background: var(--color-surface-2);
         font-weight: 600;
       }
 
       table.grid tfoot td.count {
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-size: 1.1rem;
       }
 
       table.grid td.category small {
         display: block;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       /*
@@ -421,8 +421,8 @@ export default class CupClubStepJury extends LitElement {
         width: 1.4rem;
         height: 1.4rem;
         border-radius: 50%;
-        border: 2px solid var(--cup-border);
-        background: var(--cup-surface);
+        border: 2px solid var(--color-border);
+        background: var(--color-surface);
       }
 
       table.grid .chk .material-icon {
@@ -431,21 +431,21 @@ export default class CupClubStepJury extends LitElement {
       }
 
       table.grid td.task input:checked + .chk {
-        background: var(--cup-blue);
-        border-color: var(--cup-blue);
+        background: var(--color-primary-strong);
+        border-color: var(--color-primary-strong);
       }
 
       table.grid td.task input:checked + .chk .material-icon {
-        color: #fff;
+        color: var(--color-on-primary-strong);
       }
 
       table.grid td.task input:focus-visible + .chk {
-        outline: 2px solid var(--cup-blue);
+        outline: 2px solid var(--color-primary-strong);
         outline-offset: 2px;
       }
 
       table.grid td.task:not(.off) label:hover .chk {
-        border-color: var(--cup-blue);
+        border-color: var(--color-primary-strong);
       }
 
       table.grid td.task.off label {
@@ -486,14 +486,14 @@ export default class CupClubStepJury extends LitElement {
           gap: 0.4rem;
           margin-bottom: 0.6rem;
           padding: 0.75rem;
-          border: 1px solid var(--cup-border);
+          border: 1px solid var(--color-border);
           border-radius: 0.75rem;
-          background: var(--cup-surface);
+          background: var(--color-surface);
         }
 
         table.grid > tbody > tr:nth-child(even),
         table.grid > tbody > tr:hover {
-          background: var(--cup-surface);
+          background: var(--color-surface);
         }
 
         table.grid > tbody > tr > td {
@@ -518,8 +518,8 @@ export default class CupClubStepJury extends LitElement {
           width: auto;
           padding: 0.125rem 0.5rem;
           border-radius: 99px;
-          background: color-mix(in srgb, var(--cup-blue-2) 35%, var(--cup-surface));
-          color: var(--cup-blue);
+          background: var(--color-highlight);
+          color: var(--color-primary-strong);
           font-size: 0.8rem;
           font-weight: 700;
           white-space: nowrap;
@@ -532,27 +532,27 @@ export default class CupClubStepJury extends LitElement {
 
         table.grid td.task label {
           padding: 0 0.5rem;
-          border: 1.5px solid var(--cup-border);
+          border: 1.5px solid var(--color-border);
           border-radius: 0.6rem;
-          background: var(--cup-surface);
-          color: var(--cup-blue);
+          background: var(--color-surface);
+          color: var(--color-primary-strong);
           font-size: 0.85rem;
           font-weight: 600;
         }
 
         table.grid td.task:has(input:checked) label {
-          background: var(--cup-blue);
-          border-color: var(--cup-blue);
-          color: #fff;
+          background: var(--color-primary-strong);
+          border-color: var(--color-primary-strong);
+          color: var(--color-on-primary-strong);
         }
 
         table.grid td.task input:checked + .chk {
-          background: #fff;
-          border-color: #fff;
+          background: var(--color-on-primary-strong);
+          border-color: var(--color-on-primary-strong);
         }
 
         table.grid td.task input:checked + .chk .material-icon {
-          color: var(--cup-blue);
+          color: var(--color-primary-strong);
         }
 
         table.grid td.task.off label {
@@ -579,9 +579,9 @@ export default class CupClubStepJury extends LitElement {
           justify-content: space-between;
           align-items: center;
           padding: 0.75rem;
-          border: 2px solid var(--cup-border);
+          border: 2px solid var(--color-border);
           border-radius: 0.75rem;
-          background: var(--cup-surface-2);
+          background: var(--color-surface-2);
         }
 
         table.grid > tfoot > tr > td {
@@ -657,7 +657,7 @@ export default class CupClubStepJury extends LitElement {
       ${
         this.canRegister && this.editing === null
           ? html`<div class="next-step add-judge">
-              <button class="btn primary" @click=${this.startAdd}>
+              <button class="btn secondary" @click=${this.startAdd}>
                 <i class="material-icon">person_add</i> JurorIn hinzufügen
               </button>
             </div>`
@@ -717,7 +717,7 @@ export default class CupClubStepJury extends LitElement {
       ${this.renderPlan()}
 
       <div class="next-step">
-        <button class="btn blue" @click=${this.goToPayment}>
+        <button class="btn primary" @click=${this.goToPayment}>
           Weiter: Startgeld <i class="material-icon">arrow_forward</i>
         </button>
       </div>`;
@@ -1051,7 +1051,7 @@ export default class CupClubStepJury extends LitElement {
         /></label>
         ${this.renderGrid()}
         <div class="actions">
-          <button class="btn primary" ?disabled=${this.saving}>
+          <button class="btn secondary" ?disabled=${this.saving}>
             <i class="material-icon">save</i> Speichern
           </button>
           <button

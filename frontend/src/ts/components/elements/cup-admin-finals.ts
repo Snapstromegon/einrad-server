@@ -145,7 +145,7 @@ export default class CupAdminFinals extends LitElement {
       }
 
       tr.editing > td {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
         vertical-align: top;
       }
 
@@ -171,7 +171,7 @@ export default class CupAdminFinals extends LitElement {
       }
 
       tr.placing > td {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
       }
 
       .placement {
