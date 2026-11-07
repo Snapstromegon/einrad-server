@@ -176,7 +176,8 @@ export default class CupViewAdminPayments extends LitElement {
       }
 
       .zero {
-        color: color-mix(in srgb, var(--cup-muted) 55%, transparent);
+        color: var(--color-text-muted);
+        opacity: 0.6;
       }
 
       td.contact .email {
@@ -185,7 +186,7 @@ export default class CupViewAdminPayments extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         vertical-align: bottom;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       /* Wide enough for the editor, so the table doesn't jump. */
@@ -226,15 +227,15 @@ export default class CupViewAdminPayments extends LitElement {
 
       .pay-btn:hover,
       .pay-btn:focus-visible {
-        border-color: var(--cup-blue-2);
-        background: var(--tone-info-bg);
+        border-color: var(--color-focus);
+        background: var(--color-primary-soft);
         outline: none;
       }
 
       .pay-btn .material-icon {
         align-self: center;
         font-size: 14px;
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         visibility: hidden;
       }
 
@@ -244,7 +245,7 @@ export default class CupViewAdminPayments extends LitElement {
       }
 
       tr.editing > td {
-        background: var(--tone-info-bg);
+        background: var(--color-primary-soft);
       }
 
       .booking-form {
@@ -254,9 +255,9 @@ export default class CupViewAdminPayments extends LitElement {
         gap: 0.25rem 0.75rem;
         margin: 0.375rem 0;
         padding: 4px 8px;
-        border: 1px solid var(--cup-border);
+        border: 1px solid var(--color-border);
         border-radius: 4px;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       .booking-form label {
@@ -281,7 +282,7 @@ export default class CupViewAdminPayments extends LitElement {
       /* The bookings and log of one club, under its row. */
       tr.club-details > td {
         padding: 0.25rem 0.5rem 0.75rem 2rem;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       tr.club-details h3 {
@@ -305,13 +306,13 @@ export default class CupViewAdminPayments extends LitElement {
       }
 
       .negative {
-        color: var(--cup-red);
+        color: var(--color-error-strong);
       }
 
       /* An applied booking and the clubs it changed; fades out. */
       @keyframes applied {
         from {
-          background: color-mix(in srgb, var(--cup-green) 35%, var(--cup-surface));
+          background: var(--color-ok-border);
         }
       }
 
@@ -320,13 +321,13 @@ export default class CupViewAdminPayments extends LitElement {
       }
 
       tr.applied > td:first-child {
-        box-shadow: inset 3px 0 0 var(--cup-green);
+        box-shadow: inset 3px 0 0 var(--color-ok);
       }
 
       @media (prefers-reduced-motion: reduce) {
         tr.applied > td {
           animation: none;
-          background: var(--tone-ok-bg);
+          background: var(--color-ok-soft);
         }
       }
     `,
@@ -1347,7 +1348,7 @@ export default class CupViewAdminPayments extends LitElement {
     </ul>`;
   }
 
-  /** Red if owed, green if settled, a blue chip if overpaid. */
+  /** Red if owed, green if settled, an info chip if overpaid. */
   renderOpen(open: number, due: number) {
     if (open > CENT) {
       return html`<b class="text-bad">${formatMoney(open)}</b>`;

@@ -189,6 +189,9 @@ The public screen in the hall showing what's running now and next.
 **Moderation screen** (Moderation):
 The screen for the announcer with the current and next act and the delay.
 
+**Display** (Anzeige):
+A screen in the hall that shows the event and isn't operated: the info board and the moderation screen.
+
 ### Money
 
 **Start fee** (Startgeld):

@@ -17,13 +17,13 @@ export default class CupCenteredIconBox extends LitElement {
       justify-content: center;
       align-items: center;
       height: 100dvh;
-      background: #99add7;
+      background: var(--color-primary-border);
       padding: 1rem;
     }
 
     #wrapper {
       display: flex;
-      background: #fff;
+      background: var(--color-surface);
       border-radius: 0.5rem;
       overflow: hidden;
       flex-wrap: wrap;
@@ -36,7 +36,7 @@ export default class CupCenteredIconBox extends LitElement {
         place-items: center;
         justify-content: center;
         padding: 2rem;
-        background: #002d56;
+        background: var(--color-primary);
 
         & img {
           width: 100%;

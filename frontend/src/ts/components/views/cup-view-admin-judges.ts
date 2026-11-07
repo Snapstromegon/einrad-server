@@ -92,7 +92,7 @@ export default class CupViewAdminJudges extends LitElement {
       }
 
       .fifteen {
-        color: var(--cup-warn, #b26a00);
+        color: var(--color-warning-strong);
       }
 
       section {

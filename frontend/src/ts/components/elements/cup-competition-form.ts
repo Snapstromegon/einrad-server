@@ -38,13 +38,13 @@ export default class CupCompetitionForm extends LitElement {
       fieldset {
         margin: 0.75rem 0;
         padding: 0.5rem 0.75rem 0.75rem;
-        border: 1px solid var(--cup-border, #ccd);
+        border: 1px solid var(--color-border);
         border-radius: 4px;
       }
 
       legend {
         padding: 0 0.25rem;
-        color: var(--cup-blue);
+        color: var(--color-primary-strong);
         font-weight: 650;
       }
 
@@ -67,7 +67,7 @@ export default class CupCompetitionForm extends LitElement {
       }
 
       label small {
-        color: var(--cup-text-2, #667);
+        color: var(--color-text-muted);
       }
 
       .password {
@@ -81,8 +81,8 @@ export default class CupCompetitionForm extends LitElement {
       }
 
       input[readonly] {
-        color: var(--cup-text-2, #667);
-        background: var(--cup-surface-2);
+        color: var(--color-text-muted);
+        background: var(--color-surface-2);
       }
     `,
   ];

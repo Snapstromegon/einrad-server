@@ -383,7 +383,7 @@ const fraction = (
   >`;
 };
 
-/** The open amount: red if owed, green if settled, a blue chip if overpaid. */
+/** The open amount: red if owed, green if settled, an info chip if overpaid. */
 const openAmount = (open: number, due: number): TemplateResult => {
   if (open > CENT) {
     return html`<b class="text-bad">${formatMoney(open)}</b>`;
@@ -437,7 +437,8 @@ export default class CupViewAdmin extends LitElement {
       }
 
       .zero {
-        color: color-mix(in srgb, var(--cup-muted) 55%, transparent);
+        color: var(--color-text-muted);
+        opacity: 0.6;
       }
 
       td.contact .email {
@@ -446,7 +447,7 @@ export default class CupViewAdmin extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         vertical-align: bottom;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       /* One column per role in the users table. */
@@ -504,7 +505,7 @@ export default class CupViewAdmin extends LitElement {
 
       .issues summary::before {
         content: "▸";
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         transition: transform 0.1s;
       }
 
@@ -523,7 +524,7 @@ export default class CupViewAdmin extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
       }
 
       .issues details[open] .preview {

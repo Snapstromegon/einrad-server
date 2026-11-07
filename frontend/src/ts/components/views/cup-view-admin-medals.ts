@@ -15,6 +15,7 @@ import {
 } from "../../medals";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { lightColors } from "../../styles/theme";
 
 @customElement("cup-view-admin-medals")
 export default class CupViewAdminMedals extends LitElement {
@@ -22,6 +23,8 @@ export default class CupViewAdminMedals extends LitElement {
     resetStyles,
     iconStyles,
     adminStyles,
+    // The sheets are paper, light in dark mode too.
+    lightColors(".sheet"),
     css`
       .toolbar h1 {
         margin: 0 0.5rem 0 0;
@@ -32,11 +35,11 @@ export default class CupViewAdminMedals extends LitElement {
         justify-content: center;
         gap: 0.75rem;
         padding: 0.75rem;
-        background: var(--cup-surface-2);
+        background: var(--color-surface-2);
       }
 
       .sheet-label {
-        color: var(--cup-muted);
+        color: var(--color-text-muted);
         font-size: 11px;
       }
 
@@ -49,9 +52,9 @@ export default class CupViewAdminMedals extends LitElement {
         gap: 0 2.5mm;
         width: 210mm;
         height: 297mm;
-        background: #fff;
-        color: #000;
-        box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+        background: var(--color-surface);
+        color: var(--color-text);
+        box-shadow: 0 1px 4px var(--color-shadow);
         break-inside: avoid;
       }
 
@@ -64,7 +67,7 @@ export default class CupViewAdminMedals extends LitElement {
         line-height: 1.2;
         text-align: center;
         text-wrap: balance;
-        outline: 1px dashed var(--cup-border);
+        outline: 1px dashed var(--color-border);
         outline-offset: -1px;
       }
 

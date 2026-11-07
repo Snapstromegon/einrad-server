@@ -39,9 +39,9 @@ export default class CupViewActs extends LitElement {
 
     header {
       display: grid;
-      background: #002d56;
+      background: var(--color-primary);
       padding: 2rem 0;
-      color: #fff;
+      color: var(--color-on-primary);
       grid-template-columns: 1fr 2fr;
       grid-template-rows: auto auto auto;
       grid-template-areas: "img h1" "img date" "img location";
@@ -93,8 +93,8 @@ export default class CupViewActs extends LitElement {
       border: none;
       text-decoration: none;
       border-radius: 100vh;
-      background: rgb(0, 45, 86);
-      color: #fff;
+      background: var(--color-primary-strong);
+      color: var(--color-on-primary-strong);
     }
   `;
 

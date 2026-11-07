@@ -31,10 +31,8 @@ import {
  *   groups a "✓ x/y" count. Inline groups list missing members first, so they
  *   stay visible when the line is cut off.
  *
- * Inherits font and colour. Markers and counts use the darker, readable
- * `--tone-*-fg` colours of `adminStyles` when the host page defines them. On
- * dark backgrounds, `--ci-yes-color` and `--ci-no-color` override the marker
- * colours.
+ * Inherits font and colour. Markers and counts use the status tokens
+ * (`--color-ok-strong`, …), so they follow the page's scheme, e.g. on displays.
  */
 @customElement("cup-act-participants")
 export default class CupActParticipants extends LitElement {
@@ -79,7 +77,7 @@ export default class CupActParticipants extends LitElement {
     }
 
     .incomplete {
-      color: var(--tone-warn-fg, var(--cup-amber));
+      color: var(--color-warning-strong);
       font-weight: 600;
     }
 
@@ -133,11 +131,11 @@ export default class CupActParticipants extends LitElement {
     }
 
     .ci.yes {
-      color: var(--ci-yes-color, var(--tone-ok-fg, var(--cup-green)));
+      color: var(--color-ok-strong);
     }
 
     .ci.no {
-      color: var(--ci-no-color, var(--cup-muted));
+      color: var(--color-text-muted);
     }
 
     .ci.yes::before {
@@ -155,16 +153,18 @@ export default class CupActParticipants extends LitElement {
       font-size: 0.85em;
       font-weight: 700;
       line-height: 1.35;
-      color: #fff;
-      background: var(--tone-bad-fg, var(--cup-red));
+      color: var(--color-on-error-strong);
+      background: var(--color-error-strong);
     }
 
     .count.ok {
-      background: var(--tone-ok-fg, var(--cup-green));
+      color: var(--color-on-ok-strong);
+      background: var(--color-ok-strong);
     }
 
     .count.warn {
-      background: var(--tone-warn-fg, var(--cup-amber));
+      color: var(--color-on-warning-strong);
+      background: var(--color-warning-strong);
     }
   `;
 

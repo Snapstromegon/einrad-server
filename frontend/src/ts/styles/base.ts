@@ -16,7 +16,7 @@ export const resetStyles = css`
  *   Add `.inline` to size it to the surrounding text.
  * - `.icon-btn`: a compact icon-only button with an 18px glyph, e.g.
  *   `<button class="icon-btn" title="Bearbeiten" aria-label="Bearbeiten">edit</button>`.
- *   Colour modifiers: `.primary` (blue), `.ok` (green), `.danger` (red).
+ *   Colour modifiers: `.primary`, `.ok` and `.danger`.
  */
 export const iconStyles = css`
   .material-icon,
@@ -63,11 +63,11 @@ export const iconStyles = css`
   }
 
   .icon-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, currentColor 12%, transparent);
+    background: var(--color-hover);
   }
 
   .icon-btn:focus-visible {
-    outline: 2px solid var(--cup-blue-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: 0;
   }
 
@@ -77,14 +77,14 @@ export const iconStyles = css`
   }
 
   .icon-btn.primary {
-    color: var(--cup-blue);
+    color: var(--color-primary-strong);
   }
 
   .icon-btn.ok {
-    color: var(--cup-green);
+    color: var(--color-ok-strong);
   }
 
   .icon-btn.danger {
-    color: var(--cup-red);
+    color: var(--color-error-strong);
   }
 `;
