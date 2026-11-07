@@ -4,12 +4,13 @@
 //! file gives the same file again.
 //!
 //! In the file: the competition with its id, the features it sets, the
-//! photos with their password, an SVG logo, the categories with explicit
-//! birthday bounds, the finals, the timeplan entries and the jury
-//! categories. Not in it: a raster logo (only SVG fits into the file; the
-//! header says so), anything clubs entered, bookings, fee waivers, users and
-//! roles, the act order, timeplan progress, finals placements and the jury
-//! plan.
+//! photos with their password, an SVG logo, the colors it sets, the
+//! categories with explicit birthday bounds, the finals, the timeplan
+//! entries and the jury categories. Not in it: a raster logo (only SVG fits
+//! into the file; the header says so), default colors (an import keeps the
+//! colors, like the logo, unless the file sets them), anything clubs
+//! entered, bookings, fee waivers, users and roles, the act order, timeplan
+//! progress, finals placements and the jury plan.
 
 use time::{Date, OffsetDateTime};
 

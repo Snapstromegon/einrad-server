@@ -18,8 +18,8 @@ use time::{
 use url::Url;
 
 use crate::{
-    act_type::ActType, competition::Features, logo::SvgLogo, photos::PhotosSettings,
-    timeplan::EntryKind,
+    act_type::ActType, colors::HexColor, competition::Features, logo::SvgLogo,
+    photos::PhotosSettings, timeplan::EntryKind,
 };
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
@@ -293,6 +293,14 @@ pub struct CompetitionConfig {
     /// admin UI. A replace keeps the logo unless the file sets it.
     #[serde(default, skip_serializing_if = "Branding::is_keep")]
     pub logo_svg: Branding<SvgLogo>,
+    /// The primary color of every page, e.g. from the logo, as `#rgb` or
+    /// `#rrggbb`; the frontend derives all other colors from it and the
+    /// secondary color. A replace keeps it unless the file sets it.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub primary_color: Branding<HexColor>,
+    /// The secondary color, like the primary color.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub secondary_color: Branding<HexColor>,
 }
 
 /// A branding setting of the competition file, like the logo (ADR 0009): a
@@ -310,6 +318,13 @@ pub enum Branding<T> {
 impl<T> Branding<T> {
     pub fn is_keep(&self) -> bool {
         matches!(self, Branding::Keep)
+    }
+}
+
+/// A setting the admin UI saves: `None` is the default.
+impl<T> From<Option<T>> for Branding<T> {
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Branding::Reset, Branding::Set)
     }
 }
 

@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
+    colors,
     competition::{Competition, upsert_competition},
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
@@ -513,6 +514,7 @@ pub enum Applied {
 pub enum Part {
     Settings,
     Logo,
+    Colors,
     Categories,
     Finals,
     Timeplan,
@@ -525,6 +527,7 @@ impl Part {
         match self {
             Part::Settings => "the competition settings",
             Part::Logo => "the logo",
+            Part::Colors => "the colors",
             Part::Categories => "the categories",
             Part::Finals => "the finals",
             Part::Timeplan => "the timeplan",
@@ -852,6 +855,7 @@ fn db_error(e: sqlx::Error) -> String {
 struct Snapshot {
     competition: Vec<String>,
     logo: Vec<String>,
+    colors: Vec<String>,
     categories: Vec<String>,
     finals: Vec<String>,
     timeplan: Vec<String>,
@@ -879,6 +883,8 @@ impl Snapshot {
             .await?,
             // `write` only touches the logo if it changes.
             logo: rows(r#"SELECT json_array(mime_type, updated_at) FROM competition_logo"#).await?,
+            colors: rows(r#"SELECT json_array(primary_color, secondary_color) FROM competition"#)
+                .await?,
             categories: rows(
                 r#"SELECT json_array(name, description, from_birthday, to_birthday, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds,
@@ -918,6 +924,7 @@ impl Snapshot {
         [
             (self.competition != other.competition, Part::Settings),
             (self.logo != other.logo, Part::Logo),
+            (self.colors != other.colors, Part::Colors),
             (self.categories != other.categories, Part::Categories),
             (self.finals != other.finals, Part::Finals),
             (self.timeplan != other.timeplan, Part::Timeplan),
@@ -1050,6 +1057,14 @@ async fn write(
         .await
         .map_err(db_error)?;
     write_logo(conn, &competition).await.map_err(db_error)?;
+    colors::write(
+        &mut *conn,
+        &competition.id,
+        &competition.primary_color,
+        &competition.secondary_color,
+    )
+    .await
+    .map_err(db_error)?;
     // The app uses one competition. A row left over from an earlier id
     // would win in `Competition::current` if it starts later.
     sqlx::query!("DELETE FROM competition WHERE id != ?", competition.id)

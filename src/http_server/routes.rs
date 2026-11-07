@@ -1,3 +1,4 @@
+mod colors;
 pub mod command;
 mod etag;
 pub mod http_types;
@@ -130,6 +131,10 @@ pub fn get_api_router(
     router
         .route("/api/ws/player", get(player::ws::player_ws))
         .route("/api/competition/logo", get(logo::competition_logo))
+        .route(
+            "/api/competition/colors.css",
+            get(colors::competition_colors),
+        )
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))

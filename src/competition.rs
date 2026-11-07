@@ -1,6 +1,7 @@
 use time::{Date, OffsetDateTime};
 
 use crate::{
+    colors::HexColor,
     config::{Branding, CompetitionConfig, JuryConfig, PaymentConfig},
     photos::PhotosSettings,
     system_status::StatusOptions,
@@ -54,6 +55,13 @@ pub struct Competition {
     /// Never sent to clients: it holds a password.
     #[serde(skip)]
     pub photos: Option<PhotosSettings>,
+    /// The primary color of every page (see `crate::colors`); `None` for
+    /// the default.
+    #[schema(value_type = Option<String>, example = "#002d56")]
+    pub primary_color: Option<HexColor>,
+    /// The secondary color; `None` for the default.
+    #[schema(value_type = Option<String>, example = "#009036")]
+    pub secondary_color: Option<HexColor>,
 }
 
 /// Features that are still being refined, as a competition (or the system
@@ -165,7 +173,9 @@ impl Competition {
                 feature_jury_registration as "feature_jury_registration: bool",
                 photos_source,
                 photos_user,
-                photos_password
+                photos_password,
+                primary_color,
+                secondary_color
             FROM competition
             ORDER BY start_date DESC
             LIMIT 1
@@ -219,6 +229,9 @@ impl Competition {
                     user: row.photos_user,
                     password: row.photos_password,
                 }),
+                // Only valid colors are written (see `crate::colors::write`).
+                primary_color: row.primary_color.and_then(|color| color.parse().ok()),
+                secondary_color: row.secondary_color.and_then(|color| color.parse().ok()),
             }
         }))
     }
@@ -274,7 +287,17 @@ impl From<&CompetitionConfig> for Competition {
             }),
             features: config.features.clone(),
             photos: config.photos.clone(),
+            primary_color: set(&config.primary_color),
+            secondary_color: set(&config.secondary_color),
         }
+    }
+}
+
+/// The color a branding setting sets; `None` if it keeps or resets it.
+fn set(color: &Branding<HexColor>) -> Option<HexColor> {
+    match color {
+        Branding::Set(color) => Some(color.clone()),
+        Branding::Keep | Branding::Reset => None,
     }
 }
 
@@ -316,6 +339,15 @@ impl From<&Competition> for CompetitionConfig {
             // The logo isn't part of the competition's row (see
             // `crate::logo`).
             logo_svg: Branding::Keep,
+            // A default color is left out, like a missing logo.
+            primary_color: competition
+                .primary_color
+                .clone()
+                .map_or(Branding::Keep, Branding::Set),
+            secondary_color: competition
+                .secondary_color
+                .clone()
+                .map_or(Branding::Keep, Branding::Set),
         }
     }
 }

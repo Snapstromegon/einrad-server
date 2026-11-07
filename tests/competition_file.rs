@@ -219,6 +219,44 @@ async fn a_logo_comes_with_the_file_and_stays_unless_a_replace_sets_it() {
 }
 
 #[tokio::test]
+async fn a_file_with_other_colors_is_ignored_with_a_warning_naming_them() {
+    let db = in_memory_migrated().await;
+    let dir = TempDir::new();
+    write(&dir, "config.toml", SYSTEM_CONFIG);
+    let with_color = |color: &str| {
+        COMPETITION.replacen(
+            "max_fee_per_rider = 45\n",
+            &format!("max_fee_per_rider = 45\nprimary_color = \"{color}\"\n"),
+            1,
+        )
+    };
+    let competition = write(&dir, "competition.toml", &with_color("#cc0055"));
+    start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    let primary = |db| async move {
+        Competition::current(&db)
+            .await
+            .unwrap()
+            .and_then(|c| c.primary_color)
+            .map(|color| color.to_string())
+    };
+    assert_eq!(primary(db.clone()).await.as_deref(), Some("#cc0055"));
+
+    write(&dir, "competition.toml", &with_color("#1a6b3c"));
+    let report = start(&db, &dir, &["--competition", &competition])
+        .await
+        .unwrap();
+    assert_eq!(report.applied, Applied::Ignored);
+    assert!(
+        report.warnings.iter().any(|w| w.contains("the colors")),
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(primary(db.clone()).await.as_deref(), Some("#cc0055"));
+}
+
+#[tokio::test]
 async fn photos_have_no_flags_or_environment_variables_anymore() {
     let err = CliArgs::try_parse_from(["registration_server", "--photos-source", "/srv/fotos"])
         .unwrap_err();
