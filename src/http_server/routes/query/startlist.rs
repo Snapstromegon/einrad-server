@@ -3,6 +3,7 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
+    act_type::ActType,
     http_server::{ClientError, HttpError},
     reloadable_sqlite::ReloadableSqlite,
 };
@@ -13,22 +14,26 @@ pub struct StartlistActParticipant {
     lastname: String,
     id: Uuid,
     club_name: String,
+    /// Replacement riders (Ersatzfahrer) of a group.
+    is_replacement: bool,
 }
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct StartlistAct {
     id: Uuid,
     name: String,
-    is_pair: Option<bool>,
-    max_age: Option<f64>,
-    is_sonderpokal: Option<bool>,
+    /// Group acts only.
+    group_name: Option<String>,
+    act_type: ActType,
     participants: Vec<StartlistActParticipant>,
     category: Option<String>,
     act_order: Option<i64>,
     category_order: Option<i64>,
 }
 
-/// List all users.
+/// The public startlist: all acts with a category, in start order.
+///
+/// Public, so it leaves out the riders' ages and club ids.
 #[utoipa::path(
     get,
     tags=["query", "acts"],
@@ -46,9 +51,8 @@ pub async fn startlist(
     pub struct DBStartlistAct {
         id: Uuid,
         name: String,
-        is_pair: Option<bool>,
-        max_age: Option<f64>,
-        is_sonderpokal: Option<bool>,
+        group_name: Option<String>,
+        act_type: ActType,
         participants: sqlx::types::Json<Vec<StartlistActParticipant>>,
         category: Option<String>,
         act_order: Option<i64>,
@@ -59,9 +63,8 @@ pub async fn startlist(
             StartlistAct {
                 id: db_act.id,
                 name: db_act.name,
-                is_pair: db_act.is_pair,
-                max_age: db_act.max_age,
-                is_sonderpokal: db_act.is_sonderpokal,
+                group_name: db_act.group_name,
+                act_type: db_act.act_type,
                 participants: db_act.participants.0,
                 category: db_act.category,
                 act_order: db_act.act_order,
@@ -74,15 +77,14 @@ pub async fn startlist(
         DBStartlistAct,
         r#"
         SELECT
-            id as "id!: Uuid",
+            view_act.id as "id!: Uuid",
             view_act."order" as "act_order",
             categories."order" as "category_order",
             view_act.name,
-            view_act.is_pair as "is_pair: bool",
-            max_age,
-            view_act.is_sonderpokal as "is_sonderpokal: bool",
-            participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
-            category
+            view_act.group_name,
+            view_act.act_type as "act_type!: ActType",
+            view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
+            view_act.category
         FROM view_act JOIN categories ON view_act.category = categories.name
         ORDER BY categories."order", view_act."order" ASC
         "#

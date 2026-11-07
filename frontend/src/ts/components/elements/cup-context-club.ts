@@ -1,6 +1,7 @@
 import { provide } from "@lit/context";
 import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { unwrap } from "../../api";
 import { client } from "../../apiClient.js";
 import { type Club, clubContext } from "../../contexts/club.js";
 import "./cup-centered-icon-box.js";
@@ -16,19 +17,8 @@ export default class CupContextClub extends LitElement {
       if (!clubId) {
         throw new Error("Vereins ID fehlt!");
       }
-      const resp = await client.GET(`/api/query/get_club`, {
-        params: {
-          query: { club_id: clubId },
-        },
-      });
-      if (resp.error) {
-        throw new Error((resp.error as any).message);
-      }
-      if (!resp.data) {
-        throw new Error("Verein nicht gefunden!");
-      }
-      this.club = resp.data;
-      return resp.data;
+      this.club = await unwrap(client.getClub({ query: { club_id: clubId } }));
+      return this.club;
     },
     args: () => [this.clubId],
   });

@@ -1,0 +1,5 @@
+# Fixed roles for the organizer side, relationships only for clubs
+
+Organizer-side access is plain RBAC: a fixed list of roles defined in code (Admin, Jury lead, Treasurer, Check-in, Music control, Moderation, Music check), granted to users, several per user, each mapping to a fixed set of permissions that handlers require through axum extractors. Club-side access stays relationship-based, but only through the two relationships that already exist: a user's club and a group's owner club. Holding a role never widens what a club contact may do for their club, and the reverse holds too.
+
+We chose this over a general ReBAC engine (Zanzibar/OpenFGA-style relation tuples) and over admin-defined roles because, per ADR 0001, there is one competition per database: organizer data has no instances to scope a role to ("jury lead of event X"), and a handful of fixed jobs doesn't need a role editor. Once several competitions share a database, roles need an event dimension and ReBAC becomes worth revisiting.

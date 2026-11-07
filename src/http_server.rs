@@ -5,8 +5,8 @@ use serde::Serialize;
 use tracing::info;
 
 use crate::{
-    jwt::JWTConfig, mailer::Mailer, reloadable_sqlite::ReloadableSqlite,
-    system_status::StatusOptions,
+    competition::Features, jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub,
+    reloadable_sqlite::ReloadableSqlite,
 };
 
 pub mod extractor;
@@ -23,7 +23,7 @@ pub enum HttpError {
     #[error("Database error: {0}")]
     DBError(#[from] sqlx::Error),
     #[error("Mail error: {0}")]
-    MailError(#[from] lettre::transport::smtp::Error),
+    MailError(#[from] crate::mailer::MailError),
     #[error("{0}")]
     ErrorMessages(String),
     #[error("Invalid credentials")]
@@ -90,6 +90,13 @@ pub struct HttpServerOptions {
     pub base_url: String,
     pub data_path: PathBuf,
     pub reload_db_token: String,
+    /// Bearer token for `GET /metrics`; without one the endpoint is off.
+    pub metrics_token: Option<String>,
+    /// The system config's `[features]`: the defaults for the features a
+    /// competition leaves unset (see `Features::resolve`).
+    pub features: Features,
+    /// The competition id in the competition file the server started with.
+    pub competition_file_id: Option<String>,
 }
 
 pub struct HttpServer {
@@ -97,7 +104,8 @@ pub struct HttpServer {
     mailer: Arc<Mailer>,
     jwt: Arc<JWTConfig>,
     options: Arc<HttpServerOptions>,
-    status_options: Arc<StatusOptions>,
+    player_hub: Arc<PlayerHub>,
+    photos: Arc<Photos>,
 }
 
 impl HttpServer {
@@ -106,14 +114,16 @@ impl HttpServer {
         db: ReloadableSqlite,
         jwt: Arc<JWTConfig>,
         mailer: Arc<Mailer>,
-        status_options: Arc<StatusOptions>,
+        player_hub: Arc<PlayerHub>,
+        photos: Arc<Photos>,
     ) -> Self {
         Self {
             db,
             mailer,
             options: Arc::new(options),
             jwt,
-            status_options,
+            player_hub,
+            photos,
         }
     }
 
@@ -126,7 +136,8 @@ impl HttpServer {
             self.db.clone(),
             self.mailer.clone(),
             self.jwt.clone(),
-            self.status_options.clone(),
+            self.player_hub.clone(),
+            self.photos.clone(),
         );
         let address = self.options.bind_address.clone();
 

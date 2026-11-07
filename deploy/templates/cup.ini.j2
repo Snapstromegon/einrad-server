@@ -1,0 +1,11 @@
+# Managed by Ansible (deploy/), changes here are overwritten.
+[program:{{ cup_service }}]
+directory={{ app_dir }}
+command={{ app_dir }}/bin/einrad-server
+environment={% for name, value in cup_service_env.items() %}{{ name }}="{{ value }}"{{ "," if not loop.last }}{% endfor %}
+
+autostart=yes
+autorestart=yes
+startsecs=30
+stopsignal=TERM
+stopwaitsecs=30

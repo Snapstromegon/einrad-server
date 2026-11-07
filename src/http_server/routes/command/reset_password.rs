@@ -1,5 +1,7 @@
 use crate::{
-    http_server::{ClientError, HttpError}, reloadable_sqlite::ReloadableSqlite, utils::check_password
+    http_server::{ClientError, HttpError},
+    reloadable_sqlite::ReloadableSqlite,
+    utils::check_password,
 };
 use axum::{Extension, Json};
 use password_auth::generate_hash;

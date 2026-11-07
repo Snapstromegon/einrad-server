@@ -1,0 +1,68 @@
+# Installs or updates production on Uberspace: the binary, built by GitHub
+# Actions, runs as a supervisord service behind the Uberspace web backend.
+#
+#   make deploy-production   # or: ansible-playbook -i deploy/inventory.yml deploy/production.yml
+#
+# It stops before changing anything if config.toml (or a local
+# config.production.toml to upload) is missing in ~/<cup_dir>, or if it still
+# has competition sections. Without a database, the server creates an empty
+# one.
+#
+# Settings and their defaults: group_vars/all.yml and group_vars/production.yml.
+- name: Deploy production
+  hosts: production
+  tasks:
+    - name: Check the config on the server
+      ansible.builtin.import_tasks: tasks/config_check.yml
+
+    - name: Find the binary
+      ansible.builtin.import_tasks: tasks/binary.yml
+
+    # Two services from the same directory would share the database and the
+    # port, e.g. one set up by hand before.
+    - name: Look for other services running from ~/{{ cup_dir }}
+      ansible.builtin.shell: grep -lF -- {{ cup_dir | quote }} ~/etc/services.d/*.ini || true
+      register: services
+      changed_when: false
+      check_mode: false
+
+    - name: Stop if another service runs from ~/{{ cup_dir }}
+      ansible.builtin.fail:
+        msg: >-
+          {{ others | join(', ') }} also run(s) from ~/{{ cup_dir }}. Stop and remove
+          it (supervisorctl stop <name>, rm the .ini, supervisorctl reread, supervisorctl update),
+          or set cup_service to its name to take it over.
+      vars:
+        others: "{{ services.stdout_lines | map('basename') | reject('eq', cup_service ~ '.ini') | list }}"
+      when: others | length > 0
+
+    - name: Look for ffmpeg
+      ansible.builtin.command: which ffmpeg
+      register: ffmpeg
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Warn about the missing ffmpeg
+      ansible.builtin.debug:
+        msg: >-
+          ffmpeg isn't on the PATH, so uploaded songs aren't normalized. Put a
+          static ffmpeg into ~/bin or set FFMPEG in cup_service_env.
+      when: ffmpeg.rc != 0 and 'FFMPEG' not in cup_service_env
+
+    - name: Install the release
+      ansible.builtin.import_tasks: tasks/release.yml
+
+    - name: Read the web backends
+      ansible.builtin.command: uberspace web backend list
+      register: backends
+      changed_when: false
+      check_mode: false
+
+    - name: Route {{ cup_domain }} to port {{ cup_port }}
+      ansible.builtin.command: uberspace web backend set {{ cup_domain }} --http --port {{ cup_port }}
+      changed_when: true
+      when: >-
+        backends.stdout_lines
+        | select('match', '^' ~ (cup_domain | regex_escape) ~ '/? http:' ~ cup_port ~ '\b')
+        | list | length == 0

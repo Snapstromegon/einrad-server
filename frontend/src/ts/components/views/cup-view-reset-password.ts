@@ -4,9 +4,17 @@ import { customElement, state } from "lit/decorators.js";
 import { client } from "../../apiClient";
 import { type User, userContext } from "../../contexts/user";
 import "../elements/cup-centered-icon-box.js";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
+import { competitionName } from "../../utils";
 
 @customElement("cup-view-reset-password")
 export default class CupViewResetPassword extends LitElement {
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
   static override styles = css`
     * {
       margin: 0;
@@ -34,7 +42,7 @@ export default class CupViewResetPassword extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      background: #fff;
+      background: var(--color-surface);
       padding: 2rem;
       border-radius: 0.5rem;
 
@@ -46,16 +54,16 @@ export default class CupViewResetPassword extends LitElement {
 
       & button,
       a {
-        background: #009036;
-        color: #fff;
+        background: var(--color-secondary-strong);
+        color: var(--color-on-secondary-strong);
         border: none;
         border-radius: 0.5rem;
         cursor: pointer;
       }
 
       & #login {
-        background: #fff;
-        color: #002d56;
+        background: var(--color-surface);
+        color: var(--color-primary-strong);
       }
     }
 
@@ -85,8 +93,8 @@ export default class CupViewResetPassword extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }
@@ -98,7 +106,7 @@ export default class CupViewResetPassword extends LitElement {
   override render() {
     return html`<cup-centered-icon-box>
       <form @submit=${this.register}>
-        <h1>NRW Freestyle Cup 2026</h1>
+        <h1>${competitionName(this.systemStatus?.competition)}</h1>
         <h2>Passwort Zurücksetzen</h2>
         ${this.error ? html`<p id="error">${this.error}</p>` : nothing}
         <label>
@@ -152,11 +160,13 @@ export default class CupViewResetPassword extends LitElement {
       return;
     }
 
-    const resp = await client.POST("/api/command/reset_password", {
+    const resp = await client.resetPassword({
       body: {
         token,
         new_password: data.password,
       },
+      // Errors are shown below, not thrown.
+      throwOnError: false,
     });
 
     if (resp.error) {

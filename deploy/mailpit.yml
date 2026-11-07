@@ -1,0 +1,53 @@
+# Installs or updates Mailpit on einrad-server, which catches the mails of
+# the PR previews, and serves its UI at https://mail.einrad-server.home.hoeser.dev/
+# behind Authelia on the caddy VM, with the site file /etc/caddy/sites/mail.caddy.
+# The instance of preview.yml sends real mail and doesn't use it. Playbooks
+# that deploy PR previews should import this one (import_playbook), so a
+# fresh VM gets it.
+#
+#   ansible-galaxy collection install -r deploy/requirements.yml
+#   make deploy-mailpit   # or: ansible-playbook -i deploy/inventory.yml deploy/mailpit.yml
+#
+# The image is the FROM line of mailpit/Dockerfile (Dependabot updates it);
+# the other settings are in group_vars/preview.yml.
+- name: Run Mailpit
+  hosts: preview
+  become: true
+  tasks:
+    # The docker modules talk to the daemon with requests, which python3-docker
+    # brings along.
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: [docker.io, python3-docker]
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Start Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Run the container
+      ansible.builtin.import_tasks: tasks/mailpit.yml
+
+- name: Serve Mailpit behind Authelia
+  hosts: proxy
+  become: true
+  vars:
+    preview_host: "{{ groups['preview'] | first }}"
+    domain: "{{ hostvars[preview_host].mailpit_domain }}"
+    ui_port: "{{ hostvars[preview_host].mailpit_ui_port }}"
+  tasks:
+    - name: Set up the site files
+      ansible.builtin.import_tasks: tasks/caddy_setup.yml
+
+    - name: Add {{ domain }}
+      ansible.builtin.include_tasks: tasks/caddy_site.yml
+      vars:
+        caddy_site: mail
+        caddy_site_content: |
+          {{ domain }} {
+          	import authelia
+          	reverse_proxy "http://{{ preview_host }}:{{ ui_port }}"
+          }

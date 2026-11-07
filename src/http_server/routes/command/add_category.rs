@@ -1,11 +1,13 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
+    act_type::ActType,
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::ReloadableSqlite,
+    roles::permit,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -17,8 +19,7 @@ pub struct AddCategoryBody {
     description: Option<String>,
     from_birthday: String, // ISO date string
     to_birthday: String,   // ISO date string
-    is_pair: bool,
-    is_sonderpokal: bool,
+    act_type: ActType,
     is_single_male: bool,
     einfahrzeit_seconds: i32,
     act_duration_seconds: i32,
@@ -43,12 +44,9 @@ pub struct AddCategoryBody {
 #[axum::debug_handler]
 pub async fn add_category(
     Extension(db): Extension<ReloadableSqlite>,
-    auth: Auth,
+    _: Granted<permit::PlanCompetition>,
     Json(body): Json<AddCategoryBody>,
 ) -> Result<Json<AddCategoryResponse>, HttpError> {
-    if !auth.is_admin() {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
-    }
     let db = db.get().await.clone();
 
     sqlx::query!(
@@ -58,21 +56,23 @@ pub async fn add_category(
             description, 
             from_birthday, 
             to_birthday, 
-            is_pair, 
-            is_sonderpokal, 
+            act_type, 
             is_single_male, 
             einfahrzeit_seconds, 
             act_duration_seconds, 
-            judge_duration_seconds
+            judge_duration_seconds,
+            "order"
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            (SELECT COALESCE(MAX("order"), 0) + 1 FROM categories)
+        )
         "#,
         body.name,
         body.description,
         body.from_birthday,
         body.to_birthday,
-        body.is_pair,
-        body.is_sonderpokal,
+        body.act_type,
         body.is_single_male,
         body.einfahrzeit_seconds,
         body.act_duration_seconds,

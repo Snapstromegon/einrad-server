@@ -1,12 +1,15 @@
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info, instrument};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
+    competition::Competition,
+    groups::ensure_club_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
+    jury::{self, JudgeFields, JuryEnabled},
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -18,90 +21,29 @@ pub struct AddClubJudgeResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddClubJudgeBody {
     club_id: Uuid,
-    firstname: String,
-    lastname: String,
-    mail: String,
-    #[serde(with = "time::serde::iso8601")]
-    birthdate: time::OffsetDateTime,
-    n_ew_u15_p: bool,
-    n_ew_u15_p_hosp: bool,
-    n_ew_u15_t: bool,
-    n_ew_u15_t_hosp: bool,
-    n_ew_u15_a: bool,
-    n_ew_u15_a_hosp: bool,
-    n_ew_o15_p: bool,
-    n_ew_o15_p_hosp: bool,
-    n_ew_o15_t: bool,
-    n_ew_o15_t_hosp: bool,
-    n_ew_o15_a: bool,
-    n_ew_o15_a_hosp: bool,
-    n_em_u15_p: bool,
-    n_em_u15_p_hosp: bool,
-    n_em_u15_t: bool,
-    n_em_u15_t_hosp: bool,
-    n_em_u15_a: bool,
-    n_em_u15_a_hosp: bool,
-    n_em_o15_p: bool,
-    n_em_o15_p_hosp: bool,
-    n_em_o15_t: bool,
-    n_em_o15_t_hosp: bool,
-    n_em_o15_a: bool,
-    n_em_o15_a_hosp: bool,
-    n_p_u15_p: bool,
-    n_p_u15_p_hosp: bool,
-    n_p_u15_t: bool,
-    n_p_u15_t_hosp: bool,
-    n_p_u15_a: bool,
-    n_p_u15_a_hosp: bool,
-    n_p_o15_p: bool,
-    n_p_o15_p_hosp: bool,
-    n_p_o15_t: bool,
-    n_p_o15_t_hosp: bool,
-    n_p_o15_a: bool,
-    n_p_o15_a_hosp: bool,
-    s_e_u15_p: bool,
-    s_e_u15_p_hosp: bool,
-    s_e_u15_t: bool,
-    s_e_u15_t_hosp: bool,
-    s_e_u15_a: bool,
-    s_e_u15_a_hosp: bool,
-    s_e_o15_p: bool,
-    s_e_o15_p_hosp: bool,
-    s_e_o15_t: bool,
-    s_e_o15_t_hosp: bool,
-    s_e_o15_a: bool,
-    s_e_o15_a_hosp: bool,
-    s_p_u15_p: bool,
-    s_p_u15_p_hosp: bool,
-    s_p_u15_t: bool,
-    s_p_u15_t_hosp: bool,
-    s_p_u15_a: bool,
-    s_p_u15_a_hosp: bool,
-    s_p_o15_p: bool,
-    s_p_o15_p_hosp: bool,
-    s_p_o15_t: bool,
-    s_p_o15_t_hosp: bool,
-    s_p_o15_a: bool,
-    s_p_o15_a_hosp: bool,
+    #[serde(flatten)]
+    fields: JudgeFields,
 }
 
-/// AddClubJudge a new user.
-///
-/// This endpoint is used to create a new user.
+/// Register a judge of a club, with the jury categories and tasks they can
+/// do. Clubs can until the judge deadline, admins always.
 #[utoipa::path(
     post,
-    tags=["command", "club"],
+    tags=["command", "jury"],
     path="/add_club_judge",
     request_body=AddClubJudgeBody,
     responses(
         (status=200, content_type="application/json", body=AddClubJudgeResponse),
-        (status=400, content_type="application/json", body=ClientError),
+        (status=401, content_type="application/json", body=ClientError),
+        (status=403, content_type="application/json", body=ClientError),
+        (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn add_club_judge(
+    _jury: JuryEnabled,
     Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     capabilities: Capabilities,
@@ -111,158 +53,16 @@ pub async fn add_club_judge(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
-    let judge_id = Uuid::now_v7();
-    sqlx::query!(
-        r#"
-        INSERT INTO judge (
-          id,
-          club_id,
-          firstname,
-          lastname,
-          mail,
-          birthdate,
-            n_ew_u15_p,
-            n_ew_u15_p_hosp,
-            n_ew_u15_t,
-            n_ew_u15_t_hosp,
-            n_ew_u15_a,
-            n_ew_u15_a_hosp,
-            n_ew_o15_p,
-            n_ew_o15_p_hosp,
-            n_ew_o15_t,
-            n_ew_o15_t_hosp,
-            n_ew_o15_a,
-            n_ew_o15_a_hosp,
-            n_em_u15_p,
-            n_em_u15_p_hosp,
-            n_em_u15_t,
-            n_em_u15_t_hosp,
-            n_em_u15_a,
-            n_em_u15_a_hosp,
-            n_em_o15_p,
-            n_em_o15_p_hosp,
-            n_em_o15_t,
-            n_em_o15_t_hosp,
-            n_em_o15_a,
-            n_em_o15_a_hosp,
-            n_p_u15_p,
-            n_p_u15_p_hosp,
-            n_p_u15_t,
-            n_p_u15_t_hosp,
-            n_p_u15_a,
-            n_p_u15_a_hosp,
-            n_p_o15_p,
-            n_p_o15_p_hosp,
-            n_p_o15_t,
-            n_p_o15_t_hosp,
-            n_p_o15_a,
-            n_p_o15_a_hosp,
-            s_e_u15_p,
-            s_e_u15_p_hosp,
-            s_e_u15_t,
-            s_e_u15_t_hosp,
-            s_e_u15_a,
-            s_e_u15_a_hosp,
-            s_e_o15_p,
-            s_e_o15_p_hosp,
-            s_e_o15_t,
-            s_e_o15_t_hosp,
-            s_e_o15_a,
-            s_e_o15_a_hosp,
-            s_p_u15_p,
-            s_p_u15_p_hosp,
-            s_p_u15_t,
-            s_p_u15_t_hosp,
-            s_p_u15_a,
-            s_p_u15_a_hosp,
-            s_p_o15_p,
-            s_p_o15_p_hosp,
-            s_p_o15_t,
-            s_p_o15_t_hosp,
-            s_p_o15_a,
-            s_p_o15_a_hosp
-        ) VALUES (?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?
-        );
-        "#,
-        judge_id,
-        body.club_id,
-        body.firstname,
-        body.lastname,
-        body.mail,
-        body.birthdate,
-        body.n_ew_u15_p,
-        body.n_ew_u15_p_hosp,
-        body.n_ew_u15_t,
-        body.n_ew_u15_t_hosp,
-        body.n_ew_u15_a,
-        body.n_ew_u15_a_hosp,
-        body.n_ew_o15_p,
-        body.n_ew_o15_p_hosp,
-        body.n_ew_o15_t,
-        body.n_ew_o15_t_hosp,
-        body.n_ew_o15_a,
-        body.n_ew_o15_a_hosp,
-        body.n_em_u15_p,
-        body.n_em_u15_p_hosp,
-        body.n_em_u15_t,
-        body.n_em_u15_t_hosp,
-        body.n_em_u15_a,
-        body.n_em_u15_a_hosp,
-        body.n_em_o15_p,
-        body.n_em_o15_p_hosp,
-        body.n_em_o15_t,
-        body.n_em_o15_t_hosp,
-        body.n_em_o15_a,
-        body.n_em_o15_a_hosp,
-        body.n_p_u15_p,
-        body.n_p_u15_p_hosp,
-        body.n_p_u15_t,
-        body.n_p_u15_t_hosp,
-        body.n_p_u15_a,
-        body.n_p_u15_a_hosp,
-        body.n_p_o15_p,
-        body.n_p_o15_p_hosp,
-        body.n_p_o15_t,
-        body.n_p_o15_t_hosp,
-        body.n_p_o15_a,
-        body.n_p_o15_a_hosp,
-        body.s_e_u15_p,
-        body.s_e_u15_p_hosp,
-        body.s_e_u15_t,
-        body.s_e_u15_t_hosp,
-        body.s_e_u15_a,
-        body.s_e_u15_a_hosp,
-        body.s_e_o15_p,
-        body.s_e_o15_p_hosp,
-        body.s_e_o15_t,
-        body.s_e_o15_t_hosp,
-        body.s_e_o15_a,
-        body.s_e_o15_a_hosp,
-        body.s_p_u15_p,
-        body.s_p_u15_p_hosp,
-        body.s_p_u15_t,
-        body.s_p_u15_t_hosp,
-        body.s_p_u15_a,
-        body.s_p_u15_a_hosp,
-        body.s_p_o15_p,
-        body.s_p_o15_p_hosp,
-        body.s_p_o15_t,
-        body.s_p_o15_t_hosp,
-        body.s_p_o15_a,
-        body.s_p_o15_a_hosp,
-    )
-    .execute(&db)
-    .await?;
-
+    let mut transaction = begin_write(&db).await?;
+    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
+    let competition = Competition::current(&mut *transaction).await?;
+    let fields = body
+        .fields
+        .normalize(competition.as_ref())
+        .map_err(HttpError::ErrorMessages)?;
+    let judge_id = Uuid::new_v4();
+    info!("Adding judge {judge_id} to club {}", body.club_id);
+    jury::save_judge(&mut transaction, judge_id, body.club_id, &fields).await?;
+    transaction.commit().await?;
     Ok(Json(AddClubJudgeResponse { judge_id }))
 }

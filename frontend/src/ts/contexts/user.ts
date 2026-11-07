@@ -1,5 +1,6 @@
 import { createContext } from "@lit/context";
-import type { components } from "../bindings.js";
+import type { schemas } from "../apiClient";
 
-export type User = components["schemas"]["User"];
+/** The logged-in user with what their roles allow. */
+export type User = schemas.CurrentUser;
 export const userContext = createContext<User | null>(Symbol("user"));

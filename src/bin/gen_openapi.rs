@@ -1,6 +1,6 @@
 use std::fs;
 
-use nrw_freestyle_cup_registration::http_server::routes::get_api_openapi;
+use einrad_server::http_server::routes::get_api_openapi;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 

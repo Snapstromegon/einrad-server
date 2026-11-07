@@ -1,0 +1,1248 @@
+# Demo data for development: fills every table so all of the UI can be tried
+# out. Load it with
+#
+#     cargo run --bin seed_demo
+#
+# which DELETES the configured database, recreates it and applies this file
+# (see src/demo.rs). Tests use it as well.
+#
+# Every club user's password is their first name, e.g. "Maria". Logins:
+# - maria.wagner@example.org      SSV Nümbrecht, paid in full, live timeplan acts,
+#                                 owns a small group across clubs, all checked in
+# - jonas.becker@example.org      RSC Köln, paid partially, owns a large group,
+#                                 partly checked in
+# - lena.schmitz@example.org      RV Bonn, not paid, owns an incomplete group,
+#                                 nobody checked in
+# - sabine.koch@example.org       club without riders, fees waived and so overpaid,
+#                                 password reset pending
+# - tim.neumann@example.org       verified, no club yet
+# - paul.hoffmann@example.org     email not verified
+#
+# One login per role of the organizer team; the password is the part before
+# the @, e.g. kasse@example.org / kasse:
+# - admin@example.org             Admin
+# - juryleitung@example.org       Juryleitung
+# - kasse@example.org             Kasse
+# - checkin@example.org           Check-in
+# - musiksteuerung@example.org    Musiksteuerung, e.g. for players
+# - moderation@example.org        Moderation
+# - musikpruefung@example.org     Musikprüfung
+#
+# Links with the fixed tokens below:
+# - /verify_email?token=00000000-0000-4000-8000-000000000001
+# - /reset_password?token=00000000-0000-4000-8000-000000000002
+
+# Same format as in config.toml. The registration window is open until the
+# end of April 2027; move it into the past to try the closed registration.
+[competition]
+id = "einrad-demo"
+name = "Einradevent 2027 (Demo)"
+location = "Düsseldorf"
+start_date = 2027-04-01
+end_date = 2027-04-02
+determining_day = 2027-06-01
+registration_start = 2026-01-01T00:00:00+01:00
+registration_end = 2027-02-28T23:59:59+01:00
+music_upload_end = 2027-03-15T23:59:59+01:00
+fee_per_start = 15
+max_fee_per_rider = 45
+
+# The clubs' jury obligation (jury registration), with the Jury-Konzept's
+# values written out; an empty section would use the same defaults.
+[competition.jury]
+min_age = 15
+deployments_per_two_acts = 4
+missing_deployment_fee = 7
+# The judge registration ends with the registration (registration_end).
+
+[competition.payment]
+deadline = 2027-05-15
+account_holder = "Demo Kassenwart"
+iban = "DE02 1203 0000 0000 2020 51"
+bic = "BYLADEM1001"
+reference = "Startgeld"
+
+# Users. Optional: roles ([]), email_verified (true), verification_token,
+# password_reset_token. Passwords are inserted as they are, without the
+# password policy of the registration.
+
+[[users]]
+name = "Admin"
+email = "admin@example.org"
+password = "admin"
+roles = ["admin"]
+
+# One account per role of the organizer team (ADR 0003).
+[[users]]
+name = "Juryleitung"
+email = "juryleitung@example.org"
+password = "juryleitung"
+roles = ["jury_lead"]
+
+[[users]]
+name = "Kasse"
+email = "kasse@example.org"
+password = "kasse"
+roles = ["treasurer"]
+
+[[users]]
+name = "Check-in"
+email = "checkin@example.org"
+password = "checkin"
+roles = ["check_in"]
+
+[[users]]
+name = "Musiksteuerung"
+email = "musiksteuerung@example.org"
+password = "musiksteuerung"
+roles = ["music_control"]
+
+[[users]]
+name = "Moderation"
+email = "moderation@example.org"
+password = "moderation"
+roles = ["moderation"]
+
+[[users]]
+name = "Musikprüfung"
+email = "musikpruefung@example.org"
+password = "musikpruefung"
+roles = ["music_check"]
+
+[[users]]
+name = "Maria Wagner"
+email = "maria.wagner@example.org"
+password = "Maria"
+
+[[users]]
+name = "Jonas Becker"
+email = "jonas.becker@example.org"
+password = "Jonas"
+
+[[users]]
+name = "Lena Schmitz"
+email = "lena.schmitz@example.org"
+password = "Lena"
+
+[[users]]
+name = "Sabine Koch"
+email = "sabine.koch@example.org"
+password = "Sabine"
+password_reset_token = "00000000-0000-4000-8000-000000000002"
+
+[[users]]
+name = "Tim Neumann"
+email = "tim.neumann@example.org"
+password = "Tim"
+
+[[users]]
+name = "Paul Hoffmann"
+email = "paul.hoffmann@example.org"
+password = "Paul"
+email_verified = false
+verification_token = "00000000-0000-4000-8000-000000000001"
+
+# Clubs with their riders. owner is a user name, payment the amount in € the
+# club has paid. Ages count against the determining day 2027-06-01.
+#
+# Riders: single is "male" or "female" (or missing). A pair rider either
+# names a registered partner (any club, linked both ways), names an
+# unregistered partner with partner_name, or has no partner yet. A partner of
+# another club named with partner_name on both sides is an unconfirmed pair:
+# the organizer links them (admin overview). gender defaults to the single's.
+# checked_in_at is set for riders who already checked in on competition day.
+#
+# Every start costs 15 €, group starts (replacements included) as well, but at
+# most 45 € per rider.
+
+# 19 starts, 270 € due (Emma Wagner's 4 starts cost 45 €): paid in full.
+# Everybody checked in.
+[[clubs]]
+name = "SSV Nümbrecht"
+owner = "Maria Wagner"
+payment = 270
+
+[[clubs.riders]]
+firstname = "Ben"
+lastname = "Fischer"
+birthdate = 2017-08-20
+single = "male"
+checked_in_at = 2027-06-05T08:41:00+02:00
+
+[[clubs.riders]]
+firstname = "Noah"
+lastname = "Fischer"
+birthdate = 2016-11-02
+single = "male"
+checked_in_at = 2027-06-05T08:41:00+02:00
+
+[[clubs.riders]]
+firstname = "Luca"
+lastname = "Weber"
+birthdate = 2015-02-10
+single = "male"
+checked_in_at = 2027-06-05T08:43:00+02:00
+
+[[clubs.riders]]
+firstname = "Elias"
+lastname = "Weber"
+birthdate = 2014-09-30
+single = "male"
+checked_in_at = 2027-06-05T08:43:00+02:00
+
+# Single and pair (with a partner from the same club).
+[[clubs.riders]]
+firstname = "Mia"
+lastname = "Schneider"
+birthdate = 2017-03-12
+single = "female"
+pair = true
+partner = "Emma Wagner"
+checked_in_at = 2027-06-05T08:50:00+02:00
+
+[[clubs.riders]]
+firstname = "Emma"
+lastname = "Wagner"
+birthdate = 2016-12-01
+single = "female"
+pair = true
+checked_in_at = 2027-06-05T08:50:00+02:00
+
+# Pair with a partner from RSC Köln.
+[[clubs.riders]]
+firstname = "Sophie"
+lastname = "Becker"
+birthdate = 2012-04-15
+single = "female"
+pair = true
+partner = "Lea Hoffmann"
+checked_in_at = 2027-06-05T09:05:00+02:00
+
+[[clubs.riders]]
+firstname = "Hannah"
+lastname = "Klein"
+birthdate = 1990-05-05
+single = "female"
+checked_in_at = 2027-06-05T09:12:00+02:00
+
+[[clubs.riders]]
+firstname = "Peter"
+lastname = "Lange"
+birthdate = 1965-08-08
+single = "male"
+checked_in_at = 2027-06-05T09:20:00+02:00
+
+# Open-ended category (70+).
+[[clubs.riders]]
+firstname = "Karl"
+lastname = "Richter"
+birthdate = 1952-01-20
+single = "male"
+checked_in_at = 2027-06-05T09:31:00+02:00
+
+# Judges: enough Einsätze for the club's Küren.
+[[clubs.judges]]
+firstname = "Petra"
+lastname = "Wagner"
+birthdate = 1975-03-14
+registrations = [
+  { category = "Einzel Vorlauf Junior Expert", task = "technical" },
+  { category = "Einzel Vorlauf Expert", task = "technical" },
+  { category = "Paar Vorlauf Junior Expert", task = "performance" },
+  { category = "Einzel Finale Expert", task = "technical" },
+]
+
+[[clubs.judges]]
+firstname = "Klaus"
+lastname = "Fischer"
+birthdate = 1969-11-02
+note = "Nur am Samstag"
+registrations = [
+  { category = "Einzel Vorlauf Junior Expert", task = "performance" },
+  { category = "Einzel Vorlauf Expert", task = "performance" },
+  { category = "Kleingruppe Expert", task = "technical" },
+]
+
+[[clubs.judges]]
+firstname = "Mia"
+lastname = "Wagner"
+birthdate = 2011-04-20
+max_deployments = 2
+registrations = [
+  { category = "Einzel Vorlauf Junior Expert", task = "dismounts" },
+  { category = "Paar Vorlauf Junior Expert", task = "dismounts" },
+]
+
+# 20 starts, 300 € due: paid partially. Half of the riders checked in.
+[[clubs]]
+name = "RSC Köln"
+owner = "Jonas Becker"
+payment = 75
+
+[[clubs.riders]]
+firstname = "Finn"
+lastname = "Meyer"
+birthdate = 2015-07-07
+single = "male"
+checked_in_at = 2027-06-05T08:55:00+02:00
+
+[[clubs.riders]]
+firstname = "Lea"
+lastname = "Hoffmann"
+birthdate = 2012-10-03
+pair = true
+fee_waiver = "Gastfahrerin"
+
+[[clubs.riders]]
+firstname = "Julia"
+lastname = "Krüger"
+birthdate = 2008-02-14
+single = "female"
+pair = true
+partner = "Max Krüger"
+checked_in_at = 2027-06-05T09:02:00+02:00
+
+[[clubs.riders]]
+firstname = "Max"
+lastname = "Krüger"
+birthdate = 2009-11-11
+single = "male"
+pair = true
+checked_in_at = 2027-06-05T09:02:00+02:00
+
+[[clubs.riders]]
+firstname = "Tom"
+lastname = "Schulz"
+birthdate = 2001-03-03
+single = "male"
+checked_in_at = 2027-06-05T09:40:00+02:00
+
+[[clubs.riders]]
+firstname = "Jan"
+lastname = "Zimmermann"
+birthdate = 1999-12-24
+single = "male"
+
+# Unconfirmed pair with Clara Berg (RV Bonn): both clubs name each other.
+[[clubs.riders]]
+firstname = "Laura"
+lastname = "Schulz"
+birthdate = 2003-07-19
+gender = "female"
+pair = true
+partner_name = "Clara Berg"
+
+# Unconfirmed pair with Ida Naumann (RV Bonn), but both clubs spelled the
+# names a little differently.
+[[clubs.riders]]
+firstname = "Paul"
+lastname = "Krämer"
+birthdate = 2006-10-12
+gender = "male"
+pair = true
+partner_name = "Ida Neumann"
+
+# Unconfirmed pair with Jonas Richter (RV Bonn). Both clubs only entered the
+# first name, so the matcher can't suggest it; an admin can still tell.
+[[clubs.riders]]
+firstname = "Mila"
+lastname = "Hartmann"
+birthdate = 2009-08-21
+gender = "female"
+pair = true
+partner_name = "Jonas"
+
+# Pair without a partner.
+[[clubs.riders]]
+firstname = "Nina"
+lastname = "Wolf"
+birthdate = 2011-05-25
+pair = true
+
+# Judges: too few Einsätze, so the club pays the jury fee.
+[[clubs.judges]]
+firstname = "Jan"
+lastname = "Hoffmann"
+birthdate = 1988-08-08
+max_deployments = 2
+registrations = [
+  { category = "Einzel Vorlauf Expert", task = "technical" },
+]
+
+[[clubs.judges]]
+firstname = "Lukas"
+lastname = "Hoffmann"
+birthdate = 2013-01-15
+trained = false
+registrations = [
+  { category = "Einzel Vorlauf Junior Expert", task = "dismounts" },
+]
+
+# 13 starts, 195 € due: nothing paid. Nobody checked in yet.
+[[clubs]]
+name = "RV Bonn"
+owner = "Lena Schmitz"
+
+[[clubs.riders]]
+firstname = "Anna"
+lastname = "Braun"
+birthdate = 2013-01-08
+single = "female"
+
+[[clubs.riders]]
+firstname = "Felix"
+lastname = "Braun"
+birthdate = 2010-09-09
+single = "male"
+
+[[clubs.riders]]
+firstname = "Marie"
+lastname = "Lehmann"
+birthdate = 2005-04-04
+single = "female"
+pair = true
+partner = "Leon Lehmann"
+
+[[clubs.riders]]
+firstname = "Leon"
+lastname = "Lehmann"
+birthdate = 2004-05-05
+single = "male"
+pair = true
+
+# Unconfirmed pair with Laura Schulz (RSC Köln).
+[[clubs.riders]]
+firstname = "Clara"
+lastname = "Berg"
+birthdate = 2003-02-14
+gender = "female"
+pair = true
+partner_name = "Laura Schulz"
+
+# Unconfirmed pair with Paul Krämer (RSC Köln), spelled "Paul Kramer" here.
+[[clubs.riders]]
+firstname = "Ida"
+lastname = "Naumann"
+birthdate = 2007-03-30
+gender = "female"
+pair = true
+partner_name = "Paul Kramer"
+
+# Unconfirmed pair with Mila Hartmann (RSC Köln), named by first name only.
+[[clubs.riders]]
+firstname = "Jonas"
+lastname = "Richter"
+birthdate = 2008-11-03
+gender = "male"
+pair = true
+partner_name = "Mila"
+
+# Registered, but without any start.
+[[clubs.riders]]
+firstname = "Greta"
+lastname = "Vogel"
+birthdate = 2016-07-01
+
+# No riders, but paid: overpaid.
+[[clubs]]
+name = "Einrad-Freunde Aachen"
+owner = "Sabine Koch"
+payment = 30
+# Fee waivers (reason) exist for clubs, riders and acts; this one makes the
+# club's earlier payment an overpayment.
+fee_waiver = "Veranstalter"
+
+# Groups: name (unique), owner (the club that created it and manages its name),
+# act_type ("group_small" for a Kleingruppe, "group_large" for a Großgruppe, as
+# the owner chose it) and the full names of the regular riders (members) and
+# replacement riders (replacements, Ersatzfahrer), from any club. A Kleingruppe
+# should have 3 to 8 regular riders, a Großgruppe more; outside that range the
+# group keeps its category, with a warning. With fewer than 3 the group has no
+# category yet. Replacements don't count towards the size, but towards the
+# age. A rider can be in one small and one large group.
+
+# Small group U15 across three clubs, with a replacement.
+[[groups]]
+name = "Rollende Rebellen"
+owner = "SSV Nümbrecht"
+act_type = "group_small"
+members = [
+  "Ben Fischer",
+  "Noah Fischer",
+  "Emma Wagner",
+  "Finn Meyer",
+  "Anna Braun",
+]
+replacements = ["Lea Hoffmann"]
+
+# Large group 15+ (10 riders), with Emma Wagner (U15) in both group types.
+[[groups]]
+name = "Einrad-Express"
+owner = "RSC Köln"
+act_type = "group_large"
+members = [
+  "Julia Krüger",
+  "Max Krüger",
+  "Tom Schulz",
+  "Jan Zimmermann",
+  "Laura Schulz",
+  "Nina Wolf",
+  "Hannah Klein",
+  "Peter Lange",
+  "Emma Wagner",
+  "Marie Lehmann",
+]
+
+# Incomplete: only 2 riders, so no category and not in the startlist yet.
+[[groups]]
+name = "Die Neuen"
+owner = "RV Bonn"
+act_type = "group_small"
+members = ["Felix Braun", "Leon Lehmann"]
+
+# Act details. An act exists for every single rider, every linked pair and
+# every group; each entry selects one by a participant (rider) and act_type,
+# or a group by its name (group). Optional: name, description, song (file name
+# shown; a short tone is generated unless song_source points to an audio file
+# relative to this file), song_url, song_checked, order, started_at, ended_at.
+#
+# The songs are by TheFatRat (https://www.thefatrat.com/downloads), used under
+# their terms (https://www.thefatrat.com/terms-and-conditions). Those don't
+# allow passing the files on, so they aren't in the repository: seed_demo
+# downloads each song_url into demo-songs/ once (with curl). Without the
+# download, e.g. offline and in the tests, the acts get the generated tone.
+#
+# EMU11 is finished and EMU13 is running (see the timeplan below), so the info
+# board and the live startlist have something to show.
+
+[[acts]]
+rider = "Felix Braun"
+act_type = "single"
+fee_waiver = "Attest"
+
+[[acts]]
+rider = "Ben Fischer"
+act_type = "single"
+name = "Kleiner Drache"
+song = "TheFatRat - Rise Up.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_2f628ff8443e491db6bfb8b2505669ff.mp3"
+song_checked = true
+order = 1
+started_at = 2027-06-05T10:10:00+02:00
+ended_at = 2027-06-05T10:13:00+02:00
+
+[[acts]]
+rider = "Noah Fischer"
+act_type = "single"
+name = "Piratenfahrt"
+description = "Mit Augenklappe und Hut."
+song = "TheFatRat - Sail Away.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_2d12755ba406458781fae060d9f91efc.mp3"
+song_checked = true
+order = 2
+started_at = 2027-06-05T10:17:00+02:00
+ended_at = 2027-06-05T10:20:00+02:00
+
+[[acts]]
+rider = "Luca Weber"
+act_type = "single"
+name = "Roboter"
+song = "TheFatRat - Electrified.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_e9ef35926aa740989316a0a1b8fd39b4.mp3"
+song_checked = true
+order = 1
+started_at = 2027-06-05T10:30:00+02:00
+ended_at = 2027-06-05T10:33:00+02:00
+
+[[acts]]
+rider = "Elias Weber"
+act_type = "single"
+name = "Dschungelbuch"
+song = "TheFatRat - Monkeys.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_7dc0d272543749f391104f1b53fd624d.mp3"
+order = 2
+started_at = 2027-06-05T10:37:00+02:00
+
+# Song uploaded, not checked yet.
+[[acts]]
+rider = "Finn Meyer"
+act_type = "single"
+name = "Feuerwehr"
+song = "TheFatRat - Fire.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_cc85cc2cf99640a79886bba86b51b53a.mp3"
+order = 3
+
+[[acts]]
+rider = "Mia Schneider"
+act_type = "pair"
+name = "Zwei Schmetterlinge"
+description = "Beide in bunten Kostümen, Start von der Mitte."
+song = "TheFatRat - Fly Away.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_b829b317d8824b3fa08f305a82620696.mp3"
+song_checked = true
+
+# Name only, no song yet.
+[[acts]]
+rider = "Sophie Becker"
+act_type = "pair"
+name = "Grenzenlos"
+
+[[acts]]
+rider = "Hannah Klein"
+act_type = "single"
+name = "Schwanensee"
+description = "Klassisch, mit Tutu."
+song = "TheFatRat - Elegy.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_b27bcee24e8243c5bb04b08d16309c63.mp3"
+song_checked = true
+
+[[acts]]
+rider = "Karl Richter"
+act_type = "single"
+name = "Immer noch auf Rädern"
+song = "TheFatRat - Still Here With You.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_33b52f2271c24927a6168fa50c262d31.mp3"
+
+[[acts]]
+rider = "Julia Krüger"
+act_type = "pair"
+name = "Geschwister"
+song = "TheFatRat - Never Be Alone.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_0e46a274e15e471d81e0a52b219f1e9c.mp3"
+
+[[acts]]
+group = "Rollende Rebellen"
+name = "Räder im Wind"
+description = "Mit Fahnen, Aufstellung im Halbkreis."
+song = "TheFatRat - Upwind.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_2558c754c00a4eaf9595c18626c99529.mp3"
+song_checked = true
+order = 1
+
+# Song uploaded, not checked yet.
+[[acts]]
+group = "Einrad-Express"
+name = "Zug um Zug"
+song = "TheFatRat - Time Lapse.mp3"
+song_url = "https://static.wixstatic.com/mp3/80cc5d_264f11bf7810447d963be4db35086e19.mp3"
+order = 1
+
+[[acts]]
+group = "Die Neuen"
+name = "Erste Schritte"
+
+# Categories and timeplan, same format as in config.toml.
+[[categories]]
+name = "EMU11"
+description = "Einzel Männlich U11"
+act_type = "single"
+single_male = true
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU13"
+description = "Einzel Männlich U13"
+act_type = "single"
+single_male = true
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU15"
+description = "Einzel Männlich U15"
+act_type = "single"
+single_male = true
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU17"
+description = "Einzel Männlich U17"
+act_type = "single"
+single_male = true
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU19"
+description = "Einzel Männlich U19"
+act_type = "single"
+single_male = true
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU21"
+description = "Einzel Männlich U21"
+act_type = "single"
+single_male = true
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU23"
+description = "Einzel Männlich U23"
+act_type = "single"
+single_male = true
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU25"
+description = "Einzel Männlich U25"
+act_type = "single"
+single_male = true
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU30"
+description = "Einzel Männlich U30"
+act_type = "single"
+single_male = true
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU50"
+description = "Einzel Männlich U50"
+act_type = "single"
+single_male = true
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU70"
+description = "Einzel Männlich U70"
+act_type = "single"
+single_male = true
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EM70+"
+description = "Einzel Männlich 70+"
+act_type = "single"
+single_male = true
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU11"
+description = "Einzel Weiblich U11"
+act_type = "single"
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU13"
+description = "Einzel Weiblich U13"
+act_type = "single"
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU15"
+description = "Einzel Weiblich U15"
+act_type = "single"
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU17"
+description = "Einzel Weiblich U17"
+act_type = "single"
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU19"
+description = "Einzel Weiblich U19"
+act_type = "single"
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU21"
+description = "Einzel Weiblich U21"
+act_type = "single"
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU23"
+description = "Einzel Weiblich U23"
+act_type = "single"
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU25"
+description = "Einzel Weiblich U25"
+act_type = "single"
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU30"
+description = "Einzel Weiblich U30"
+act_type = "single"
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU50"
+description = "Einzel Weiblich U50"
+act_type = "single"
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU70"
+description = "Einzel Weiblich U70"
+act_type = "single"
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EW70+"
+description = "Einzel Weiblich 70+"
+act_type = "single"
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "PU11"
+description = "Paar U11"
+act_type = "pair"
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU13"
+description = "Paar U13"
+act_type = "pair"
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU15"
+description = "Paar U15"
+act_type = "pair"
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU17"
+description = "Paar U17"
+act_type = "pair"
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU19"
+description = "Paar U19"
+act_type = "pair"
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU21"
+description = "Paar U21"
+act_type = "pair"
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU23"
+description = "Paar U23"
+act_type = "pair"
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU25"
+description = "Paar U25"
+act_type = "pair"
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU30"
+description = "Paar U30"
+act_type = "pair"
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU50"
+description = "Paar U50"
+act_type = "pair"
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU70"
+description = "Paar U70"
+act_type = "pair"
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "P70+"
+description = "Paar 70+"
+act_type = "pair"
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+act_type = "group_small"
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+act_type = "group_small"
+min_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+act_type = "group_large"
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+act_type = "group_large"
+min_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+# A final (as in config.example.toml): reserved slots for the best riders of
+# the heats, planned before the results are known.
+[[finals]]
+name = "Finale EW"
+description = "Finale Einzel Weiblich"
+act_type = "single"
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+slots = [{ label = "U11–U15", count = 3 }, { label = "U17+", count = 3 }]
+categories = ["EWU11", "EWU13", "EWU15", "EWU17", "EWU19", "EWU21", "EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
+
+# Timeplan entries can also carry their live state: started_at and ended_at.
+[[timeplan]]
+category = "EMU11"
+earliest_start = 2027-06-05T10:00:00+02:00
+started_at = 2027-06-05T10:00:00+02:00
+ended_at = 2027-06-05T10:20:00+02:00
+
+[[timeplan]]
+category = "EMU13"
+started_at = 2027-06-05T10:20:00+02:00
+
+[[timeplan]]
+category = "EMU15"
+
+[[timeplan]]
+category = "EMU17"
+
+[[timeplan]]
+category = "EMU19"
+
+[[timeplan]]
+category = "EMU21"
+
+[[timeplan]]
+category = "EMU23"
+
+[[timeplan]]
+category = "EMU25"
+
+[[timeplan]]
+category = "EMU30"
+
+[[timeplan]]
+category = "EMU50"
+
+[[timeplan]]
+category = "EMU70"
+
+[[timeplan]]
+category = "EM70+"
+
+[[timeplan]]
+category = "EWU11"
+
+[[timeplan]]
+category = "EWU13"
+
+[[timeplan]]
+category = "EWU15"
+
+[[timeplan]]
+category = "EWU17"
+
+[[timeplan]]
+category = "EWU19"
+
+[[timeplan]]
+category = "EWU21"
+
+[[timeplan]]
+category = "EWU23"
+
+[[timeplan]]
+category = "EWU25"
+
+[[timeplan]]
+category = "EWU30"
+
+[[timeplan]]
+category = "EWU50"
+
+[[timeplan]]
+category = "EWU70"
+
+[[timeplan]]
+category = "EW70+"
+
+[[timeplan]]
+label = "Mittagspause"
+duration_minutes = 45
+earliest_start = 2027-06-05T13:00:00+02:00
+
+# Only the organizer team sees it; the info board shows a break.
+[[timeplan]]
+label = "Jury-Besprechung"
+duration_minutes = 10
+internal = true
+
+[[timeplan]]
+category = "PU11"
+
+[[timeplan]]
+category = "PU13"
+
+[[timeplan]]
+category = "PU15"
+
+[[timeplan]]
+category = "PU17"
+
+[[timeplan]]
+category = "PU19"
+
+[[timeplan]]
+category = "PU21"
+
+[[timeplan]]
+category = "PU23"
+
+[[timeplan]]
+category = "PU25"
+
+[[timeplan]]
+category = "PU30"
+
+[[timeplan]]
+category = "PU50"
+
+[[timeplan]]
+category = "PU70"
+
+[[timeplan]]
+category = "P70+"
+
+[[timeplan]]
+final = "Finale EW"
+
+[[timeplan]]
+category = "KGU15"
+
+[[timeplan]]
+category = "KG15+"
+
+[[timeplan]]
+category = "GGU15"
+
+[[timeplan]]
+category = "GG15+"
+
+[[timeplan]]
+label = "Siegerehrung"
+duration_minutes = 45
+# The info board shows only the label and the clock.
+show_photos = false
+
+# What the demo judges register for (jury registration): heats count 2
+# Einsätze, finals 1; finals and groups run on the second day.
+[[jury_categories]]
+name = "Einzel Vorlauf Junior Expert"
+
+[[jury_categories]]
+name = "Einzel Vorlauf Expert"
+
+[[jury_categories]]
+name = "Einzel Vorlauf Expert 2"
+
+[[jury_categories]]
+name = "Einzel Finale Junior Expert"
+deployments = 1
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Einzel Finale Expert"
+deployments = 1
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Paar Vorlauf Junior Expert"
+
+[[jury_categories]]
+name = "Paar Vorlauf Expert"
+
+[[jury_categories]]
+name = "Paar Vorlauf Expert 2"
+
+[[jury_categories]]
+name = "Paar Finale Junior Expert"
+deployments = 1
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Paar Finale Expert"
+deployments = 1
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Kleingruppe Junior Expert"
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Kleingruppe Expert"
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Großgruppe Junior Expert"
+day = 2027-04-02
+
+[[jury_categories]]
+name = "Großgruppe Expert"
+day = 2027-04-02

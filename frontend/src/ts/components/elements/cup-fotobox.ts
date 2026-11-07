@@ -32,11 +32,12 @@ export default class CupFotobox extends LitElement {
       min-width: 0;
       opacity: 0;
       transition: opacity 1s;
+      /* On both images, so the fading out one also adds up to full opacity. */
+      mix-blend-mode: plus-lighter;
     }
 
     .visible {
       opacity: 1;
-      mix-blend-mode: plus-lighter;
     }
   `;
 

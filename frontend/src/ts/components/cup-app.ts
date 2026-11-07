@@ -4,7 +4,6 @@ import { customElement, state } from "lit/decorators.js";
 import "./views/cup-view-not-found.js";
 import "./elements/cup-context-user.js";
 import "./elements/cup-context-system-status.js";
-// @ts-expect-error: Property 'UrlPattern' does not exist
 if (!globalThis.URLPattern) {
   await import("urlpattern-polyfill");
 }
@@ -17,6 +16,27 @@ interface Route {
 
 const authed = (x: TemplateResult) =>
   html`<cup-context-user>${x}</cup-context-user>`;
+
+/**
+ * An organizer page: logged in, inside the admin shell. The shell only
+ * renders `view` for users whose roles open the page, so it doesn't load or
+ * poll anything otherwise. `bare` leaves out the shell's bar.
+ */
+const admin = (
+  view: () => TemplateResult,
+  { fullscreen = false, bare = false } = {},
+) =>
+  authed(
+    html`<cup-admin-shell
+      ?fullscreen=${fullscreen}
+      ?bare=${bare}
+      .view=${view}
+    ></cup-admin-shell>`,
+  );
+
+/** Loads an admin view together with the admin shell. */
+const loadAdmin = (view: () => Promise<unknown>) => () =>
+  Promise.all([import("./elements/cup-admin-shell.js"), view()]);
 
 @customElement("cup-app")
 export default class CupApp extends LitElement {
@@ -35,66 +55,99 @@ export default class CupApp extends LitElement {
     },
     {
       path: new URLPattern({ pathname: "/admin-music-control" }),
-      load: () => import("./views/cup-view-admin-music-control.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-music-control.js")),
       render: () =>
-        authed(
-          html`<cup-view-admin-music-control></cup-view-admin-music-control>`,
+        admin(
+          () =>
+            html`<cup-view-admin-music-control></cup-view-admin-music-control>`,
+          { fullscreen: true },
         ),
     },
     {
+      path: new URLPattern({ pathname: "/admin-awards" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-awards.js")),
+      render: () =>
+        admin(() => html`<cup-view-admin-awards></cup-view-admin-awards>`, {
+          fullscreen: true,
+        }),
+    },
+    {
+      // The web player of remote playback, e.g. on the sound-desk laptop.
+      path: new URLPattern({ pathname: "/player" }),
+      load: loadAdmin(() => import("./views/cup-view-player.js")),
+      render: () => admin(() => html`<cup-view-player></cup-view-player>`),
+    },
+    {
       path: new URLPattern({ pathname: "/admin" }),
-      load: () => import("./views/cup-view-admin.js"),
-      render: () => authed(html`<cup-view-admin></cup-view-admin>`),
+      load: loadAdmin(() => import("./views/cup-view-admin.js")),
+      render: () => admin(() => html`<cup-view-admin></cup-view-admin>`),
     },
     {
-      path: new URLPattern({ pathname: "/admin-judges" }),
-      load: () => import("./views/cup-view-admin-judges.js"),
+      path: new URLPattern({ pathname: "/admin-competition" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-competition.js")),
       render: () =>
-        authed(html`<cup-view-admin-judges></cup-view-admin-judges>`),
+        admin(
+          () => html`<cup-view-admin-competition></cup-view-admin-competition>`,
+        ),
     },
     {
-      path: new URLPattern({ pathname: "/admin-medals" }),
-      load: () => import("./views/cup-view-admin-medals.js"),
+      path: new URLPattern({ pathname: "/admin-check-in" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-check-in.js")),
       render: () =>
-        authed(html`<cup-view-admin-medals></cup-view-admin-medals>`),
+        admin(() => html`<cup-view-admin-check-in></cup-view-admin-check-in>`),
     },
     {
-      path: new URLPattern({ pathname: "/admin-judges-old" }),
-      load: () => import("./views/cup-view-admin-judges-old.js"),
+      path: new URLPattern({ pathname: "/admin-riders" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-riders.js")),
       render: () =>
-        authed(html`<cup-view-admin-judges></cup-view-admin-judges>`),
-    },
-    {
-      path: new URLPattern({ pathname: "/admin-starters" }),
-      load: () => import("./views/cup-view-admin-starters.js"),
-      render: () =>
-        authed(html`<cup-view-admin-starters></cup-view-admin-starters>`),
+        admin(() => html`<cup-view-admin-riders></cup-view-admin-riders>`),
     },
     {
       path: new URLPattern({ pathname: "/admin-payments" }),
-      load: () => import("./views/cup-view-admin-payments.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-payments.js")),
       render: () =>
-        authed(html`<cup-view-admin-payments></cup-view-admin-payments>`),
+        admin(() => html`<cup-view-admin-payments></cup-view-admin-payments>`),
     },
     {
       path: new URLPattern({ pathname: "/admin-acts-overview" }),
-      load: () => import("./views/cup-view-admin-acts-overview.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-acts-overview.js")),
       render: () =>
-        authed(
-          html`<cup-view-admin-acts-overview></cup-view-admin-acts-overview>`,
+        admin(
+          () =>
+            html`<cup-view-admin-acts-overview></cup-view-admin-acts-overview>`,
         ),
     },
     {
       path: new URLPattern({ pathname: "/admin-categories" }),
-      load: () => import("./views/cup-view-admin-categories.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-categories.js")),
       render: () =>
-        authed(html`<cup-view-admin-categories></cup-view-admin-categories>`),
+        admin(
+          () => html`<cup-view-admin-categories></cup-view-admin-categories>`,
+        ),
     },
     {
       path: new URLPattern({ pathname: "/admin-timeplan" }),
-      load: () => import("./views/cup-view-admin-timeplan.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-timeplan.js")),
       render: () =>
-        authed(html`<cup-view-admin-timeplan></cup-view-admin-timeplan>`),
+        admin(() => html`<cup-view-admin-timeplan></cup-view-admin-timeplan>`),
+    },
+    {
+      path: new URLPattern({ pathname: "/admin-medals" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-medals.js")),
+      render: () =>
+        admin(() => html`<cup-view-admin-medals></cup-view-admin-medals>`),
+    },
+    {
+      path: new URLPattern({ pathname: "/admin-judges" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-judges.js")),
+      render: () =>
+        admin(() => html`<cup-view-admin-judges></cup-view-admin-judges>`),
+    },
+    {
+      path: new URLPattern({ pathname: "/admin-mails" }),
+      load: loadAdmin(() => import("./views/cup-view-admin-mails.js")),
+      render: () =>
+        admin(() => html`<cup-view-admin-mails></cup-view-admin-mails>`),
     },
     {
       path: new URLPattern({ pathname: "/register" }),
@@ -134,9 +187,12 @@ export default class CupApp extends LitElement {
     },
     {
       path: new URLPattern({ pathname: "/admin-moderation" }),
-      load: () => import("./views/cup-view-admin-moderation.js"),
+      load: loadAdmin(() => import("./views/cup-view-admin-moderation.js")),
       render: () =>
-        html`<cup-view-admin-moderation></cup-view-admin-moderation>`,
+        admin(
+          () => html`<cup-view-admin-moderation></cup-view-admin-moderation>`,
+          { bare: true },
+        ),
     },
   ];
 
@@ -166,7 +222,7 @@ export default class CupApp extends LitElement {
 
   override render() {
     return this.routeTask.render({
-      pending: () => html`<div>Loading...</div>`,
+      pending: () => html`<div>Lädt…</div>`,
       error: () =>
         html`<cup-view-not-found .url=${this.location}></cup-view-not-found>`,
       complete: ({ route, urlPatternExec }) =>

@@ -1,12 +1,13 @@
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info, instrument};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
+    jury::{self, JuryEnabled},
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -18,23 +19,24 @@ pub struct DeleteClubJudgeBody {
     judge_id: Uuid,
 }
 
-/// DeleteClubJudge a new user.
-///
-/// This endpoint is used to create a new user.
+/// Remove a judge with their registrations.
 #[utoipa::path(
     post,
-    tags=["command", "club"],
+    tags=["command", "jury"],
     path="/delete_club_judge",
     request_body=DeleteClubJudgeBody,
     responses(
         (status=200, content_type="application/json", body=DeleteClubJudgeResponse),
-        (status=400, content_type="application/json", body=ClientError),
+        (status=401, content_type="application/json", body=ClientError),
+        (status=403, content_type="application/json", body=ClientError),
+        (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn delete_club_judge(
+    _jury: JuryEnabled,
     Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     capabilities: Capabilities,
@@ -44,14 +46,13 @@ pub async fn delete_club_judge(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
-    sqlx::query!(
-        r#"
-        DELETE FROM judge WHERE id = ?;
-        "#,
-        body.judge_id
-    )
-    .execute(&db)
-    .await?;
-
+    let mut transaction = begin_write(&db).await?;
+    jury::ensure_judge_access(&mut transaction, &auth, body.judge_id).await?;
+    info!("Deleting judge {}", body.judge_id);
+    // The registrations go with it (foreign key).
+    sqlx::query!("DELETE FROM judge WHERE id = ?", body.judge_id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
     Ok(Json(DeleteClubJudgeResponse {}))
 }

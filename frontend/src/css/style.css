@@ -4,6 +4,479 @@
   box-sizing: border-box;
 }
 
+/*
+ * Color tokens (ADR 0008). Custom properties inherit into the components'
+ * shadow DOM; components use only these tokens, never literal colors
+ * (test/literal-colors.test.js checks it).
+ *
+ * The base colors are the only literal colors. Everything else is derived
+ * from them with relative colors, so changing --color-primary or
+ * --color-secondary re-themes every page. The status colors (ok, warning,
+ * error) keep their hues whatever the brand colors are.
+ *
+ * A competition's own primary and secondary color (ADR 0009) come from the
+ * server's /api/competition/colors.css as --competition-primary-color and
+ * --competition-secondary-color; without them, the defaults apply. Not as
+ * --color-primary itself: the build puts this file after that one, and this
+ * :root rule would win.
+ *
+ * Variants of a color X:
+ * - --color-X: the base color itself, for full-strength borders and marks.
+ * - --color-X-strong: X as text, icons and filled buttons. It has 4.5:1
+ *   contrast on the surfaces and on --color-X-soft: darker in light mode,
+ *   lighter in dark mode.
+ * - --color-on-X-strong: text on --color-X-strong, white or black, whichever
+ *   has more contrast (WCAG): white in light mode, black in dark mode.
+ * - --color-X-hover: a hovered button filled with --color-X-strong.
+ * - --color-X-soft and --color-X-border: a light and a medium tint, for
+ *   backgrounds (chips, banners, rows) and for borders and bars.
+ * - --color-on-primary: text on the primary color itself, the brand surfaces
+ *   like the admin bar and the headers; -muted is secondary text there (still
+ *   4.5:1), -border and -hover are translucent outlines and hover fills.
+ * The neutrals are tinted towards the primary color: --color-surface(-2),
+ * --color-border(-strong), --color-text(-muted), --color-focus (focus rings),
+ * --color-highlight (the current or selected row), --color-hover (a
+ * translucent overlay on hovered rows and buttons) and --color-shadow.
+ * "Info" (neutral notes, the selected filter) uses the primary color.
+ *
+ * Every token but the base colors and --color-on-primary* belongs to a
+ * scheme: light (--color-light-*), dark (--color-dark-*, dark mode) and the
+ * displays (styles/theme.ts). Components use the unprefixed names.
+ */
+:root {
+  color-scheme: light;
+
+  /* Base colors. */
+  --color-default-primary: #002d56;
+  --color-default-secondary: #009036;
+  --color-primary: var(
+    --competition-primary-color,
+    var(--color-default-primary)
+  );
+  --color-secondary: var(
+    --competition-secondary-color,
+    var(--color-default-secondary)
+  );
+  --color-ok: #009036;
+  --color-warning: #b26a00;
+  --color-error: #e2001a;
+
+  /* On the primary color, in every scheme. The muted text is mixed towards
+     the primary color (in linear light) only as far as 4.6:1 contrast
+     allows; the first factor is 1 where the text is white. */
+  --color-on-primary: color(
+    from var(--color-primary) xyz-d65 clamp(0, (0.179 - y) * 1e6, 0.9505)
+      clamp(0, (0.179 - y) * 1e6, 1) clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-on-primary-muted: color(
+    from var(--color-primary) xyz-d65
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            x +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (0.9505 - x)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * x *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            y +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (1 - y)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * y *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            z +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (1.089 - z)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * z *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+  );
+  --color-on-primary-border: oklch(from var(--color-on-primary) l c h / 33%);
+  --color-on-primary-hover: oklch(from var(--color-on-primary) l c h / 14%);
+
+  /* The scheme components see. */
+  --color-surface: var(--color-light-surface);
+  --color-surface-2: var(--color-light-surface-2);
+  --color-border: var(--color-light-border);
+  --color-border-strong: var(--color-light-border-strong);
+  --color-text: var(--color-light-text);
+  --color-text-muted: var(--color-light-text-muted);
+  --color-focus: var(--color-light-focus);
+  --color-highlight: var(--color-light-highlight);
+  --color-shadow: var(--color-light-shadow);
+  --color-primary-strong: var(--color-light-primary-strong);
+  --color-primary-hover: var(--color-light-primary-hover);
+  --color-primary-soft: var(--color-light-primary-soft);
+  --color-primary-border: var(--color-light-primary-border);
+  --color-on-primary-strong: var(--color-light-on-primary-strong);
+  --color-secondary-strong: var(--color-light-secondary-strong);
+  --color-secondary-hover: var(--color-light-secondary-hover);
+  --color-on-secondary-strong: var(--color-light-on-secondary-strong);
+  --color-ok-strong: var(--color-light-ok-strong);
+  --color-ok-soft: var(--color-light-ok-soft);
+  --color-ok-border: var(--color-light-ok-border);
+  --color-on-ok-strong: var(--color-light-on-ok-strong);
+  --color-warning-strong: var(--color-light-warning-strong);
+  --color-warning-soft: var(--color-light-warning-soft);
+  --color-warning-border: var(--color-light-warning-border);
+  --color-on-warning-strong: var(--color-light-on-warning-strong);
+  --color-error-strong: var(--color-light-error-strong);
+  --color-error-soft: var(--color-light-error-soft);
+  --color-error-border: var(--color-light-error-border);
+  --color-on-error-strong: var(--color-light-on-error-strong);
+  --color-hover: var(--color-light-hover);
+
+  /* Light scheme. --color-light-X-strong scales the luminance of X down to
+     at most 0.15; --color-on-X picks white below a luminance of 0.179, where
+     white and black have the same contrast. */
+  --color-light-surface: oklch(from var(--color-primary) 1 0 h);
+  --color-light-surface-2: oklch(
+    from var(--color-primary) 0.969 min(c, 0.005) h
+  );
+  --color-light-border: oklch(from var(--color-primary) 0.89 min(c, 0.012) h);
+  --color-light-border-strong: oklch(
+    from var(--color-primary) 0.75 min(c, 0.02) h
+  );
+  --color-light-text: oklch(from var(--color-primary) 0.237 min(c, 0.011) h);
+  --color-light-text-muted: oklch(
+    from var(--color-primary) 0.523 min(c, 0.028) h
+  );
+  --color-light-focus: oklch(from var(--color-primary) 0.747 min(c, 0.065) h);
+  --color-light-highlight: oklch(
+    from var(--color-primary) 0.89 min(c * 0.3, 0.03) h
+  );
+  --color-light-shadow: oklch(
+    from var(--color-primary) 0.2 min(c, 0.02) h / 25%
+  );
+  --color-light-primary-strong: color(
+    from var(--color-primary) xyz-d65 calc(x * min(1, 0.15 / y))
+      calc(y * min(1, 0.15 / y)) calc(z * min(1, 0.15 / y))
+  );
+  --color-light-primary-hover: oklch(
+    from var(--color-light-primary-strong) calc(l - 0.05) c h
+  );
+  --color-light-primary-soft: oklch(
+    from var(--color-primary) 0.955 min(c * 0.2, 0.03) h
+  );
+  --color-light-primary-border: oklch(
+    from var(--color-primary) 0.75 min(c, 0.065) h
+  );
+  --color-light-on-primary-strong: color(
+    from var(--color-light-primary-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-light-secondary-strong: color(
+    from var(--color-secondary) xyz-d65 calc(x * min(1, 0.15 / y))
+      calc(y * min(1, 0.15 / y)) calc(z * min(1, 0.15 / y))
+  );
+  --color-light-secondary-hover: oklch(
+    from var(--color-light-secondary-strong) calc(l - 0.05) c h
+  );
+  --color-light-on-secondary-strong: color(
+    from var(--color-light-secondary-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-light-ok-strong: color(
+    from var(--color-ok) xyz-d65 calc(x * min(1, 0.15 / y))
+      calc(y * min(1, 0.15 / y)) calc(z * min(1, 0.15 / y))
+  );
+  --color-light-ok-soft: oklch(from var(--color-ok) 0.955 min(c * 0.2, 0.03) h);
+  --color-light-ok-border: oklch(from var(--color-ok) 0.8 min(c * 0.5, 0.08) h);
+  --color-light-on-ok-strong: color(
+    from var(--color-light-ok-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-light-warning-strong: color(
+    from var(--color-warning) xyz-d65 calc(x * min(1, 0.15 / y))
+      calc(y * min(1, 0.15 / y)) calc(z * min(1, 0.15 / y))
+  );
+  --color-light-warning-soft: oklch(
+    from var(--color-warning) 0.955 min(c * 0.2, 0.03) h
+  );
+  --color-light-warning-border: oklch(
+    from var(--color-warning) 0.8 min(c * 0.5, 0.08) h
+  );
+  --color-light-on-warning-strong: color(
+    from var(--color-light-warning-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-light-error-strong: color(
+    from var(--color-error) xyz-d65 calc(x * min(1, 0.15 / y))
+      calc(y * min(1, 0.15 / y)) calc(z * min(1, 0.15 / y))
+  );
+  --color-light-error-soft: oklch(
+    from var(--color-error) 0.955 min(c * 0.2, 0.03) h
+  );
+  --color-light-error-border: oklch(
+    from var(--color-error) 0.8 min(c * 0.5, 0.08) h
+  );
+  --color-light-on-error-strong: color(
+    from var(--color-light-error-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-light-hover: oklch(from var(--color-light-primary-strong) l c h / 8%);
+
+  /* Dark scheme, for dark mode and the displays. */
+  --color-dark-surface: oklch(from var(--color-primary) 0.2 min(c, 0.015) h);
+  --color-dark-surface-2: oklch(
+    from var(--color-primary) 0.245 min(c, 0.018) h
+  );
+  --color-dark-border: oklch(from var(--color-primary) 0.36 min(c, 0.02) h);
+  --color-dark-border-strong: oklch(
+    from var(--color-primary) 0.5 min(c, 0.025) h
+  );
+  --color-dark-text: oklch(from var(--color-primary) 0.93 min(c, 0.01) h);
+  --color-dark-text-muted: oklch(
+    from var(--color-primary) 0.75 min(c, 0.025) h
+  );
+  --color-dark-focus: oklch(from var(--color-primary) 0.72 min(c, 0.1) h);
+  --color-dark-highlight: oklch(
+    from var(--color-primary) 0.36 min(c * 0.6, 0.07) h
+  );
+  --color-dark-shadow: oklch(from var(--color-primary) 0 0 h / 50%);
+  --color-dark-primary-strong: oklch(
+    from var(--color-primary) max(l, 0.8) min(c, 0.13) h
+  );
+  --color-dark-primary-hover: oklch(
+    from var(--color-dark-primary-strong) min(1, l + 0.05) c h
+  );
+  --color-dark-primary-soft: oklch(
+    from var(--color-primary) 0.3 min(c * 0.4, 0.06) h
+  );
+  --color-dark-primary-border: oklch(
+    from var(--color-primary) 0.48 min(c * 0.6, 0.1) h
+  );
+  --color-dark-on-primary-strong: color(
+    from var(--color-dark-primary-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-dark-secondary-strong: oklch(
+    from var(--color-secondary) max(l, 0.8) min(c, 0.13) h
+  );
+  --color-dark-secondary-hover: oklch(
+    from var(--color-dark-secondary-strong) min(1, l + 0.05) c h
+  );
+  --color-dark-on-secondary-strong: color(
+    from var(--color-dark-secondary-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-dark-ok-strong: oklch(
+    from var(--color-ok) max(l, 0.8) min(c, 0.13) h
+  );
+  --color-dark-ok-soft: oklch(from var(--color-ok) 0.3 min(c * 0.4, 0.06) h);
+  --color-dark-ok-border: oklch(from var(--color-ok) 0.48 min(c * 0.6, 0.1) h);
+  --color-dark-on-ok-strong: color(
+    from var(--color-dark-ok-strong) xyz-d65 clamp(0, (0.179 - y) * 1e6, 0.9505)
+      clamp(0, (0.179 - y) * 1e6, 1) clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-dark-warning-strong: oklch(
+    from var(--color-warning) max(l, 0.8) min(c, 0.13) h
+  );
+  --color-dark-warning-soft: oklch(
+    from var(--color-warning) 0.3 min(c * 0.4, 0.06) h
+  );
+  --color-dark-warning-border: oklch(
+    from var(--color-warning) 0.48 min(c * 0.6, 0.1) h
+  );
+  --color-dark-on-warning-strong: color(
+    from var(--color-dark-warning-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-dark-error-strong: oklch(
+    from var(--color-error) max(l, 0.8) min(c, 0.13) h
+  );
+  --color-dark-error-soft: oklch(
+    from var(--color-error) 0.3 min(c * 0.4, 0.06) h
+  );
+  --color-dark-error-border: oklch(
+    from var(--color-error) 0.48 min(c * 0.6, 0.1) h
+  );
+  --color-dark-on-error-strong: color(
+    from var(--color-dark-error-strong) xyz-d65
+      clamp(0, (0.179 - y) * 1e6, 0.9505) clamp(0, (0.179 - y) * 1e6, 1)
+      clamp(0, (0.179 - y) * 1e6, 1.089)
+  );
+  --color-dark-hover: oklch(from var(--color-dark-primary-strong) l c h / 12%);
+
+  /* The displays (info board, moderation, public timeplan): always dark, on a
+     dark shade of the primary color. */
+  --color-display-surface: oklch(
+    from var(--color-primary) min(l, 0.3) min(c, 0.12) h
+  );
+  --color-display-surface-2: oklch(
+    from var(--color-primary) calc(min(l, 0.3) - 0.046) min(c, 0.12) h
+  );
+  --color-display-highlight: oklch(
+    from var(--color-primary) calc(min(l, 0.3) + 0.14) min(c * 1.6, 0.16) h
+  );
+  --color-display-text: oklch(from var(--color-primary) 1 0 h);
+  --color-display-text-muted: oklch(from var(--color-primary) 1 0 h / 65%);
+  --color-display-border: oklch(from var(--color-primary) 1 0 h / 20%);
+  --color-display-border-strong: oklch(from var(--color-primary) 1 0 h / 35%);
+  --color-display-hover: oklch(from var(--color-primary) 1 0 h / 14%);
+
+  /* Height of the admin shell's top bar (one row). */
+  --admin-bar-h: 2.25rem;
+}
+
+/* Printouts stay light. */
+@media screen and (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-surface: var(--color-dark-surface);
+    --color-surface-2: var(--color-dark-surface-2);
+    --color-border: var(--color-dark-border);
+    --color-border-strong: var(--color-dark-border-strong);
+    --color-text: var(--color-dark-text);
+    --color-text-muted: var(--color-dark-text-muted);
+    --color-focus: var(--color-dark-focus);
+    --color-highlight: var(--color-dark-highlight);
+    --color-shadow: var(--color-dark-shadow);
+    --color-primary-strong: var(--color-dark-primary-strong);
+    --color-primary-hover: var(--color-dark-primary-hover);
+    --color-primary-soft: var(--color-dark-primary-soft);
+    --color-primary-border: var(--color-dark-primary-border);
+    --color-on-primary-strong: var(--color-dark-on-primary-strong);
+    --color-secondary-strong: var(--color-dark-secondary-strong);
+    --color-secondary-hover: var(--color-dark-secondary-hover);
+    --color-on-secondary-strong: var(--color-dark-on-secondary-strong);
+    --color-ok-strong: var(--color-dark-ok-strong);
+    --color-ok-soft: var(--color-dark-ok-soft);
+    --color-ok-border: var(--color-dark-ok-border);
+    --color-on-ok-strong: var(--color-dark-on-ok-strong);
+    --color-warning-strong: var(--color-dark-warning-strong);
+    --color-warning-soft: var(--color-dark-warning-soft);
+    --color-warning-border: var(--color-dark-warning-border);
+    --color-on-warning-strong: var(--color-dark-on-warning-strong);
+    --color-error-strong: var(--color-dark-error-strong);
+    --color-error-soft: var(--color-dark-error-soft);
+    --color-error-border: var(--color-dark-error-border);
+    --color-on-error-strong: var(--color-dark-on-error-strong);
+    --color-hover: var(--color-dark-hover);
+  }
+}
+
+/*
+ * Browsers without relative colors as used above (before Chrome 119, Safari
+ * 18 and Firefox 128; Safari 16.4-17 have an earlier draft) get the default
+ * palette as fixed values, light and dark, and the default base colors: a
+ * competition's own colors don't reach them. test/color-tokens.test.js computes the
+ * formulas for the default colors and fails, listing the right values, when
+ * these differ.
+ */
+@supports not (
+  (color: oklch(from red calc(l - 0.1) c h)) and
+    (color: color(from red xyz-d65 calc(x * min(1, 0.15 / y)) y z))
+) {
+  :root {
+    /* The fixed values fit only the default colors. */
+    --color-primary: var(--color-default-primary);
+    --color-secondary: var(--color-default-secondary);
+    --color-on-primary: #ffffff;
+    --color-on-primary-muted: #b9bcc1;
+    --color-on-primary-border: #ffffff54;
+    --color-on-primary-hover: #ffffff24;
+    --color-light-surface: #ffffff;
+    --color-light-surface-2: #f2f5f8;
+    --color-light-border: #d5dbe3;
+    --color-light-border-strong: #a5afbb;
+    --color-light-text: #1b1f24;
+    --color-light-text-muted: #5e6b7a;
+    --color-light-focus: #8fb0d6;
+    --color-light-highlight: #cfdcec;
+    --color-light-shadow: #0f171f40;
+    --color-light-primary-strong: #002d56;
+    --color-light-primary-hover: #002048;
+    --color-light-primary-soft: #e8f1fc;
+    --color-light-primary-border: #90b1d6;
+    --color-light-on-primary-strong: #ffffff;
+    --color-light-secondary-strong: #007e2e;
+    --color-light-secondary-hover: #006f1e;
+    --color-light-on-secondary-strong: #ffffff;
+    --color-light-ok-strong: #007e2e;
+    --color-light-ok-soft: #e3f6e5;
+    --color-light-ok-border: #9bcca1;
+    --color-light-on-ok-strong: #ffffff;
+    --color-light-warning-strong: #9d5d00;
+    --color-light-warning-soft: #fdedde;
+    --color-light-warning-border: #dcb691;
+    --color-light-on-warning-strong: #ffffff;
+    --color-light-error-strong: #da0019;
+    --color-light-error-soft: #ffe9e5;
+    --color-light-error-border: #edaaa2;
+    --color-light-on-error-strong: #ffffff;
+    --color-light-hover: #002d5614;
+    --color-dark-surface: #11171d;
+    --color-dark-surface-2: #1a2129;
+    --color-dark-border: #363e48;
+    --color-dark-border-strong: #596571;
+    --color-dark-text: #e3e8ee;
+    --color-dark-text-muted: #a3afbe;
+    --color-dark-focus: #7ca8da;
+    --color-dark-highlight: #283f58;
+    --color-dark-shadow: #00000080;
+    --color-dark-primary-strong: #94c2f5;
+    --color-dark-primary-hover: #a4d2ff;
+    --color-dark-primary-soft: #212f3f;
+    --color-dark-primary-border: #48607b;
+    --color-dark-on-primary-strong: #000000;
+    --color-dark-secondary-strong: #81d58d;
+    --color-dark-secondary-hover: #91e59c;
+    --color-dark-on-secondary-strong: #000000;
+    --color-dark-ok-strong: #81d58d;
+    --color-dark-ok-soft: #16361c;
+    --color-dark-ok-border: #316d3b;
+    --color-dark-on-ok-strong: #000000;
+    --color-dark-warning-strong: #f7ab5d;
+    --color-dark-warning-soft: #40280e;
+    --color-dark-warning-border: #7c5429;
+    --color-dark-on-warning-strong: #000000;
+    --color-dark-error-strong: #ff9c90;
+    --color-dark-error-soft: #47211d;
+    --color-dark-error-border: #8d453e;
+    --color-dark-on-error-strong: #000000;
+    --color-dark-hover: #94c2f51f;
+    --color-display-surface: #002d56;
+    --color-display-surface-2: #002149;
+    --color-display-highlight: #00519a;
+    --color-display-text: #ffffff;
+    --color-display-text-muted: #ffffffa6;
+    --color-display-border: #ffffff33;
+    --color-display-border-strong: #ffffff59;
+    --color-display-hover: #ffffff24;
+  }
+}
+
 @font-face {
   font-family: "Material Symbols Outlined";
   font-style: normal;
@@ -19,6 +492,8 @@
 }
 
 html {
+  background: var(--color-surface);
+  color: var(--color-text);
   font-family:
     system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;

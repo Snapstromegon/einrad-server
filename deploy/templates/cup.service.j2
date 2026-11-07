@@ -1,0 +1,22 @@
+# Managed by Ansible (deploy/), changes here are overwritten.
+[Unit]
+Description=einrad-server ({{ cup_environment }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ansible_facts.user_id }}
+Group={{ ansible_facts.user_gid }}
+WorkingDirectory={{ app_dir }}
+ExecStart={{ app_dir }}/bin/einrad-server
+{% for name, value in cup_service_env.items() %}
+Environment="{{ name }}={{ value }}"
+{% endfor %}
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
+    competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions},
     jwt::JWTConfig,
     mailer::Mailer,
@@ -68,15 +69,14 @@ pub async fn register(
     let hashed_password = generate_hash(body.password);
     sqlx::query!(
         r#"
-        INSERT INTO users (id, name, email, email_verified, password, is_admin)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, name, email, email_verified, password)
+        VALUES (?, ?, ?, ?, ?)
         "#,
         user_id,
         body.name,
         body.email,
         false,
         hashed_password,
-        false
     )
     .execute(&db)
     .await?;
@@ -102,11 +102,13 @@ pub async fn register(
         .expect("Invalid URL")
         .to_string();
 
+    let event_name = Competition::event_name(&db).await?;
     mailer
         .send_text(
             &body.email,
-            "Freestyle Cup NRW - Email bestätigen",
+            &format!("{event_name} - Email bestätigen"),
             &VerifyMail {
+                event_name: &event_name,
                 name: &body.name,
                 verify_link: &verify_link,
             }

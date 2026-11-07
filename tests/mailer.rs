@@ -3,7 +3,17 @@
 mod common;
 
 use common::mailpit::{FROM_ADDRESS, Mailpit};
-use nrw_freestyle_cup_registration::mailer::Mailer;
+use einrad_server::mailer::Mailer;
+
+#[tokio::test]
+async fn creates_transport_from_smtp_url_for_local_mail_services() {
+    let _mailer = Mailer::new(
+        "smtp://localhost:1025",
+        "noreply@localhost",
+        "test-only",
+        FROM_ADDRESS,
+    );
+}
 
 #[tokio::test]
 async fn sends_plain_text_mail() {
@@ -71,4 +81,17 @@ async fn unreachable_server_returns_error() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn an_invalid_address_is_an_error_naming_it() {
+    let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+    let to = mailer.send_text("not an address", "Hallo", "Text").await;
+    let from = Mailer::from_url("smtp://127.0.0.1:1", "noreply")
+        .unwrap()
+        .send_text("anna@cup.test", "Hallo", "Text")
+        .await;
+
+    assert_eq!(to.unwrap_err().to_string(), "Ungültige Adresse: not an address");
+    assert_eq!(from.unwrap_err().to_string(), "Ungültige Absenderadresse: noreply");
 }

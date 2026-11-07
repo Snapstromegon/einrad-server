@@ -1,17 +1,26 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Einrad Registrierung</title>
+    <!-- The competition's logo, or the one built into the server. -->
+    <link rel="icon" href="/api/competition/logo" />
+    <link
+      rel="preload"
+      href="/assets/material-icons.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="css/style.css" />
+    <!-- The competition's colors, which style.css derives every color from.
+         The server makes it, so Vite leaves it as it is (vite-ignore). -->
+    <link rel="stylesheet" href="/api/competition/colors.css" vite-ignore />
+    <script type="module" src="ts/main.ts"></script>
+  </head>
 
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NRW Freestylecup Registrierung</title>
-  <link rel="preload" href="./assets/material-icons.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-  <link rel="stylesheet" href="css/style.css">
-  <script type="module" src="ts/main.ts"></script>
-</head>
-
-<body>
-  <cup-app></cup-app>
-</body>
-
+  <body>
+    <cup-app></cup-app>
+  </body>
 </html>

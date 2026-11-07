@@ -1,12 +1,21 @@
+import { consume } from "@lit/context";
 import { provide } from "@lit/context";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { client } from "../../apiClient.js";
 import { type User, userContext } from "../../contexts/user.js";
 import "./cup-centered-icon-box.js";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus.js";
+import { competitionName } from "../../utils.js";
 
 @customElement("cup-context-user")
 export default class CupContextUser extends LitElement {
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
   static override styles = css`
     * {
       margin: 0;
@@ -34,7 +43,7 @@ export default class CupContextUser extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      background: #fff;
+      background: var(--color-surface);
       padding: 2rem;
       border-radius: 0.5rem;
 
@@ -46,20 +55,21 @@ export default class CupContextUser extends LitElement {
 
       & button,
       a {
-        background: #009036;
-        color: #fff;
+        background: var(--color-secondary-strong);
+        color: var(--color-on-secondary-strong);
         border: none;
         border-radius: 0.5rem;
         cursor: pointer;
       }
 
       & #register {
-        background: #002d56;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
       }
 
       & #pw-reset {
-        background: #fff;
-        color: #e2001a;
+        background: var(--color-surface);
+        color: var(--color-error-strong);
       }
     }
 
@@ -89,8 +99,8 @@ export default class CupContextUser extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }
@@ -104,7 +114,7 @@ export default class CupContextUser extends LitElement {
       ? html`<slot @login=${this.getLogin} @logout=${this.getLogin}></slot>`
       : html`<cup-centered-icon-box>
           <form @submit=${this.login}>
-            <h1>NRW Freestyle Cup 2026</h1>
+            <h1>${competitionName(this.systemStatus?.competition)}</h1>
             <h2>Vereinsanmeldung</h2>
             <p>Die Anmeldung erfolgt vereinsweise. Bitte nur einen Nutzer pro Verein anlegen.</p>
             <p><i>Aus Datenschutzgründen wurden alle Daten aus früheren Jahren gelöscht.</i></p>
@@ -155,11 +165,13 @@ export default class CupContextUser extends LitElement {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
     const formData = new FormData(form);
-    const response = await client.POST("/api/command/login", {
+    const response = await client.login({
       body: {
         email: formData.get("email") as string,
         password: formData.get("password") as string,
       },
+      // Errors are shown below, not thrown.
+      throwOnError: false,
     });
     if (response.response.status === 401) {
       this.error = "Invalid email or password.";
@@ -184,5 +196,6 @@ export default class CupContextUser extends LitElement {
     this.user = user;
     this.error = undefined;
     this.requestUpdate();
+    console.log("User context updated", this.user);
   }
 }

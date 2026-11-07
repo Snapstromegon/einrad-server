@@ -4,7 +4,7 @@
 //! `DOCKER_HOST` at its socket, e.g.
 //! `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`.
 
-use nrw_freestyle_cup_registration::mailer::Mailer;
+use einrad_server::mailer::Mailer;
 use serde_json::Value;
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
@@ -32,6 +32,8 @@ pub struct Mailpit {
 pub struct Mail {
     pub from: String,
     pub to: Vec<String>,
+    /// Where answers go, if not to the sender.
+    pub reply_to: Vec<String>,
     pub subject: String,
     pub text: String,
 }
@@ -72,6 +74,8 @@ impl Mailpit {
                 .await
             {
                 Ok(container) => {
+                    // reqwest uses rustls without a crypto provider of its own.
+                    let _ = rustls::crypto::ring::default_provider().install_default();
                     return Self {
                         _container: container,
                         smtp_url: format!("smtp://127.0.0.1:{smtp_port}"),
@@ -89,7 +93,7 @@ impl Mailpit {
     }
 
     pub fn mailer(&self) -> Mailer {
-        Mailer::from_url(&self.smtp_url, FROM_ADDRESS).unwrap()
+        Mailer::new(&self.smtp_url, "test", "test", FROM_ADDRESS)
     }
 
     async fn get_json(&self, path: &str) -> Value {
@@ -115,12 +119,8 @@ impl Mailpit {
             let message = self.get_json(&format!("/message/{id}")).await;
             mails.push(Mail {
                 from: message["From"]["Address"].as_str().unwrap().to_string(),
-                to: message["To"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|to| to["Address"].as_str().unwrap().to_string())
-                    .collect(),
+                to: addresses(&message["To"]),
+                reply_to: addresses(&message["ReplyTo"]),
                 subject: message["Subject"].as_str().unwrap().to_string(),
                 // SMTP transfers lines with CRLF endings.
                 text: message["Text"].as_str().unwrap().replace("\r\n", "\n"),
@@ -128,6 +128,17 @@ impl Mailpit {
         }
         mails
     }
+}
+
+/// The addresses of a list of Mailpit's `{ Name, Address }`.
+fn addresses(list: &Value) -> Vec<String> {
+    list.as_array()
+        .map(|list| {
+            list.iter()
+                .map(|to| to["Address"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn free_port() -> u16 {

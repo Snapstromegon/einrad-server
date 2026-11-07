@@ -1,0 +1,29 @@
+# Managed by Ansible (deploy/preview-pr.yml), changes here are overwritten.
+# One PR preview per instance: einrad-server@pr-<n> runs from
+# {{ previews_dir }}/pr-<n>.
+# The paths are absolute, as %h of a system unit is root's home, whatever
+# User= says.
+[Unit]
+Description=einrad-server (PR preview %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ansible_facts.user_id }}
+Group={{ ansible_facts.user_gid }}
+WorkingDirectory={{ previews_dir }}/%i
+ExecStart={{ previews_dir }}/%i/bin/einrad-server
+# env from deploy/templates/preview-pr.env.j2, secrets.env generated on the VM.
+EnvironmentFile={{ previews_dir }}/%i/env
+EnvironmentFile={{ previews_dir }}/%i/secrets.env
+Environment=RUST_LOG=debug
+MemoryMax=512M
+CPUWeight=50
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

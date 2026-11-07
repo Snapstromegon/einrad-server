@@ -1,0 +1,18 @@
+# Removes the site file sites/<caddy_site>.caddy of tasks/caddy_site.yml and
+# reloads Caddy.
+- name: Check the site name
+  ansible.builtin.assert:
+    that: caddy_site is match('^[a-z0-9][a-z0-9.-]*$')
+    fail_msg: caddy_site must be a file name without .caddy, e.g. pr-12.
+    quiet: true
+
+- name: Remove the site file {{ caddy_site }}
+  ansible.builtin.file:
+    path: "{{ caddy_dir }}/sites/{{ caddy_site }}.caddy"
+    state: absent
+  register: caddy_site_file
+
+- name: Reload Caddy  # noqa: no-handler (task files have no handlers)
+  ansible.builtin.command: "{{ caddy_reload_command }}"
+  changed_when: true
+  when: caddy_site_file is changed

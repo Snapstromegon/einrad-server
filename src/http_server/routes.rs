@@ -1,8 +1,12 @@
+mod colors;
 pub mod command;
+mod etag;
 pub mod http_types;
+mod logo;
+mod photos;
 pub mod query;
 
-use axum::{Extension, Router, extract::Request, http::HeaderName};
+use axum::{Extension, Router, extract::Request, http::HeaderName, middleware, routing::get};
 use axum_embed::{FallbackBehavior, ServeEmbed};
 use rust_embed::RustEmbed;
 use std::sync::Arc;
@@ -13,13 +17,20 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{error, info_span};
-use utoipa::{OpenApi as OpenApiTrait, openapi::OpenApi};
+use utoipa::{
+    OpenApi as OpenApiTrait,
+    openapi::{OpenApi, RefOr},
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    jwt::JWTConfig, mailer::Mailer, reloadable_sqlite::ReloadableSqlite,
-    system_status::StatusOptions,
+    jwt::JWTConfig,
+    mailer::Mailer,
+    metrics,
+    photos::Photos,
+    player::{self, PlayerHub},
+    reloadable_sqlite::ReloadableSqlite,
 };
 
 use super::HttpServerOptions;
@@ -33,10 +44,19 @@ struct StaticAssets;
 #[derive(OpenApiTrait)]
 #[openapi(
     info(
-        title = "NRW Freestyle Cup Login API",
+        title = "Einradevent Login API",
         description = "API for managing registrations",
         license(name = "AGPL-3.0-or-later", url = "https://www.gnu.org/licenses/agpl-3.0.html"),
     ),
+    // The messages of the remote playback websocket (`/api/ws/player`),
+    // so the frontend gets their types.
+    components(schemas(
+        player::ControllerMessage,
+        player::ToController,
+        player::PlayerMessage,
+        player::ToPlayer,
+        player::HubState,
+    )),
     servers(
         (url = "http://localhost:3000"),
         (url = "https://anmeldung.freestyle-cup.nrw"),
@@ -52,9 +72,51 @@ fn get_openapi_router() -> (Router, OpenApi) {
     let command_query_router = OpenApiRouter::new()
         .nest("/command", command::get_command_router())
         .nest("/query", query::get_query_router());
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    let (router, mut openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", command_query_router)
-        .split_for_parts()
+        .split_for_parts();
+    describe_responses(&mut openapi);
+    (router, openapi)
+}
+
+/// Gives every response without a description one from its status code.
+/// OpenAPI requires a description, and the routes only declare the body.
+fn describe_responses(openapi: &mut OpenApi) {
+    for item in openapi.paths.paths.values_mut() {
+        let operations = [
+            &mut item.get,
+            &mut item.put,
+            &mut item.post,
+            &mut item.delete,
+            &mut item.options,
+            &mut item.head,
+            &mut item.patch,
+            &mut item.trace,
+        ];
+        for operation in operations.into_iter().flatten() {
+            for (status, response) in &mut operation.responses.responses {
+                if let RefOr::T(response) = response
+                    && response.description.is_empty()
+                {
+                    response.description = status_description(status).to_owned();
+                }
+            }
+        }
+    }
+}
+
+fn status_description(status: &str) -> &'static str {
+    match status {
+        "200" => "Success",
+        "400" => "Invalid request",
+        "401" => "Not logged in",
+        "403" => "Not allowed",
+        "404" => "Not found",
+        "409" => "Conflict with the current state",
+        "413" => "Too large",
+        "500" => "Internal server error",
+        _ => "Response",
+    }
 }
 
 pub fn get_api_router(
@@ -62,16 +124,29 @@ pub fn get_api_router(
     db: ReloadableSqlite,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
-    status_options: Arc<StatusOptions>,
+    player_hub: Arc<PlayerHub>,
+    photos: Arc<Photos>,
 ) -> Router {
     let (router, openapi) = get_openapi_router();
     router
+        .route("/api/ws/player", get(player::ws::player_ws))
+        .route("/api/competition/logo", get(logo::competition_logo))
+        .route(
+            "/api/competition/colors.css",
+            get(colors::competition_colors),
+        )
+        .route("/api/photos/newest", get(photos::newest))
+        .route("/api/photos/random", get(photos::random))
+        .route("/api/photos/{id}", get(photos::image))
+        .route_layer(middleware::from_fn(metrics::track_http))
+        .route("/metrics", get(metrics::metrics_handler))
         .merge(SwaggerUi::new("/swagger").url("/openapi.json", openapi))
         .layer(Extension(db))
         .layer(Extension(mailer))
         .layer(Extension(jwt_config))
         .layer(Extension(http_options))
-        .layer(Extension(status_options))
+        .layer(Extension(player_hub))
+        .layer(Extension(photos))
 }
 
 #[must_use]
@@ -84,7 +159,8 @@ pub fn get_router(
     db: ReloadableSqlite,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
-    status_options: Arc<StatusOptions>,
+    player_hub: Arc<PlayerHub>,
+    photos: Arc<Photos>,
 ) -> Router {
     let request_id_layer = ServiceBuilder::new()
         .layer(SetRequestIdLayer::new(
@@ -128,7 +204,8 @@ pub fn get_router(
             db,
             mailer,
             jwt_config,
-            status_options,
+            player_hub,
+            photos,
         ))
         .layer(request_id_layer)
 }

@@ -1,0 +1,139 @@
+# Installs the binary from tasks/binary.yml and the config files into cup_dir
+# and (re)starts the service with systemd or supervisord (cup_service_manager).
+# A new binary only starts after the database was backed up with the service
+# stopped, as it migrates the database on start (cup_backups_kept: 0 skips the
+# backup). An instance of a systemd template unit (cup_service
+# `name@instance`) installs the template `name@.service` from
+# cup_systemd_template. If the server doesn't answer, the task fails and the
+# service keeps running.
+- name: Set the paths on the server
+  ansible.builtin.set_fact:
+    app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
+    service_file: >-
+      {{ '/etc/systemd/system/' ~ (cup_service | regex_replace('@.*$', '@')) ~ '.service' if cup_service_manager == 'systemd'
+         else ansible_facts.user_dir ~ '/etc/services.d/' ~ cup_service ~ '.ini' }}
+
+- name: Create the directories
+  ansible.builtin.file:
+    path: "{{ app_dir }}/{{ item }}"
+    state: directory
+    mode: "0750"
+  loop: ["", bin, backups]
+
+- name: Upload config.toml and competition.toml
+  ansible.builtin.copy:
+    src: "{{ [playbook_dir | dirname, item.src] | path_join }}"
+    dest: "{{ app_dir }}/{{ item.dest }}"
+    mode: "0600"
+  loop:
+    - { src: "{{ cup_config_src }}", dest: config.toml }
+    - { src: "{{ cup_competition_src }}", dest: competition.toml }
+  loop_control:
+    label: "{{ item.src }}"
+  # An empty src uploads nothing.
+  when: item.src | length > 0 and ([playbook_dir | dirname, item.src] | path_join) is file
+  register: config_files
+
+- name: Read the installed binary's checksum
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/bin/einrad-server"
+    checksum_algorithm: sha256
+  register: installed_binary
+
+- name: Read the service file
+  ansible.builtin.stat:
+    path: "{{ service_file }}"
+  register: service_file_stat
+
+- name: Install the new binary
+  when: installed_binary.stat.checksum | default('') != cup_binary_checksum
+  block:
+    - name: Stop the service
+      become: true
+      ansible.builtin.systemd_service:
+        name: "{{ cup_service }}"
+        state: stopped
+      when: cup_service_manager == 'systemd' and service_file_stat.stat.exists
+
+    - name: Stop the service
+      ansible.builtin.command: supervisorctl stop {{ cup_service }}
+      changed_when: true
+      when: cup_service_manager == 'supervisord' and service_file_stat.stat.exists
+
+    - name: Back up the database
+      ansible.builtin.import_tasks: backup.yml
+
+    - name: Keep the old binary for a rollback
+      ansible.builtin.copy:
+        src: "{{ app_dir }}/bin/einrad-server"
+        dest: "{{ app_dir }}/bin/einrad-server.previous"
+        remote_src: true
+        mode: "0755"
+      when: installed_binary.stat.exists
+
+    - name: Upload the binary
+      ansible.builtin.copy:
+        src: "{{ cup_binary_path }}"
+        dest: "{{ app_dir }}/bin/einrad-server"
+        mode: "0755"
+      register: new_binary
+
+- name: Install the systemd service
+  become: true
+  ansible.builtin.template:
+    src: "{{ cup_systemd_template }}"
+    dest: "{{ service_file }}"
+    mode: "0644"
+  when: cup_service_manager == 'systemd'
+  register: systemd_unit
+
+- name: Create ~/etc/services.d
+  ansible.builtin.file:
+    path: "{{ service_file | dirname }}"
+    state: directory
+    mode: "0755"
+  when: cup_service_manager == 'supervisord'
+
+- name: Install the supervisord service
+  ansible.builtin.template:
+    src: cup.ini.j2
+    dest: "{{ service_file }}"
+    mode: "0644"
+  when: cup_service_manager == 'supervisord'
+  register: supervisord_ini
+
+- name: Set whether the service has to restart
+  ansible.builtin.set_fact:
+    cup_restart: >-
+      {{ new_binary is changed or config_files is changed
+         or systemd_unit is changed or supervisord_ini is changed }}
+
+- name: Start the service
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ cup_service }}"
+    enabled: true
+    daemon_reload: "{{ systemd_unit is changed }}"
+    state: "{{ 'restarted' if cup_restart else 'started' }}"
+  when: cup_service_manager == 'systemd'
+
+# `update` adds a new or changed service and (re)starts it.
+- name: Load the supervisord service
+  ansible.builtin.shell: supervisorctl reread && supervisorctl update {{ cup_service }}
+  changed_when: true
+  when: cup_service_manager == 'supervisord' and supervisord_ini is changed
+
+- name: Start the service
+  ansible.builtin.command: supervisorctl {{ 'restart' if cup_restart else 'start' }} {{ cup_service }}
+  register: supervisorctl
+  changed_when: "cup_restart or 'already started' not in supervisorctl.stdout"
+  failed_when: supervisorctl.rc != 0 and 'already started' not in supervisorctl.stdout
+  when: cup_service_manager == 'supervisord' and supervisord_ini is not changed
+
+- name: Wait for the server
+  ansible.builtin.uri:
+    url: http://127.0.0.1:{{ cup_port }}/
+  register: health
+  until: health.status == 200
+  retries: 30
+  delay: 2

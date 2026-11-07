@@ -1,0 +1,39 @@
+# Settings shared by preview and production. Override them in the group's
+# file or on the command line, e.g. `-e cup_binary=path/to/binary`.
+
+# Where the server binary comes from:
+# - github: the release asset of cup_github_tag, built by GitHub Actions
+# Setting cup_binary to a local file (relative to the repository) skips the
+# download, e.g. in CI after its own build; seed_demo is then the file next to
+# it.
+cup_binary_source: github
+cup_github_repo: Snapstromegon/einrad-server
+cup_github_tag: latest-build
+cup_github_asset: einrad-server-linux
+# Downloaded too when preview_seed_demo is set. build-binary.yml (latest-build)
+# doesn't publish it; releases of the 2027 pipeline must.
+cup_github_seed_demo_asset: seed_demo-linux
+
+# The directory the server runs in, relative to the home directory. It holds
+# config.toml, competition.toml, .env, the database, data/, bin/ and backups/.
+cup_dir: einrad-server
+cup_service: einrad-server
+cup_port: 3000
+# The unit file of a systemd service, from deploy/templates/.
+cup_systemd_template: cup.service.j2
+# The database file in cup_dir; it's backed up before every new binary starts.
+cup_database: db.sqlite
+# The newest backups kept; 0 makes no backup.
+cup_backups_kept: 10
+
+# Local files uploaded as config.toml and competition.toml, relative to the
+# repository. A missing file leaves the one on the server as it is.
+cup_config_src: config.{{ cup_environment }}.toml
+cup_competition_src: competition.{{ cup_environment }}.toml
+
+# Environment of the service, overriding .env and config.toml. DATABASE_URL
+# keeps the database at cup_database, where the backups look for it, and
+# mode=rwc lets the server create it on the first start.
+cup_service_env:
+  HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
+  DATABASE_URL: sqlite://./{{ cup_database }}?mode=rwc

@@ -1,10 +1,19 @@
+import { consume } from "@lit/context";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { client } from "../../apiClient";
 import "../elements/cup-centered-icon-box.js";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
+import { competitionName } from "../../utils";
 
 @customElement("cup-view-request-password-reset")
 export default class CupViewRequestPasswordReset extends LitElement {
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
   static override styles = css`
     * {
       margin: 0;
@@ -32,7 +41,7 @@ export default class CupViewRequestPasswordReset extends LitElement {
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      background: #fff;
+      background: var(--color-surface);
       padding: 2rem;
       border-radius: 0.5rem;
 
@@ -44,16 +53,16 @@ export default class CupViewRequestPasswordReset extends LitElement {
 
       & button,
       a {
-        background: #009036;
-        color: #fff;
+        background: var(--color-secondary-strong);
+        color: var(--color-on-secondary-strong);
         border: none;
         border-radius: 0.5rem;
         cursor: pointer;
       }
 
       & #login {
-        background: #fff;
-        color: #002d56;
+        background: var(--color-surface);
+        color: var(--color-primary-strong);
       }
     }
 
@@ -83,8 +92,8 @@ export default class CupViewRequestPasswordReset extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }
@@ -94,7 +103,7 @@ export default class CupViewRequestPasswordReset extends LitElement {
   override render() {
     return html`<cup-centered-icon-box>
         <form @submit=${this.register}>
-          <h1>NRW Freestyle Cup 2026</h1>
+          <h1>${competitionName(this.systemStatus?.competition)}</h1>
           <h2>Passwort zurücksetzen</h2>
           <p>Du bekommst von uns eine Mail mit einem Link, mit dem du dein Passwort zurücksetzen kannst.</p>
           ${this.error ? html`<p id="error">${this.error}</p>` : nothing}
@@ -122,10 +131,12 @@ export default class CupViewRequestPasswordReset extends LitElement {
       email: string;
     };
 
-    const resp = await client.POST("/api/command/request_password_reset", {
+    const resp = await client.requestPasswordReset({
       body: {
         email: data.email,
       },
+      // Errors are shown below, not thrown.
+      throwOnError: false,
     });
 
     if (resp.response.status === 404) {

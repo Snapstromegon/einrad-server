@@ -5,3 +5,13 @@
 openapi.json
 /data
 /2025/
+/config.toml
+/competition.toml
+/demo-songs
+# Instance configs with secrets (config.preview.toml, …), see deploy/.
+/config.*.toml
+!/config.example.toml
+/competition.*.toml
+!/competition.example.toml
+# Monitoring setup, kept out of the tree for now.
+/monitoring/

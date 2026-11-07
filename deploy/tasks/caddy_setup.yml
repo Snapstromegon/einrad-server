@@ -1,0 +1,35 @@
+# Prepares the Caddyfile for the site files of tasks/caddy_site.yml, once
+# and idempotent: creates sites/ and adds a managed block with the
+# (authelia) snippet and `import sites/*.caddy` at the end of the Caddyfile.
+# The snippet comes before the import, so site files can use it; the site
+# blocks already in the Caddyfile stay as they are.
+- name: Create the directory sites
+  ansible.builtin.file:
+    path: "{{ caddy_dir }}/sites"
+    state: directory
+    mode: "0755"
+
+# The import is absolute: validate checks a copy of the Caddyfile in another
+# directory, which has to see the site files too.
+- name: Add the authelia snippet and import the site files
+  ansible.builtin.blockinfile:
+    path: "{{ caddy_dir }}/Caddyfile"
+    marker: "# {mark} ANSIBLE MANAGED: snippets and site files (deploy/tasks/caddy_setup.yml)"
+    block: |
+      # Login with Authelia in front of a site: `import authelia`.
+      (authelia) {
+      	forward_auth 127.0.0.1:9091 {
+      		uri /api/authz/forward-auth
+      		copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+      	}
+      }
+
+      # One file per site, written by deploy/tasks/caddy_site.yml.
+      import {{ caddy_dir }}/sites/*.caddy
+    validate: caddy validate --adapter caddyfile --config %s
+  register: caddy_setup
+
+- name: Reload Caddy  # noqa: no-handler (task files have no handlers)
+  ansible.builtin.command: "{{ caddy_reload_command }}"
+  changed_when: true
+  when: caddy_setup is changed

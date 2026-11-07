@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use crate::{
-    http_server::{ClientError, HttpError, HttpServerOptions}, mailer::Mailer, reloadable_sqlite::ReloadableSqlite, templates::PasswordResetMail
+    competition::Competition,
+    http_server::{ClientError, HttpError, HttpServerOptions},
+    mailer::Mailer,
+    reloadable_sqlite::ReloadableSqlite,
+    templates::PasswordResetMail,
 };
 use askama::Template;
 use axum::{Extension, Json};
@@ -78,11 +82,13 @@ pub async fn request_password_reset(
             .join(&format!("/reset_password?token={}", reset_token))
             .expect("Invalid URL")
             .to_string();
+        let event_name = Competition::event_name(&db).await?;
         mailer
             .send_text(
                 &body.email,
-                "Freestyle Cup NRW - Passwort zurücksetzen",
+                &format!("{event_name} - Passwort zurücksetzen"),
                 &PasswordResetMail {
+                    event_name: &event_name,
                     name: &user.name,
                     reset_link: &reset_link,
                 }

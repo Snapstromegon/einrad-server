@@ -1,0 +1,141 @@
+name: PR preview
+
+# Builds a PR into 2027 and deploys it to https://pr-<n>.einrad-server.home.hoeser.dev/
+# with deploy/preview-pr.yml from the PR's own checkout, without waiting for
+# the tests. The PR shows it as the GitHub deployment preview-pr-<n>.
+#
+# Runs for PRs that aren't drafts or carry the label `preview`. Skipped:
+# - forks, which get no secrets;
+# - events dependabot triggers, which get no secrets either (a person labelling
+#   its PR `preview` deploys it);
+# - adding any other label, which changes nothing.
+on:
+  pull_request:
+    branches: [ '2027' ]
+    types: [ opened, synchronize, reopened, ready_for_review, labeled ]
+
+# A new push cancels the running deploy of the PR. A run that skips (e.g.
+# another label, or dependabot rebasing a PR labelled preview) gets a group of
+# its own, so it doesn't cancel one: the condition is start's `if`, keep both
+# the same.
+concurrency:
+  group: >-
+    ${{ github.event.pull_request.head.repo.full_name == github.repository
+    && github.actor != 'dependabot[bot]'
+    && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+    && (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'preview'))
+    && format('preview-pr-{0}', github.event.pull_request.number)
+    || format('preview-pr-skipped-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  PR: ${{ github.event.pull_request.number }}
+  ENVIRONMENT_URL: https://pr-${{ github.event.pull_request.number }}.einrad-server.home.hoeser.dev
+  LOG_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  # Decides whether the PR gets a preview (the other jobs follow it) and
+  # creates the deployment, which the PR shows as in progress. The condition
+  # is also in the concurrency group.
+  start:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+      && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+      && (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'preview'))
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+    outputs:
+      deployment: ${{ steps.create.outputs.deployment }}
+
+    steps:
+    # required_contexts: [] creates it while the checks still run.
+    - name: Create the deployment
+      id: create
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        deployment=$(jq -n --arg ref "$SHA" --arg pr "$PR" '{
+            ref: $ref,
+            environment: "preview-pr-\($pr)",
+            description: "Preview of PR #\($pr)",
+            auto_merge: false,
+            required_contexts: [],
+            transient_environment: true,
+            production_environment: false
+          }' | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+        echo "deployment=$deployment" >> "$GITHUB_OUTPUT"
+        gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" \
+          -f state=in_progress -f "log_url=$LOG_URL" -f "environment_url=$ENVIRONMENT_URL" --silent
+
+  build:
+    needs: start
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only for the secrets: the deployment is preview-pr-<n>.
+    environment:
+      name: home
+      deployment: false
+    permissions:
+      contents: read
+
+    steps:
+    # The PR's merge commit, like the build: the PR deploys with its own deploy/.
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download binaries
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.build.outputs.artifact }}
+        path: target/preview
+
+    - name: Make binaries executable
+      run: chmod +x target/preview/einrad-server target/preview/seed_demo
+
+    - name: Install Ansible
+      run: |
+        pipx install ansible-core
+        ansible-galaxy collection install -r deploy/requirements.yml
+
+    - name: Set up SSH
+      uses: ./.github/actions/home-ssh
+      with:
+        ssh-key: ${{ secrets.HOME_SSH_KEY }}
+        known-hosts: ${{ secrets.HOME_KNOWN_HOSTS }}
+        jumphost: ${{ secrets.HOME_JUMPHOST }}
+        jumphost-port: ${{ secrets.HOME_JUMPHOST_PORT }}
+
+    # No -v: the jumphost's name stays out of the log. cup_binary is relative
+    # to the repository.
+    - name: Deploy
+      run: >-
+        ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml
+        -e "pr=$PR" -e cup_binary=target/preview/einrad-server
+
+  # Also when the build or deploy failed or a newer push cancelled them.
+  finish:
+    needs: [ start, deploy ]
+    if: always() && needs.start.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+
+    steps:
+    - name: Set the deployment's status
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DEPLOYMENT: ${{ needs.start.outputs.deployment }}
+        STATE: ${{ needs.deploy.result == 'success' && 'success' || 'failure' }}
+      run: |
+        gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" \
+          -f "state=$STATE" -f "log_url=$LOG_URL" -f "environment_url=$ENVIRONMENT_URL" --silent

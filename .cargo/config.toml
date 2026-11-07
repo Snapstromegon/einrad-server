@@ -1,0 +1,6 @@
+[env]
+# The C code of the static musl build (SQLite, ring) for baseline x86-64, like
+# the Rust code of this target. Otherwise it gets the C compiler's default,
+# which on the GitHub runner uses AVX: SIGILL on CPUs without it (#284). The cc
+# crate adds CFLAGS_<target> after its own flags.
+CFLAGS_x86_64_unknown_linux_musl = "-march=x86-64"

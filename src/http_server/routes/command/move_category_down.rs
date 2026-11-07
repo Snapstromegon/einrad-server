@@ -4,8 +4,9 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    roles::permit,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -34,16 +35,13 @@ pub struct MoveCategoryDownBody {
 #[axum::debug_handler]
 pub async fn move_category_down(
     Extension(db): Extension<ReloadableSqlite>,
-    auth: Auth,
+    _: Granted<permit::PlanCompetition>,
     Json(body): Json<MoveCategoryDownBody>,
 ) -> Result<Json<MoveCategoryDownResponse>, HttpError> {
-    if !auth.is_admin() {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
-    }
     let db = db.get().await.clone();
 
     // Start a transaction
-    let mut tx = db.begin().await?;
+    let mut tx = begin_write(&db).await?;
 
     // Get current category's order
     let current = sqlx::query!(
@@ -57,7 +55,7 @@ pub async fn move_category_down(
     .await?;
 
     let current_record = current.ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    
+
     // If category has no order, assign it to the end
     let current_order = if let Some(order) = current_record.order {
         order
@@ -72,7 +70,7 @@ pub async fn move_category_down(
         .await?
         .max_order
         .unwrap_or(0);
-        
+
         let new_order = max_order + 1;
         sqlx::query!(
             r#"UPDATE categories SET "order" = $1 WHERE name = $2"#,
@@ -81,7 +79,7 @@ pub async fn move_category_down(
         )
         .execute(&mut *tx)
         .await?;
-        
+
         new_order
     };
 
@@ -100,8 +98,10 @@ pub async fn move_category_down(
 
     if let Some(next) = next_entry {
         let next_name = next.name;
-        let next_order = next.order.ok_or(HttpError::StatusCode(StatusCode::BAD_REQUEST))?;
-        
+        let next_order = next
+            .order
+            .ok_or(HttpError::StatusCode(StatusCode::BAD_REQUEST))?;
+
         // Use a temporary negative order to avoid constraint violations
         let temp_order = -999999;
 

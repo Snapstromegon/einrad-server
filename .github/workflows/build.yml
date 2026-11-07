@@ -1,0 +1,91 @@
+name: Build
+
+# Builds the static musl release (make centos-release) of the caller's ref and
+# uploads einrad-server and seed_demo as one artifact, for the deploys to
+# download. Artifacts lose the executable bit: chmod +x after downloading.
+on:
+  workflow_call:
+    outputs:
+      artifact:
+        description: Name of the artifact with einrad-server and seed_demo
+        value: ${{ jobs.build.outputs.artifact }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ARTIFACT: einrad-server-${{ github.sha }}
+    outputs:
+      artifact: ${{ env.ARTIFACT }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    # GitHub scopes caches by branch: a branch reads its own and a PR also
+    # those of its base branch (2027), so a new PR starts warm.
+    - name: Cache cargo registry + target
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: musl-release
+
+    # The runner image has pkg-config and libssl-dev already. qemu-user for
+    # the CPU check below.
+    - name: Install musl-tools and qemu-user
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools qemu-user
+
+    # Prebuilt, instead of compiling it on every cold cache.
+    - name: Install sqlx-cli
+      uses: taiki-e/install-action@v2
+      with:
+        tool: sqlx-cli
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Create dummy .env file
+      run: |
+        cat > .env << 'EOF'
+        BASE_URL=http://localhost:3000
+        DATABASE_URL=sqlite://./db.sqlite?mode=rwc
+        ADMIN='{ "name": "CI Admin", "password": "dummy_password", "email": "ci@example.com"}'
+        SMTP_USER=noreply@example.com
+        SMTP_PASSWORD="dummy_smtp_password"
+        SMTP_SERVER=smtp.example.com
+        JWT_SECRET=dummy_jwt_secret_for_ci_build_only
+        HTTP_ADDRESS=0.0.0.0:3000
+        EOF
+
+    - name: Build release binaries
+      run: make centos-release
+
+    # The servers may lack AVX: the C code must be built for baseline x86-64
+    # (.cargo/config.toml), or the binaries crash with SIGILL (#284).
+    - name: Check the binaries run on CPUs without AVX
+      run: >-
+        .github/scripts/check-cpu-baseline.sh
+        target/x86_64-unknown-linux-musl/release/einrad-server
+        target/x86_64-unknown-linux-musl/release/seed_demo
+
+    # Both files land at the artifact's root.
+    - name: Upload binaries artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT }}
+        path: |
+          target/x86_64-unknown-linux-musl/release/einrad-server
+          target/x86_64-unknown-linux-musl/release/seed_demo
+        if-no-files-found: error
+        retention-days: 3
+        overwrite: true

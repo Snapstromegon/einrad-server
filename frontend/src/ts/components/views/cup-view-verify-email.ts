@@ -5,9 +5,17 @@ import { customElement } from "lit/decorators.js";
 import { client } from "../../apiClient";
 import { type User, userContext } from "../../contexts/user";
 import "../elements/cup-centered-icon-box.js";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
+import { competitionName } from "../../utils";
 
 @customElement("cup-view-verify-email")
 export default class CupViewVerifyEmail extends LitElement {
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
   static override styles = css`
     * {
       margin: 0;
@@ -39,8 +47,8 @@ export default class CupViewVerifyEmail extends LitElement {
     }
 
     #error {
-      border: 0.1rem solid #e2001a;
-      color: #e2001a;
+      border: 0.1rem solid var(--color-error);
+      color: var(--color-error-strong);
       padding: 0.5rem;
       border-radius: 0.5rem;
     }
@@ -55,8 +63,10 @@ export default class CupViewVerifyEmail extends LitElement {
       if (!token) {
         throw new Error("No token provided.");
       }
-      const resp = await client.POST("/api/command/verify_email", {
+      const resp = await client.verifyEmail({
         body: { token },
+        // Errors are shown below, not thrown.
+        throwOnError: false,
       });
       if (resp.response.status === 404) {
         throw new Error("Token wurde schon verwendet oder ist abgelaufen.");
@@ -72,7 +82,7 @@ export default class CupViewVerifyEmail extends LitElement {
   override render() {
     return html`<cup-centered-icon-box>
       <div id="status">
-        <h1>NRW Freestyle Cup 2026</h1>
+        <h1>${competitionName(this.systemStatus?.competition)}</h1>
         <h2>Email Validierung</h2>
         ${this.verificationTask.render({
           complete: () => html`<p>Email erfolgreich verifiziert!</p>`,

@@ -1,0 +1,5 @@
+# Caddy on the proxy: tasks/caddy_setup.yml adds the (authelia) snippet and
+# the import of sites/*.caddy to the Caddyfile, tasks/caddy_site.yml and
+# tasks/caddy_site_absent.yml write and remove one file per site in sites/.
+caddy_dir: /etc/caddy
+caddy_reload_command: systemctl reload caddy

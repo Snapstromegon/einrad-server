@@ -1,0 +1,46 @@
+# Example system configuration. Copy to config.toml (ignored by git) and adjust.
+#
+# Every setting in [server], [database], [smtp], [auth], [admin] and [features] can
+# also be set by a CLI flag or environment variable (including .env), which take
+# precedence over this file. Secrets are better kept in environment variables.
+#
+# The competition (dates, fees, photos, categories, timeplan, …) is not in here
+# but in the competition file, see competition.example.toml.
+
+[server]
+# base_url = "https://anmeldung.freestyle-cup.nrw"   # BASE_URL
+# http_address = "127.0.0.1:3000"                    # HTTP_ADDRESS
+# data_path = "./data"                               # DATA_PATH
+# insecure_cookies = false                           # INSECURE_COOKIES
+# reload_db_token = "…"                              # RELOAD_DB_TOKEN
+# Turns on GET /metrics for Prometheus (Authorization: Bearer <token>).
+# metrics_token = "…"                                # METRICS_TOKEN
+# Name of the server player: plays music on this server's sound card. Needs a
+# build with the local-audio feature (make event-release).
+# local_player = "Halle"                             # LOCAL_PLAYER
+
+[database]
+# url = "sqlite://./db.sqlite?mode=rwc"              # DATABASE_URL
+
+[smtp]
+# server = "smtp.example.org"                        # SMTP_SERVER (or smtp://host:port)
+# For an SMTP URL, put relay credentials in the URL if it requires them.
+# user = "anmeldung@example.org"                     # SMTP_USER
+# password = "…"                                     # SMTP_PASSWORD
+
+[auth]
+# jwt_secret = "…"                                   # JWT_SECRET
+
+# Features that are still being refined. A competition turns each on or off
+# ([competition.features]); these are the defaults for the ones it leaves
+# unset. Without them, a feature is on in debug builds and off in release
+# builds.
+# [features]
+# Clubs register judges, admins plan the jury.
+# jury_registration = true                           # JURY_REGISTRATION
+
+# Only inserted if no admin exists yet.                # ADMIN (as JSON)
+# [admin]
+# name = "Admin"
+# email = "admin@example.org"
+# password = "…"

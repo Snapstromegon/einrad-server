@@ -1,0 +1,12 @@
+DROP VIEW IF EXISTS view_act;
+DROP TABLE IF EXISTS timeplan;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS act_participants;
+DROP INDEX IF EXISTS acts_group_name;
+DROP TABLE IF EXISTS acts;
+DROP TABLE IF EXISTS starter;
+DROP TABLE IF EXISTS clubs;
+DROP TABLE IF EXISTS password_resets;
+DROP TABLE IF EXISTS mail_verification;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS competition;

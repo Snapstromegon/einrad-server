@@ -1,0 +1,187 @@
+# Installs or updates the preview of one PR on einrad-server from a given
+# build, with fresh demo data, and serves it at
+# https://pr-<n>.einrad-server.home.hoeser.dev/ on the caddy VM, with the
+# site file /etc/caddy/sites/pr-<n>.caddy. Mailpit (mailpit.yml) catches its
+# mails.
+#
+#   ansible-galaxy collection install -r deploy/requirements.yml
+#   make deploy-preview-pr PR=<n> ANSIBLE_ARGS="-e cup_binary=<dir>/einrad-server"
+#   # or: ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml -e pr=<n> -e cup_binary=<dir>/einrad-server
+#
+# seed_demo is the file next to cup_binary. The preview is the instance
+# pr-<n> of the systemd template unit einrad-server@.service, in
+# ~/previews/pr-<n>, on port 20000 + n. Every run recreates its database with
+# seed_demo. If the server doesn't answer, the play fails and the service
+# keeps running; if seed_demo fails, the play fails and the preview starts
+# again. Previews of different PRs can deploy at the same time.
+#
+# Settings and their defaults: group_vars/all.yml and group_vars/preview.yml.
+- name: Check the PR number
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check pr
+      ansible.builtin.assert:
+        that:
+          - pr is defined
+          - pr | string is match('^[1-9][0-9]*$')
+          - pr | int + hostvars[groups['preview'] | first].preview_pr_port_base <= 65535
+        fail_msg: >-
+          Set -e pr=<n> to the number of the PR (the port
+          {{ hostvars[groups['preview'] | first].preview_pr_port_base }} + n must exist).
+        quiet: true
+
+- name: Run Mailpit
+  ansible.builtin.import_playbook: mailpit.yml
+
+# Before the preview, so a preview that doesn't start can still be looked at.
+- name: Point the domain of the PR at the preview
+  hosts: proxy
+  become: true
+  vars:
+    preview_host: "{{ groups['preview'] | first }}"
+    domain: pr-{{ pr }}.{{ hostvars[preview_host].cup_domain }}
+    pr_port: "{{ hostvars[preview_host].preview_pr_port_base + pr | int }}"
+  tasks:
+    - name: Set up the site files
+      ansible.builtin.import_tasks: tasks/caddy_setup.yml
+
+    - name: Add {{ domain }}
+      ansible.builtin.include_tasks: tasks/caddy_site.yml
+      vars:
+        caddy_site: pr-{{ pr }}
+        caddy_site_content: |
+          {{ domain }} {
+          	header X-Robots-Tag "noindex, nofollow"
+          	reverse_proxy "http://{{ preview_host }}:{{ pr_port }}"
+          }
+
+- name: Deploy the preview of the PR
+  hosts: preview
+  vars:
+    cup_service: einrad-server@pr-{{ pr }}
+    cup_dir: "{{ preview_pr_dir }}/pr-{{ pr }}"
+    cup_port: "{{ preview_pr_port_base + pr | int }}"
+    cup_systemd_template: einrad-server@.service.j2
+    # The config is env (templates/preview-pr.env.j2) and secrets.env; the
+    # competition comes from demo-data.toml.
+    cup_config_src: ""
+    cup_competition_src: ""
+    # seed_demo recreates the database anyway.
+    cup_backups_kept: 0
+    preview_seed_demo: true
+    previews_dir: "{{ ansible_facts.user_dir }}/{{ preview_pr_dir }}"
+    app_dir: "{{ ansible_facts.user_dir }}/{{ cup_dir }}"
+    pr_domain: pr-{{ pr }}.{{ cup_domain }}
+    pr_base_url: https://{{ pr_domain }}/
+  tasks:
+    # Another user would install a second instance in its own home directory.
+    - name: Check the user
+      ansible.builtin.assert:
+        that: ansible_facts.user_id == preview_user
+        fail_msg: >-
+          Log in to {{ inventory_hostname }} as {{ preview_user }} (-u {{ preview_user }}
+          or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
+        quiet: true
+
+    - name: Find the binaries
+      ansible.builtin.import_tasks: tasks/binary.yml
+
+    # seed_demo downloads the songs with curl.
+    - name: Install ffmpeg and curl
+      become: true
+      ansible.builtin.apt:
+        name: [ffmpeg, curl]
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create the song cache
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_facts.user_id }}"
+        group: "{{ ansible_facts.user_gid }}"
+        mode: "0755"
+      loop:
+        - "{{ preview_demo_songs | dirname }}"
+        - "{{ preview_demo_songs }}"
+
+    - name: Create the directories
+      ansible.builtin.file:
+        path: "{{ app_dir }}/{{ item }}"
+        state: directory
+        mode: "0750"
+      loop: ["", bin]
+
+    - name: Write env
+      ansible.builtin.template:
+        src: preview-pr.env.j2
+        dest: "{{ app_dir }}/env"
+        mode: "0600"
+
+    # Once per preview, so logins survive a deploy.
+    - name: Generate secrets.env
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          umask 077
+          printf 'JWT_SECRET=%s\nRELOAD_DB_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > secrets.env.new
+          mv secrets.env.new secrets.env
+        chdir: "{{ app_dir }}"
+        creates: secrets.env
+
+    - name: Upload seed_demo and demo-data.toml
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ app_dir }}/{{ item.dest }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { src: "{{ cup_seed_demo_path }}", dest: bin/seed_demo, mode: "0755" }
+        - { src: "{{ playbook_dir | dirname }}/demo-data.toml", dest: demo-data.toml, mode: "0644" }
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Look for the unit file
+      ansible.builtin.stat:
+        path: /etc/systemd/system/{{ cup_service | regex_replace('@.*$', '@') }}.service
+      register: unit_file
+
+    # If seed_demo fails, the preview starts again for debugging and the
+    # play fails.
+    - name: Recreate the demo data
+      block:
+        - name: Stop the preview
+          become: true
+          ansible.builtin.systemd_service:
+            name: "{{ cup_service }}"
+            state: stopped
+          when: unit_file.stat.exists
+
+        # With the server's environment, so both use the same database and
+        # data/. seed_demo migrates the database itself. The lock serializes
+        # the seeds of all previews, so two never download the same song
+        # into the cache at once.
+        - name: Run seed_demo
+          ansible.builtin.shell:
+            cmd: set -a && . ./env && set +a && exec flock {{ preview_demo_songs | dirname }}/demo-songs.lock bin/seed_demo
+            chdir: "{{ app_dir }}"
+          environment:
+            DEMO_SONGS: "{{ preview_demo_songs }}"
+          changed_when: true
+
+      rescue:
+        - name: Start the preview again
+          become: true
+          ansible.builtin.systemd_service:
+            name: "{{ cup_service }}"
+            state: started
+          when: unit_file.stat.exists
+
+        - name: Report the failed seed
+          ansible.builtin.fail:
+            msg: "seed_demo failed: {{ ansible_failed_result.stderr_lines | default([]) | last | default(ansible_failed_result.msg) }}"
+
+    # Starts the preview and waits until it answers.
+    - name: Install the release
+      ansible.builtin.import_tasks: tasks/release.yml

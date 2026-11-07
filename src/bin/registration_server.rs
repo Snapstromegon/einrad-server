@@ -1,85 +1,30 @@
-use std::{path::PathBuf, str::FromStr, sync::Arc};
-
 use clap::Parser;
-use nrw_freestyle_cup_registration::{
+use eyre::eyre;
+use einrad_server::{
+    config::{CliArgs, ConfigFile, Settings},
     http_server::{HttpServer, HttpServerOptions},
     jwt::JWTConfig,
     mailer::Mailer,
-    reloadable_sqlite::ReloadableSqlite,
-    system_status::StatusOptions,
-    utils,
+    normalize,
+    photos::Photos,
+    player::PlayerHub,
+    reloadable_sqlite::{self, ReloadableSqlite},
+    roles::Role,
+    seed,
 };
 use password_auth::generate_hash;
-use serde::Deserialize;
 use sqlx::migrate;
-use time::{OffsetDateTime, format_description::well_known::Iso8601};
+use std::sync::Arc;
 use tokio::signal;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
-use url::Url;
 use uuid::Uuid;
-
-#[derive(Debug, Parser)]
-struct Args {
-    #[clap(long, default_value = "http://localhost:3000", env = "BASE_URL")]
-    pub base_url: Url,
-    #[clap(long, env = "HTTP_ADDRESS", default_value = "127.0.0.1:3000")]
-    pub http_address: String,
-    #[clap(long, env = "SMTP_SERVER")]
-    pub smtp_server: String,
-    #[clap(long, env = "SMTP_USER")]
-    pub smtp_username: String,
-    #[clap(long, env = "SMTP_PASSWORD")]
-    pub smtp_password: String,
-    #[clap(
-        long,
-        default_value = "sqlite://./db.sqlite?mode=rwc",
-        env = "DATABASE"
-    )]
-    pub db: PathBuf,
-    #[clap(long, default_value = "./data", env = "data")]
-    pub data: PathBuf,
-    #[clap(long, env = "JWT_SECRET", default_value = "supersecretsupersecret")]
-    pub jwt_secret: String,
-    #[clap(long, env = "ADMIN")]
-    pub admin: Option<AdminArgs>,
-    #[clap(long, env = "START_REGISTER_DATE", value_parser = parse_date)]
-    pub start_register_date: OffsetDateTime,
-    #[clap(long, env = "END_REGISTER_DATE", value_parser = parse_date)]
-    pub end_register_date: OffsetDateTime,
-    #[clap(long, env = "END_MUSIC_UPLOAD_DATE", value_parser = parse_date)]
-    pub end_music_upload_date: OffsetDateTime,
-    #[clap(long, env = "INSECURE_COOKIES")]
-    pub insecure_cookies: bool,
-    #[clap(long, env = "RELOAD_DB_TOKEN", default_value = "reload_db")]
-    pub reload_db_token: String,
-}
-
-fn parse_date(s: &str) -> Result<OffsetDateTime, time::error::Parse> {
-    OffsetDateTime::parse(s, &Iso8601::DEFAULT)
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct AdminArgs {
-    pub name: String,
-    pub email: String,
-    pub password: String,
-}
-
-impl FromStr for AdminArgs {
-    type Err = serde_json::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let res: AdminArgs = serde_json::from_str(s)?;
-        Ok(res)
-    }
-}
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     dotenvy::dotenv().ok();
-    let args = Args::parse();
+    let cli = CliArgs::parse();
     FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .with_target(true)
@@ -88,60 +33,91 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     info!("Starting registration system.");
+    let config_file = ConfigFile::load(cli.config.as_deref()).map_err(|e| eyre!(e))?;
+    let settings = Settings::resolve(cli, config_file).map_err(|e| eyre!(e))?;
+    for warning in &settings.warnings {
+        warn!("{warning}");
+    }
+
     info!("Build Mail client");
 
     let mailer = Mailer::new(
-        &args.smtp_server,
-        &args.smtp_username,
-        &args.smtp_password,
-        &args.smtp_username,
+        &settings.smtp_server,
+        &settings.smtp_username,
+        &settings.smtp_password,
+        &settings.smtp_username,
     );
 
     info!("Connecting to database");
 
-    let db = sqlx::sqlite::SqlitePool::connect(&args.db.to_string_lossy())
+    let db = reloadable_sqlite::connect(&settings.database_url)
         .await
         .expect("Couldn't connect to database");
 
     info!("Running database migrations");
     migrate!("./migrations").run(&db).await?;
 
-    if let Some(admin) = &args.admin {
+    if let Some(path) = &settings.competition_file {
+        info!("Reading the competition file {}", path.display());
+    }
+    let report = seed::apply_settings(&db, &settings)
+        .await
+        .map_err(|e| eyre!(e))?;
+
+    if let Some(admin) = &settings.admin {
         info!("Inserting admin user with email: {}", admin.email);
         insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
     }
-
-    info!("Initializing acts");
-    utils::initialize_acts(&db).await.unwrap();
+    match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
+        Some(competition) => info!(
+            "Running competition {} ({})",
+            competition.name, competition.id
+        ),
+        None => warn!(
+            "No competition yet: starting in setup mode. An admin imports the competition file \
+             in the admin UI (Wettkampf)."
+        ),
+    }
 
     info!("Build JWT config");
     let jwt_algorithm = jsonwebtoken::Algorithm::HS512;
     let mut validator = jsonwebtoken::Validation::new(jwt_algorithm);
     validator.validate_aud = false;
     let jwt_config = JWTConfig::new(
-        jsonwebtoken::EncodingKey::from_secret(args.jwt_secret.as_bytes()),
-        jsonwebtoken::DecodingKey::from_secret(args.jwt_secret.as_bytes()),
+        jsonwebtoken::EncodingKey::from_secret(settings.jwt_secret.as_bytes()),
+        jsonwebtoken::DecodingKey::from_secret(settings.jwt_secret.as_bytes()),
         jwt_algorithm,
         validator,
-        args.insecure_cookies,
+        settings.insecure_cookies,
     );
 
     info!("Starting HTTP server");
+    let db = ReloadableSqlite::new(db, settings.database_url);
+    // Songs uploaded while the server was down or before normalization existed.
+    normalize::resume(&db, &settings.data_path).await?;
+
+    let player_hub = PlayerHub::new(db.clone());
+    if let Some(name) = settings.local_player {
+        start_local_player(&player_hub, &settings.data_path, name);
+    }
+    let photos = Photos::new().map_err(|e| eyre!(e))?;
+    photos.start(db.clone());
+
     HttpServer::new(
         HttpServerOptions {
-            bind_address: args.http_address,
-            base_url: args.base_url.to_string(),
-            data_path: args.data,
-            reload_db_token: args.reload_db_token,
+            bind_address: settings.http_address,
+            base_url: settings.base_url.to_string(),
+            data_path: settings.data_path,
+            reload_db_token: settings.reload_db_token,
+            metrics_token: settings.metrics_token,
+            features: settings.features,
+            competition_file_id: report.file_id,
         },
-        ReloadableSqlite::new(db, args.db.to_string_lossy().to_string()),
+        db,
         Arc::new(jwt_config),
         Arc::new(mailer),
-        Arc::new(StatusOptions {
-            start_register_date: args.start_register_date,
-            end_register_date: args.end_register_date,
-            end_music_upload_date: args.end_music_upload_date,
-        }),
+        player_hub,
+        photos,
     )
     .start(shutdown_signal())
     .await?;
@@ -152,8 +128,9 @@ async fn main() -> eyre::Result<()> {
 async fn admin_user_exists(db: &sqlx::SqlitePool) -> sqlx::Result<bool> {
     let result = sqlx::query!(
         r#"
-        SELECT COUNT(*) as count FROM users WHERE is_admin = true
+        SELECT COUNT(*) as count FROM user_roles WHERE role = ?
         "#,
+        Role::Admin,
     )
     .fetch_one(db)
     .await?;
@@ -173,13 +150,20 @@ async fn insert_admin_user(
     let id = Uuid::now_v7();
     sqlx::query!(
         r#"
-        INSERT INTO users (id, email, email_verified, name, password, is_admin)
-        VALUES (?, ?, true, ?, ?, true)
+        INSERT INTO users (id, email, email_verified, name, password)
+        VALUES (?, ?, true, ?, ?)
         "#,
         id,
         email,
         name,
         hash
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
+        id,
+        Role::Admin,
     )
     .execute(db)
     .await?;
@@ -210,4 +194,16 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
+}
+
+#[cfg(feature = "local-audio")]
+fn start_local_player(hub: &Arc<PlayerHub>, data_path: &std::path::Path, name: String) {
+    einrad_server::player::local::start(hub.clone(), data_path.to_owned(), name);
+}
+
+#[cfg(not(feature = "local-audio"))]
+fn start_local_player(_hub: &Arc<PlayerHub>, _data_path: &std::path::Path, name: String) {
+    warn!(
+        "LOCAL_PLAYER is set to {name:?}, but this server was built without the local-audio feature; the server player is off."
+    );
 }

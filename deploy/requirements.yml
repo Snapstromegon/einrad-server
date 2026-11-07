@@ -1,0 +1,7 @@
+# Collections the playbooks need beyond ansible-core:
+#
+#   ansible-galaxy collection install -r deploy/requirements.yml
+collections:
+  # mailpit.yml: docker_container.
+  - name: community.docker
+    version: ">=5.0.0,<6.0.0"

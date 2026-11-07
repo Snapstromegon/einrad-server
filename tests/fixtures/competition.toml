@@ -1,0 +1,582 @@
+# The competition file seeded into every integration test database (see tests/common/mod.rs).
+# Mirrors competition.example.toml; the registration dates are overwritten per test.
+
+[competition]
+id = "einrad-demo-2027"
+name = "Einradevent 2027 (Demo)"
+location = "Düsseldorf"
+start_date = 2027-06-05
+end_date = 2027-06-06
+determining_day = 2027-06-01
+registration_start = 2026-12-01T00:00:00+01:00
+registration_end = 2027-04-30T23:59:59+02:00
+music_upload_end = 2027-05-15T23:59:59+02:00
+fee_per_start = 15
+max_fee_per_rider = 45
+
+[competition.payment]
+deadline = 2027-05-15
+account_holder = "Demo Kassenwart"
+iban = "DE02 1203 0000 0000 2020 51"
+bic = "BYLADEM1001"
+reference = "Startgeld"
+
+# The Jury-Konzept's rules are the defaults.
+[competition.jury]
+
+# Seeded into an empty table, in this order.
+[[jury_categories]]
+name = "Einzel W – Junior Expert Vorlauf"
+
+[[jury_categories]]
+name = "Finale 1 EW"
+deployments = 1
+day = 2027-06-06
+
+[[jury_categories]]
+name = "Kleingruppe Expert"
+needed_technical = 3
+needed_performance = 3
+needed_dismounts = 2
+
+[[categories]]
+name = "EMU11"
+description = "Einzel Männlich U11"
+act_type = "single"
+single_male = true
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU13"
+description = "Einzel Männlich U13"
+act_type = "single"
+single_male = true
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU15"
+description = "Einzel Männlich U15"
+act_type = "single"
+single_male = true
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EMU17"
+description = "Einzel Männlich U17"
+act_type = "single"
+single_male = true
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU19"
+description = "Einzel Männlich U19"
+act_type = "single"
+single_male = true
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU21"
+description = "Einzel Männlich U21"
+act_type = "single"
+single_male = true
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU23"
+description = "Einzel Männlich U23"
+act_type = "single"
+single_male = true
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU25"
+description = "Einzel Männlich U25"
+act_type = "single"
+single_male = true
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU30"
+description = "Einzel Männlich U30"
+act_type = "single"
+single_male = true
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU50"
+description = "Einzel Männlich U50"
+act_type = "single"
+single_male = true
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EMU70"
+description = "Einzel Männlich U70"
+act_type = "single"
+single_male = true
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EM70+"
+description = "Einzel Männlich 70+"
+act_type = "single"
+single_male = true
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU11"
+description = "Einzel Weiblich U11"
+act_type = "single"
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU13"
+description = "Einzel Weiblich U13"
+act_type = "single"
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU15"
+description = "Einzel Weiblich U15"
+act_type = "single"
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 4
+
+[[categories]]
+name = "EWU17"
+description = "Einzel Weiblich U17"
+act_type = "single"
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU19"
+description = "Einzel Weiblich U19"
+act_type = "single"
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU21"
+description = "Einzel Weiblich U21"
+act_type = "single"
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU23"
+description = "Einzel Weiblich U23"
+act_type = "single"
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU25"
+description = "Einzel Weiblich U25"
+act_type = "single"
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU30"
+description = "Einzel Weiblich U30"
+act_type = "single"
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU50"
+description = "Einzel Weiblich U50"
+act_type = "single"
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EWU70"
+description = "Einzel Weiblich U70"
+act_type = "single"
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "EW70+"
+description = "Einzel Weiblich 70+"
+act_type = "single"
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 6
+
+[[categories]]
+name = "PU11"
+description = "Paar U11"
+act_type = "pair"
+under_age = 11
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU13"
+description = "Paar U13"
+act_type = "pair"
+min_age = 11
+under_age = 13
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU15"
+description = "Paar U15"
+act_type = "pair"
+min_age = 13
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 2
+
+[[categories]]
+name = "PU17"
+description = "Paar U17"
+act_type = "pair"
+min_age = 15
+under_age = 17
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU19"
+description = "Paar U19"
+act_type = "pair"
+min_age = 17
+under_age = 19
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU21"
+description = "Paar U21"
+act_type = "pair"
+min_age = 19
+under_age = 21
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU23"
+description = "Paar U23"
+act_type = "pair"
+min_age = 21
+under_age = 23
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU25"
+description = "Paar U25"
+act_type = "pair"
+min_age = 23
+under_age = 25
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU30"
+description = "Paar U30"
+act_type = "pair"
+min_age = 25
+under_age = 30
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU50"
+description = "Paar U50"
+act_type = "pair"
+min_age = 30
+under_age = 50
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "PU70"
+description = "Paar U70"
+act_type = "pair"
+min_age = 50
+under_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "P70+"
+description = "Paar 70+"
+act_type = "pair"
+min_age = 70
+einfahrzeit_minutes = 10
+act_duration_minutes = 3
+judge_duration_minutes = 3
+
+[[categories]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+act_type = "group_small"
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+act_type = "group_small"
+min_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+act_type = "group_large"
+under_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+[[categories]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+act_type = "group_large"
+min_age = 15
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+
+# A final, not planned: tests add its timeplan entry.
+[[finals]]
+name = "Finale EW"
+description = "Finale Einzel Weiblich"
+act_type = "single"
+einfahrzeit_minutes = 5
+act_duration_minutes = 3
+judge_duration_minutes = 2
+slots = [{ label = "U11–U15", count = 2 }, { label = "U17+", count = 1 }]
+categories = ["EWU11", "EWU13", "EWU15", "EWU17"]
+
+[[timeplan]]
+category = "EMU11"
+earliest_start = 2027-06-05T10:00:00+02:00
+
+[[timeplan]]
+category = "EMU13"
+
+[[timeplan]]
+category = "EMU15"
+
+[[timeplan]]
+category = "EMU17"
+
+[[timeplan]]
+category = "EMU19"
+
+[[timeplan]]
+category = "EMU21"
+
+[[timeplan]]
+category = "EMU23"
+
+[[timeplan]]
+category = "EMU25"
+
+[[timeplan]]
+category = "EMU30"
+
+[[timeplan]]
+category = "EMU50"
+
+[[timeplan]]
+category = "EMU70"
+
+[[timeplan]]
+category = "EM70+"
+
+[[timeplan]]
+category = "EWU11"
+
+[[timeplan]]
+category = "EWU13"
+
+[[timeplan]]
+category = "EWU15"
+
+[[timeplan]]
+category = "EWU17"
+
+[[timeplan]]
+category = "EWU19"
+
+[[timeplan]]
+category = "EWU21"
+
+[[timeplan]]
+category = "EWU23"
+
+[[timeplan]]
+category = "EWU25"
+
+[[timeplan]]
+category = "EWU30"
+
+[[timeplan]]
+category = "EWU50"
+
+[[timeplan]]
+category = "EWU70"
+
+[[timeplan]]
+category = "EW70+"
+
+[[timeplan]]
+label = "Mittagspause"
+duration_minutes = 45
+
+[[timeplan]]
+category = "PU11"
+
+[[timeplan]]
+category = "PU13"
+
+[[timeplan]]
+category = "PU15"
+
+[[timeplan]]
+category = "PU17"
+
+[[timeplan]]
+category = "PU19"
+
+[[timeplan]]
+category = "PU21"
+
+[[timeplan]]
+category = "PU23"
+
+[[timeplan]]
+category = "PU25"
+
+[[timeplan]]
+category = "PU30"
+
+[[timeplan]]
+category = "PU50"
+
+[[timeplan]]
+category = "PU70"
+
+[[timeplan]]
+category = "P70+"
+
+[[timeplan]]
+category = "KGU15"
+
+[[timeplan]]
+category = "KG15+"
+
+[[timeplan]]
+category = "GGU15"
+
+[[timeplan]]
+category = "GG15+"
+
+[[timeplan]]
+label = "Siegerehrung"
+duration_minutes = 45

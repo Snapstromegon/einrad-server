@@ -4,8 +4,9 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    roles::permit,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -34,16 +35,13 @@ pub struct DeleteCategoryBody {
 #[axum::debug_handler]
 pub async fn delete_category(
     Extension(db): Extension<ReloadableSqlite>,
-    auth: Auth,
+    _: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteCategoryBody>,
 ) -> Result<Json<DeleteCategoryResponse>, HttpError> {
-    if !auth.is_admin() {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
-    }
     let db = db.get().await.clone();
 
     // Start a transaction to ensure atomicity
-    let mut tx = db.begin().await?;
+    let mut tx = begin_write(&db).await?;
 
     // Delete timeplan entries that reference this category
     sqlx::query!(

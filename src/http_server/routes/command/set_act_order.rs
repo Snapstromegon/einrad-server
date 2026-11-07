@@ -1,12 +1,13 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::ReloadableSqlite,
+    roles::permit,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -36,12 +37,9 @@ pub struct ActOrderBody {
 #[axum::debug_handler]
 pub async fn set_act_order(
     Extension(db): Extension<ReloadableSqlite>,
-    auth: Auth,
+    _: Granted<permit::PlanCompetition>,
     Json(body): Json<ActOrderBody>,
 ) -> Result<Json<SetActOrderResponse>, HttpError> {
-    if !auth.is_admin() {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
-    }
     let db = db.get().await.clone();
 
     sqlx::query!(
