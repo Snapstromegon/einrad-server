@@ -20,6 +20,7 @@ import {
   blockOf,
   breakEnd,
   customOf,
+  competitionLogo,
   competitionName,
   currentTimeplanAct,
   currentTimeplanBreak,
@@ -180,6 +181,9 @@ export default class CupViewInfoBoard extends LitElement {
       #logo {
         grid-area: logo;
         height: 20dvh;
+        /* The competition's logo can have any shape. */
+        max-width: 100%;
+        object-fit: contain;
         place-self: center;
       }
 
@@ -537,7 +541,7 @@ export default class CupViewInfoBoard extends LitElement {
           <h1>${competitionName(this.systemStatus?.competition)}</h1>
           <img
             id="logo"
-            src="/assets/images/nrw-freestyle-cup.svg"
+            src=${competitionLogo()}
             alt=${competitionName(this.systemStatus?.competition)}
           />
           ${this.renderPhotosQr()}

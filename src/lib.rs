@@ -12,6 +12,7 @@ pub mod groups;
 pub mod http_server;
 pub mod jury;
 pub mod jwt;
+pub mod logo;
 pub mod mailer;
 pub mod metrics;
 pub mod normalize;

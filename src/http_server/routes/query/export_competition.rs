@@ -14,7 +14,7 @@ use crate::{
 
 /// The competition as a competition file to download, without club data
 /// (see `crate::export`); the import and `--competition` take it unchanged.
-/// It contains the photo password. Admin.
+/// It contains the photo password, and the logo if it's an SVG. Admin.
 #[utoipa::path(
     get,
     tags=["query", "competition"],
@@ -32,11 +32,12 @@ pub async fn export_competition(
 ) -> Result<Response, HttpError> {
     let db = db.get().await.clone();
     let mut conn = db.acquire().await?;
-    let file = export::export(&mut conn)
+    let export = export::export(&mut conn)
         .await?
         .ok_or(HttpError::NotFound)?;
-    let content = export::to_file_content(&file).map_err(HttpError::ErrorMessages)?;
-    let name: String = file
+    let content = export.content().map_err(HttpError::ErrorMessages)?;
+    let name: String = export
+        .file
         .competition
         .id
         .chars()

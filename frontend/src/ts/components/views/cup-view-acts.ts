@@ -8,7 +8,7 @@ import {
   type SystemStatus,
   systemStatusContext,
 } from "../../contexts/systemStatus";
-import { competitionName, formatDateRange } from "../../utils";
+import { competitionLogo, competitionName, formatDateRange } from "../../utils";
 
 @customElement("cup-view-acts")
 export default class CupViewActs extends LitElement {
@@ -54,6 +54,8 @@ export default class CupViewActs extends LitElement {
       min-height: 0;
       height: 7rem;
       max-height: 100%;
+      /* The competition's logo can have any shape. */
+      object-fit: contain;
     }
 
     header h1 {
@@ -104,7 +106,7 @@ export default class CupViewActs extends LitElement {
 
   override render() {
     return html`<header>
-        <img src="/assets/images/nrw-freestyle-cup.svg" />
+        <img src=${competitionLogo()} />
         <h1>Anmeldung ${competitionName(this.systemStatus?.competition)}</h1>
         <span class="date"
           >${
