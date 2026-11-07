@@ -7,7 +7,7 @@
 /*
  * Color tokens (ADR 0008). Custom properties inherit into the components'
  * shadow DOM; components use only these tokens, never literal colors
- * (test/colors.test.js checks it).
+ * (test/literal-colors.test.js checks it).
  *
  * The base colors are the only literal colors. Everything else is derived
  * from them with relative colors, so changing --color-primary or
@@ -15,16 +15,18 @@
  * error) keep their hues whatever the brand colors are.
  *
  * Variants of a color X:
+ * - --color-X: the base color itself, for full-strength borders and marks.
  * - --color-X-strong: X as text, icons and filled buttons. It has 4.5:1
  *   contrast on the surfaces and on --color-X-soft: darker in light mode,
  *   lighter in dark mode.
  * - --color-on-X-strong: text on --color-X-strong, white or black, whichever
- *   has more contrast (WCAG).
+ *   has more contrast (WCAG): white in light mode, black in dark mode.
  * - --color-X-hover: a hovered button filled with --color-X-strong.
- * - --color-X-soft and --color-X-border: a tinted background and border, e.g.
- *   for chips, banners and rows.
- * - --color-on-primary(-muted, -border, -hover): on the primary color itself,
- *   the brand surfaces like the admin bar and the headers.
+ * - --color-X-soft and --color-X-border: a light and a medium tint, for
+ *   backgrounds (chips, banners, rows) and for borders and bars.
+ * - --color-on-primary: text on the primary color itself, the brand surfaces
+ *   like the admin bar and the headers; -muted is secondary text there (still
+ *   4.5:1), -border and -hover are translucent outlines and hover fills.
  * The neutrals are tinted towards the primary color: --color-surface(-2),
  * --color-border(-strong), --color-text(-muted), --color-focus (focus rings),
  * --color-highlight (the current or selected row), --color-hover (a
@@ -45,12 +47,58 @@
   --color-warning: #b26a00;
   --color-error: #e2001a;
 
-  /* On the primary color, in every scheme. */
+  /* On the primary color, in every scheme. The muted text is mixed towards
+     the primary color (in linear light) only as far as 4.6:1 contrast
+     allows; the first factor is 1 where the text is white. */
   --color-on-primary: color(
     from var(--color-primary) xyz-d65 clamp(0, (0.179 - y) * 1e6, 0.9505)
       clamp(0, (0.179 - y) * 1e6, 1) clamp(0, (0.179 - y) * 1e6, 1.089)
   );
-  --color-on-primary-muted: oklch(from var(--color-on-primary) l c h / 75%);
+  --color-on-primary-muted: color(
+    from var(--color-primary) xyz-d65
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            x +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (0.9505 - x)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * x *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            y +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (1 - y)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * y *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+      calc(
+        clamp(0, (0.179 - y) * 1e6, 1) *
+          (
+            z +
+              clamp(
+                0,
+                (max(4.6 * (y + 0.05) - 0.05, 0.5) - y) / max(1 - y, 0.001),
+                1
+              ) *
+              (1.089 - z)
+          ) +
+          (1 - clamp(0, (0.179 - y) * 1e6, 1)) * z *
+          clamp(0, min((y + 0.05) / 4.6 - 0.05, 0.3 * y) / max(y, 0.001), 1)
+      )
+  );
   --color-on-primary-border: oklch(from var(--color-on-primary) l c h / 33%);
   --color-on-primary-hover: oklch(from var(--color-on-primary) l c h / 14%);
 
@@ -325,16 +373,20 @@
 }
 
 /*
- * Browsers without relative colors (before Chrome 119, Safari 18 and Firefox
- * 128) get the default palette as fixed values, light and dark; colors set by
- * a competition don't reach the derived tokens there. Keep these in sync with
- * the formulas above (test/colors.test.js checks that every derived token has
- * one and that the pairs in use have AA contrast).
+ * Browsers without relative colors as used above (before Chrome 119, Safari
+ * 18 and Firefox 128; Safari 16.4-17 have an earlier draft) get the default
+ * palette as fixed values, light and dark; colors set by a competition don't
+ * reach the derived tokens there. test/color-tokens.test.js computes the
+ * formulas for the default colors and fails, listing the right values, when
+ * these differ.
  */
-@supports not (color: oklch(from red l c h)) {
+@supports not (
+  (color: oklch(from red calc(l - 0.1) c h)) and
+    (color: color(from red xyz-d65 calc(x * min(1, 0.15 / y)) y z))
+) {
   :root {
     --color-on-primary: #ffffff;
-    --color-on-primary-muted: #ffffffbf;
+    --color-on-primary-muted: #b9bcc1;
     --color-on-primary-border: #ffffff54;
     --color-on-primary-hover: #ffffff24;
     --color-light-surface: #ffffff;

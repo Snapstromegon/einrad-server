@@ -31,8 +31,8 @@ import {
  *   groups a "✓ x/y" count. Inline groups list missing members first, so they
  *   stay visible when the line is cut off.
  *
- * Inherits font and colour. Markers and counts use the status color tokens,
- * so they follow the page's scheme (e.g. the displays' `displayColors`).
+ * Inherits font and colour. Markers and counts use the status tokens
+ * (`--color-ok-strong`, …), so they follow the page's scheme, e.g. on displays.
  */
 @customElement("cup-act-participants")
 export default class CupActParticipants extends LitElement {

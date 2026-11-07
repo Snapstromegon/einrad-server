@@ -178,7 +178,8 @@ export default class CupWaveform extends LitElement {
 
       :host([compact]) .times,
       :host([compact]) .marks,
-      :host([readonly]) .marks {
+      :host([readonly]) .marks,
+      .probe {
         display: none;
       }
 
@@ -223,6 +224,8 @@ export default class CupWaveform extends LitElement {
   private loud: ReturnType<typeof loudestStretch> = null;
 
   @query("canvas") private canvas?: HTMLCanvasElement;
+  /** Resolves the colours for the canvas (see `draw`). */
+  @query(".probe") private probe?: HTMLElement;
 
   private audio: HTMLAudioElement | null = null;
   private observer = new MutationObserver(() => this.syncAudioSrc());
@@ -258,6 +261,7 @@ export default class CupWaveform extends LitElement {
           @pointerup=${this.onPointerUp}
           @pointercancel=${this.onPointerUp}
         ></canvas>
+        <span class="probe"></span>
         <div class="marks">
           ${
             this.loud
@@ -501,8 +505,16 @@ export default class CupWaveform extends LitElement {
     if (!context) {
       return;
     }
-    const style = getComputedStyle(this);
-    const color = (name: string) => style.getPropertyValue(name).trim();
+    // The tokens are relative colours, which not every canvas understands:
+    // draw with the computed colours instead.
+    const colors = new Map<string, string>();
+    const color = (name: string) => {
+      if (!colors.has(name) && this.probe) {
+        this.probe.style.color = `var(${name})`;
+        colors.set(name, getComputedStyle(this.probe).color);
+      }
+      return colors.get(name) ?? "";
+    };
     context.clearRect(0, 0, width, height);
 
     const total = this.total || this.peaks?.duration || 0;
