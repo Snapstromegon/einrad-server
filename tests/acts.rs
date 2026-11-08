@@ -116,13 +116,13 @@ async fn categories_follow_gender_and_age() {
     let older = app
         .add_rider(
             &cookie,
-            rider("Olga", "2010-06-01T00:00:00.000Z", false, true, false),
+            rider("Olga", "2010-05-31T00:00:00.000Z", false, true, false),
         )
         .await;
     let younger = app
         .add_rider(
             &cookie,
-            rider("Yara", "2010-06-02T00:00:00.000Z", false, true, false),
+            rider("Yara", "2010-06-01T00:00:00.000Z", false, true, false),
         )
         .await;
     assert_eq!(category_of(&app, older, "single").await, "EWU19");
