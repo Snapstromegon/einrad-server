@@ -5,7 +5,10 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, closed_registration};
-use serde_json::{Value::{self, Null}, json};
+use serde_json::{
+    Value::{self, Null},
+    json,
+};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
