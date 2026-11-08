@@ -70,11 +70,11 @@ async fn the_settings_show_the_photo_password_and_the_feature_defaults() {
     assert_eq!(body["photos"]["password"], "geheim");
     assert_eq!(
         body["feature_defaults"],
-        json!({ "jury_registration": true })
+        json!({ "jury_registration": true, "moderation_input": true })
     );
     assert_eq!(
         body["competition"]["features"],
-        json!({ "jury_registration": null })
+        json!({ "jury_registration": null, "moderation_input": null })
     );
     assert_eq!(body["determining_day_locked"], true);
     assert_eq!(body["file_id_mismatch"], Value::Null);
@@ -94,7 +94,7 @@ async fn edits_apply_right_away() {
     let mut competition = settings(&app, &admin).await["competition"].clone();
     competition["fee_per_start"] = json!(20);
     competition["venue"] = json!("  ");
-    competition["features"] = json!({ "jury_registration": true });
+    competition["features"] = json!({ "jury_registration": true, "moderation_input": false });
     let photos = TempDir::new();
     let response = edit(
         &app,
@@ -110,6 +110,7 @@ async fn edits_apply_right_away() {
     assert_eq!(club.body["amount_due"]["start_fees"], 20.0);
     let status = app.get("/api/query/get_system_status", None).await.body;
     assert_eq!(status["jury_registration"], true);
+    assert_eq!(status["moderation_input"], false);
     assert_eq!(status["competition"]["venue"], Value::Null);
     assert!(app.photos.configured());
     let body = settings(&app, &admin).await;

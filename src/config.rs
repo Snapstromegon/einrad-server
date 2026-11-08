@@ -81,6 +81,10 @@ pub struct CliArgs {
     /// unset; on by default only in debug builds (see `Features`).
     #[clap(long, env = "JURY_REGISTRATION")]
     pub jury_registration: Option<bool>,
+    /// Turns the act description for moderation on or off for competitions
+    /// that leave it unset; on by default.
+    #[clap(long, env = "MODERATION_INPUT")]
+    pub moderation_input: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -873,6 +877,7 @@ impl Settings {
                 .filter(|name| !name.trim().is_empty()),
             features: Features {
                 jury_registration: cli.jury_registration.or(file.features.jury_registration),
+                moderation_input: cli.moderation_input.or(file.features.moderation_input),
             },
             competition_file: cli.competition.or_else(|| {
                 Path::new(DEFAULT_COMPETITION_PATH)
@@ -1015,8 +1020,10 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
     fn feature_defaults_come_from_the_file_or_the_environment() {
         let settings = resolve(CliArgs::default(), SMTP).unwrap();
         assert_eq!(settings.features.jury_registration, None);
+        assert_eq!(settings.features.moderation_input, None);
 
-        let file = format!("{SMTP}\n[features]\njury_registration = false");
+        let file =
+            format!("{SMTP}\n[features]\njury_registration = false\nmoderation_input = false");
         assert_eq!(
             resolve(CliArgs::default(), &file)
                 .unwrap()
@@ -1024,13 +1031,25 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
                 .jury_registration,
             Some(false)
         );
+        assert_eq!(
+            resolve(CliArgs::default(), &file)
+                .unwrap()
+                .features
+                .moderation_input,
+            Some(false)
+        );
 
-        let cli = CliArgs {
+        let cli = || CliArgs {
             jury_registration: Some(true),
+            moderation_input: Some(true),
             ..Default::default()
         };
         assert_eq!(
-            resolve(cli, &file).unwrap().features.jury_registration,
+            resolve(cli(), &file).unwrap().features.jury_registration,
+            Some(true)
+        );
+        assert_eq!(
+            resolve(cli(), &file).unwrap().features.moderation_input,
             Some(true)
         );
     }
@@ -1044,10 +1063,11 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
     #[test]
     fn features_and_photos_are_competition_settings() {
         let set = competition(&format!(
-            "{VALID_DATES}\n[competition.features]\njury_registration = true\n\
+            "{VALID_DATES}\n[competition.features]\njury_registration = true\nmoderation_input = false\n\
              [competition.photos]\nsource = \"https://cloud.example.org/s/AbC123\"\npassword = \"p\""
         ));
         assert_eq!(set.features.jury_registration, Some(true));
+        assert_eq!(set.features.moderation_input, Some(false));
         let photos = set.photos.as_ref().unwrap();
         assert_eq!(photos.source, "https://cloud.example.org/s/AbC123");
         assert_eq!(photos.user, None);

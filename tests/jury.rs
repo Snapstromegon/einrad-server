@@ -5,7 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, closed_registration};
-use serde_json::{Value, json};
+use serde_json::{Value::{self, Null}, json};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -80,7 +80,7 @@ async fn the_competitions_feature_applies_on_the_next_request() {
     assert_eq!(system_status(&app, None).await["jury_registration"], true);
     assert_eq!(
         system_status(&app, None).await["competition"]["features"],
-        json!({ "jury_registration": true })
+        json!({ "jury_registration": true, "moderation_input": Null })
     );
     assert_eq!(
         app.get(categories, Some(&admin)).await.status,

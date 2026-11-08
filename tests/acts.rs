@@ -116,13 +116,13 @@ async fn categories_follow_gender_and_age() {
     let older = app
         .add_rider(
             &cookie,
-            rider("Olga", "2010-06-01T00:00:00.000Z", false, true, false),
+            rider("Olga", "2010-05-31T00:00:00.000Z", false, true, false),
         )
         .await;
     let younger = app
         .add_rider(
             &cookie,
-            rider("Yara", "2010-06-02T00:00:00.000Z", false, true, false),
+            rider("Yara", "2010-06-01T00:00:00.000Z", false, true, false),
         )
         .await;
     assert_eq!(category_of(&app, older, "single").await, "EWU19");
@@ -178,7 +178,8 @@ async fn list_acts_is_sorted_by_category_order() {
 async fn edit_club_act_sets_name_and_description() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
-    let (cookie, single, _) = club_with_acts(&app).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let single = app.add_single_act(&cookie, club_id, "Anna").await;
 
     let response = app
         .post(
@@ -192,6 +193,55 @@ async fn edit_club_act_sets_name_and_description() {
     let act = get_act(&app, single).await;
     assert_eq!(act["name"], "Sternenstaub");
     assert_eq!(act["description"], "Mit Seil");
+}
+
+#[tokio::test]
+async fn disabled_moderation_input_hides_and_preserves_act_description() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let single = app.add_single_act(&cookie, club_id, "Anna").await;
+
+    let response = app
+        .post(
+            "/api/command/edit_club_act",
+            json!({ "id": single, "name": "Sternenstaub", "description": "Mit Seil" }),
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+
+    common::set_moderation_input(&app.db, Some(false)).await;
+
+    let status = app.get("/api/query/get_system_status", None).await;
+    assert_eq!(status.status, StatusCode::OK, "{:?}", status.body);
+    assert_eq!(status.body["moderation_input"], false);
+
+    let club_acts = app
+        .get(
+            &format!("/api/query/list_club_acts?club_id={club_id}"),
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(club_acts.status, StatusCode::OK, "{:?}", club_acts.body);
+    let act = club_acts
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|act| act["id"] == single.to_string())
+        .unwrap();
+    assert_eq!(act["description"], Value::Null);
+
+    let response = app
+        .post(
+            "/api/command/edit_club_act",
+            json!({ "id": single, "name": "Sternenstaub 2", "description": "ignored" }),
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(get_act(&app, single).await["description"], "Mit Seil");
 }
 
 #[tokio::test]

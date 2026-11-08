@@ -87,6 +87,8 @@ reference = "Startgeld"
 [competition.features]
 # Clubs register judges, admins plan the jury.
 # jury_registration = true
+# Clubs can add an extra text for moderation when they register acts.
+# moderation_input = true
 
 # Optional: the photos of the info board, the newest after each act and random
 # recent ones in breaks; the music control previews the newest. The folder and

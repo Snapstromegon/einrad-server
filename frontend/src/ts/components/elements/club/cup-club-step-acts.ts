@@ -362,6 +362,7 @@ export default class CupClubStepActs extends LitElement {
 
   @property({ attribute: false }) data!: ClubData;
   @property({ attribute: false }) competition: Competition | null = null;
+  @property({ attribute: false }) moderationInputEnabled?: boolean;
   @property({ type: Boolean, attribute: "can-register" }) canRegister = false;
   @property({ type: Boolean, attribute: "can-upload" }) canUpload = false;
   @property() target?: string;
@@ -412,6 +413,14 @@ export default class CupClubStepActs extends LitElement {
 
   get musicOpen() {
     return this.canUpload || isMusicUploadOpen(this.competition);
+  }
+
+  get moderationInput() {
+    return (
+      this.moderationInputEnabled ??
+      this.competition?.features?.moderation_input ??
+      true
+    );
   }
 
   /** All cards, by act type. */
@@ -487,7 +496,13 @@ export default class CupClubStepActs extends LitElement {
       }
       return html`<section class="type">
         <h3>
-          ${type === "single" ? "Einzelküren" : type === "pair" ? "Paarküren" : `${actTypeLabels[type]}n`}
+          ${
+            type === "single"
+              ? "Einzelküren"
+              : type === "pair"
+                ? "Paarküren"
+                : `${actTypeLabels[type]}n`
+          }
           <span class="chip muted">${all.length}</span>
         </h3>
         ${repeat(
@@ -500,22 +515,22 @@ export default class CupClubStepActs extends LitElement {
     return html`<div class="step-intro">
         <h2>3. Küren</h2>
         <p>
-          Legt eure Küren an und wählt ihre FahrerInnen: Klappt eine Kür auf, um ihre
-          FahrerInnen zu ändern. Jede FahrerIn kann eine Einzelkür, eine Paarkür, eine
-          Kleingruppe und eine Großgruppe fahren. Wechselt ihr die FahrerIn einer
-          Einzel- oder Paarkür, bleiben Titel und Musik erhalten.
+          Legt eure Küren an und wählt ihre FahrerInnen: Klappt eine Kür auf, um
+          ihre FahrerInnen zu ändern. Jede FahrerIn kann eine Einzelkür, eine
+          Paarkür, eine Kleingruppe und eine Großgruppe fahren. Wechselt ihr die
+          FahrerIn einer Einzel- oder Paarkür, bleiben Titel und Musik erhalten.
           ${
             this.canUpload
-              ? html`Titel und Musik könnt ihr gleich beim Anlegen oder später
-                bis zum
-                ${
-                  this.competition
-                    ? html`<strong
-                        >${formatDate(this.competition.music_upload_end)}</strong
-                      >`
-                    : "Musik-Einsendeschluss"
-                }
-                hinterlegen.`
+              ? html`Titel und Musik könnt ihr gleich beim Anlegen oder später bis
+              zum
+              ${
+                this.competition
+                  ? html`<strong
+                    >${formatDate(this.competition.music_upload_end)}</strong
+                  >`
+                  : "Musik-Einsendeschluss"
+              }
+              hinterlegen.`
               : nothing
           }
         </p>
@@ -530,69 +545,60 @@ export default class CupClubStepActs extends LitElement {
           ${
             total
               ? html`<button
-                  class="toggle-chip"
-                  aria-pressed=${this.onlyOpen ? "true" : "false"}
-                  @click=${this.toggleOnlyOpen}
-                >
-                  <i class="material-icon">filter_list</i> Nur offene
-                  (${openCount})
-                </button>`
+                class="toggle-chip"
+                aria-pressed=${this.onlyOpen ? "true" : "false"}
+                @click=${this.toggleOnlyOpen}
+              >
+                <i class="material-icon">filter_list</i> Nur offene
+                (${openCount})
+              </button>`
               : nothing
           }
           ${
             total
-              ? html`<button
-                  class="toggle-chip"
-                  @click=${this.toggleAllOpen}
+              ? html`<button class="toggle-chip" @click=${this.toggleAllOpen}>
+                <i class="material-icon"
+                  >${this.open.size ? "unfold_less" : "unfold_more"}</i
                 >
-                  <i class="material-icon"
-                    >${this.open.size ? "unfold_less" : "unfold_more"}</i
-                  >
-                  ${this.open.size ? "Alle zuklappen" : "Alle aufklappen"}
-                </button>`
+                ${this.open.size ? "Alle zuklappen" : "Alle aufklappen"}
+              </button>`
               : nothing
           }
         </header>
         ${
           total === 0
             ? html`<div class="empty">
-                <i class="material-icon">library_music</i>
-                <strong>Noch keine Küren</strong>
-                <span
-                  >${
-                    this.data.riders.length
-                      ? "Legt oben eure erste Kür an."
-                      : "Legt zuerst FahrerInnen an."
-                  }</span
-                >
-                ${
+              <i class="material-icon">library_music</i>
+              <strong>Noch keine Küren</strong>
+              <span
+                >${
                   this.data.riders.length
-                    ? nothing
-                    : html`<button
-                        class="btn"
-                        @click=${this.goToRiders}
-                      >
-                        Zu den FahrerInnen
-                      </button>`
-                }
-              </div>`
+                    ? "Legt oben eure erste Kür an."
+                    : "Legt zuerst FahrerInnen an."
+                }</span
+              >
+              ${
+                this.data.riders.length
+                  ? nothing
+                  : html`<button class="btn" @click=${this.goToRiders}>
+                    Zu den FahrerInnen
+                  </button>`
+              }
+            </div>`
             : typeSections
         }
         ${
           this.onlyOpen && total > 0 && openCount === 0
             ? html`<p class="banner ok">
-                <i class="material-icon">task_alt</i> Bei allen Küren ist alles
-                erledigt.
-              </p>`
+              <i class="material-icon">task_alt</i> Bei allen Küren ist alles
+              erledigt.
+            </p>`
             : nothing
         }
       </section>
 
       <div class="next-step">
-        <button
-          class="btn primary"
-          @click=${this.goToNext}
-        >
+        <button class="btn primary" @click=${this.goToNext}>
           Weiter: ${this.juryStep ? "Jury" : "Startgeld"}
           <i class="material-icon">arrow_forward</i>
         </button>
@@ -650,7 +656,11 @@ export default class CupClubStepActs extends LitElement {
     const chips = riders.map(
       (s) =>
         html`<span
-          class=${classMap({ chip: true, warn: true, target: this.target === s.id })}
+          class=${classMap({
+            chip: true,
+            warn: true,
+            target: this.target === s.id,
+          })}
           data-id=${s.id}
           >${riderName(s)}</span
         >`,
@@ -658,9 +668,11 @@ export default class CupClubStepActs extends LitElement {
     return html`<p class="banner warn">
       <i class="material-icon">person_off</i>
       <span class="grow"
-        >${riders.length === 1 ? "Diese FahrerIn ist" : "Diese FahrerInnen sind"} noch
-        in keiner Kür. Legt eine Kür für sie an oder fügt sie einer Kür hinzu.
-        <span class="unassigned">${chips}</span></span
+        >${
+          riders.length === 1 ? "Diese FahrerIn ist" : "Diese FahrerInnen sind"
+        }
+        noch in keiner Kür. Legt eine Kür für sie an oder fügt sie einer Kür
+        hinzu. <span class="unassigned">${chips}</span></span
       >
     </p>`;
   }
@@ -673,64 +685,66 @@ export default class CupClubStepActs extends LitElement {
       this.canRegister
         ? nothing
         : html`<p class="banner info">
-            <i class="material-icon">lock</i>
-            <span class="grow"
-              >Der Meldeschluss ist vorbei – Küren können nicht mehr angelegt
-              oder entfernt werden.${
-                this.canUpload ? " Titel und Musik könnt ihr noch ändern." : ""
-              }</span
-            >
-          </p>`
+          <i class="material-icon">lock</i>
+          <span class="grow"
+            >Der Meldeschluss ist vorbei – Küren können nicht mehr angelegt oder
+            entfernt
+            werden.${
+              this.canUpload ? " Titel und Musik könnt ihr noch ändern." : ""
+            }</span
+          >
+        </p>`
     }
     ${
       this.canUpload
         ? nothing
         : html`<p class="banner warn">
-            <i class="material-icon">music_off</i>
-            <span class="grow"
-              >Der Musik-Einsendeschluss${musicEnd ? ` am ${musicEnd}` : ""} ist
-              vorbei: Kürtitel, Beschreibung und Musik können nur noch vom
-              Veranstalter geändert werden.${
-                this.competition?.contact_email
-                  ? html` Fragen an
-                      <a href="mailto:${this.competition.contact_email}"
-                        >${this.competition.contact_email}</a
-                      >.`
-                  : nothing
-              }</span
-            >
-          </p>`
+          <i class="material-icon">music_off</i>
+          <span class="grow"
+            >Der Musik-Einsendeschluss${musicEnd ? ` am ${musicEnd}` : ""} ist
+            vorbei: Kürtitel, Beschreibung und Musik können nur noch vom
+            Veranstalter geändert
+            werden.${
+              this.competition?.contact_email
+                ? html` Fragen an
+                  <a href="mailto:${this.competition.contact_email}"
+                    >${this.competition.contact_email}</a
+                  >.`
+                : nothing
+            }</span
+          >
+        </p>`
     }
     ${
       this.error
         ? html`<p class="banner error" role="alert">
-            <i class="material-icon">error</i>
-            <span class="grow">${this.error}</span>
-            <button
-              class="icon-btn"
-              title="Schließen"
-              aria-label="Schließen"
-              @click=${this.clearError}
-            >
-              close
-            </button>
-          </p>`
+          <i class="material-icon">error</i>
+          <span class="grow">${this.error}</span>
+          <button
+            class="icon-btn"
+            title="Schließen"
+            aria-label="Schließen"
+            @click=${this.clearError}
+          >
+            close
+          </button>
+        </p>`
         : nothing
     }
     ${
       this.notice
         ? html`<p class="banner ok" role="status">
-            <i class="material-icon">check_circle</i>
-            <span class="grow">${this.notice}</span>
-            <button
-              class="icon-btn"
-              title="Schließen"
-              aria-label="Schließen"
-              @click=${this.clearNotice}
-            >
-              close
-            </button>
-          </p>`
+          <i class="material-icon">check_circle</i>
+          <span class="grow">${this.notice}</span>
+          <button
+            class="icon-btn"
+            title="Schließen"
+            aria-label="Schließen"
+            @click=${this.clearNotice}
+          >
+            close
+          </button>
+        </p>`
         : nothing
     }`;
   }
@@ -775,9 +789,9 @@ export default class CupClubStepActs extends LitElement {
       ${
         open
           ? html`<div class="kinds" role="group" aria-label="Art der Kür">
-                ${kinds}
-              </div>
-              ${this.newKind ? this.renderNewForm(this.newKind) : nothing}`
+              ${kinds}
+            </div>
+            ${this.newKind ? this.renderNewForm(this.newKind) : nothing}`
           : nothing
       }
     </section>`;
@@ -893,10 +907,7 @@ export default class CupClubStepActs extends LitElement {
         <p class="banner info">
           <i class="material-icon">info</i>
           <span class="grow">Legt zuerst FahrerInnen an.</span>
-          <button
-            class="btn small"
-            @click=${this.goToRiders}
-          >
+          <button class="btn small" @click=${this.goToRiders}>
             Zu den FahrerInnen
           </button>
         </p>
@@ -946,10 +957,7 @@ export default class CupClubStepActs extends LitElement {
             @change=${this.onNewRiderPick}
           ></cup-rider-picker>
         </label>
-        <button
-          class="btn secondary"
-          ?disabled=${!chosen || this.creating}
-        >
+        <button class="btn secondary" ?disabled=${!chosen || this.creating}>
           <i class="material-icon">add</i> Einzelkür anlegen
         </button>
       </div>
@@ -1027,14 +1035,14 @@ export default class CupClubStepActs extends LitElement {
         ${
           this.newPartner === OTHER_CLUB
             ? html`<label class="field"
-                ><span>Name des Partners</span
-                ><input
-                  type="text"
-                  placeholder="Vorname Nachname"
-                  required
-                  .value=${this.newPartnerName}
-                  @input=${this.onNewPartnerNameInput}
-              /></label>`
+              ><span>Name des Partners</span
+              ><input
+                type="text"
+                placeholder="Vorname Nachname"
+                required
+                .value=${this.newPartnerName}
+                @input=${this.onNewPartnerNameInput}
+            /></label>`
             : nothing
         }
         <button
@@ -1056,11 +1064,11 @@ export default class CupClubStepActs extends LitElement {
       ${
         this.newPartner === OTHER_CLUB
           ? html`<p class="hint">
-              Paare mit Partnern aus anderen Vereinen verbindet der Veranstalter.
-              Bis dahin ist die Paarkür als „wartet auf Bestätigung“ markiert;
-              der andere Verein meldet seine FahrerIn ebenfalls mit eurer FahrerIn
-              als Partner an.
-            </p>`
+            Paare mit Partnern aus anderen Vereinen verbindet der Veranstalter.
+            Bis dahin ist die Paarkür als „wartet auf Bestätigung“ markiert; der
+            andere Verein meldet seine FahrerIn ebenfalls mit eurer FahrerIn als
+            Partner an.
+          </p>`
           : nothing
       }
     </form>`;
@@ -1094,10 +1102,13 @@ export default class CupClubStepActs extends LitElement {
           ${g.owner_club_name ?? g.club_names.join(", ")}
         </option>`,
     );
-    return html`<form class="new-form" @submit=${
-      // eslint-disable-next-line lit/no-template-arrow
-      (e: SubmitEvent) => this.createGroup(e, type)
-    }>
+    return html`<form
+      class="new-form"
+      @submit=${
+        // eslint-disable-next-line lit/no-template-arrow
+        (e: SubmitEvent) => this.createGroup(e, type)
+      }
+    >
       <div class="form-row">
         <label class="field"
           ><span>Gruppenname</span
@@ -1109,9 +1120,7 @@ export default class CupClubStepActs extends LitElement {
             .value=${this.newGroupName}
             @input=${this.onNewGroupNameInput}
         /></label>
-        <datalist id="other-groups">
-          ${otherGroupOptions}
-        </datalist>
+        <datalist id="other-groups">${otherGroupOptions}</datalist>
         <button
           class="btn secondary"
           ?disabled=${
@@ -1121,7 +1130,13 @@ export default class CupClubStepActs extends LitElement {
           }
         >
           <i class="material-icon"
-            >${action?.kind === "join" ? "group_add" : action?.kind === "own" ? "open_in_new" : "add"}</i
+            >${
+              action?.kind === "join"
+                ? "group_add"
+                : action?.kind === "own"
+                  ? "open_in_new"
+                  : "add"
+            }</i
           >
           ${
             action?.kind === "join"
@@ -1135,37 +1150,38 @@ export default class CupClubStepActs extends LitElement {
       ${
         action?.kind === "own"
           ? html`<p class="hint">
-              Ihr habt schon eine Gruppe „${action.group.group_name}“.
-            </p>`
+            Ihr habt schon eine Gruppe „${action.group.group_name}“.
+          </p>`
           : action?.kind === "join"
             ? html`<p class="banner info">
-                  <i class="material-icon">handshake</i>
-                  <span class="grow"
-                    >„${action.group.group_name}“ gibt es schon:
-                    ${actTypeLabels[action.group.act_type]} von
-                    ${action.group.owner_club_name ?? "einem anderen Verein"}
-                    (${countRiders(action.group.regular_count)}${
-                      action.group.replacement_count
-                        ? ` + ${action.group.replacement_count} Ersatz`
-                        : ""
-                    }). Wählt eure FahrerInnen, um der gemeinsamen Gruppe
-                    beizutreten.</span
-                  >
-                </p>
-                ${this.renderPickerGrid(
-                  this.joinMembers,
-                  action.group.act_type,
-                  action.group.id,
-                  (members) => {
-                    this.joinMembers = members;
-                  },
-                )}`
+                <i class="material-icon">handshake</i>
+                <span class="grow"
+                  >„${action.group.group_name}“ gibt es schon:
+                  ${actTypeLabels[action.group.act_type]} von
+                  ${action.group.owner_club_name ?? "einem anderen Verein"}
+                  (${countRiders(action.group.regular_count)}${
+                    action.group.replacement_count
+                      ? ` + ${action.group.replacement_count} Ersatz`
+                      : ""
+                  }).
+                  Wählt eure FahrerInnen, um der gemeinsamen Gruppe
+                  beizutreten.</span
+                >
+              </p>
+              ${this.renderPickerGrid(
+                this.joinMembers,
+                action.group.act_type,
+                action.group.id,
+                (members) => {
+                  this.joinMembers = members;
+                },
+              )}`
             : html`${this.renderNewDetails()}
-                <p class="hint">
-                  Der Gruppenname ist im ganzen Wettbewerb eindeutig. Vereine
-                  können gemeinsame Gruppen bilden: Ein Verein legt sie an, die
-                  anderen geben denselben Namen ein und treten bei.
-                </p>`
+              <p class="hint">
+                Der Gruppenname ist im ganzen Wettbewerb eindeutig. Vereine
+                können gemeinsame Gruppen bilden: Ein Verein legt sie an, die
+                anderen geben denselben Namen ein und treten bei.
+              </p>`
       }
     </form>`;
   }
@@ -1320,7 +1336,11 @@ export default class CupClubStepActs extends LitElement {
       class=${classMap({ act: true, open, target: this.target === entry.id })}
       data-id=${entry.id}
     >
-      <button class="head" aria-expanded=${open ? "true" : "false"} @click=${toggle}>
+      <button
+        class="head"
+        aria-expanded=${open ? "true" : "false"}
+        @click=${toggle}
+      >
         ${head}
         <i class="material-icon chevron">expand_more</i>
       </button>
@@ -1365,7 +1385,9 @@ export default class CupClubStepActs extends LitElement {
     } else {
       if (isGroup && regular < MIN_GROUP_SIZE) {
         chips.push(
-          html`<span class="chip error">${regular}/${MIN_GROUP_SIZE} FahrerInnen</span>`,
+          html`<span class="chip error"
+            >${regular}/${MIN_GROUP_SIZE} FahrerInnen</span
+          >`,
         );
       } else if (group?.conflict) {
         chips.push(html`<span class="chip error">Konflikt</span>`);
@@ -1384,7 +1406,9 @@ export default class CupClubStepActs extends LitElement {
         );
       } else {
         chips.push(
-          html`<span class="chip muted">von ${group?.owner_club_name ?? "anderem Verein"}</span>`,
+          html`<span class="chip muted"
+            >von ${group?.owner_club_name ?? "anderem Verein"}</span
+          >`,
         );
       }
     }
@@ -1401,8 +1425,8 @@ export default class CupClubStepActs extends LitElement {
                 }`
               : title ||
                 html`<span class=${missingTitle ? "title-missing" : "muted"}
-                  >Ohne Titel</span
-                >`
+                >Ohne Titel</span
+              >`
           }</strong
         >
         <span class="riders"
@@ -1422,6 +1446,7 @@ export default class CupClubStepActs extends LitElement {
     const owned = ownsAct(this.data, act);
     const editable = owned && this.canUpload;
     const isGroup = isGroupActType(act.act_type);
+    const moderationInput = this.moderationInput;
     return html`<div class="body">
       <div class="full">
         <h4>FahrerInnen</h4>
@@ -1434,42 +1459,57 @@ export default class CupClubStepActs extends LitElement {
         ></cup-club-act-riders>
       </div>
       <div>
-        <h4>Titel und Beschreibung</h4>
+        <h4>${moderationInput ? "Titel und Beschreibung" : "Titel"}</h4>
         ${
           editable
             ? this.renderDetailsForm(act)
-            : html`<p>${act.name || html`<span class="muted">Ohne Titel</span>`}</p>
-                ${act.description ? html`<p class="hint">${act.description}</p>` : nothing}
-                ${
-                  owned
-                    ? html`<p class="hint">
-                        <i class="material-icon inline">lock</i> Seit dem
-                        Musik-Einsendeschluss kann nur noch der Veranstalter
-                        Titel und Musik ändern.
-                      </p>`
-                    : html`<p class="hint">
-                        Titel und Musik pflegt
-                        ${group?.owner_club_name ?? "der Verein, der die Gruppe angelegt hat"}.
-                      </p>`
-                }`
+            : html`<p>
+                ${act.name || html`<span class="muted">Ohne Titel</span>`}
+              </p>
+              ${
+                moderationInput && act.description
+                  ? html`<p class="hint">${act.description}</p>`
+                  : nothing
+              }
+              ${
+                owned
+                  ? html`<p class="hint">
+                    <i class="material-icon inline">lock</i> Seit dem
+                    Musik-Einsendeschluss kann nur noch der Veranstalter Titel
+                    und Musik ändern.
+                  </p>`
+                  : html`<p class="hint">
+                    Titel und Musik pflegt
+                    ${
+                      group?.owner_club_name ??
+                      "der Verein, der die Gruppe angelegt hat"
+                    }.
+                  </p>`
+              }`
         }
       </div>
       <div>
         <h4>Musik</h4>
         ${this.renderMusic(act, editable)}
       </div>
-      ${isGroup && group && group.is_owner && this.canRegister ? this.renderGroupSettings(group) : nothing}
+      ${
+        isGroup && group && group.is_owner && this.canRegister
+          ? this.renderGroupSettings(group)
+          : nothing
+      }
       ${this.canRegister ? this.renderDangerZone(act, group) : nothing}
     </div>`;
   }
 
   renderDetailsForm(act: ClubAct) {
+    const moderationInput = this.moderationInput;
     const draft = this.drafts.get(act.id) ?? {
       name: act.name,
       description: act.description ?? "",
     };
     const changed =
-      draft.name !== act.name || draft.description !== (act.description ?? "");
+      draft.name !== act.name ||
+      (moderationInput && draft.description !== (act.description ?? ""));
     const update = (changes: Partial<typeof draft>) => {
       this.drafts = new Map(this.drafts).set(act.id, { ...draft, ...changes });
     };
@@ -1495,42 +1535,50 @@ export default class CupClubStepActs extends LitElement {
               update({ name: (e.target as HTMLInputElement).value })
           }
       /></label>
-      <label class="field"
-        ><span>Beschreibung für die Moderation</span
-        ><textarea
-          rows="3"
-          placeholder="Hilf unserer Moderation, euch perfekt anzukündigen!"
-          .value=${draft.description}
-          @input=${
-            // eslint-disable-next-line lit/no-template-arrow
-            (e: InputEvent) =>
-              update({ description: (e.target as HTMLTextAreaElement).value })
-          }
-        ></textarea>
-      </label>
+      ${
+        moderationInput
+          ? html`<label class="field"
+            ><span>Beschreibung für die Moderation</span
+            ><textarea
+              rows="3"
+              placeholder="Hilf unserer Moderation, euch perfekt anzukündigen!"
+              .value=${draft.description}
+              @input=${
+                // eslint-disable-next-line lit/no-template-arrow
+                (e: InputEvent) =>
+                  update({
+                    description: (e.target as HTMLTextAreaElement).value,
+                  })
+              }
+            ></textarea>
+          </label>`
+          : nothing
+      }
       <div class="actions">
         <button
           class="btn secondary small"
           ?disabled=${!changed || this.busy.has(act.id)}
         >
-          <i class="material-icon">save</i> Speichern
+          <i class="material-icon">save</i> ${
+            this.moderationInputEnabled ? nothing : "Titel "
+          }Speichern
         </button>
         ${
           changed
             ? html`<button
-                type="button"
-                class="btn small"
-                @click=${
-                  // eslint-disable-next-line lit/no-template-arrow
-                  () => {
-                    const drafts = new Map(this.drafts);
-                    drafts.delete(act.id);
-                    this.drafts = drafts;
-                  }
+              type="button"
+              class="btn small"
+              @click=${
+                // eslint-disable-next-line lit/no-template-arrow
+                () => {
+                  const drafts = new Map(this.drafts);
+                  drafts.delete(act.id);
+                  this.drafts = drafts;
                 }
-              >
-                Verwerfen
-              </button>`
+              }
+            >
+              Verwerfen
+            </button>`
             : nothing
         }
       </div>
@@ -1541,17 +1589,27 @@ export default class CupClubStepActs extends LitElement {
     const uploading = this.busy.has(`song:${act.id}`);
     return html`${
       act.song_file
-        ? html`<p><i class="material-icon inline">music_note</i> ${act.song_file_name}</p>
-            ${
-              act.song_file_normalized
-                ? html`<p class="hint">Angeglichene Lautstärke (so läuft sie beim Wettkampf):</p>
-                    <audio preload="none" controls src="/songs/${act.song_file_normalized}"></audio>
-                    <p class="hint">Original:</p>`
-                : act.normalization_status
-                  ? html`<p class="hint">${normalizationLabel(act.normalization_status)}</p>`
-                  : nothing
-            }
-            <audio preload="none" controls src="/songs/${act.song_file}"></audio>`
+        ? html`<p>
+            <i class="material-icon inline">music_note</i> ${act.song_file_name}
+          </p>
+          ${
+            act.song_file_normalized
+              ? html`<p class="hint">
+                  Angeglichene Lautstärke (so läuft sie beim Wettkampf):
+                </p>
+                <audio
+                  preload="none"
+                  controls
+                  src="/songs/${act.song_file_normalized}"
+                ></audio>
+                <p class="hint">Original:</p>`
+              : act.normalization_status
+                ? html`<p class="hint">
+                  ${normalizationLabel(act.normalization_status)}
+                </p>`
+                : nothing
+          }
+          <audio preload="none" controls src="/songs/${act.song_file}"></audio>`
         : html`<p class="muted">Noch keine Musik.</p>`
     }
     ${
@@ -1571,7 +1629,13 @@ export default class CupClubStepActs extends LitElement {
             />
             <button class="btn primary small" ?disabled=${uploading}>
               <i class="material-icon">cloud_upload</i>
-              ${uploading ? "Lädt hoch…" : act.song_file ? "Ersetzen" : "Hochladen"}
+              ${
+                uploading
+                  ? "Lädt hoch…"
+                  : act.song_file
+                    ? "Ersetzen"
+                    : "Hochladen"
+              }
             </button>
           </form>
           <p class="hint">
@@ -1607,7 +1671,11 @@ export default class CupClubStepActs extends LitElement {
       const selected = members.has(s.id);
       const other = elsewhere.get(s.id);
       return html`<div
-        class=${classMap({ pick: true, selected, conflict: selected && !!other })}
+        class=${classMap({
+          pick: true,
+          selected,
+          conflict: selected && !!other,
+        })}
       >
         <label>
           <input
@@ -1631,41 +1699,43 @@ export default class CupClubStepActs extends LitElement {
         ${
           selected
             ? html`<label
-                ><input
-                  type="checkbox"
-                  .checked=${members.get(s.id) ?? false}
-                  @change=${
-                    // eslint-disable-next-line lit/no-template-arrow
-                    (e: Event) => {
-                      onChange(
-                        new Map(members).set(
-                          s.id,
-                          (e.target as HTMLInputElement).checked,
-                        ),
-                      );
-                    }
+              ><input
+                type="checkbox"
+                .checked=${members.get(s.id) ?? false}
+                @change=${
+                  // eslint-disable-next-line lit/no-template-arrow
+                  (e: Event) => {
+                    onChange(
+                      new Map(members).set(
+                        s.id,
+                        (e.target as HTMLInputElement).checked,
+                      ),
+                    );
                   }
-                /><small>Ersatz</small></label
-              >`
+                }
+              /><small>Ersatz</small></label
+            >`
             : nothing
         }
         ${
           other
-            ? html`<small title="Eine FahrerIn kann nur in einer ${actTypeLabels[type]} starten"
-                >schon in „${other}“</small
-              >`
+            ? html`<small
+              title="Eine FahrerIn kann nur in einer ${
+                actTypeLabels[type]
+              } starten"
+              >schon in „${other}“</small
+            >`
             : nothing
         }
       </div>`;
     });
     return html`<p class="hint">
-        ${members.size} ausgewählt (${countRiders(regular)}${
+        ${members.size} ausgewählt
+        (${countRiders(regular)}${
           members.size - regular ? `, ${members.size - regular} Ersatz` : ""
         })
       </p>
-      <div class="picker">
-        ${picks}
-      </div>`;
+      <div class="picker">${picks}</div>`;
   }
 
   renderGroupSettings(group: ClubGroup) {
@@ -1749,23 +1819,23 @@ export default class CupClubStepActs extends LitElement {
         return nothing;
       }
       buttons = html`<button
-          class="btn small danger"
-          ?disabled=${busy}
-          @click=${
-            // eslint-disable-next-line lit/no-template-arrow
-            () => {
-              if (
-                confirm(
-                  `Einzelkür von ${riderName(rider)} wirklich entfernen?\nTitel und Musik gehen dabei verloren.`,
-                )
-              ) {
-                this.run(act.id, () => setSingle(rider, false));
-              }
+        class="btn small danger"
+        ?disabled=${busy}
+        @click=${
+          // eslint-disable-next-line lit/no-template-arrow
+          () => {
+            if (
+              confirm(
+                `Einzelkür von ${riderName(rider)} wirklich entfernen?\nTitel und Musik gehen dabei verloren.`,
+              )
+            ) {
+              this.run(act.id, () => setSingle(rider, false));
             }
           }
-        >
-          <i class="material-icon">delete</i> Einzelkür entfernen
-        </button>`;
+        }
+      >
+        <i class="material-icon">delete</i> Einzelkür entfernen
+      </button>`;
     } else if (act.act_type === "pair") {
       const rider = this.data.riders.find((s) =>
         act.participants.some((p) => p.id === s.id),
@@ -1826,7 +1896,8 @@ export default class CupClubStepActs extends LitElement {
       </span>
       <span class="status"
         ><span class="chip warn"
-          ><i class="material-icon">hourglass_top</i> wartet auf Bestätigung</span
+          ><i class="material-icon">hourglass_top</i> wartet auf
+          Bestätigung</span
         ></span
       >`;
   }
@@ -1849,17 +1920,17 @@ export default class CupClubStepActs extends LitElement {
       ${
         this.canRegister
           ? html`<div class="full danger-zone">
-              <button
-                class="btn small danger"
-                ?disabled=${this.busy.has(rider.id)}
-                @click=${
-                  // eslint-disable-next-line lit/no-template-arrow
-                  () => this.run(rider.id, () => leavePair(rider))
-                }
-              >
-                <i class="material-icon">link_off</i> Paar auflösen
-              </button>
-            </div>`
+            <button
+              class="btn small danger"
+              ?disabled=${this.busy.has(rider.id)}
+              @click=${
+                // eslint-disable-next-line lit/no-template-arrow
+                () => this.run(rider.id, () => leavePair(rider))
+              }
+            >
+              <i class="material-icon">link_off</i> Paar auflösen
+            </button>
+          </div>`
           : nothing
       }
     </div>`;
