@@ -392,6 +392,8 @@ export default class CupRiderPicker extends LitElement {
     if (box.bottom < 0 || box.top > innerHeight) {
       return false;
     }
+    // Allow this alias per rule typescript(no-this-alias) because the type of `node` is narrowed in the loop.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     let node: Node | null = this;
     while (node) {
       node = node instanceof ShadowRoot ? node.host : node.parentNode;

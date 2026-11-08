@@ -105,14 +105,14 @@ pub async fn list_clubs(
             let club_fees = fees.remove(&row.id).unwrap_or_default();
             ClubOverview {
                 code: club_code(&row.id),
-                amount_due: Some(club_fees.amount_due).filter(|_| balances),
+                amount_due: balances.then_some(club_fees.amount_due),
                 fee_waiver: row.fee_waiver.filter(|_| balances),
                 jury: club_fees.jury.filter(|_| jury),
                 id: row.id,
                 name: row.name,
                 paid: balances.then(|| paid.get(&row.id).copied().unwrap_or(0.0)),
                 owner_id: row.owner_id,
-                contacts: contacts.then(|| ClubContacts {
+                contacts: contacts.then_some(ClubContacts {
                     contact_name: row.owner_name,
                     contact_email: row.owner_email,
                     contact_email_verified: row.owner_email_verified,
