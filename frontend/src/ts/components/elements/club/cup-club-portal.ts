@@ -898,6 +898,7 @@ export default class CupClubPortal extends LitElement {
     const common = {
       data,
       competition: this.systemStatus?.competition ?? null,
+      moderationInputEnabled: this.systemStatus?.moderation_input,
       canRegister: !!this.systemStatus?.can_register_rider,
       canUpload: !!this.systemStatus?.can_upload_music,
     };
@@ -923,6 +924,7 @@ export default class CupClubPortal extends LitElement {
           ?jury-step=${this.juryRegistration}
           .data=${common.data}
           .competition=${common.competition}
+          .moderationInputEnabled=${common.moderationInputEnabled}
           .canRegister=${common.canRegister}
           .canUpload=${common.canUpload}
           .target=${this.target}

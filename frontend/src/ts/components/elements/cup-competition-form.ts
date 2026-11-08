@@ -599,6 +599,22 @@ export default class CupCompetitionForm extends LitElement {
               <small>Vereine melden JurorInnen, das Orga-Team plant die
                 Jury.</small></label
             >
+            <label
+              >Moderationseingabe
+              <select
+                class="inline"
+                name="feature_moderation_input"
+                .value=${featureValue(c.features.moderation_input)}
+              >
+                <option value="">
+                  Standard (${defaults.moderation_input ? "an" : "aus"})
+                </option>
+                <option value="on">An</option>
+                <option value="off">Aus</option>
+              </select>
+              <small>Bei der Anmeldung kann zusätzlich ein Text für die Moderation
+                hinterlegt werden.</small></label
+            >
           </div>
         </fieldset>
 
@@ -798,6 +814,7 @@ export default class CupCompetitionForm extends LitElement {
         : null,
       features: {
         jury_registration: featureSetting(text("feature_jury_registration")),
+        moderation_input: featureSetting(text("feature_moderation_input")),
       },
       primary_color: this.colors.primary,
       secondary_color: this.colors.secondary,

@@ -73,12 +73,16 @@ pub struct Competition {
 pub struct Features {
     /// Clubs register judges, admins plan the jury (see `crate::jury`).
     pub jury_registration: Option<bool>,
+    /// Clubs can add an extra description for the moderation while registering
+    /// their acts.
+    pub moderation_input: Option<bool>,
 }
 
 /// Whether each feature is on, after [`Features::resolve`].
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct ResolvedFeatures {
     pub jury_registration: bool,
+    pub moderation_input: bool,
 }
 
 impl Features {
@@ -88,14 +92,17 @@ impl Features {
     }
 
     /// Fills in what's unset from `defaults` (the system config's
-    /// `[features]`), then the build default: on in debug builds, off in
-    /// release builds.
+    /// `[features]`), then each feature's default.
     pub fn resolve(&self, defaults: &Features) -> ResolvedFeatures {
         ResolvedFeatures {
             jury_registration: self
                 .jury_registration
                 .or(defaults.jury_registration)
                 .unwrap_or(cfg!(debug_assertions)),
+            moderation_input: self
+                .moderation_input
+                .or(defaults.moderation_input)
+                .unwrap_or(true),
         }
     }
 
@@ -171,6 +178,7 @@ impl Competition {
                 jury_missing_deployment_fee,
                 jury_registration_end as "jury_registration_end: OffsetDateTime",
                 feature_jury_registration as "feature_jury_registration: bool",
+                feature_moderation_input as "feature_moderation_input: bool",
                 photos_source,
                 photos_user,
                 photos_password,
@@ -223,6 +231,7 @@ impl Competition {
                 jury,
                 features: Features {
                     jury_registration: row.feature_jury_registration,
+                    moderation_input: row.feature_moderation_input,
                 },
                 photos: row.photos_source.map(|source| PhotosSettings {
                     source,
@@ -360,10 +369,10 @@ pub async fn upsert_competition(
             fee_per_start, max_fee_per_rider, venue, contact_email, announcement_url, photos_url,
             payment_deadline, payment_account_holder, payment_iban, payment_bic, payment_reference,
             jury_min_age, jury_deployments_per_two_acts, jury_missing_deployment_fee,
-            jury_registration_end, feature_jury_registration,
+            jury_registration_end, feature_jury_registration, feature_moderation_input,
             photos_source, photos_user, photos_password
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         ON CONFLICT (id) DO UPDATE SET
             name = excluded.name,
@@ -390,6 +399,7 @@ pub async fn upsert_competition(
             jury_missing_deployment_fee = excluded.jury_missing_deployment_fee,
             jury_registration_end = excluded.jury_registration_end,
             feature_jury_registration = excluded.feature_jury_registration,
+            feature_moderation_input = excluded.feature_moderation_input,
             photos_source = excluded.photos_source,
             photos_user = excluded.photos_user,
             photos_password = excluded.photos_password
@@ -419,6 +429,7 @@ pub async fn upsert_competition(
         jury.map(|jury| jury.missing_deployment_fee),
         jury.and_then(|jury| jury.registration_end),
         config.features.jury_registration,
+        config.features.moderation_input,
         photos.map(|photos| &photos.source),
         photos.and_then(|photos| photos.user.as_ref()),
         photos.and_then(|photos| photos.password.as_ref()),
@@ -436,19 +447,27 @@ mod tests {
     fn unset_features_follow_the_system_config_then_the_build_default() {
         let on = Features {
             jury_registration: Some(true),
+            moderation_input: Some(true),
         };
         let off = Features {
             jury_registration: Some(false),
+            moderation_input: Some(false),
         };
         let unset = Features::default();
         assert!(on.resolve(&off).jury_registration);
         assert!(!off.resolve(&on).jury_registration);
         assert!(unset.resolve(&on).jury_registration);
         assert!(!unset.resolve(&off).jury_registration);
+        assert!(on.resolve(&off).moderation_input);
+        assert!(!off.resolve(&on).moderation_input);
+        assert!(unset.resolve(&on).moderation_input);
+        assert!(!unset.resolve(&off).moderation_input);
         assert_eq!(
             unset.resolve(&unset).jury_registration,
             cfg!(debug_assertions)
         );
+        assert!(unset.resolve(&unset).moderation_input);
         assert!(Features::of(None, &on).jury_registration);
+        assert!(Features::of(None, &on).moderation_input);
     }
 }

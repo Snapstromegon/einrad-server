@@ -115,8 +115,17 @@ export default class CupClubActManager extends LitElement {
 
   @query("#error") errorBanner?: HTMLElement;
 
+  get moderationInput() {
+    return (
+      this.systemStatus?.moderation_input ??
+      this.systemStatus?.competition?.features?.moderation_input ??
+      true
+    );
+  }
+
   get columnCount() {
-    return this.adminMode ? 7 : 6;
+    const descriptionColumns = this.moderationInput ? 1 : 0;
+    return this.adminMode ? 6 + descriptionColumns : 5 + descriptionColumns;
   }
 
   override render() {
@@ -143,7 +152,7 @@ export default class CupClubActManager extends LitElement {
         </tr>
         ${this.renderCount("Namen vorhanden", acts, (act) => !!act.name)}
         ${
-          can(this.user, "manage_registrations")
+          this.moderationInput && can(this.user, "manage_registrations")
             ? this.renderCount(
                 "Beschreibung vorhanden",
                 acts,
@@ -175,7 +184,7 @@ export default class CupClubActManager extends LitElement {
           <tr>
             ${this.adminMode ? html`<th>ID</th>` : nothing}
             <th>Kürtitel</th>
-            <th>Beschreibung</th>
+            ${this.moderationInput ? html`<th>Beschreibung</th>` : nothing}
             <th>Typ</th>
             <th>Kürmusik</th>
             <th>FahrerInnen</th>
@@ -236,20 +245,24 @@ export default class CupClubActManager extends LitElement {
             placeholder="Der Titel deiner Kür"
         /></label>
       </td>
-      <td>
-        <label
-          ><span>Beschreibung</span
-          ><textarea
-            .value=${editAct.description || ""}
-            @input=${
-              // eslint-disable-next-line lit/no-template-arrow
-              (e: InputEvent) => this.updateEditActDescription(editAct, e)
-            }
-            placeholder="Hilf unserer Moderation dich perfekt einzuleiten!"
-            rows="10"
-          ></textarea>
-        </label>
-      </td>
+      ${
+        this.moderationInput
+          ? html`<td>
+            <label
+              ><span>Beschreibung</span
+              ><textarea
+                .value=${editAct.description || ""}
+                @input=${
+                  // eslint-disable-next-line lit/no-template-arrow
+                  (e: InputEvent) => this.updateEditActDescription(editAct, e)
+                }
+                placeholder="Hilf unserer Moderation dich perfekt einzuleiten!"
+                rows="10"
+              ></textarea>
+            </label>
+          </td>`
+          : nothing
+      }
       <td>
         <label><span>Typ</span></label>
         ${this.renderType(act)}
@@ -318,10 +331,14 @@ export default class CupClubActManager extends LitElement {
     return html`<tr>
       ${this.adminMode ? html`<td>${act.id}</td>` : nothing}
       <td><label><span>Name</span></label> ${act.name}</td>
-      <td>
-        <label><span>Beschreibung</span></label>
-        ${act.description}
-      </td>
+      ${
+        this.moderationInput
+          ? html`<td>
+            <label><span>Beschreibung</span></label>
+            ${act.description}
+          </td>`
+          : nothing
+      }
       <td>
         <label><span>Typ</span></label>
         ${this.renderType(act)}${

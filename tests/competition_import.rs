@@ -213,7 +213,7 @@ async fn imported_features_and_photos_apply_without_a_restart() {
     let admin = app.create_admin().await;
     let folder = TempDir::new();
     let file = format!(
-        "{COMPETITION}\n[competition.features]\njury_registration = false\n\
+        "{COMPETITION}\n[competition.features]\njury_registration = false\nmoderation_input = false\n\
          [competition.photos]\nsource = {:?}\n",
         folder.0.display().to_string()
     );
@@ -222,5 +222,6 @@ async fn imported_features_and_photos_apply_without_a_restart() {
     let response = import(&app, &admin, &file).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(system_status(&app).await["jury_registration"], false);
+    assert_eq!(system_status(&app).await["moderation_input"], false);
     assert!(app.photos.configured());
 }

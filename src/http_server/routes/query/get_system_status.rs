@@ -19,6 +19,8 @@ pub struct SystemStatus {
     /// Whether the jury registration is on (the competition's feature, else
     /// the system default); everything about judges is hidden without it.
     jury_registration: bool,
+    /// Whether the act description field is enabled for the current competition.
+    moderation_input: bool,
 }
 
 /// Get information about the status of the system and the current competition.
@@ -43,5 +45,6 @@ pub async fn get_system_status(
         capabilities,
         competition,
         jury_registration: features.jury_registration,
+        moderation_input: features.moderation_input,
     }))
 }

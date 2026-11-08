@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
+    competition::{Competition, Features},
     groups::ensure_club_access,
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
+    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     normalize::NormalizationStatus,
     reloadable_sqlite::ReloadableSqlite,
 };
@@ -78,12 +81,18 @@ pub struct ListClubActsQuery {
 #[axum::debug_handler]
 pub async fn list_club_acts(
     Extension(db): Extension<ReloadableSqlite>,
+    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Query(query): Query<ListClubActsQuery>,
     auth: Auth,
 ) -> Result<Json<Vec<ClubAct>>, HttpError> {
     let db = db.get().await.clone();
     let mut connection = db.acquire().await?;
     ensure_club_access(&mut connection, &auth, query.club_id).await?;
+    let moderation_input = Features::of(
+        Competition::current(&db).await?.as_ref(),
+        &http_options.features,
+    )
+    .moderation_input;
     let acts_with_club_participation = sqlx::query!(
         r#"
         SELECT
@@ -142,7 +151,7 @@ pub async fn list_club_acts(
             name: act.name,
             group_name: act.group_name,
             owner_club_id: act.owner_club_id,
-            description: act.description,
+            description: moderation_input.then_some(act.description).flatten(),
             song_file_name: act.song_file_name,
             song_file: act.song_file,
             song_file_normalized: act

@@ -152,6 +152,15 @@ pub async fn set_jury_registration(db: &SqlitePool, on: Option<bool>) {
         .unwrap();
 }
 
+/// Sets the competition's `moderation_input` feature: on, off or unset.
+pub async fn set_moderation_input(db: &SqlitePool, on: Option<bool>) {
+    sqlx::query("UPDATE competition SET feature_moderation_input = ?")
+        .bind(on)
+        .execute(db)
+        .await
+        .unwrap();
+}
+
 /// Sets the registration dates of the competition to `status`. Capabilities
 /// are read per request, so this takes effect immediately.
 pub async fn set_registration_status(db: &SqlitePool, status: &StatusOptions) {
@@ -245,6 +254,7 @@ impl TestApp {
             metrics_token: Some(METRICS_TOKEN.into()),
             features: Features {
                 jury_registration: Some(jury_registration),
+                moderation_input: Some(true),
             },
             competition_file_id: competition_file_id.map(Into::into),
         };

@@ -362,6 +362,7 @@ export default class CupClubStepActs extends LitElement {
 
   @property({ attribute: false }) data!: ClubData;
   @property({ attribute: false }) competition: Competition | null = null;
+  @property({ attribute: false }) moderationInputEnabled?: boolean;
   @property({ type: Boolean, attribute: "can-register" }) canRegister = false;
   @property({ type: Boolean, attribute: "can-upload" }) canUpload = false;
   @property() target?: string;
@@ -412,6 +413,14 @@ export default class CupClubStepActs extends LitElement {
 
   get musicOpen() {
     return this.canUpload || isMusicUploadOpen(this.competition);
+  }
+
+  get moderationInput() {
+    return (
+      this.moderationInputEnabled ??
+      this.competition?.features?.moderation_input ??
+      true
+    );
   }
 
   /** All cards, by act type. */
@@ -1422,6 +1431,7 @@ export default class CupClubStepActs extends LitElement {
     const owned = ownsAct(this.data, act);
     const editable = owned && this.canUpload;
     const isGroup = isGroupActType(act.act_type);
+    const moderationInput = this.moderationInput;
     return html`<div class="body">
       <div class="full">
         <h4>FahrerInnen</h4>
@@ -1434,12 +1444,12 @@ export default class CupClubStepActs extends LitElement {
         ></cup-club-act-riders>
       </div>
       <div>
-        <h4>Titel und Beschreibung</h4>
+        <h4>${moderationInput ? "Titel und Beschreibung" : "Titel"}</h4>
         ${
           editable
             ? this.renderDetailsForm(act)
             : html`<p>${act.name || html`<span class="muted">Ohne Titel</span>`}</p>
-                ${act.description ? html`<p class="hint">${act.description}</p>` : nothing}
+                ${moderationInput && act.description ? html`<p class="hint">${act.description}</p>` : nothing}
                 ${
                   owned
                     ? html`<p class="hint">
@@ -1464,12 +1474,14 @@ export default class CupClubStepActs extends LitElement {
   }
 
   renderDetailsForm(act: ClubAct) {
+    const moderationInput = this.moderationInput;
     const draft = this.drafts.get(act.id) ?? {
       name: act.name,
       description: act.description ?? "",
     };
     const changed =
-      draft.name !== act.name || draft.description !== (act.description ?? "");
+      draft.name !== act.name ||
+      (moderationInput && draft.description !== (act.description ?? ""));
     const update = (changes: Partial<typeof draft>) => {
       this.drafts = new Map(this.drafts).set(act.id, { ...draft, ...changes });
     };
@@ -1495,19 +1507,25 @@ export default class CupClubStepActs extends LitElement {
               update({ name: (e.target as HTMLInputElement).value })
           }
       /></label>
-      <label class="field"
-        ><span>Beschreibung für die Moderation</span
-        ><textarea
-          rows="3"
-          placeholder="Hilf unserer Moderation, euch perfekt anzukündigen!"
-          .value=${draft.description}
-          @input=${
-            // eslint-disable-next-line lit/no-template-arrow
-            (e: InputEvent) =>
-              update({ description: (e.target as HTMLTextAreaElement).value })
-          }
-        ></textarea>
-      </label>
+      ${
+        moderationInput
+          ? html`<label class="field"
+            ><span>Beschreibung für die Moderation</span
+            ><textarea
+              rows="3"
+              placeholder="Hilf unserer Moderation, euch perfekt anzukündigen!"
+              .value=${draft.description}
+              @input=${
+                // eslint-disable-next-line lit/no-template-arrow
+                (e: InputEvent) =>
+                  update({
+                    description: (e.target as HTMLTextAreaElement).value,
+                  })
+              }
+            ></textarea>
+          </label>`
+          : nothing
+      }
       <div class="actions">
         <button
           class="btn secondary small"

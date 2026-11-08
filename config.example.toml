@@ -33,11 +33,13 @@
 
 # Features that are still being refined. A competition turns each on or off
 # ([competition.features]); these are the defaults for the ones it leaves
-# unset. Without them, a feature is on in debug builds and off in release
-# builds.
+# unset. Jury registration is on in debug builds and off in release builds;
+# moderation input is on by default.
 # [features]
 # Clubs register judges, admins plan the jury.
 # jury_registration = true                           # JURY_REGISTRATION
+# Clubs can add an extra text for moderation when they register acts.
+# moderation_input = true                            # MODERATION_INPUT
 
 # Only inserted if no admin exists yet.                # ADMIN (as JSON)
 # [admin]
