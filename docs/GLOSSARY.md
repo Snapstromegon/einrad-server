@@ -276,7 +276,7 @@ The jury deployments a club must provide: 4 for every started two of its acts.
 _Avoid_: Quota
 
 **Credited deployments** (angerechnete Einsätze):
-The deployments a club's trained judges registered for, each at most their maximum, unless the organizer credits a different number.
+The deployments a club's trained judges registered for as technical or performance judges, each category once and at most their maximum; dismount-only registrations do not count, unless the organizer credits a different number.
 
 **Jury plan** (Juryplan):
 Which judge judges which jury category in which task; published to the clubs after the judge registration deadline.
