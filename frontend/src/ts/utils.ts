@@ -606,7 +606,9 @@ export const isUnderAge = (
   const day = competition ? new Date(competition.determining_day) : new Date();
   const birthday = new Date(birthdate);
   birthday.setUTCFullYear(birthday.getUTCFullYear() + years);
-  return birthday > day;
+  birthday.setUTCHours(0, 0, 0, 0);
+  day.setUTCHours(0, 0, 0, 0);
+  return birthday >= day;
 };
 
 /** Formats an amount of money, e.g. "1.234,50 €". Missing amounts are 0. */

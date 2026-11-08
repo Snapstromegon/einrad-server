@@ -519,10 +519,10 @@ pub struct CategoryConfig {
     pub act_type: ActType,
     #[serde(default, skip_serializing_if = "is_false")]
     pub single_male: bool,
-    /// Minimum age in years on the determining day (inclusive).
+    /// Minimum age threshold; birthdays on the determining day remain younger.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_age: Option<f64>,
-    /// Age limit in years on the determining day (exclusive), e.g. 15 for "U15".
+    /// Upper age threshold, e.g. 15 for "U15"; birthdays on the determining day remain younger.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub under_age: Option<f64>,
     /// Explicit lower birthday bound (inclusive); overrides `under_age`.

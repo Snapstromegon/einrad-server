@@ -103,9 +103,10 @@ reference = "Startgeld"
 
 # Categories in timeplan order.
 #
-# Ages are in years on the determining day: min_age is inclusive, under_age is
-# exclusive ("U15" = under_age 15). A missing bound means open-ended. Explicit
-# from_birthday (inclusive) / to_birthday (exclusive) dates override the ages.
+# Ages are determined relative to the determining day; a birthday on that day
+# stays in the younger category. "U15" = under_age 15. A missing bound means
+# open-ended. Explicit from_birthday (inclusive) / to_birthday (exclusive)
+# dates override the ages.
 # act_type is "single", "pair", "group_small" (Kleingruppe, 3 to 8 riders) or
 # "group_large" (Großgruppe, more than 8 riders). single_male = true marks the
 # male single categories; the other single categories are for female riders.

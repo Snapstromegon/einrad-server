@@ -834,8 +834,8 @@ describe("registration and music upload windows", () => {
 describe("isUnderAge", () => {
   const competition = { determining_day: "2027-06-01" };
 
-  test("counts the 15th birthday on the determining day as 15+", () => {
-    assert.equal(isUnderAge(new Date("2012-06-01"), 15, competition), false);
+  test("counts the 15th birthday on the determining day as under 15", () => {
+    assert.equal(isUnderAge(new Date("2012-06-01"), 15, competition), true);
     assert.equal(isUnderAge(new Date("2012-06-02"), 15, competition), true);
   });
 

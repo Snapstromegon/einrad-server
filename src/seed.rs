@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use time::{Date, Duration, Month, OffsetDateTime, macros::format_description};
+use time::{Date, Month, OffsetDateTime, macros::format_description};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -90,10 +90,10 @@ fn minutes_to_seconds(minutes: f64, field: &str, category: &str) -> Result<i64, 
 /// Calculates the birthday bounds of all categories against `determining_day`
 /// and validates them.
 ///
-/// A rider is "under N" if they haven't had their N-th birthday on the
-/// determining day, so `under_age = N` gives
-/// `from_birthday = determining_day - N years + 1 day`. `min_age = M` gives
-/// `to_birthday = determining_day - M years + 1 day` (exclusive).
+/// A rider whose N-th birthday is on the determining day remains in the
+/// younger category, so `under_age = N` gives
+/// `from_birthday = determining_day - N years`. `min_age = M` gives
+/// `to_birthday = determining_day - M years` (exclusive).
 pub fn resolve_categories(
     categories: &[CategoryConfig],
     determining_day: Date,
@@ -123,12 +123,12 @@ pub fn resolve_categories(
 
         let from_birthday = match (category.from_birthday, category.under_age) {
             (Some(date), _) => date,
-            (None, Some(under)) => years_before(determining_day, under) + Duration::days(1),
+            (None, Some(under)) => years_before(determining_day, under),
             (None, None) => OPEN_FROM_BIRTHDAY,
         };
         let to_birthday = match (category.to_birthday, category.min_age) {
             (Some(date), _) => date,
-            (None, Some(min)) => years_before(determining_day, min) + Duration::days(1),
+            (None, Some(min)) => years_before(determining_day, min),
             (None, None) => OPEN_TO_BIRTHDAY,
         };
         if from_birthday >= to_birthday {
@@ -1366,10 +1366,10 @@ mod tests {
         let config =
             categories(&(category("U15", None, Some(15.0)) + &category("15+", Some(15.0), None)));
         let resolved = resolve_categories(&config, DAY).unwrap();
-        assert_eq!(resolved[0].from_birthday, date!(2012 - 06 - 02));
+        assert_eq!(resolved[0].from_birthday, date!(2012 - 06 - 01));
         assert_eq!(resolved[0].to_birthday, OPEN_TO_BIRTHDAY);
         assert_eq!(resolved[1].from_birthday, OPEN_FROM_BIRTHDAY);
-        assert_eq!(resolved[1].to_birthday, date!(2012 - 06 - 02));
+        assert_eq!(resolved[1].to_birthday, date!(2012 - 06 - 01));
         assert!(coverage_warnings(&resolved).is_empty());
     }
 
@@ -1379,9 +1379,9 @@ mod tests {
             &(category("U9,5", None, Some(9.5)) + &category("U11", Some(9.5), Some(11.0))),
         );
         let resolved = resolve_categories(&config, DAY).unwrap();
-        assert_eq!(resolved[0].from_birthday, date!(2017 - 12 - 02));
-        assert_eq!(resolved[1].from_birthday, date!(2016 - 06 - 02));
-        assert_eq!(resolved[1].to_birthday, date!(2017 - 12 - 02));
+        assert_eq!(resolved[0].from_birthday, date!(2017 - 12 - 01));
+        assert_eq!(resolved[1].from_birthday, date!(2016 - 06 - 01));
+        assert_eq!(resolved[1].to_birthday, date!(2017 - 12 - 01));
     }
 
     #[test]

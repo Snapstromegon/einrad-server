@@ -302,9 +302,9 @@ async fn oldest_rider_decides_age_group_including_replacements() {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let admin = app.create_admin().await;
     let young = app.add_riders(&cookie, club_id, "Jung", 4).await;
-    // 15 on the determining day 2027-06-01 …
+    // Turns 15 on the determining day 2027-06-01, so still in U15 …
     let olga = add_rider_born(&app, &cookie, club_id, "Olga", "2012-06-01T00:00:00.000Z").await;
-    // … and one day too young for 15+.
+    // … as is someone born one day later.
     let yara = add_rider_born(&app, &cookie, club_id, "Yara", "2012-06-02T00:00:00.000Z").await;
     let sepp = add_rider_born(&app, &cookie, club_id, "Sepp", "1990-01-01T00:00:00.000Z").await;
 
@@ -313,7 +313,7 @@ async fn oldest_rider_decides_age_group_including_replacements() {
         .set_group_members(&cookie, club_id, older, &[young[0], young[1], olga], &[])
         .await;
     assert_ok(&response);
-    assert_eq!(get_act(&app, older).await["category"], "KG15+");
+    assert_eq!(get_act(&app, older).await["category"], "KGU15");
 
     let younger = app.create_group(&cookie, club_id, "Jüngere").await;
     let regular = [young[2], young[3], yara];
