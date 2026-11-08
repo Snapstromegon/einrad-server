@@ -143,7 +143,14 @@ describe("jury", () => {
       max_deployments: max,
     });
     assert.equal(deploymentNote(judge(true, 3, 3)), "");
-    assert.equal(deploymentNote(judge(true, 4, 2, 2)), "von 4, max. 2");
+    assert.equal(
+      deploymentNote(judge(true, 4, 2, 2)),
+      "nur Technik/Performance zählen, max. 2",
+    );
+    assert.equal(
+      deploymentNote(judge(true, 2, 1)),
+      "nur Technik/Performance zählen",
+    );
     assert.equal(deploymentNote(judge(true, 2, 2, 5)), "");
     assert.equal(
       deploymentNote(judge(false, 2, 0)),
@@ -151,7 +158,7 @@ describe("jury", () => {
     );
   });
 
-  test("countDeployments counts each ticked category once, capped", () => {
+  test("countDeployments excludes dismount-only categories and caps the rest", () => {
     const categories = [
       { id: "vorlauf", deployments: 2 },
       { id: "finale", deployments: 1 },
@@ -161,16 +168,25 @@ describe("jury", () => {
     const ticked = [
       "vorlauf:technical",
       "vorlauf:performance",
+      "vorlauf:dismounts",
       "finale:technical",
+      "gruppe:dismounts",
     ];
     assert.deepEqual(countDeployments(categories, ticked, true, null), {
-      registered: 3,
+      registered: 5,
       counted: 3,
     });
     assert.deepEqual(countDeployments(categories, ticked, true, 2), {
-      registered: 3,
+      registered: 5,
       counted: 2,
     });
+    assert.deepEqual(
+      countDeployments(categories, ["gruppe:dismounts"], true, null),
+      {
+        registered: 2,
+        counted: 0,
+      },
+    );
     assert.deepEqual(
       countDeployments(categories, ["gruppe:dismounts"], false, null),
       {

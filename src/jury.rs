@@ -491,7 +491,14 @@ pub async fn list_judges(
                     SELECT jury_category_id FROM judge_registration
                     WHERE judge_id = judge.id
                 )
-            ) as "registered_deployments!: i64"
+            ) as "registered_deployments!: i64",
+            (
+                SELECT COALESCE(SUM(c.deployments), 0) FROM jury_categories c
+                WHERE c.id IN (
+                    SELECT jury_category_id FROM judge_registration
+                    WHERE judge_id = judge.id AND task != 'dismounts'
+                )
+            ) as "countable_deployments!: i64"
         FROM judge
         JOIN clubs ON clubs.id = judge.club_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
@@ -517,16 +524,16 @@ pub async fn list_judges(
             registered_deployments: row.registered_deployments,
             counted_deployments: counted_deployments(
                 row.is_trained,
-                row.registered_deployments,
+                row.countable_deployments,
                 row.max_deployments,
             ),
         })
         .collect())
 }
 
-/// The deployments a judge counts for their club: what their jury
-/// categories are worth, at most their maximum; untrained people count
-/// none.
+/// The deployments a judge counts for their club: categories with a
+/// technical or performance registration, at most their maximum; untrained
+/// people count none.
 ///
 /// ```
 /// use einrad_server::jury::counted_deployments;
@@ -564,7 +571,8 @@ pub struct JuryObligation {
     /// Küren that count: those charged a start fee, for the owner club.
     pub acts: i64,
     pub required: i64,
-    /// What the club's trained judges registered for.
+    /// What the club's trained judges registered for as technical or
+    /// performance judges.
     pub registered: i64,
     /// What an admin credits instead, e.g. after a late cancellation.
     pub credited_override: Option<i64>,
@@ -583,7 +591,8 @@ pub struct JuryObligation {
 /// clubs don't lower it. It counts for its owner club: the
 /// group's creator, or the club of a single's or pair's riders. A trained
 /// judge counts the deployments of every jury category they registered for
-/// (once per category, whatever the tasks), at most `max_deployments`.
+/// as a technical or performance judge (once per category), at most
+/// `max_deployments`. Dismount-only registrations do not count.
 pub async fn obligations(
     conn: &mut sqlx::SqliteConnection,
     rules: &JuryRules,
@@ -630,7 +639,7 @@ pub async fn obligations(
                 SELECT COALESCE(SUM(c.deployments), 0) FROM jury_categories c
                 WHERE c.id IN (
                     SELECT jury_category_id FROM judge_registration
-                    WHERE judge_id = judge.id
+                    WHERE judge_id = judge.id AND task != 'dismounts'
                 )
             ) as "deployments!: i64"
         FROM judge

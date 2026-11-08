@@ -5,7 +5,10 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, closed_registration};
-use serde_json::{Value::{self, Null}, json};
+use serde_json::{
+    Value::{self, Null},
+    json,
+};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -717,6 +720,57 @@ async fn clubs_owe_a_fee_for_missing_einsaetze() {
             json!(["Berta", 3, 2]),
             json!(["Carla", 1, 0])
         ]
+    );
+}
+
+#[tokio::test]
+async fn dismount_registrations_do_not_credit_mandatory_einsaetze() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = club_with_singles(&app, 1).await;
+    let ids = category_ids(&app, &owner).await;
+
+    let mut anna = judge_body(
+        club_id,
+        "Anna",
+        ADULT,
+        true,
+        &[
+            (&ids[0], "dismounts"),
+            (&ids[1], "technical"),
+            (&ids[1], "dismounts"),
+            (&ids[2], "performance"),
+        ],
+    );
+    anna["max_deployments"] = json!(1);
+    assert_eq!(add_judge(&app, &owner, anna).await.status, StatusCode::OK);
+    let dina = judge_body(club_id, "Dina", ADULT, true, &[(&ids[0], "dismounts")]);
+    assert_eq!(add_judge(&app, &owner, dina).await.status, StatusCode::OK);
+
+    assert_eq!(
+        club(&app, &owner).await["jury"],
+        json!({
+            "acts": 1,
+            "required": 4,
+            "registered": 1,
+            "credited_override": null,
+            "credited": 1,
+            "missing": 3,
+            "fee": 21.0,
+        })
+    );
+
+    let judges = club_judges(&app, &owner, club_id).await;
+    assert_eq!(
+        judges
+            .iter()
+            .map(|judge| json!([
+                judge["firstname"],
+                judge["registered_deployments"],
+                judge["counted_deployments"],
+            ]))
+            .collect::<Vec<_>>(),
+        vec![json!(["Anna", 4, 1]), json!(["Dina", 2, 0])]
     );
 }
 

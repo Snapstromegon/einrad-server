@@ -170,11 +170,7 @@ export const planWarnings = (
   return warnings;
 };
 
-/**
- * Why a judge's counted Einsätze differ from what their jury categories are
- * worth: capped by their maximum, or not counted as they're untrained.
- * Empty when everything counts.
- */
+/** Why a judge's counted Einsätze differ from all their registered categories. */
 export const deploymentNote = (judge: {
   is_trained: boolean;
   registered_deployments: number;
@@ -185,16 +181,17 @@ export const deploymentNote = (judge: {
     return "zählt nicht (nicht geschult)";
   }
   if (judge.counted_deployments < judge.registered_deployments) {
-    return `von ${judge.registered_deployments}, max. ${judge.max_deployments}`;
+    return judge.max_deployments == null
+      ? "nur Technik/Performance zählen"
+      : `nur Technik/Performance zählen, max. ${judge.max_deployments}`;
   }
   return "";
 };
 
 /**
  * What a judge's selection is worth while it's being edited: every ticked
- * jury category once, whatever the tasks (`ticked` holds "categoryId:task"),
- * and what of it counts for the club. The same rule as the server's
- * `counted_deployments`, for a live preview.
+ * jury category once, and what of it counts for the club. Dismount-only
+ * categories do not count towards the club's obligation.
  */
 export const countDeployments = (
   categories: { id: string; deployments: number }[],
@@ -202,15 +199,26 @@ export const countDeployments = (
   isTrained: boolean,
   maxDeployments: number | null,
 ) => {
-  const ids = new Set([...ticked].map((key) => key.split(":")[0]));
+  const registrations = [...ticked];
+  const ids = new Set(
+    registrations.map((key) => key.slice(0, key.lastIndexOf(":"))),
+  );
   const registered = categories
     .filter((category) => ids.has(category.id))
+    .reduce((sum, category) => sum + category.deployments, 0);
+  const countableIds = new Set(
+    registrations
+      .filter((key) => key.slice(key.lastIndexOf(":") + 1) !== "dismounts")
+      .map((key) => key.slice(0, key.lastIndexOf(":"))),
+  );
+  const countable = categories
+    .filter((category) => countableIds.has(category.id))
     .reduce((sum, category) => sum + category.deployments, 0);
   const counted = !isTrained
     ? 0
     : maxDeployments === null
-      ? registered
-      : Math.min(registered, maxDeployments);
+      ? countable
+      : Math.min(countable, maxDeployments);
   return { registered, counted };
 };
 
