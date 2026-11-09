@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use crate::{
     colors,
-    competition::{Competition, upsert_competition},
+    competition::{Competition, move_birthday_bound, parse_birthday_bound, upsert_competition},
     config::{Branding, CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::{Photos, PhotosSettings},
@@ -35,9 +35,44 @@ fn filled(text: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+/// Moves the birthday bounds of every category that looked like it was
+/// computed from the `old` determining day to the `new` one. Bounds that
+/// don't match, or that can't be read, stay.
+async fn move_category_bounds(
+    transaction: &mut sqlx::SqliteConnection,
+    old: time::Date,
+    new: time::Date,
+) -> Result<(), HttpError> {
+    let categories = sqlx::query!(
+        r#"SELECT name, from_birthday as "from_birthday: String", to_birthday as "to_birthday: String" FROM categories"#
+    )
+        .fetch_all(&mut *transaction)
+        .await?;
+    for category in categories {
+        let parse = |bound: &Option<String>| bound.as_deref().and_then(parse_birthday_bound);
+        let (from, to) = (parse(&category.from_birthday), parse(&category.to_birthday));
+        let moved_from = from.and_then(|bound| move_birthday_bound(bound, old, new));
+        let moved_to = to.and_then(|bound| move_birthday_bound(bound, old, new));
+        if moved_from.is_none() && moved_to.is_none() {
+            continue;
+        }
+        // Only a moved bound is rewritten; the other keeps its stored text.
+        sqlx::query(
+            "UPDATE categories SET from_birthday = COALESCE(?, from_birthday), \
+             to_birthday = COALESCE(?, to_birthday) WHERE name = ?",
+        )
+        .bind(moved_from)
+        .bind(moved_to)
+        .bind(&category.name)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Changes the competition's settings, also while the registration is open
 /// (ADR 0005). Validated like the competition file; applies right away. The
-/// determining day can't change once categories exist. Admin.
+/// determining day moves the category bounds that looked like it along. Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],
@@ -65,16 +100,12 @@ pub async fn edit_competition(
         .ok_or(HttpError::NotFound)?;
     let edited = body.competition;
     if edited.determining_day != current.determining_day {
-        let categories = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM categories"#)
-            .fetch_one(&mut *transaction)
-            .await?;
-        if categories > 0 {
-            return Err(HttpError::ErrorMessages(
-                "Der Stichtag lässt sich nicht mehr ändern: Es gibt schon Kategorien, deren \
-                 Altersgrenzen an ihm hängen."
-                    .to_string(),
-            ));
-        }
+        move_category_bounds(
+            &mut transaction,
+            current.determining_day,
+            edited.determining_day,
+        )
+        .await?;
     }
     let competition = Competition {
         id: current.id,

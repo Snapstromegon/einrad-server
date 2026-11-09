@@ -55,8 +55,8 @@ const SAMPLES = [
 /**
  * "Wettkampf bearbeiten" (Admin, ADR 0005): the competition's settings,
  * also while the registration is open. Saving validates like the competition
- * file and applies right away. The id can't change, the determining day not
- * once categories exist. The colors (ADR 0009) show on the whole page while
+ * file and applies right away. The id can't change. A new determining day
+ * moves the age limits of the categories that matched the old one. The colors (ADR 0009) show on the whole page while
  * editing them, until they're saved or the page is left.
  */
 @customElement("cup-competition-form")
@@ -343,16 +343,12 @@ export default class CupCompetitionForm extends LitElement {
                 type="date"
                 name="determining_day"
                 required
-                ?readonly=${settings.determining_day_locked}
                 .value=${c.determining_day}
-              />${
-                settings.determining_day_locked
-                  ? html`<small
-                      >Fest, solange es Kategorien gibt: Ihre Altersgrenzen
-                      hängen an ihm.</small
-                    >`
-                  : nothing
-              }</label
+              /><small
+                >Bei einer Änderung wandern die Altersgrenzen der Kategorien
+                mit, die auf dem alten Stichtag (Tag und Monat, 00:00 Uhr)
+                lagen. Alle anderen bleiben.</small
+              ></label
             >
             <label
               >Meldestart

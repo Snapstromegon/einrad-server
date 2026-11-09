@@ -21,9 +21,6 @@ pub struct CompetitionSettings {
     /// What the features the competition leaves unset are: the system
     /// config's `[features]`, else the build default.
     pub feature_defaults: ResolvedFeatures,
-    /// The determining day can't change once categories exist: they store
-    /// their birthday bounds as dates.
-    pub determining_day_locked: bool,
     /// The id in the competition file the server started with, if it
     /// differs from the competition's: that file is ignored.
     pub file_id_mismatch: Option<String>,
@@ -50,13 +47,9 @@ pub async fn get_competition_settings(
     let mut competition = Competition::current(&db)
         .await?
         .ok_or(HttpError::NotFound)?;
-    let categories = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM categories"#)
-        .fetch_one(&db)
-        .await?;
     Ok(Json(CompetitionSettings {
         photos: competition.photos.take(),
         feature_defaults: Features::default().resolve(&http_options.features),
-        determining_day_locked: categories > 0,
         file_id_mismatch: http_options
             .competition_file_id
             .clone()

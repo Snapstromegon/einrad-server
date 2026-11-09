@@ -471,3 +471,37 @@ mod tests {
         assert!(Features::of(None, &on).moderation_input);
     }
 }
+
+/// Where a category's birthday bound lands when the determining day moves
+/// from `old` to `new`: the same year at the new day and month, if the bound
+/// looks like it was computed from `old` (UTC midnight, same day and month).
+/// `None` if it stays as it is. The open bounds (1900-01-01, 9999-12-31) are
+/// not tied to the determining day. A 29 Feb that doesn't exist in the
+/// bound's year becomes 28 Feb.
+pub fn move_birthday_bound(bound: OffsetDateTime, old: Date, new: Date) -> Option<OffsetDateTime> {
+    let date = bound.date();
+    let open = date == crate::seed::OPEN_FROM_BIRTHDAY || date == crate::seed::OPEN_TO_BIRTHDAY;
+    let midnight = bound.offset().is_utc() && bound.time() == time::Time::MIDNIGHT;
+    if open || !midnight || date.month() != old.month() || date.day() != old.day() {
+        return None;
+    }
+    let mut day = new.day();
+    let moved = loop {
+        if let Ok(moved) = Date::from_calendar_date(date.year(), new.month(), day) {
+            break moved;
+        }
+        day -= 1;
+    };
+    Some(moved.midnight().assume_utc())
+}
+
+/// Parses a stored birthday bound: RFC 3339 as the competition file's
+/// import writes it, or a bare date as the category form sends it.
+pub fn parse_birthday_bound(text: &str) -> Option<OffsetDateTime> {
+    use time::{format_description::well_known::Rfc3339, macros::format_description};
+    OffsetDateTime::parse(text, &Rfc3339).ok().or_else(|| {
+        Date::parse(text, format_description!("[year]-[month]-[day]"))
+            .ok()
+            .map(|date| date.midnight().assume_utc())
+    })
+}
