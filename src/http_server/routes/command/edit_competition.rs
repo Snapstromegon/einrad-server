@@ -85,7 +85,7 @@ async fn move_category_bounds(
                 "Kategorie {name}: Beide Altersgrenzen liegen nicht auf dem alten Stichtag \
                  und wurden nicht angepasst."
             )),
-            (from_left, _) => warnings.push(format!(
+            (true, false) | (false, true) => warnings.push(format!(
                 "Kategorie {name}: Die {}-Grenze liegt nicht auf dem alten Stichtag und \
                  wurde nicht angepasst.",
                 if from_left { "Von" } else { "Bis" }

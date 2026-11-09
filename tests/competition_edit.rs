@@ -511,3 +511,33 @@ async fn date_only_bounds_from_the_category_form_move_too() {
     assert_eq!(from, "2012-07-15T00:00:00Z");
     assert_eq!(to, "kaputt");
 }
+
+#[tokio::test]
+async fn open_and_missing_bounds_and_an_unchanged_day_give_no_warnings() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[
+            (
+                "Open",
+                Some(datetime!(1900-01-01 0:00 UTC)),
+                Some(datetime!(9999-12-31 0:00 UTC)),
+            ),
+            ("Missing", None, Some(datetime!(2017-06-01 0:00 UTC))),
+        ],
+    )
+    .await;
+    assert!(
+        edit_determining_day(&app, &admin, "2027-07-15")
+            .await
+            .is_empty()
+    );
+    assert!(
+        edit_determining_day(&app, &admin, "2027-07-15")
+            .await
+            .is_empty()
+    );
+}
