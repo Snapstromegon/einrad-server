@@ -218,3 +218,39 @@ async fn without_a_competition_nothing_is_published() {
     let app = TestApp::without_competition(db).await;
     assert_eq!(statuses(&app, None).await, [StatusCode::FORBIDDEN; 4]);
 }
+
+#[tokio::test]
+async fn a_stale_login_sees_the_published_startlist_like_anyone() {
+    let app = unpublished_app().await;
+    let admin = app.create_admin().await;
+    let stale = Some("jwt=not-a-valid-token");
+    // The two routes that never looked at the login before.
+    let both = async |app: &TestApp| {
+        vec![
+            app.get("/api/query/startlist", stale).await.status,
+            app.get("/api/query/get_startlist_csv", stale).await.status,
+        ]
+    };
+    assert_eq!(both(&app).await, [StatusCode::FORBIDDEN; 2]);
+    set_published(&app, &admin, true).await;
+    assert_eq!(both(&app).await, [StatusCode::OK; 2]);
+}
+
+#[tokio::test]
+async fn get_act_hides_the_start_order_until_publication() {
+    let app = unpublished_app().await;
+    let admin = app.create_admin().await;
+    let acts = app.get("/api/query/list_acts", Some(&admin)).await.body;
+    let act = acts[0]["id"].as_str().unwrap().to_string();
+    app.post(
+        "/api/command/set_act_order",
+        json!({ "act_id": act, "order": 1 }),
+        Some(&admin),
+    )
+    .await;
+    let uri = format!("/api/query/get_act?act_id={act}");
+    assert_eq!(app.get(&uri, None).await.body["act_order"], Value::Null);
+    assert_eq!(app.get(&uri, Some(&admin)).await.body["act_order"], 1);
+    set_published(&app, &admin, true).await;
+    assert_eq!(app.get(&uri, None).await.body["act_order"], 1);
+}

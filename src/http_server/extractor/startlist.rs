@@ -22,17 +22,16 @@ use crate::{
 pub struct StartlistAccess;
 
 async fn visible<S: Send + Sync>(parts: &mut Parts, state: &S) -> Result<bool, HttpError> {
-    let staff =
-        <Granted<permit::ViewUnpublishedStartlist> as OptionalFromRequestParts<S>>::from_request_parts(
-            parts, state,
-        )
-        .await
-        .map_err(|e| match e {
-            Error::Database => HttpError::InternalServerError,
-            _ => HttpError::StatusCode(StatusCode::UNAUTHORIZED),
-        })?;
-    if staff.is_some() {
-        return Ok(true);
+    let staff = <Granted<permit::ViewUnpublishedStartlist> as OptionalFromRequestParts<S>>::from_request_parts(
+        parts, state,
+    )
+    .await;
+    match staff {
+        Ok(Some(_)) => return Ok(true),
+        Err(Error::Database) => return Err(HttpError::InternalServerError),
+        // An expired or invalid login is no reason to turn a visitor away
+        // from a published start list: they are just not staff.
+        Ok(None) | Err(_) => {}
     }
     let Some(db) = parts.extensions.get::<ReloadableSqlite>() else {
         return Err(HttpError::InternalServerError);
