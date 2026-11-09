@@ -72,6 +72,7 @@ mod set_jury_plan_published;
 mod set_photo_hidden;
 mod set_single;
 mod set_song_checked;
+mod set_startlist_published;
 mod set_user_roles;
 mod timeplan_backward;
 mod timeplan_forward;
@@ -157,6 +158,7 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(assign_judge::assign_judge))
         .routes(routes!(set_jury_plan_published::set_jury_plan_published))
+        .routes(routes!(set_startlist_published::set_startlist_published))
         .routes(routes!(unassign_judge::unassign_judge))
         .routes(routes!(send_club_mail::send_club_mail))
         .routes(routes!(preview_club_mail::preview_club_mail))

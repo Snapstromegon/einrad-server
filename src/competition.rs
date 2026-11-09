@@ -139,6 +139,20 @@ pub struct JuryRules {
 }
 
 impl Competition {
+    /// Whether an admin published the current competition's start list and
+    /// timeplan. Without a competition nothing is published.
+    pub async fn startlist_published(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<bool> {
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT startlist_published_at IS NOT NULL as "published!: bool"
+            FROM competition ORDER BY start_date DESC LIMIT 1
+            "#
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false))
+    }
+
     /// The name mails and pages use for the event: the current competition's
     /// name, or a neutral fallback before one is configured.
     pub async fn event_name(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<String> {

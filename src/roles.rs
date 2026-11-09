@@ -92,7 +92,8 @@ macro_rules! permissions {
 permissions! {
     /// See users and grant roles; reload the database.
     ManageUsers,
-    /// Categories, the timeplan, finals and the order of acts.
+    /// Categories, the timeplan, finals and the order of acts; publishing
+    /// the start list and the timeplan.
     PlanCompetition,
     /// The competition itself: import, edit and export it (ADR 0005).
     ManageCompetition,
@@ -126,6 +127,8 @@ permissions! {
     ViewModeration,
     /// Internal timeplan entries (Interner Zeitplaneintrag).
     ViewInternalEntries,
+    /// The start list and the timeplan before an admin published them.
+    ViewUnpublishedStartlist,
     /// Mark songs as checked.
     CheckSongs,
     /// Send club mails (Rundmail) and read the ones sent.
@@ -148,6 +151,7 @@ impl Role {
                 P::ViewMedals,
                 P::ViewModeration,
                 P::ViewInternalEntries,
+                P::ViewUnpublishedStartlist,
                 P::MailClubs,
             ],
             Role::Treasurer => &[
@@ -173,8 +177,13 @@ impl Role {
                 P::ControlMusic,
                 P::ViewModeration,
                 P::ViewInternalEntries,
+                P::ViewUnpublishedStartlist,
             ],
-            Role::Moderation => &[P::ViewModeration, P::ViewInternalEntries],
+            Role::Moderation => &[
+                P::ViewModeration,
+                P::ViewInternalEntries,
+                P::ViewUnpublishedStartlist,
+            ],
             Role::MusicCheck => &[P::CheckSongs],
         }
     }
@@ -239,6 +248,7 @@ mod tests {
                     P::ViewMedals,
                     P::ViewModeration,
                     P::ViewInternalEntries,
+                    P::ViewUnpublishedStartlist,
                     P::MailClubs,
                 ],
             ),
@@ -271,11 +281,16 @@ mod tests {
                     P::ControlMusic,
                     P::ViewModeration,
                     P::ViewInternalEntries,
+                    P::ViewUnpublishedStartlist,
                 ],
             ),
             (
                 Role::Moderation,
-                vec![P::ViewModeration, P::ViewInternalEntries],
+                vec![
+                    P::ViewModeration,
+                    P::ViewInternalEntries,
+                    P::ViewUnpublishedStartlist,
+                ],
             ),
             (Role::MusicCheck, vec![P::CheckSongs]),
         ];
@@ -340,7 +355,8 @@ mod tests {
                 P::CheckIn,
                 P::ControlMusic,
                 P::ViewModeration,
-                P::ViewInternalEntries
+                P::ViewInternalEntries,
+                P::ViewUnpublishedStartlist
             ]
         );
     }

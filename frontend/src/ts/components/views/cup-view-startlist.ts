@@ -3,7 +3,7 @@ import { Task } from "@lit/task";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
-import { errorMessage, unwrap } from "../../api";
+import { ApiError, errorMessage, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
 import {
   type SystemStatus,
@@ -380,10 +380,15 @@ export default class CupViewStartlist extends LitElement {
         ${this.startlist.render({
           pending: () => html`<p>Startliste wird geladen …</p>`,
           error: (error) =>
-            html`<p class="error">
-              Die Startliste konnte nicht geladen werden:
-              ${errorMessage(error)}
-            </p>`,
+            error instanceof ApiError && error.status === 403
+              ? html`<p>
+                  Die Startliste ist noch nicht veröffentlicht. Schau bald
+                  wieder vorbei.
+                </p>`
+              : html`<p class="error">
+                  Die Startliste konnte nicht geladen werden:
+                  ${errorMessage(error)}
+                </p>`,
           complete: (startlist) => this.renderStartlist(startlist),
         })}
       </main>`;

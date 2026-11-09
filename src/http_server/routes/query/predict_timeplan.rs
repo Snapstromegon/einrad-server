@@ -3,7 +3,10 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError,
+        extractor::{auth::Granted, startlist::StartlistAccess},
+    },
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     timeplan::{self, Audience, EntryKind, Slot},
@@ -236,7 +239,8 @@ pub struct PredictTimeplanQuery {
     public: bool,
 }
 
-/// Predicts when each timeplan entry, act and break starts and ends.
+/// Predicts when each timeplan entry, act and break starts and ends. Before
+/// an admin published the timeplan only the organizer team gets it.
 #[utoipa::path(
     get,
     tags=["query", "timeplan"],
@@ -244,12 +248,14 @@ pub struct PredictTimeplanQuery {
     params(PredictTimeplanQuery),
     responses(
         (status=200, content_type="application/json", body=Timeplan),
+        (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
 #[instrument(skip(db))]
 pub async fn predict_timeplan(
+    _: StartlistAccess,
     Extension(db): Extension<ReloadableSqlite>,
     internal: Option<Granted<permit::ViewInternalEntries>>,
     Query(query): Query<PredictTimeplanQuery>,

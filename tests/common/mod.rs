@@ -21,7 +21,6 @@ use axum::{
     body::Body,
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use einrad_server::{
     competition::Features,
     config::CompetitionFile,
@@ -34,6 +33,7 @@ use einrad_server::{
     seed,
     system_status::StatusOptions,
 };
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use password_auth::generate_hash;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -130,6 +130,17 @@ pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
     let data = TempDir::new();
     seed::apply(db, Some(&file), false, &data.0).await.unwrap();
     set_registration_status(db, status).await;
+    // Tests read the startlist unless they are about its publication.
+    set_startlist_published(db, true).await;
+}
+
+/// Publishes the competition's startlist and timeplan, or takes them back.
+pub async fn set_startlist_published(db: &SqlitePool, published: bool) {
+    sqlx::query("UPDATE competition SET startlist_published_at = ?")
+        .bind(published.then(OffsetDateTime::now_utc))
+        .execute(db)
+        .await
+        .unwrap();
 }
 
 /// Sets the competition's photo settings.

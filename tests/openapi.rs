@@ -79,6 +79,7 @@ const COMMANDS: &[&str] = &[
     "set_jury_deployments_override",
     "assign_judge",
     "set_jury_plan_published",
+    "set_startlist_published",
     "unassign_judge",
 ];
 

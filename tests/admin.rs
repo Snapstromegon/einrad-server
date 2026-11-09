@@ -236,6 +236,7 @@ async fn system_status_reflects_open_registration() {
             "can_register_judge": true,
             "jury_registration": true,
             "moderation_input": true,
+            "startlist_published": true,
         })
     );
     assert_eq!(competition["name"], "Einradevent 2027 (Demo)");
