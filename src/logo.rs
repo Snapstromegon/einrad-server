@@ -24,28 +24,17 @@ use time::OffsetDateTime;
 pub const DEFAULT_SVG: &[u8] =
     include_bytes!("../frontend/src/public/assets/images/nrw-freestyle-cup.svg");
 
-/// The largest SVG, uploaded, downloaded or in the competition file.
-pub const MAX_SIZE: usize = 1024 * 1024;
-/// The largest raster image, uploaded or downloaded: a 4K photo fits.
-pub const MAX_RASTER_SIZE: usize = 20 * 1024 * 1024;
 /// The longest edge of a stored raster image, in pixels (4K); larger ones
 /// are scaled down, smaller ones stay as they are.
 pub const MAX_EDGE: u32 = 3840;
-/// The longest edge of a raster logo that's decoded at all, against images
-/// that are small as a file but huge in memory.
-pub const MAX_DECODED_EDGE: u32 = 4096;
 
 /// Why a logo is refused. The messages are for the admin UI.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LogoError {
-    #[error("Das Bild ist zu groß: ein SVG darf bis 1 MiB groß sein, andere Bilder bis 20 MiB.")]
-    TooLarge,
     #[error("Die Datei muss ein Bild im Format PNG, JPEG, WebP oder SVG sein.")]
     Unsupported,
     #[error("Das Bild lässt sich nicht lesen: {0}")]
     InvalidImage(String),
-    #[error("Das Bild ist größer als {MAX_DECODED_EDGE} × {MAX_DECODED_EDGE} Pixel.")]
-    TooManyPixels,
     #[error("Das SVG lässt sich nicht lesen: {0}")]
     InvalidSvg(String),
     #[error(
@@ -126,13 +115,7 @@ pub struct Logo {
 impl Logo {
     /// An uploaded logo, its format told from its content.
     pub fn from_upload(bytes: &[u8]) -> Result<Logo, LogoError> {
-        if bytes.len() > MAX_RASTER_SIZE {
-            return Err(LogoError::TooLarge);
-        }
         let format = Format::of(bytes).ok_or(LogoError::Unsupported)?;
-        if format == Format::Svg && bytes.len() > MAX_SIZE {
-            return Err(LogoError::TooLarge);
-        }
         let data = match format {
             Format::Svg => {
                 // `Format::of` checked that it's text.
@@ -156,9 +139,6 @@ impl FromStr for SvgLogo {
     type Err = LogoError;
 
     fn from_str(text: &str) -> Result<Self, LogoError> {
-        if text.len() > MAX_SIZE {
-            return Err(LogoError::TooLarge);
-        }
         if Format::of(text.as_bytes()) != Some(Format::Svg) {
             return Err(LogoError::NotAnSvg);
         }
@@ -199,15 +179,11 @@ impl From<&SvgLogo> for Logo {
 /// format, which drops its metadata (e.g. the camera or GPS position in
 /// EXIF). The EXIF orientation is applied first, so the logo stays upright.
 fn scale(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, LogoError> {
-    let error = |e: ImageError| match e {
-        ImageError::Limits(_) => LogoError::TooManyPixels,
-        e => LogoError::InvalidImage(e.to_string()),
-    };
+    let error = |e: ImageError| LogoError::InvalidImage(e.to_string());
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_DECODED_EDGE);
-    limits.max_image_height = Some(MAX_DECODED_EDGE);
-    reader.limits(limits);
+    // Only trusted admins set images (ADR 0010): any size is decoded and
+    // scaled down.
+    reader.limits(Limits::no_limits());
     let mut decoder = reader.into_decoder().map_err(error)?;
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
     let mut image = DynamicImage::from_decoder(decoder).map_err(error)?;

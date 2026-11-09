@@ -5,8 +5,8 @@
 //!
 //! The URL comes from an admin or the competition file, so the server fetches
 //! whatever they name, including addresses in its own network. ADR 0010 notes
-//! that. Redirects are limited, and the response is cut off at the size limit
-//! while it streams.
+//! that. Redirects are limited and a download has a time limit, but no size
+//! limit: only trusted admins set images (ADR 0010).
 
 use std::{
     sync::{Arc, OnceLock},
@@ -19,7 +19,7 @@ use tracing::{info, warn};
 
 use crate::{
     images::{self, Image, Slot},
-    logo::{self, Logo},
+    logo::Logo,
     reloadable_sqlite::ReloadableSqlite,
 };
 
@@ -42,8 +42,6 @@ pub enum FetchError {
     Unreachable,
     #[error("Der Server antwortet mit dem Status {0}.")]
     Status(u16),
-    #[error("Die Antwort ist größer als 20 MiB.")]
-    TooLarge,
     #[error("Das Herunterladen ist fehlgeschlagen.")]
     Failed,
     #[error("{0}")]
@@ -190,17 +188,8 @@ async fn download(http: &reqwest::Client, url: &str) -> Result<Logo, FetchError>
     if status != StatusCode::OK {
         return Err(FetchError::Status(status.as_u16()));
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > logo::MAX_RASTER_SIZE as u64)
-    {
-        return Err(FetchError::TooLarge);
-    }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
-        if bytes.len() + chunk.len() > logo::MAX_RASTER_SIZE {
-            return Err(FetchError::TooLarge);
-        }
         bytes.extend_from_slice(&chunk);
     }
     // Scaling a raster image takes a moment.

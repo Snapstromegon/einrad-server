@@ -363,21 +363,6 @@ async fn downloads_get_the_checks_of_an_upload() {
     assert!(error.contains("script"), "{error}");
     assert_eq!(served(&app, LOGO_URL).await, DEFAULT_LOGO);
 
-    let padding = " ".repeat(1024 * 1024);
-    origin.put(
-        "/big.svg",
-        SVG_A
-            .replace("</svg>", &format!("{padding}</svg>"))
-            .as_bytes(),
-    );
-    let response = set_url(&app, &admin, "logo", &origin.url("/big.svg")).await;
-    assert!(
-        response["images"]["logo"]["fetch_error"]
-            .as_str()
-            .unwrap()
-            .contains("1 MiB")
-    );
-
     origin.put("/note.txt", b"Kein Bild");
     let response = set_url(&app, &admin, "logo", &origin.url("/note.txt")).await;
     assert!(
@@ -967,4 +952,82 @@ async fn a_downloaded_raster_image_may_be_larger_than_1_mib() {
     );
     let served = image::load_from_memory(&served(&app, BREAK_URL).await).unwrap();
     assert_eq!((served.width(), served.height()), (1200, 1200));
+}
+
+/// CRC-32 as PNG chunks have it.
+fn crc32(bytes: &[u8]) -> u32 {
+    let table: Vec<u32> = (0..256u32)
+        .map(|n| {
+            (0..8).fold(n, |c, _| {
+                if c & 1 == 1 {
+                    0xedb8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                }
+            })
+        })
+        .collect();
+    !bytes.iter().fold(!0u32, |crc, byte| {
+        table[((crc ^ u32::from(*byte)) & 0xff) as usize] ^ (crc >> 8)
+    })
+}
+
+/// A small PNG with `padding` bytes in an ancillary chunk, which decoders
+/// skip: a raster file over any size limit that's cheap to make.
+fn png_of_size(padding: usize) -> Vec<u8> {
+    let mut png = Vec::new();
+    image::DynamicImage::new_rgb8(100, 50)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let iend = png.split_off(png.len() - 12);
+    let mut chunk = b"teSt".to_vec();
+    chunk.resize(4 + padding, 0);
+    png.extend((padding as u32).to_be_bytes());
+    png.extend(&chunk);
+    png.extend(crc32(&chunk).to_be_bytes());
+    png.extend(iend);
+    png
+}
+
+#[tokio::test]
+async fn images_have_no_size_limit_only_a_scale() {
+    let (app, admin) = app().await;
+    let origin = Origin::start().await;
+    let png = png_of_size(21 * 1024 * 1024);
+    assert!(png.len() > 20 * 1024 * 1024);
+
+    let response = app
+        .post_file(
+            "/api/command/set_break_image",
+            "big.png",
+            &png,
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let stored = image::load_from_memory(&served(&app, BREAK_URL).await).unwrap();
+    assert_eq!((stored.width(), stored.height()), (100, 50));
+
+    origin.put("/big.png", &png);
+    let response = set_url(&app, &admin, "logo", &origin.url("/big.png")).await;
+    assert_eq!(
+        response["images"]["logo"]["fetch_error"],
+        Value::Null,
+        "{response}"
+    );
+    let stored = image::load_from_memory(&served(&app, LOGO_URL).await).unwrap();
+    assert_eq!((stored.width(), stored.height()), (100, 50));
+
+    // An image over 4096 px is scaled to 3840, not refused.
+    let mut wide = Vec::new();
+    image::DynamicImage::new_rgb8(8000, 2000)
+        .write_to(
+            &mut std::io::Cursor::new(&mut wide),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    origin.put("/wide.png", &wide);
+    set_url(&app, &admin, "break_image", &origin.url("/wide.png")).await;
+    let stored = image::load_from_memory(&served(&app, BREAK_URL).await).unwrap();
+    assert_eq!((stored.width(), stored.height()), (3840, 960));
 }

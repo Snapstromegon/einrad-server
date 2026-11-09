@@ -44,7 +44,7 @@ contact_email = "info@example.org"
 announcement_url = "https://example.org/ausschreibung/"
 # Optional: where the info board's photo QR code leads, e.g. a share link.
 photos_url = "https://fotos.example.org"
-# Optional: the logo on every page and as favicon, as SVG (up to 1 MiB, no
+# Optional: the logo on every page and as favicon, as SVG (no
 # scripts, event attributes like onload, <foreignObject> or links to other
 # files). PNG, JPEG and WebP logos are uploaded in the admin UI. Left out, a
 # replace keeps the current logo; "" resets it to the one built into the

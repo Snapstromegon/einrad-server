@@ -157,9 +157,7 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(import_competition::import_competition))
         .routes(routes!(edit_competition::edit_competition))
-        .routes(routes!(set_competition_logo::set_competition_logo))
         .routes(routes!(remove_competition_logo::remove_competition_logo))
-        .routes(routes!(set_break_image::set_break_image))
         .routes(routes!(remove_break_image::remove_break_image))
         .routes(routes!(set_image_source::set_image_source))
         .routes(routes!(refresh_images::refresh_images))
@@ -167,7 +165,6 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(update_sponsor::update_sponsor))
         .routes(routes!(remove_sponsor::remove_sponsor))
         .routes(routes!(reorder_sponsors::reorder_sponsors))
-        .routes(routes!(upload_sponsor_image::upload_sponsor_image))
         .routes(routes!(apply_jury_remap::apply_jury_remap))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
@@ -182,4 +179,12 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(send_club_mail::send_club_mail))
         .routes(routes!(preview_club_mail::preview_club_mail))
         .layer(DefaultBodyLimit::max(save_act_song::MAX_REQUEST_SIZE))
+        // Image uploads have no limit (ADR 0010): they're scaled down.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(set_competition_logo::set_competition_logo))
+                .routes(routes!(set_break_image::set_break_image))
+                .routes(routes!(upload_sponsor_image::upload_sponsor_image))
+                .layer(DefaultBodyLimit::disable()),
+        )
 }

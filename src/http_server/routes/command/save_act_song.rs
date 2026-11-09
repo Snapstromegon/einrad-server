@@ -29,16 +29,9 @@ pub struct SaveActSongQuery {
 
 /// The largest song file a club can upload.
 pub const MAX_SONG_SIZE: usize = 10 * 1024 * 1024;
-/// The request limit for commands: the largest upload (a song, or an image
-/// up to `MAX_RASTER_SIZE`) plus the multipart overhead.
-pub const MAX_REQUEST_SIZE: usize = {
-    let largest = if MAX_SONG_SIZE > crate::logo::MAX_RASTER_SIZE {
-        MAX_SONG_SIZE
-    } else {
-        crate::logo::MAX_RASTER_SIZE
-    };
-    largest + 1024 * 1024
-};
+/// The request limit for commands: a song plus the multipart overhead.
+/// Image uploads have none (ADR 0010).
+pub const MAX_REQUEST_SIZE: usize = MAX_SONG_SIZE + 1024 * 1024;
 
 pub type Metadata = HashMap<String, String>;
 
