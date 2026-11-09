@@ -6,6 +6,7 @@ mod common;
 use axum::http::StatusCode;
 use common::{TempDir, TestApp, TestResponse, rider_body};
 use serde_json::{Value, json};
+use time::{OffsetDateTime, macros::datetime};
 
 async fn settings(app: &TestApp, cookie: &str) -> Value {
     let response = app
@@ -76,7 +77,6 @@ async fn the_settings_show_the_photo_password_and_the_feature_defaults() {
         body["competition"]["features"],
         json!({ "jury_registration": null, "moderation_input": null })
     );
-    assert_eq!(body["determining_day_locked"], true);
     assert_eq!(body["file_id_mismatch"], Value::Null);
 }
 
@@ -185,20 +185,11 @@ async fn an_invalid_iban_saves_with_a_warning() {
     );
 }
 
-#[tokio::test]
-async fn the_determining_day_is_locked_once_categories_exist() {
-    let db = common::in_memory_migrated().await;
-    let app = TestApp::new(db).await;
-    let admin = app.create_admin().await;
-    let mut competition = settings(&app, &admin).await["competition"].clone();
-    competition["determining_day"] = json!("2027-01-01");
-    let response = edit(&app, &admin, &competition, &Value::Null).await;
-    assert!(
-        message(&response).contains("Stichtag"),
-        "{:?}",
-        response.body
-    );
-
+/// Replaces all categories with one per `(name, from, to)`.
+async fn set_categories(
+    app: &TestApp,
+    categories: &[(&str, Option<OffsetDateTime>, Option<OffsetDateTime>)],
+) {
     for sql in [
         "DELETE FROM timeplan",
         "DELETE FROM final_categories",
@@ -206,11 +197,281 @@ async fn the_determining_day_is_locked_once_categories_exist() {
     ] {
         sqlx::query(sql).execute(&app.db).await.unwrap();
     }
+    for (name, from, to) in categories {
+        sqlx::query(
+            "INSERT INTO categories (name, from_birthday, to_birthday, act_type) \
+             VALUES (?, ?, ?, 'single')",
+        )
+        .bind(name)
+        .bind(from)
+        .bind(to)
+        .execute(&app.db)
+        .await
+        .unwrap();
+    }
+}
+
+async fn bounds(app: &TestApp, name: &str) -> (Option<OffsetDateTime>, Option<OffsetDateTime>) {
+    sqlx::query_as("SELECT from_birthday, to_birthday FROM categories WHERE name = ?")
+        .bind(name)
+        .fetch_one(&app.db)
+        .await
+        .unwrap()
+}
+
+async fn set_determining_day(app: &TestApp, day: &str) {
+    sqlx::query("UPDATE competition SET determining_day = ?")
+        .bind(day)
+        .execute(&app.db)
+        .await
+        .unwrap();
+}
+
+/// Edits the determining day to `day`, expects success and returns the
+/// warnings.
+async fn edit_determining_day(app: &TestApp, cookie: &str, day: &str) -> Vec<String> {
+    let mut competition = settings(app, cookie).await["competition"].clone();
+    competition["determining_day"] = json!(day);
+    let response = edit(app, cookie, &competition, &Value::Null).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(
+        settings(app, cookie).await["competition"]["determining_day"],
+        day
+    );
+    response.body["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning.as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn editing_the_determining_day_moves_the_matching_category_bounds() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[
+            (
+                "Matching",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+            (
+                "Other day",
+                Some(datetime!(2012-06-02 0:00 UTC)),
+                Some(datetime!(2017-07-01 0:00 UTC)),
+            ),
+            (
+                "Not midnight",
+                Some(datetime!(2012-06-01 10:00 UTC)),
+                Some(datetime!(2017-06-01 0:00:01 UTC)),
+            ),
+            (
+                "Half",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-12-01 0:00 UTC)),
+            ),
+        ],
+    )
+    .await;
+
+    edit_determining_day(&app, &admin, "2027-07-15").await;
+
+    assert_eq!(
+        bounds(&app, "Matching").await,
+        (
+            Some(datetime!(2012-07-15 0:00 UTC)),
+            Some(datetime!(2017-07-15 0:00 UTC))
+        )
+    );
+    assert_eq!(
+        bounds(&app, "Other day").await,
+        (
+            Some(datetime!(2012-06-02 0:00 UTC)),
+            Some(datetime!(2017-07-01 0:00 UTC))
+        )
+    );
+    assert_eq!(
+        bounds(&app, "Not midnight").await,
+        (
+            Some(datetime!(2012-06-01 10:00 UTC)),
+            Some(datetime!(2017-06-01 0:00:01 UTC))
+        )
+    );
+    // Each bound is judged on its own.
+    assert_eq!(
+        bounds(&app, "Half").await,
+        (
+            Some(datetime!(2012-07-15 0:00 UTC)),
+            Some(datetime!(2017-12-01 0:00 UTC))
+        )
+    );
+}
+
+#[tokio::test]
+async fn saving_with_the_same_determining_day_leaves_the_categories_alone() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[("Matching", Some(datetime!(2012-06-01 0:00 UTC)), None)],
+    )
+    .await;
+    let mut competition = settings(&app, &admin).await["competition"].clone();
+    competition["name"] = json!("Anderer Name");
     let response = edit(&app, &admin, &competition, &Value::Null).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(
-        settings(&app, &admin).await["competition"]["determining_day"],
-        "2027-01-01"
+        bounds(&app, "Matching").await,
+        (Some(datetime!(2012-06-01 0:00 UTC)), None)
+    );
+}
+
+#[tokio::test]
+async fn open_bounds_stay_even_when_the_determining_day_looks_like_them() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-01-01").await;
+    set_categories(
+        &app,
+        &[
+            (
+                "Young",
+                Some(datetime!(2012-01-01 0:00 UTC)),
+                Some(datetime!(9999-12-31 0:00 UTC)),
+            ),
+            (
+                "Old",
+                Some(datetime!(1900-01-01 0:00 UTC)),
+                Some(datetime!(2012-01-01 0:00 UTC)),
+            ),
+        ],
+    )
+    .await;
+    edit_determining_day(&app, &admin, "2027-12-31").await;
+    assert_eq!(
+        bounds(&app, "Young").await,
+        (
+            Some(datetime!(2012-12-31 0:00 UTC)),
+            Some(datetime!(9999-12-31 0:00 UTC))
+        )
+    );
+    assert_eq!(
+        bounds(&app, "Old").await,
+        (
+            Some(datetime!(1900-01-01 0:00 UTC)),
+            Some(datetime!(2012-12-31 0:00 UTC))
+        )
+    );
+}
+
+#[tokio::test]
+async fn categories_that_were_not_adjusted_come_back_as_warnings() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[
+            (
+                "Matching",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+            (
+                "Open and matching",
+                Some(datetime!(1900-01-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+            (
+                "Half years",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-12-01 0:00 UTC)),
+            ),
+            (
+                "Hand set",
+                Some(datetime!(2012-06-02 0:00 UTC)),
+                Some(datetime!(2017-06-01 10:00 UTC)),
+            ),
+        ],
+    )
+    .await;
+
+    let warnings = edit_determining_day(&app, &admin, "2027-07-15").await;
+
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(
+        warnings[0].contains("Half years") && warnings[0].contains("Bis"),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings[1].contains("Hand set") && warnings[1].contains("Beide"),
+        "{warnings:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_category_whose_moved_bounds_would_cross_is_skipped_with_a_warning() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[
+            // The matching from-bound would land after the hand-set to-bound.
+            (
+                "Crossing",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2012-07-01 0:00 UTC)),
+            ),
+            (
+                "Fine",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+        ],
+    )
+    .await;
+
+    let warnings = edit_determining_day(&app, &admin, "2027-12-31").await;
+
+    assert_eq!(
+        bounds(&app, "Crossing").await,
+        (
+            Some(datetime!(2012-06-01 0:00 UTC)),
+            Some(datetime!(2012-07-01 0:00 UTC))
+        )
+    );
+    assert_eq!(
+        bounds(&app, "Fine").await,
+        (
+            Some(datetime!(2012-12-31 0:00 UTC)),
+            Some(datetime!(2017-12-31 0:00 UTC))
+        )
+    );
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Crossing"), "{warnings:?}");
+}
+
+#[tokio::test]
+async fn the_settings_no_longer_lock_the_determining_day() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    assert!(
+        settings(&app, &admin)
+            .await
+            .get("determining_day_locked")
+            .is_none()
     );
 }
 
@@ -228,4 +489,55 @@ async fn the_id_never_changes_and_a_differing_file_is_flagged() {
     let response = edit(&app, &admin, &competition, &Value::Null).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(settings(&app, &admin).await["competition"]["id"], id);
+}
+
+#[tokio::test]
+async fn date_only_bounds_from_the_category_form_move_too() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(&app, &[("Form", None, None)]).await;
+    sqlx::query("UPDATE categories SET from_birthday = '2012-06-01', to_birthday = 'kaputt'")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    edit_determining_day(&app, &admin, "2027-07-15").await;
+    let (from, to): (String, String) =
+        sqlx::query_as("SELECT from_birthday, to_birthday FROM categories")
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
+    assert_eq!(from, "2012-07-15T00:00:00Z");
+    assert_eq!(to, "kaputt");
+}
+
+#[tokio::test]
+async fn open_and_missing_bounds_and_an_unchanged_day_give_no_warnings() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
+    set_categories(
+        &app,
+        &[
+            (
+                "Open",
+                Some(datetime!(1900-01-01 0:00 UTC)),
+                Some(datetime!(9999-12-31 0:00 UTC)),
+            ),
+            ("Missing", None, Some(datetime!(2017-06-01 0:00 UTC))),
+        ],
+    )
+    .await;
+    assert!(
+        edit_determining_day(&app, &admin, "2027-07-15")
+            .await
+            .is_empty()
+    );
+    assert!(
+        edit_determining_day(&app, &admin, "2027-07-15")
+            .await
+            .is_empty()
+    );
 }
