@@ -101,7 +101,6 @@ describe("moderation input", () => {
     });
     const settings = {
       file_id_mismatch: null,
-      determining_day_locked: false,
       photos: null,
       feature_defaults: { jury_registration: false, moderation_input: true },
       competition: {
