@@ -761,6 +761,18 @@ async fn a_file_with_a_logo_svg_and_url_or_an_unsafe_sponsor_stops_the_import() 
         StatusCode::OK
     );
 
+    let twice = insert_competition_lines(
+        COMPETITION,
+        "sponsors = [{ name = \"Sponsor A\" }, { name = \" sponsor a \" }]",
+    );
+    let response = import(&app, &admin, &twice).await;
+    assert_ne!(response.status, StatusCode::OK);
+    assert!(
+        response.body.to_string().contains("twice"),
+        "{:?}",
+        response.body
+    );
+
     let bad_url =
         insert_competition_lines(COMPETITION, "break_image_url = \"ftp://example.org/b.svg\"");
     assert_ne!(import(&app, &admin, &bad_url).await.status, StatusCode::OK);

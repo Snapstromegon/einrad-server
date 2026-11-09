@@ -117,7 +117,12 @@ impl ImageFetcher {
     /// isn't blocked, and a result for an image that changed meanwhile is
     /// dropped.
     pub async fn refresh(&self, db: &ReloadableSqlite, only: Option<Slot>) -> sqlx::Result<()> {
-        let _refreshing = self.refreshing.lock().await;
+        // A single image is safe without it (a result for a changed image is
+        // dropped) and shouldn't wait for a slow refresh of all of them.
+        let _refreshing = match only {
+            None => Some(self.refreshing.lock().await),
+            Some(_) => None,
+        };
         let todo: Vec<Image> = {
             let pool = db.get().await.clone();
             images::list(&pool).await?

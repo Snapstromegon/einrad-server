@@ -1063,7 +1063,6 @@ async fn write(
     upsert_competition(&mut *conn, &competition)
         .await
         .map_err(db_error)?;
-    write_images(conn, &competition).await.map_err(db_error)?;
     colors::write(
         &mut *conn,
         &competition.id,
@@ -1078,6 +1077,7 @@ async fn write(
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
+    write_images(conn, &competition).await.map_err(db_error)?;
     sqlx::query!("UPDATE acts SET started_at = NULL, ended_at = NULL, music_started_at = NULL")
         .execute(&mut *conn)
         .await

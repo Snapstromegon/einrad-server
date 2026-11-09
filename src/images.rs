@@ -577,7 +577,7 @@ impl From<&Image> for ImageState {
             has_image: image.has_data,
             fetched_at: image.fetched_at,
             fetch_error: image.fetch_error.clone(),
-            version: image.updated_at.unix_timestamp_nanos() as i64,
+            version: image.updated_at.unix_timestamp_nanos() as i64 / 1_000_000,
         }
     }
 }

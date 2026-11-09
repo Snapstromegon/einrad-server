@@ -45,7 +45,7 @@ pub async fn list_sponsors(
                 id: image.id,
                 name: image.name,
                 link: image.link,
-                version: image.updated_at.unix_timestamp_nanos() as i64,
+                version: image.updated_at.unix_timestamp_nanos() as i64 / 1_000_000,
             })
             .collect(),
     ))

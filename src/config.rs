@@ -518,7 +518,11 @@ impl CompetitionConfig {
                 ));
             }
         }
+        let mut names = std::collections::HashSet::new();
         for sponsor in self.sponsors.iter().flatten() {
+            if !names.insert(sponsor.name.trim().to_lowercase()) {
+                return Err(format!("The sponsor {} is listed twice", sponsor.name));
+            }
             if sponsor.svg.is_some() && sponsor.url.is_some() {
                 return Err(format!(
                     "The sponsor {} has both svg and url; its image comes from one of them",
