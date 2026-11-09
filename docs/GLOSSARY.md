@@ -18,6 +18,16 @@ _Avoid_: Config (for the competition)
 The competition's logo and colors on every page; without its own, the competition shows the default built into the server, and a replace keeps it unless the competition file sets it (ADR 0009).
 _Avoid_: Theme, design (for the logo and colors)
 
+**Break image** (Pausenbild):
+The image the info board shows while no act runs. Without its own, the logo applies, and without that the break image built into the server.
+
+**Sponsor**:
+An entry of the ordered list whose logos fill the info board's footer: an image, a name (alt text) and an optional link. Without sponsors there is no footer; the logos of the NRW cup are presets to add.
+_Avoid_: Partner, sponsor logo (for the entry)
+
+**Image source**:
+Where the logo, break image or a sponsor's logo comes from: an inline SVG, an upload, or a URL the server downloads at startup and on "Bilder aktualisieren". The server serves its local copy and keeps the last good one if a download fails (ADR 0010).
+
 **Setup mode**:
 The server running without a competition, until an admin imports the competition file in the admin UI; everyone else sees "noch nicht eröffnet".
 
