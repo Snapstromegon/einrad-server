@@ -7,7 +7,7 @@ use crate::{
     competition::Competition,
     http_server::{
         HttpError,
-        extractor::auth::{Error, Granted},
+        extractor::auth::{Auth, Error, Granted},
     },
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
@@ -61,5 +61,28 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for StartlistAccess {
         state: &S,
     ) -> Result<Option<Self>, Self::Rejection> {
         Ok(visible(parts, state).await?.then_some(StartlistAccess))
+    }
+}
+
+/// Guard for the list of all acts: until an admin published the start list
+/// it is for logged-in users only (clubs register and manage their acts),
+/// so visitors can't read who starts. Staff and a published list pass as in
+/// [`StartlistAccess`].
+#[derive(Debug)]
+pub struct ActListAccess;
+
+impl<S: Send + Sync> FromRequestParts<S> for ActListAccess {
+    type Rejection = HttpError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        if visible(parts, state).await? {
+            return Ok(ActListAccess);
+        }
+        match <Auth as OptionalFromRequestParts<S>>::from_request_parts(parts, state).await {
+            Ok(Some(_)) => Ok(ActListAccess),
+            Err(Error::Database) => Err(HttpError::InternalServerError),
+            // No or an invalid login: a visitor.
+            Ok(None) | Err(_) => Err(HttpError::StatusCode(StatusCode::FORBIDDEN)),
+        }
     }
 }

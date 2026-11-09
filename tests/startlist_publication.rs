@@ -100,9 +100,11 @@ async fn the_start_order_stays_hidden_in_the_act_list_until_publication() {
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
-    let public = app.get("/api/query/list_acts", None).await;
-    assert_eq!(public.status, StatusCode::OK);
-    assert_eq!(order(&public.body), Value::Null);
+    // A logged-in club user gets the acts, but not their start order.
+    let (club, _) = app.create_club_owner("Other", "Other RSV").await;
+    let user = app.get("/api/query/list_acts", Some(&club)).await;
+    assert_eq!(user.status, StatusCode::OK);
+    assert_eq!(order(&user.body), Value::Null);
     let staff = app.get("/api/query/list_acts", Some(&admin)).await;
     assert_ne!(order(&staff.body), Value::Null);
 
@@ -207,7 +209,11 @@ async fn a_new_competition_starts_unpublished_and_a_replace_keeps_the_approval()
     let next = COMPETITION.replacen("fee_per_start = 15", "fee_per_start = 20", 1);
     let response = import(&next).await;
     assert_eq!(response.body["outcome"], "replaced");
-    assert!(response.body["dropped"].get("startlist_published").is_none());
+    assert!(
+        response.body["dropped"]
+            .get("startlist_published")
+            .is_none()
+    );
     assert_eq!(status().await, StatusCode::OK);
     assert_eq!(set_published(&app, &admin, false).await, StatusCode::OK);
     assert_eq!(status().await, StatusCode::FORBIDDEN);
@@ -254,4 +260,28 @@ async fn get_act_hides_the_start_order_until_publication() {
     assert_eq!(app.get(&uri, Some(&admin)).await.body["act_order"], 1);
     set_published(&app, &admin, true).await;
     assert_eq!(app.get(&uri, None).await.body["act_order"], 1);
+}
+
+#[tokio::test]
+async fn anonymous_visitors_get_no_list_of_acts_before_publication() {
+    let app = unpublished_app().await;
+    let admin = app.create_admin().await;
+    let (club, _) = app.create_club_owner("Other", "Other RSV").await;
+    let treasurer = cookie_with_roles(&app, "Treasurer", &["treasurer"]).await;
+    let list = "/api/query/list_acts";
+
+    assert_eq!(app.get(list, None).await.status, StatusCode::FORBIDDEN);
+    let stale = Some("jwt=not-a-valid-token");
+    assert_eq!(app.get(list, stale).await.status, StatusCode::FORBIDDEN);
+    // Logged-in users, e.g. the clubs registering, keep the list.
+    for cookie in [&admin, &club, &treasurer] {
+        let response = app.get(list, Some(cookie)).await;
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(response.body.as_array().unwrap().len(), 1);
+    }
+
+    assert_eq!(set_published(&app, &admin, true).await, StatusCode::OK);
+    let response = app.get(list, None).await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body.as_array().unwrap().len(), 1);
 }

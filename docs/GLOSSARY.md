@@ -189,7 +189,7 @@ How far the live event runs behind or ahead of the timeplan.
 A rider confirming their presence at the event desk; advisory, it doesn't remove anyone.
 
 **Startlist** (Startliste):
-The order of acts with their expected start times. Until an Admin approves it (once per competition), only the organizer team sees it and the complete **Timeplan**; the Admin can revoke the approval at any time.
+The order of acts with their expected start times. Until an Admin approves it (once per competition), only the organizer team sees it and the complete **Timeplan**; the Admin can revoke the approval at any time. Meanwhile the list of all acts is for logged-in users only (clubs keep registering), without the start order.
 
 **Info board** (Info-Board):
 The public screen in the hall showing what's running now and next.
