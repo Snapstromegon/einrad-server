@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import { ApiError, errorMessage, failureText, unwrap } from "../src/ts/api.ts";
 import {
+  breakImage,
+  sponsorImage,
   dateInputValue,
   actClubNames,
   actMatchesSearch,
@@ -1305,5 +1307,14 @@ describe("dateInputValue", () => {
       "1969-11-02",
     );
     assert.equal(dateInputValue("2017-08-12T00:00:00Z"), "2017-08-12");
+  });
+});
+
+describe("image URLs", () => {
+  test("the break image and sponsor logos come from the server's local copy", () => {
+    assert.equal(breakImage(), "/api/competition/break-image");
+    assert.equal(breakImage(7), "/api/competition/break-image?v=7");
+    assert.equal(sponsorImage(3), "/api/competition/sponsors/3/image");
+    assert.equal(sponsorImage(3, 9), "/api/competition/sponsors/3/image?v=9");
   });
 });

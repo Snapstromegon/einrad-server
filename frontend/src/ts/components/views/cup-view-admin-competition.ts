@@ -10,8 +10,8 @@ import {
 } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
 import "../elements/cup-competition-form.js";
+import "../elements/cup-competition-images.js";
 import { iconStyles, resetStyles } from "../../styles/base";
-import { competitionLogo } from "../../utils";
 
 type Preview = schemas.Preview;
 
@@ -23,7 +23,8 @@ const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
 
 /**
  * The competition itself (Admin, ADR 0005): editing it ("Wettkampf
- * bearbeiten", see `cup-competition-form`), its logo (#286), exporting and
+ * bearbeiten", see `cup-competition-form`), its images (logo, break image, sponsors; see
+ * `cup-competition-images`), exporting and
  * importing a competition file.
  * Without a competition (setup mode) a valid file is imported right away;
  * over an existing one the page first shows what the file replaces and
@@ -54,14 +55,6 @@ export default class CupViewAdminCompetition extends LitElement {
       input[type="file"] {
         margin: 0.5rem 0;
       }
-
-      .logo {
-        display: block;
-        width: 10rem;
-        height: 10rem;
-        margin: 0.5rem 0;
-        object-fit: contain;
-      }
     `,
   ];
 
@@ -76,10 +69,6 @@ export default class CupViewAdminCompetition extends LitElement {
   @state() private preview: Preview | null = null;
   /** Dropped judge registrations of the import, to download. */
   @state() private remapFile: { name: string; url: string } | null = null;
-  @state() private logoBusy = false;
-  @state() private logoError = "";
-  /** When the logo last changed here, to show the new one. */
-  @state() private logoVersion = 0;
 
   override render() {
     const competition = this.systemStatus?.competition;
@@ -91,15 +80,15 @@ export default class CupViewAdminCompetition extends LitElement {
                 <h2>Wettkampf bearbeiten</h2>
                 <cup-competition-form></cup-competition-form>
               </section>
-              ${this.renderLogo()}
+              <cup-competition-images></cup-competition-images>
               <section>
                 <h2>Wettkampfdatei exportieren</h2>
                 <p class="muted">
                   Der Wettkampf als Wettkampfdatei, ohne die Daten der Vereine:
                   Einstellungen, Kategorien, Finals, Zeitplan und
                   Jury-Kategorien. Der Import nimmt sie unverändert, z. B. für
-                  eine Testinstanz. Ein SVG-Logo und eigene Farben sind dabei,
-                  ein anderes Logo nicht. Sie enthält das Foto-Passwort: nur
+                  eine Testinstanz. Logo, Pausenbild und Sponsoren sind als SVG
+                  oder URL dabei, hochgeladene Bilder nicht, dazu eigene Farben. Sie enthält das Foto-Passwort: nur
                   über vertrauenswürdige Wege weitergeben.
                 </p>
                 <div class="toolbar">
@@ -122,8 +111,10 @@ export default class CupViewAdminCompetition extends LitElement {
             competition
               ? html`Sie ersetzt die Einstellungen, Kategorien, Finals, den
                 Zeitplan und die Jury-Kategorien. Die Daten der Vereine
-                bleiben, die ID des Wettkampfs auch. Logo und Farben bleiben,
-                außer die Datei setzt sie (<code>logo_svg</code>,
+                bleiben, die ID des Wettkampfs auch. Logo, Pausenbild, Sponsoren und Farben
+                bleiben, außer die Datei setzt sie (<code>logo_svg</code>,
+                <code>logo_url</code>, <code>break_image_svg</code>,
+                <code>break_image_url</code>, <code>sponsors</code>,
                 <code>primary_color</code>, <code>secondary_color</code>).`
               : html`Sie legt den Wettkampf an.`
           }
@@ -131,80 +122,6 @@ export default class CupViewAdminCompetition extends LitElement {
         ${this.remapFile ? this.renderRemapFile(this.remapFile) : this.renderImport()}
       </section>
     </div>`;
-  }
-
-  private renderLogo() {
-    return html`<section>
-      <h2>Logo</h2>
-      <p class="muted">
-        Auf allen Seiten und als Favicon. PNG, JPEG, WebP oder SVG bis 1 MiB;
-        größere Bilder werden auf 512 Pixel verkleinert. Ohne eigenes Logo
-        zeigt die Seite das eingebaute.
-      </p>
-      <img
-        class="logo"
-        src=${competitionLogo(this.logoVersion)}
-        alt="Logo des Wettkampfs"
-      />
-      <input
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
-        aria-label="Logo hochladen"
-        ?disabled=${this.logoBusy}
-        @change=${this.uploadLogo}
-      />
-      ${
-        this.logoError
-          ? html`<div class="error-banner" role="alert">${this.logoError}</div>`
-          : nothing
-      }
-      <div class="toolbar">
-        <button
-          class="btn danger"
-          ?disabled=${this.logoBusy}
-          @click=${this.removeLogo}
-        >
-          <span class="material-icon">delete</span> Logo entfernen
-        </button>
-      </div>
-    </section>`;
-  }
-
-  private async uploadLogo(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const chosen = input.files?.[0];
-    input.value = "";
-    if (!chosen) {
-      return;
-    }
-    const data = new FormData();
-    data.append("file", chosen);
-    // The generated types don't describe the multipart body.
-    await this.changeLogo("Logo nicht gespeichert", () =>
-      unwrap(client.setCompetitionLogo({ body: data as never })),
-    );
-  }
-
-  private removeLogo = () =>
-    this.changeLogo("Logo nicht entfernt", () =>
-      unwrap(client.removeCompetitionLogo()),
-    );
-
-  /** Runs `change` and shows the logo it leaves, also as the favicon. */
-  private async changeLogo(context: string, change: () => Promise<unknown>) {
-    this.logoError = "";
-    this.logoBusy = true;
-    try {
-      await change();
-      this.logoVersion = Date.now();
-      document
-        .querySelector<HTMLLinkElement>('link[rel="icon"]')
-        ?.setAttribute("href", competitionLogo(this.logoVersion));
-    } catch (error) {
-      this.logoError = failureText(context, error);
-    } finally {
-      this.logoBusy = false;
-    }
   }
 
   private renderImport() {

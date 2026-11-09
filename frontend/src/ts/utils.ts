@@ -565,6 +565,20 @@ export const normalizationLabel = (status: string | null | undefined) =>
 export const competitionLogo = (version = 0) =>
   version ? `/api/competition/logo?v=${version}` : "/api/competition/logo";
 
+/**
+ * The info board's break image: the competition's own, else its logo, else
+ * the one built into the server (#291). `version` gets a changed image past
+ * the browser's cache.
+ */
+export const breakImage = (version = 0) =>
+  version
+    ? `/api/competition/break-image?v=${version}`
+    : "/api/competition/break-image";
+
+/** A sponsor's logo (#291); `version` changes with the image. */
+export const sponsorImage = (id: number, version = 0) =>
+  `/api/competition/sponsors/${id}/image${version ? `?v=${version}` : ""}`;
+
 /** Name of the current competition, with a generic fallback. */
 export const competitionName = (competition: Competition | null | undefined) =>
   competition?.name ?? "Einradevent";
