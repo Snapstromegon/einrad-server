@@ -9,6 +9,7 @@ use crate::{
     act_type::ActType,
     http_server::{
         ClientError, HttpError,
+        extractor::startlist::StartlistAccess,
         routes::{
             http_types::ActParticipant,
             query::predict_timeplan::{TimeplanEntry, TimeplanSlot, predict},
@@ -36,18 +37,21 @@ fn csv_field(value: &str) -> String {
 
 /// The startlist as CSV, one section per timeplan entry. Breaks inside a
 /// start block and the reserved slots of a final get their own `#` line.
+/// Before the publication only the organizer team gets it.
 #[utoipa::path(
     get,
     tags=["query", "timeplan"],
     path="/get_startlist_csv",
     responses(
         (status=200, content_type="application/json", body=String),
+        (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
 #[instrument(skip(db))]
 pub async fn get_startlist_csv(
+    _: StartlistAccess,
     Extension(db): Extension<ReloadableSqlite>,
 ) -> Result<String, HttpError> {
     let db = db.get().await.clone();

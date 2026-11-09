@@ -555,6 +555,8 @@ pub struct Dropped {
     /// The jury plan's assignments.
     pub jury_assignments: i64,
     pub jury_plan_published: bool,
+    /// The competition's start list and timeplan were published.
+    pub startlist_published: bool,
     /// Judge registrations whose jury category has no namesake in the file.
     pub judge_registrations: Vec<RemapRegistration>,
     /// Where they were written, to fill in `jury_category` and apply again.
@@ -590,6 +592,8 @@ impl Dropped {
             ),
             self.jury_plan_published
                 .then(|| "the published jury plan".to_string()),
+            self.startlist_published
+                .then(|| "the approval of the start list".to_string()),
             counted(
                 self.judge_registrations.len() as i64,
                 "judge registration without a matching jury category",
@@ -1014,6 +1018,13 @@ async fn write(
         .await
         .map_err(db_error)?
             > 0,
+        startlist_published: sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM competition WHERE startlist_published_at IS NOT NULL"#
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db_error)?
+            > 0,
         ..Default::default()
     };
     let registrations = sqlx::query!(
@@ -1075,10 +1086,12 @@ async fn write(
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
-    sqlx::query!("UPDATE competition SET jury_plan_published_at = NULL")
-        .execute(&mut *conn)
-        .await
-        .map_err(db_error)?;
+    sqlx::query!(
+        "UPDATE competition SET jury_plan_published_at = NULL, startlist_published_at = NULL"
+    )
+    .execute(&mut *conn)
+    .await
+    .map_err(db_error)?;
     let categories = &file.categories;
     let finals = &file.finals;
     let timeplan = &file.timeplan;

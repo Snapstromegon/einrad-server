@@ -1,3 +1,4 @@
+import { consume } from "@lit/context";
 import { Task, TaskStatus } from "@lit/task";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
@@ -5,6 +6,11 @@ import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
 import { errorMessage, PollController, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
+import {
+  SYSTEM_STATUS_CHANGED,
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 import {
@@ -396,6 +402,9 @@ export default class CupViewAdminTimeplan extends LitElement {
     `,
   ];
 
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
+
   @state() private editing: Editing | null = null;
   @state() private breakDraft: BreakDraft | null = null;
   @state() private busy = false;
@@ -500,6 +509,7 @@ export default class CupViewAdminTimeplan extends LitElement {
           >
           ${allOpen ? "Alle zuklappen" : "Alle aufklappen"}
         </button>
+        ${this.renderPublication()}
         <button
           class="btn primary small"
           title=${this.editing ? "Erst speichern oder abbrechen" : nothing}
@@ -1952,6 +1962,52 @@ export default class CupViewAdminTimeplan extends LitElement {
     } catch (error) {
       // Keep the row in edit mode, so nothing typed is lost.
       this.error = `Speichern fehlgeschlagen: ${errorMessage(error)}`;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private renderPublication() {
+    const published = this.systemStatus?.startlist_published ?? false;
+    return html`<span class="chip ${published ? "ok" : ""}"
+        >${
+          published
+            ? "Startliste und Zeitplan öffentlich"
+            : "Startliste und Zeitplan nur für das Team"
+        }</span
+      >
+      <button
+        class="btn small ${published ? "" : "primary"}"
+        title=${
+          published
+            ? "Nimmt die Freigabe zurück: nur das Team sieht Startliste und Zeitplan"
+            : "Gibt Startliste und kompletten Zeitplan für alle frei"
+        }
+        ?disabled=${!this.systemStatus || this.busy}
+        @click=${this.onPublishClick}
+      >
+        ${published ? "Freigabe zurückziehen" : "Startliste freigeben"}
+      </button>`;
+  }
+
+  private async onPublishClick() {
+    const published = !this.systemStatus?.startlist_published;
+    if (
+      !confirm(
+        published
+          ? "Startliste und kompletten Zeitplan jetzt für alle sichtbar machen?"
+          : "Freigabe zurückziehen? Besucher sehen dann weder Startliste noch Zeitplan, bis du sie wieder freigibst.",
+      )
+    ) {
+      return;
+    }
+    this.busy = true;
+    this.error = "";
+    try {
+      await unwrap(client.setStartlistPublished({ body: { published } }));
+      window.dispatchEvent(new Event(SYSTEM_STATUS_CHANGED));
+    } catch (error) {
+      this.error = `Freigabe fehlgeschlagen: ${errorMessage(error)}`;
     } finally {
       this.busy = false;
     }

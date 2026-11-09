@@ -21,6 +21,9 @@ pub struct SystemStatus {
     jury_registration: bool,
     /// Whether the act description field is enabled for the current competition.
     moderation_input: bool,
+    /// Whether an admin published the start list and the timeplan; before,
+    /// only the organizer team sees them.
+    startlist_published: bool,
 }
 
 /// Get information about the status of the system and the current competition.
@@ -46,5 +49,6 @@ pub async fn get_system_status(
         competition,
         jury_registration: features.jury_registration,
         moderation_input: features.moderation_input,
+        startlist_published: Competition::startlist_published(&db).await?,
     }))
 }

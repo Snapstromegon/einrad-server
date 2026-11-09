@@ -75,14 +75,25 @@ pub struct Act {
     pub fee_waived: bool,
     /// Why the fee is waived; only for who manages payments.
     pub fee_waiver: Option<String>,
+    /// Start order within the category; hidden until the start list is
+    /// published.
     pub act_order: Option<i64>,
     pub category_order: Option<i64>,
 }
 
 impl Act {
     /// Hides data only who may see birthdates may see, see [`Act::max_age`],
-    /// and the waiver reason from who doesn't manage payments.
-    pub fn for_viewer(mut self, sees_birthdates: bool, manages_payments: bool) -> Self {
+    /// the waiver reason from who doesn't manage payments, and the start order
+    /// from who may not see the start list yet.
+    pub fn for_viewer(
+        mut self,
+        sees_birthdates: bool,
+        manages_payments: bool,
+        sees_startlist: bool,
+    ) -> Self {
+        if !sees_startlist {
+            self.act_order = None;
+        }
         if !sees_birthdates {
             self.max_age = None;
         }

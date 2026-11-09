@@ -6,7 +6,7 @@ use crate::{
     act_type::ActType,
     http_server::{
         ClientError, HttpError,
-        extractor::auth::Granted,
+        extractor::{auth::Granted, startlist::StartlistAccess},
         routes::http_types::{Act, ActParticipant, DBAct},
     },
     normalize::NormalizationStatus,
@@ -33,6 +33,7 @@ pub async fn list_acts(
     Extension(db): Extension<ReloadableSqlite>,
     birthdates: Option<Granted<permit::ViewBirthdates>>,
     payments: Option<Granted<permit::ManagePayments>>,
+    startlist: Option<StartlistAccess>,
 ) -> Result<Json<Vec<Act>>, HttpError> {
     let db = db.get().await.clone();
     let acts = sqlx::query_as!(
@@ -75,7 +76,13 @@ pub async fn list_acts(
     .await?;
     Ok(Json(
         acts.into_iter()
-            .map(|act| Act::from(act).for_viewer(birthdates.is_some(), payments.is_some()))
+            .map(|act| {
+                Act::from(act).for_viewer(
+                    birthdates.is_some(),
+                    payments.is_some(),
+                    startlist.is_some(),
+                )
+            })
             .collect(),
     ))
 }

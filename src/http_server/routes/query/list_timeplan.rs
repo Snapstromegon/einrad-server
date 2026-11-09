@@ -2,7 +2,10 @@ use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError,
+        extractor::{auth::Granted, startlist::StartlistAccess},
+    },
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     timeplan::{EntryKind, INTERNAL_PUBLIC_LABEL},
@@ -36,19 +39,22 @@ pub struct TimeplanListEntry {
     ended_at: Option<time::OffsetDateTime>,
 }
 
-/// List all timeplan entries, in order.
+/// List all timeplan entries, in order. Before an admin published the
+/// timeplan only the organizer team gets them.
 #[utoipa::path(
     get,
     tags=["query"],
     path="/list_timeplan",
     responses(
         (status=200, content_type="application/json", body=Vec<TimeplanListEntry>),
+        (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
 #[instrument(skip(db))]
 pub async fn list_timeplan(
+    _: StartlistAccess,
     Extension(db): Extension<ReloadableSqlite>,
     internal: Option<Granted<permit::ViewInternalEntries>>,
 ) -> Result<Json<Vec<TimeplanListEntry>>, HttpError> {

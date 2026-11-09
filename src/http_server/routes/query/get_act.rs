@@ -6,7 +6,7 @@ use crate::{
     act_type::ActType,
     http_server::{
         ClientError, HttpError,
-        extractor::auth::Granted,
+        extractor::{auth::Granted, startlist::StartlistAccess},
         routes::http_types::{Act, ActParticipant, DBAct},
     },
     normalize::NormalizationStatus,
@@ -39,6 +39,7 @@ pub async fn get_act(
     Query(query): Query<GetActQuery>,
     birthdates: Option<Granted<permit::ViewBirthdates>>,
     payments: Option<Granted<permit::ManagePayments>>,
+    startlist: Option<StartlistAccess>,
 ) -> Result<Json<Act>, HttpError> {
     let db = db.get().await.clone();
     let act = sqlx::query_as!(
@@ -80,7 +81,9 @@ pub async fn get_act(
     )
     .fetch_one(&db)
     .await?;
-    Ok(Json(
-        Act::from(act).for_viewer(birthdates.is_some(), payments.is_some()),
-    ))
+    Ok(Json(Act::from(act).for_viewer(
+        birthdates.is_some(),
+        payments.is_some(),
+        startlist.is_some(),
+    )))
 }
