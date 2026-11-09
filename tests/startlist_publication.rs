@@ -180,7 +180,7 @@ async fn the_system_status_tells_whether_it_is_published() {
 }
 
 #[tokio::test]
-async fn every_new_competition_starts_unpublished() {
+async fn a_new_competition_starts_unpublished_and_a_replace_keeps_the_approval() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::without_competition(db).await;
     let admin = app.create_admin().await;
@@ -203,12 +203,13 @@ async fn every_new_competition_starts_unpublished() {
     assert_eq!(import(COMPETITION).await.status, StatusCode::OK);
     assert_eq!(status().await, StatusCode::OK);
 
-    // A replace starts the competition's planning over and needs a new
-    // approval.
+    // A replace of the settings keeps the approval until an Admin revokes it.
     let next = COMPETITION.replacen("fee_per_start = 15", "fee_per_start = 20", 1);
     let response = import(&next).await;
     assert_eq!(response.body["outcome"], "replaced");
-    assert_eq!(response.body["dropped"]["startlist_published"], true);
+    assert!(response.body["dropped"].get("startlist_published").is_none());
+    assert_eq!(status().await, StatusCode::OK);
+    assert_eq!(set_published(&app, &admin, false).await, StatusCode::OK);
     assert_eq!(status().await, StatusCode::FORBIDDEN);
 }
 
