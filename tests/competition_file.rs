@@ -8,7 +8,7 @@ use common::{TempDir, in_memory_migrated};
 use einrad_server::{
     competition::Competition,
     config::{CliArgs, ConfigFile, Settings},
-    logo,
+    images::{self, Slot},
     seed::{self, Applied, Report},
 };
 use sqlx::SqlitePool;
@@ -180,7 +180,13 @@ async fn a_logo_comes_with_the_file_and_stays_unless_a_replace_sets_it() {
     start(&db, &dir, &["--competition", &competition])
         .await
         .unwrap();
-    let logo = |db| async move { logo::load(&db).await.unwrap().map(|logo| logo.data) };
+    let logo = |db: sqlx::SqlitePool| async move {
+        let mut conn = db.acquire().await.unwrap();
+        images::load_single(&mut conn, Slot::Logo)
+            .await
+            .unwrap()
+            .map(|logo| logo.data)
+    };
     assert_eq!(logo(db.clone()).await, Some(SVG_LOGO.as_bytes().to_vec()));
 
     // A changed logo is a difference like any other.

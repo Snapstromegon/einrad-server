@@ -354,6 +354,10 @@ impl From<&Competition> for CompetitionConfig {
             // The logo isn't part of the competition's row (see
             // `crate::logo`).
             logo_svg: Branding::Keep,
+            logo_url: Branding::Keep,
+            break_image_svg: Branding::Keep,
+            break_image_url: Branding::Keep,
+            sponsors: None,
             // A default color is left out, like a missing logo.
             primary_color: competition
                 .primary_color

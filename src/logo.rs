@@ -1,8 +1,11 @@
-//! The competition's logo (#286, ADR 0009): shown on every page and as the
-//! favicon, all from one URL. Without one, the logo built into the binary
-//! applies.
+//! The checks and conversions every image of the competition goes through
+//! (#286, #291, ADR 0009): the logo, the break image and the sponsor logos,
+//! whether uploaded, written in the competition file or downloaded from a URL
+//! (see `crate::images`). The logo built into the binary applies without one.
 
 use std::{fmt, io::Cursor, str::FromStr};
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use image::{
     DynamicImage, ImageDecoder, ImageError, ImageFormat, ImageReader, Limits,
@@ -33,9 +36,9 @@ pub const MAX_DECODED_EDGE: u32 = 4096;
 /// Why a logo is refused. The messages are for the admin UI.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LogoError {
-    #[error("Das Logo ist größer als 1 MiB.")]
+    #[error("Das Bild ist größer als 1 MiB.")]
     TooLarge,
-    #[error("Das Logo muss ein Bild im Format PNG, JPEG, WebP oder SVG sein.")]
+    #[error("Die Datei muss ein Bild im Format PNG, JPEG, WebP oder SVG sein.")]
     Unsupported,
     #[error("Das Bild lässt sich nicht lesen: {0}")]
     InvalidImage(String),
@@ -49,7 +52,7 @@ pub enum LogoError {
     )]
     NotAnSvg,
     #[error(
-        "Das SVG enthält {0}. Ein Logo darf keine Skripte, Ereignis-Attribute (on…), \
+        "Das SVG enthält {0}. Ein Bild darf keine Skripte, Ereignis-Attribute (on…), \
          <foreignObject>, Entity-Deklarationen oder Verweise auf andere Dateien enthalten."
     )]
     UnsafeSvg(String),
@@ -156,6 +159,19 @@ impl FromStr for SvgLogo {
         }
         check_svg(text)?;
         Ok(SvgLogo(text.to_string()))
+    }
+}
+
+impl<'de> Deserialize<'de> for SvgLogo {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for SvgLogo {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
     }
 }
 
@@ -355,68 +371,4 @@ impl StoredLogo {
     pub fn is(&self, logo: &Logo) -> bool {
         self.format() == Some(logo.format) && self.data == logo.data
     }
-}
-
-/// The current competition's logo; `None` without one, so the default
-/// applies.
-pub async fn load(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Option<StoredLogo>> {
-    sqlx::query_as!(
-        StoredLogo,
-        r#"
-        SELECT mime_type, data, updated_at as "updated_at: OffsetDateTime"
-        FROM competition_logo
-        WHERE competition_id = (SELECT id FROM competition ORDER BY start_date DESC LIMIT 1)
-        "#
-    )
-    .fetch_optional(db)
-    .await
-}
-
-/// When the current competition's logo last changed; `None` without one.
-/// Reads no image, for the ETag.
-pub async fn updated_at(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Option<OffsetDateTime>> {
-    sqlx::query_scalar!(
-        r#"
-        SELECT updated_at as "updated_at: OffsetDateTime"
-        FROM competition_logo
-        WHERE competition_id = (SELECT id FROM competition ORDER BY start_date DESC LIMIT 1)
-        "#
-    )
-    .fetch_optional(db)
-    .await
-}
-
-/// Sets the logo of the competition `competition_id`.
-pub async fn store(
-    db: impl sqlx::SqliteExecutor<'_>,
-    competition_id: &str,
-    logo: &Logo,
-) -> sqlx::Result<()> {
-    let now = OffsetDateTime::now_utc();
-    let mime_type = logo.format.mime_type();
-    sqlx::query!(
-        r#"
-        INSERT INTO competition_logo (competition_id, mime_type, data, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT (competition_id) DO UPDATE SET
-            mime_type = excluded.mime_type,
-            data = excluded.data,
-            updated_at = excluded.updated_at
-        "#,
-        competition_id,
-        mime_type,
-        logo.data,
-        now,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Removes the logo, so the default applies again.
-pub async fn remove(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<()> {
-    sqlx::query!("DELETE FROM competition_logo")
-        .execute(db)
-        .await?;
-    Ok(())
 }

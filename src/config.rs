@@ -18,8 +18,13 @@ use time::{
 use url::Url;
 
 use crate::{
-    act_type::ActType, colors::HexColor, competition::Features, logo::SvgLogo,
-    photos::PhotosSettings, timeplan::EntryKind,
+    act_type::ActType,
+    colors::HexColor,
+    competition::Features,
+    images::{self, ImageUrl},
+    logo::SvgLogo,
+    photos::PhotosSettings,
+    timeplan::EntryKind,
 };
 
 pub const DEFAULT_CONFIG_PATH: &str = "./config.toml";
@@ -297,6 +302,20 @@ pub struct CompetitionConfig {
     /// admin UI. A replace keeps the logo unless the file sets it.
     #[serde(default, skip_serializing_if = "Branding::is_keep")]
     pub logo_svg: Branding<SvgLogo>,
+    /// Instead of `logo_svg`: a URL the server downloads the logo from at
+    /// startup and on refresh (#291, ADR 0010).
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub logo_url: Branding<ImageUrl>,
+    /// The info board's break image as SVG, like the logo (#291).
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub break_image_svg: Branding<SvgLogo>,
+    /// Instead of `break_image_svg`: a URL to download it from.
+    #[serde(default, skip_serializing_if = "Branding::is_keep")]
+    pub break_image_url: Branding<ImageUrl>,
+    /// The sponsor logos of the info board's footer, in order. Left out, a
+    /// replace keeps the sponsors; `sponsors = []` removes them (ADR 0010).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sponsors: Option<Vec<SponsorConfig>>,
     /// The primary color of every page, e.g. from the logo, as `#rgb` or
     /// `#rrggbb`; the frontend derives all other colors from it and the
     /// secondary color. A replace keeps it unless the file sets it.
@@ -305,6 +324,24 @@ pub struct CompetitionConfig {
     /// The secondary color, like the primary color.
     #[serde(default, skip_serializing_if = "Branding::is_keep")]
     pub secondary_color: Branding<HexColor>,
+}
+
+/// A sponsor of the competition file (#291). The image is an inline `svg` or
+/// a `url`; without either, a sponsor of the same name that's already in the
+/// database keeps its image (an uploaded raster image can't be in the file),
+/// otherwise the sponsor has no image and isn't shown.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SponsorConfig {
+    /// The image's alt text and its label in the admin UI.
+    pub name: String,
+    /// Where the logo leads; the info board doesn't show it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub svg: Option<SvgLogo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<ImageUrl>,
 }
 
 /// A branding setting of the competition file, like the logo (ADR 0009): a
@@ -462,6 +499,35 @@ impl CompetitionConfig {
                 || jury.missing_deployment_fee < 0.0
         }) {
             errors.push("[competition.jury] values must not be negative");
+        }
+        for (what, svg, url) in [
+            (
+                "logo",
+                self.logo_svg.value().is_some(),
+                self.logo_url.value().is_some(),
+            ),
+            (
+                "break_image",
+                self.break_image_svg.value().is_some(),
+                self.break_image_url.value().is_some(),
+            ),
+        ] {
+            if svg && url {
+                return Err(format!(
+                    "{what}_svg and {what}_url are both set; a {what} comes from one of them"
+                ));
+            }
+        }
+        for sponsor in self.sponsors.iter().flatten() {
+            if sponsor.svg.is_some() && sponsor.url.is_some() {
+                return Err(format!(
+                    "The sponsor {} has both svg and url; its image comes from one of them",
+                    sponsor.name
+                ));
+            }
+            images::clean_name(&sponsor.name).map_err(|e| format!("sponsors: {e}"))?;
+            images::clean_link(sponsor.link.as_deref())
+                .map_err(|e| format!("sponsor {}: {e}", sponsor.name))?;
         }
         if self.registration_start >= self.registration_end {
             errors.push("registration_start must be before registration_end");

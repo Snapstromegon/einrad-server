@@ -21,11 +21,12 @@ use crate::{
     competition::{Competition, upsert_competition},
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
-        TimeplanEntryConfig,
+        SponsorConfig, TimeplanEntryConfig,
     },
     finals::{self, SlotGroup},
+    images::{self, Image, ImageUrl, Slot},
     jury::JudgeTask,
-    logo::{self, Logo},
+    logo::{Logo, SvgLogo},
     reloadable_sqlite::begin_write,
     roles::Role,
     timeplan::EntryKind,
@@ -513,7 +514,7 @@ pub enum Applied {
 #[serde(rename_all = "snake_case")]
 pub enum Part {
     Settings,
-    Logo,
+    Images,
     Colors,
     Categories,
     Finals,
@@ -526,7 +527,7 @@ impl Part {
     fn describe(self) -> &'static str {
         match self {
             Part::Settings => "the competition settings",
-            Part::Logo => "the logo",
+            Part::Images => "the logo, break image and sponsors",
             Part::Colors => "the colors",
             Part::Categories => "the categories",
             Part::Finals => "the finals",
@@ -854,7 +855,7 @@ fn db_error(e: sqlx::Error) -> String {
 #[derive(Debug, PartialEq)]
 struct Snapshot {
     competition: Vec<String>,
-    logo: Vec<String>,
+    images: Vec<String>,
     colors: Vec<String>,
     categories: Vec<String>,
     finals: Vec<String>,
@@ -881,8 +882,14 @@ impl Snapshot {
                 FROM competition"#,
             )
             .await?,
-            // `write` only touches the logo if it changes.
-            logo: rows(r#"SELECT json_array(mime_type, updated_at) FROM competition_logo"#).await?,
+            // `write` only touches an image if it changes; what a download
+            // gave (fetched_at, fetch_error) isn't part of the file.
+            images: rows(
+                r#"SELECT json_array(kind, position, name, link, source_url, mime_type,
+                    updated_at, data IS NOT NULL)
+                FROM competition_image ORDER BY kind, position, id"#,
+            )
+            .await?,
             colors: rows(r#"SELECT json_array(primary_color, secondary_color) FROM competition"#)
                 .await?,
             categories: rows(
@@ -923,7 +930,7 @@ impl Snapshot {
     fn differences(&self, other: &Self) -> Vec<Part> {
         [
             (self.competition != other.competition, Part::Settings),
-            (self.logo != other.logo, Part::Logo),
+            (self.images != other.images, Part::Images),
             (self.colors != other.colors, Part::Colors),
             (self.categories != other.categories, Part::Categories),
             (self.finals != other.finals, Part::Finals),
@@ -1056,7 +1063,7 @@ async fn write(
     upsert_competition(&mut *conn, &competition)
         .await
         .map_err(db_error)?;
-    write_logo(conn, &competition).await.map_err(db_error)?;
+    write_images(conn, &competition).await.map_err(db_error)?;
     colors::write(
         &mut *conn,
         &competition.id,
@@ -1276,27 +1283,138 @@ async fn write(
     Ok(dropped)
 }
 
-/// Applies the file's `logo_svg`: the logo is kept unless the file sets it
-/// (ADR 0009), and only written if it changes, so an unchanged file changes
-/// nothing.
-async fn write_logo(
+/// Applies the file's logo, break image and sponsors: they're kept unless
+/// the file sets them (ADR 0009, ADR 0010), and only written if they change,
+/// so an unchanged file changes nothing and a download that's already there
+/// stays.
+async fn write_images(
     conn: &mut sqlx::SqliteConnection,
     competition: &CompetitionConfig,
 ) -> sqlx::Result<()> {
-    match &competition.logo_svg {
-        Branding::Keep => Ok(()),
-        Branding::Reset => logo::remove(&mut *conn).await,
-        Branding::Set(svg) => {
-            let new = Logo::from(svg);
-            if logo::load(&mut *conn)
-                .await?
-                .is_some_and(|current| current.is(&new))
-            {
-                return Ok(());
+    write_single_image(
+        conn,
+        &competition.id,
+        Slot::Logo,
+        &competition.logo_svg,
+        &competition.logo_url,
+    )
+    .await?;
+    write_single_image(
+        conn,
+        &competition.id,
+        Slot::Break,
+        &competition.break_image_svg,
+        &competition.break_image_url,
+    )
+    .await?;
+    if let Some(sponsors) = &competition.sponsors {
+        write_sponsors(conn, &competition.id, sponsors).await?;
+    }
+    Ok(())
+}
+
+/// The logo or the break image from the file's `_svg` and `_url`: either
+/// sets it (an SVG wins if both do; `validate` refuses that), an empty one
+/// resets it.
+async fn write_single_image(
+    conn: &mut sqlx::SqliteConnection,
+    competition_id: &str,
+    slot: Slot,
+    svg: &Branding<SvgLogo>,
+    url: &Branding<ImageUrl>,
+) -> sqlx::Result<()> {
+    if let Some(svg) = svg.value() {
+        let current = images::list(&mut *conn)
+            .await?
+            .into_iter()
+            .find(|image| slot.is(image));
+        write_svg(conn, competition_id, slot, current.as_ref(), svg).await
+    } else if let Some(url) = url.value() {
+        images::set_url(conn, competition_id, slot, url)
+            .await
+            .map(|_| ())
+    } else if matches!(svg, Branding::Reset) || matches!(url, Branding::Reset) {
+        images::remove(&mut *conn, slot).await
+    } else {
+        Ok(())
+    }
+}
+
+/// Sets the image in `slot` to the inline `svg`, unless it already is.
+async fn write_svg(
+    conn: &mut sqlx::SqliteConnection,
+    competition_id: &str,
+    slot: Slot,
+    current: Option<&Image>,
+    svg: &SvgLogo,
+) -> sqlx::Result<()> {
+    let new = Logo::from(svg);
+    if let Some(current) = current.filter(|c| c.source_url.is_none() && c.has_data)
+        && images::load(&mut *conn, current.id)
+            .await?
+            .is_some_and(|stored| stored.is(&new))
+    {
+        return Ok(());
+    }
+    images::set_data(&mut *conn, competition_id, slot, &new).await?;
+    Ok(())
+}
+
+/// Makes the sponsors the file's list. A sponsor of the same name is the
+/// same sponsor, so it keeps its image if the file gives none, and a list
+/// that equals the database's changes nothing.
+async fn write_sponsors(
+    conn: &mut sqlx::SqliteConnection,
+    competition_id: &str,
+    sponsors: &[SponsorConfig],
+) -> sqlx::Result<()> {
+    let mut unused: Vec<Image> = images::list(&mut *conn)
+        .await?
+        .into_iter()
+        .filter(|image| image.kind == "sponsor")
+        .collect();
+    for (position, sponsor) in (0..).zip(sponsors) {
+        // Checked by `CompetitionConfig::validate`.
+        let name = images::clean_name(&sponsor.name).unwrap_or_else(|_| sponsor.name.clone());
+        let link = images::clean_link(sponsor.link.as_deref()).unwrap_or(None);
+        let current = unused
+            .iter()
+            .position(|image| image.name == name)
+            .map(|index| unused.remove(index));
+        let id = match &current {
+            Some(current) => {
+                if current.link != link {
+                    images::update_sponsor(&mut *conn, current.id, &name, link.as_deref()).await?;
+                }
+                if current.position != position {
+                    images::set_position(&mut *conn, current.id, position).await?;
+                }
+                current.id
             }
-            logo::store(&mut *conn, &competition.id, &new).await
+            None => {
+                let id =
+                    images::add_sponsor(&mut *conn, competition_id, &name, link.as_deref()).await?;
+                images::set_position(&mut *conn, id, position).await?;
+                id
+            }
+        };
+        if let Some(svg) = &sponsor.svg {
+            write_svg(
+                conn,
+                competition_id,
+                Slot::Sponsor(id),
+                current.as_ref(),
+                svg,
+            )
+            .await?;
+        } else if let Some(url) = &sponsor.url {
+            images::set_url(conn, competition_id, Slot::Sponsor(id), url).await?;
         }
     }
+    for gone in unused {
+        images::remove(&mut *conn, Slot::Sponsor(gone.id)).await?;
+    }
+    Ok(())
 }
 
 /// The remap file's content, with how to fill it in.

@@ -4,6 +4,7 @@ mod export_competition;
 mod get_act;
 mod get_club;
 mod get_club_mail_options;
+mod get_competition_images;
 mod get_competition_settings;
 mod get_photos;
 mod get_playback;
@@ -28,6 +29,7 @@ mod list_jury_categories;
 mod list_jury_plan;
 mod list_pair_requests;
 mod list_riders;
+mod list_sponsors;
 mod list_timeplan;
 mod list_users;
 pub(crate) mod predict_timeplan;
@@ -38,7 +40,9 @@ pub fn get_query_router() -> OpenApiRouter {
     OpenApiRouter::new()
         .routes(routes!(get_act::get_act))
         .routes(routes!(get_club::get_club))
+        .routes(routes!(get_competition_images::get_competition_images))
         .routes(routes!(get_competition_settings::get_competition_settings))
+        .routes(routes!(list_sponsors::list_sponsors))
         .routes(routes!(export_competition::export_competition))
         .routes(routes!(get_photos::get_photos))
         .routes(routes!(get_playback::get_playback))

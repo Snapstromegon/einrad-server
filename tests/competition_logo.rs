@@ -463,7 +463,7 @@ async fn a_replace_keeps_the_logo_unless_the_file_sets_or_resets_it() {
     let response = preview(&app, &admin, &reset).await;
     assert_eq!(
         response.body["changes"],
-        json!(["logo"]),
+        json!(["images"]),
         "{:?}",
         response.body
     );
@@ -495,7 +495,7 @@ async fn the_same_logo_in_the_file_changes_nothing() {
     let file = competition_file_with(&format!("logo_svg = '''\n{SVG_LOGO}\n'''"));
     assert_eq!(
         preview(&app, &admin, &file).await.body["changes"],
-        json!(["logo"])
+        json!(["images"])
     );
     import(&app, &admin, &file).await;
     let etag = app.get_raw(LOGO_URL, &[]).await.headers[header::ETAG].clone();

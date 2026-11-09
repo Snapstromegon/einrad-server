@@ -332,9 +332,28 @@ impl TestApp {
         contents: &[u8],
         cookie: Option<&str>,
     ) -> TestResponse {
+        self.post_file_with_fields(uri, &[], file_name, contents, cookie)
+            .await
+    }
+
+    /// Uploads `contents` as a multipart file field after the text `fields`.
+    pub async fn post_file_with_fields(
+        &self,
+        uri: &str,
+        fields: &[(&str, &str)],
+        file_name: &str,
+        contents: &[u8],
+        cookie: Option<&str>,
+    ) -> TestResponse {
         let boundary = "cup-test-boundary";
+        let mut body = String::new();
+        for (name, value) in fields {
+            body.push_str(&format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            ));
+        }
         let mut body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+            "{body}--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
         )
         .into_bytes();
         body.extend_from_slice(contents);

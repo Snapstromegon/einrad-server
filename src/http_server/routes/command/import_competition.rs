@@ -9,6 +9,7 @@ use super::preview_competition_import::{CompetitionFileBody, parse};
 use crate::{
     competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    image_fetch::ImageFetcher,
     photos::Photos,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
@@ -67,6 +68,7 @@ pub async fn import_competition(
     Json(body): Json<CompetitionFileBody>,
 ) -> Result<Json<ImportCompetitionResponse>, HttpError> {
     let file = parse(&body)?;
+    let reloadable = db.clone();
     let db = db.get().await.clone();
     let report = seed::apply(&db, Some(&file), true, &http_options.data_path)
         .await
@@ -79,6 +81,11 @@ pub async fn import_competition(
         }
     };
     info!("Imported the competition file: {outcome:?}");
+    // New URL images are downloaded in the background: the import doesn't
+    // wait for other servers (#291).
+    if !matches!(outcome, ImportOutcome::Unchanged) {
+        ImageFetcher::shared().refresh_in_background(reloadable, None);
+    }
     // The poller would notice within seconds; the info board shouldn't wait.
     let competition = Competition::current(&db).await?;
     photos.configure(competition.and_then(|c| c.photos).as_ref());

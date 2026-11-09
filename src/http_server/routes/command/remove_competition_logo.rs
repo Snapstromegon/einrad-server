@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    logo,
+    images::{self, Slot},
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -15,7 +15,7 @@ pub struct RemoveCompetitionLogoResponse {}
 
 /// Remove the competition's logo.
 ///
-/// The logo built into the binary applies again (#286). Admin.
+/// The logo built into the binary applies again (#286); a URL source goes too. Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],
@@ -33,7 +33,7 @@ pub async fn remove_competition_logo(
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Json<RemoveCompetitionLogoResponse>, HttpError> {
     let db = db.get().await.clone();
-    logo::remove(&db).await?;
+    images::remove(&db, Slot::Logo).await?;
     info!("Removed the competition logo");
     Ok(Json(RemoveCompetitionLogoResponse {}))
 }

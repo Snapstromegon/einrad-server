@@ -25,6 +25,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
+    image_fetch::ImageFetcher,
     jwt::JWTConfig,
     mailer::Mailer,
     metrics,
@@ -131,6 +132,11 @@ pub fn get_api_router(
     router
         .route("/api/ws/player", get(player::ws::player_ws))
         .route("/api/competition/logo", get(logo::competition_logo))
+        .route("/api/competition/break-image", get(logo::break_image))
+        .route(
+            "/api/competition/sponsors/{id}/image",
+            get(logo::sponsor_image),
+        )
         .route(
             "/api/competition/colors.css",
             get(colors::competition_colors),
@@ -147,6 +153,7 @@ pub fn get_api_router(
         .layer(Extension(http_options))
         .layer(Extension(player_hub))
         .layer(Extension(photos))
+        .layer(Extension(ImageFetcher::shared()))
 }
 
 #[must_use]
