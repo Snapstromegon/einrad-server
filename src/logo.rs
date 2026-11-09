@@ -24,11 +24,13 @@ use time::OffsetDateTime;
 pub const DEFAULT_SVG: &[u8] =
     include_bytes!("../frontend/src/public/assets/images/nrw-freestyle-cup.svg");
 
-/// The largest logo, uploaded or in the competition file.
+/// The largest SVG, uploaded, downloaded or in the competition file.
 pub const MAX_SIZE: usize = 1024 * 1024;
-/// The longest edge of a stored raster logo, in pixels; larger ones are
-/// scaled down.
-pub const MAX_EDGE: u32 = 512;
+/// The largest raster image, uploaded or downloaded: a 4K photo fits.
+pub const MAX_RASTER_SIZE: usize = 20 * 1024 * 1024;
+/// The longest edge of a stored raster image, in pixels (4K); larger ones
+/// are scaled down, smaller ones stay as they are.
+pub const MAX_EDGE: u32 = 3840;
 /// The longest edge of a raster logo that's decoded at all, against images
 /// that are small as a file but huge in memory.
 pub const MAX_DECODED_EDGE: u32 = 4096;
@@ -36,7 +38,7 @@ pub const MAX_DECODED_EDGE: u32 = 4096;
 /// Why a logo is refused. The messages are for the admin UI.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum LogoError {
-    #[error("Das Bild ist größer als 1 MiB.")]
+    #[error("Das Bild ist zu groß: ein SVG darf bis 1 MiB groß sein, andere Bilder bis 20 MiB.")]
     TooLarge,
     #[error("Die Datei muss ein Bild im Format PNG, JPEG, WebP oder SVG sein.")]
     Unsupported,
@@ -124,10 +126,13 @@ pub struct Logo {
 impl Logo {
     /// An uploaded logo, its format told from its content.
     pub fn from_upload(bytes: &[u8]) -> Result<Logo, LogoError> {
-        if bytes.len() > MAX_SIZE {
+        if bytes.len() > MAX_RASTER_SIZE {
             return Err(LogoError::TooLarge);
         }
         let format = Format::of(bytes).ok_or(LogoError::Unsupported)?;
+        if format == Format::Svg && bytes.len() > MAX_SIZE {
+            return Err(LogoError::TooLarge);
+        }
         let data = match format {
             Format::Svg => {
                 // `Format::of` checked that it's text.

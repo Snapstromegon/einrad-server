@@ -26,7 +26,7 @@ use crate::{
 /// How long connecting may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a whole download may take.
-const TIMEOUT: Duration = Duration::from_secs(15);
+const TIMEOUT: Duration = Duration::from_secs(30);
 /// The most redirects followed.
 const MAX_REDIRECTS: usize = 3;
 /// How many images are downloaded at once.
@@ -42,7 +42,7 @@ pub enum FetchError {
     Unreachable,
     #[error("Der Server antwortet mit dem Status {0}.")]
     Status(u16),
-    #[error("Die Antwort ist größer als 1 MiB.")]
+    #[error("Die Antwort ist größer als 20 MiB.")]
     TooLarge,
     #[error("Das Herunterladen ist fehlgeschlagen.")]
     Failed,
@@ -192,13 +192,13 @@ async fn download(http: &reqwest::Client, url: &str) -> Result<Logo, FetchError>
     }
     if response
         .content_length()
-        .is_some_and(|length| length > logo::MAX_SIZE as u64)
+        .is_some_and(|length| length > logo::MAX_RASTER_SIZE as u64)
     {
         return Err(FetchError::TooLarge);
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
-        if bytes.len() + chunk.len() > logo::MAX_SIZE {
+        if bytes.len() + chunk.len() > logo::MAX_RASTER_SIZE {
             return Err(FetchError::TooLarge);
         }
         bytes.extend_from_slice(&chunk);

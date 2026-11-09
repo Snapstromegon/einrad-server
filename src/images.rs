@@ -297,9 +297,10 @@ pub async fn set_data(
     Ok(true)
 }
 
-/// Makes `url` the source of the image in `slot`. The same URL changes
-/// nothing, so its last good download stays; another one drops the old
-/// bytes, which came from elsewhere. Nothing is downloaded here. `false` if
+/// Makes `url` the source of the image in `slot`. The old bytes stay (from
+/// an SVG, an upload or another URL) until the first good download of `url`
+/// replaces them, so a typo in the URL costs nothing; its warning shows
+/// meanwhile. The same URL changes nothing. Nothing is downloaded here. `false` if
 /// a sponsor doesn't exist.
 pub async fn set_url(
     conn: &mut SqliteConnection,
@@ -313,13 +314,11 @@ pub async fn set_url(
         let result = sqlx::query!(
             r#"
             UPDATE competition_image SET
-                source_url = ?, mime_type = NULL, data = NULL, updated_at = ?,
-                fetched_at = NULL, fetch_error = NULL
+                source_url = ?, fetched_at = NULL, fetch_error = NULL
             WHERE id = ? AND competition_id = ? AND kind = 'sponsor'
                 AND source_url IS NOT ?
             "#,
             url,
-            now,
             id,
             competition_id,
             url,
@@ -346,9 +345,6 @@ pub async fn set_url(
         VALUES (?, ?, ?, ?)
         ON CONFLICT (competition_id, kind) WHERE kind != 'sponsor' DO UPDATE SET
             source_url = excluded.source_url,
-            mime_type = NULL,
-            data = NULL,
-            updated_at = excluded.updated_at,
             fetched_at = NULL,
             fetch_error = NULL
         WHERE competition_image.source_url IS NOT excluded.source_url

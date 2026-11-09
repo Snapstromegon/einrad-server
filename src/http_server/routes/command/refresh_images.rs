@@ -24,7 +24,7 @@ pub struct RefreshImagesResponse {
 ///
 /// A failed download keeps the last good copy and is reported in the
 /// response and in the competition management (#291). Takes as long as the
-/// slowest download, up to 15 seconds. Admin.
+/// slowest download, up to 30 seconds. Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],

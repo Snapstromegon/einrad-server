@@ -148,7 +148,7 @@ export default class CupCompetitionImages extends LitElement {
         <p class="muted">
           Logo, Pausenbild und Sponsoren des Wettkampfs. Jedes Bild kommt aus
           einem eingefügten SVG, einem Upload (PNG, JPEG, WebP oder SVG bis 1
-          MiB; größere Bilder werden auf 512 Pixel verkleinert) oder von einer
+          MiB, andere Bilder bis 20 MiB; Bilder über 3840 Pixel Kantenlänge werden verkleinert) oder von einer
           URL. Eine URL lädt der Server beim Start und mit „Bilder
           aktualisieren“ herunter und zeigt immer seine Kopie. Schlägt ein
           Download fehl, bleibt die letzte gute Kopie.

@@ -25,8 +25,8 @@ pub struct LogoUpload {
 /// Upload the competition's logo.
 ///
 /// Replaces an earlier logo or URL source (#286). The format comes from the
-/// content: PNG, JPEG, WebP or SVG, up to 1 MiB. Raster images are scaled
-/// down to 512 px on the long edge and lose their metadata; SVG images are
+/// content: PNG, JPEG, WebP or SVG, (SVG up to 1 MiB, others up to 20 MiB). Raster images above 3840 px
+/// (4K) on the long edge are scaled down and lose their metadata; SVG images are
 /// stored as they are, but refused if they could run scripts or load other
 /// files (see `crate::logo`). Admin.
 #[utoipa::path(

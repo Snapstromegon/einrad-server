@@ -256,21 +256,22 @@ async fn raster_logos_are_scaled_down_and_lose_their_metadata() {
     for (name, bytes, mime_type, size) in [
         (
             "logo.png",
-            image(1024, 512, image::ImageFormat::Png),
+            image(4000, 1000, image::ImageFormat::Png),
             "image/png",
-            (512, 256),
+            (3840, 960),
         ),
         (
             "logo.png",
+            // Up to 3840 px stays as it is.
             image(256, 1024, image::ImageFormat::Png),
             "image/png",
-            (128, 512),
+            (256, 1024),
         ),
         (
             "logo.webp",
-            image(800, 800, image::ImageFormat::WebP),
+            image(4096, 2048, image::ImageFormat::WebP),
             "image/webp",
-            (512, 512),
+            (3840, 1920),
         ),
         ("logo.jpg", jpeg, "image/jpeg", (300, 200)),
     ] {

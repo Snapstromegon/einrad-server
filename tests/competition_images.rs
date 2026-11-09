@@ -363,7 +363,13 @@ async fn downloads_get_the_checks_of_an_upload() {
     assert!(error.contains("script"), "{error}");
     assert_eq!(served(&app, LOGO_URL).await, DEFAULT_LOGO);
 
-    origin.put("/big.svg", &vec![b' '; 1024 * 1024 + 10]);
+    let padding = " ".repeat(1024 * 1024);
+    origin.put(
+        "/big.svg",
+        SVG_A
+            .replace("</svg>", &format!("{padding}</svg>"))
+            .as_bytes(),
+    );
     let response = set_url(&app, &admin, "logo", &origin.url("/big.svg")).await;
     assert!(
         response["images"]["logo"]["fetch_error"]
@@ -383,13 +389,13 @@ async fn downloads_get_the_checks_of_an_upload() {
 
     // A raster image is scaled down and loses its metadata.
     let mut png = Vec::new();
-    image::DynamicImage::new_rgb8(1500, 600)
+    image::DynamicImage::new_rgb8(4000, 1000)
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     origin.put("/large.png", &png);
     set_url(&app, &admin, "logo", &origin.url("/large.png")).await;
     let scaled = image::load_from_memory(&served(&app, LOGO_URL).await).unwrap();
-    assert_eq!((scaled.width(), scaled.height()), (512, 205));
+    assert_eq!((scaled.width(), scaled.height()), (3840, 960));
 }
 
 #[tokio::test]
@@ -873,4 +879,92 @@ async fn images_are_exported_and_imported_again_and_raster_ones_stay() {
         raster_bytes
     );
     assert_eq!(export(&app, &admin).await, file);
+}
+
+#[tokio::test]
+async fn a_new_url_keeps_the_old_image_until_its_first_good_download() {
+    let (app, admin) = app().await;
+    let origin = Origin::start().await;
+    ok(
+        &app,
+        &admin,
+        "/api/command/set_image_source",
+        json!({ "target": "logo", "svg": SVG_A }),
+    )
+    .await;
+    let sponsor = ok(
+        &app,
+        &admin,
+        "/api/command/add_sponsor",
+        json!({ "name": "Sponsor A", "svg": SVG_A }),
+    )
+    .await["id"]
+        .as_i64()
+        .unwrap();
+    let sponsor_url = format!("/api/competition/sponsors/{sponsor}/image");
+
+    origin.fail("/new.svg");
+    let response = set_url(&app, &admin, "logo", &origin.url("/new.svg")).await;
+    assert_eq!(response["images"]["logo"]["source"], "url");
+    assert_eq!(response["images"]["logo"]["has_image"], true);
+    assert!(response["images"]["logo"]["fetch_error"].is_string());
+    assert_eq!(served(&app, LOGO_URL).await, SVG_A.as_bytes());
+
+    ok(
+        &app,
+        &admin,
+        "/api/command/set_image_source",
+        json!({ "target": "sponsor", "sponsor_id": sponsor, "url": origin.url("/new.svg") }),
+    )
+    .await;
+    assert_eq!(served(&app, &sponsor_url).await, SVG_A.as_bytes());
+    assert_eq!(
+        app.get("/api/query/list_sponsors", None)
+            .await
+            .body
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    origin.put("/new.svg", SVG_B.as_bytes());
+    ok(&app, &admin, "/api/command/refresh_images", json!({})).await;
+    assert_eq!(served(&app, LOGO_URL).await, SVG_B.as_bytes());
+    assert_eq!(served(&app, &sponsor_url).await, SVG_B.as_bytes());
+}
+
+/// A PNG of noise, which doesn't compress: about 4 MB at 1200 x 1200.
+fn noisy_png(width: u32, height: u32) -> Vec<u8> {
+    let mut seed = 12345u32;
+    let pixels = image::RgbImage::from_fn(width, height, |_, _| {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        let [a, b, c, _] = seed.to_be_bytes();
+        image::Rgb([a, b, c])
+    });
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(pixels)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+#[tokio::test]
+async fn a_downloaded_raster_image_may_be_larger_than_1_mib() {
+    let (app, admin) = app().await;
+    let origin = Origin::start().await;
+    let png = noisy_png(1200, 1200);
+    assert!(png.len() > 1024 * 1024);
+    origin.put("/big.png", &png);
+    let response = set_url(&app, &admin, "break_image", &origin.url("/big.png")).await;
+    assert_eq!(
+        response["images"]["break_image"]["fetch_error"],
+        Value::Null,
+        "{response}"
+    );
+    let served = image::load_from_memory(&served(&app, BREAK_URL).await).unwrap();
+    assert_eq!((served.width(), served.height()), (1200, 1200));
 }
