@@ -227,8 +227,9 @@ async fn set_determining_day(app: &TestApp, day: &str) {
         .unwrap();
 }
 
-/// Edits the determining day to `day` and expects success.
-async fn edit_determining_day(app: &TestApp, cookie: &str, day: &str) {
+/// Edits the determining day to `day`, expects success and returns the
+/// warnings.
+async fn edit_determining_day(app: &TestApp, cookie: &str, day: &str) -> Vec<String> {
     let mut competition = settings(app, cookie).await["competition"].clone();
     competition["determining_day"] = json!(day);
     let response = edit(app, cookie, &competition, &Value::Null).await;
@@ -237,6 +238,12 @@ async fn edit_determining_day(app: &TestApp, cookie: &str, day: &str) {
         settings(app, cookie).await["competition"]["determining_day"],
         day
     );
+    response.body["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning.as_str().unwrap().to_string())
+        .collect()
 }
 
 #[tokio::test]
@@ -366,51 +373,93 @@ async fn open_bounds_stay_even_when_the_determining_day_looks_like_them() {
 }
 
 #[tokio::test]
-async fn a_leap_day_only_matches_itself_and_clamps_in_other_years() {
+async fn categories_that_were_not_adjusted_come_back_as_warnings() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    set_determining_day(&app, "2028-02-29").await;
+    set_determining_day(&app, "2027-06-01").await;
     set_categories(
         &app,
         &[
-            // 29 Feb matches; 28 Feb (what a one-year bound looks like in a
-            // non-leap year) is a different day and stays.
             (
-                "Leap",
-                Some(datetime!(2016-02-29 0:00 UTC)),
-                Some(datetime!(2013-02-28 0:00 UTC)),
+                "Matching",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+            (
+                "Open and matching",
+                Some(datetime!(1900-01-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+            (
+                "Half years",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-12-01 0:00 UTC)),
+            ),
+            (
+                "Hand set",
+                Some(datetime!(2012-06-02 0:00 UTC)),
+                Some(datetime!(2017-06-01 10:00 UTC)),
             ),
         ],
     )
     .await;
-    edit_determining_day(&app, &admin, "2028-06-01").await;
-    assert_eq!(
-        bounds(&app, "Leap").await,
-        (
-            Some(datetime!(2016-06-01 0:00 UTC)),
-            Some(datetime!(2013-02-28 0:00 UTC))
-        )
-    );
 
-    // Moving onto 29 Feb falls back to 28 Feb where the year has none.
+    let warnings = edit_determining_day(&app, &admin, "2027-07-15").await;
+
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(
+        warnings[0].contains("Half years") && warnings[0].contains("Bis"),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings[1].contains("Hand set") && warnings[1].contains("Beide"),
+        "{warnings:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_category_whose_moved_bounds_would_cross_is_skipped_with_a_warning() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    set_determining_day(&app, "2027-06-01").await;
     set_categories(
         &app,
-        &[(
-            "Onto",
-            Some(datetime!(2016-06-01 0:00 UTC)),
-            Some(datetime!(2013-06-01 0:00 UTC)),
-        )],
+        &[
+            // The matching from-bound would land after the hand-set to-bound.
+            (
+                "Crossing",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2012-07-01 0:00 UTC)),
+            ),
+            (
+                "Fine",
+                Some(datetime!(2012-06-01 0:00 UTC)),
+                Some(datetime!(2017-06-01 0:00 UTC)),
+            ),
+        ],
     )
     .await;
-    edit_determining_day(&app, &admin, "2028-02-29").await;
+
+    let warnings = edit_determining_day(&app, &admin, "2027-12-31").await;
+
     assert_eq!(
-        bounds(&app, "Onto").await,
+        bounds(&app, "Crossing").await,
         (
-            Some(datetime!(2016-02-29 0:00 UTC)),
-            Some(datetime!(2013-02-28 0:00 UTC))
+            Some(datetime!(2012-06-01 0:00 UTC)),
+            Some(datetime!(2012-07-01 0:00 UTC))
         )
     );
+    assert_eq!(
+        bounds(&app, "Fine").await,
+        (
+            Some(datetime!(2012-12-31 0:00 UTC)),
+            Some(datetime!(2017-12-31 0:00 UTC))
+        )
+    );
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Crossing"), "{warnings:?}");
 }
 
 #[tokio::test]

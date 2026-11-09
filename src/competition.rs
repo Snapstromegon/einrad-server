@@ -439,23 +439,27 @@ pub async fn upsert_competition(
     Ok(())
 }
 
+/// Whether `date` is one of the open birthday bounds (1900-01-01 and
+/// 9999-12-31), which aren't tied to the determining day.
+pub fn is_open_birthday_bound(date: Date) -> bool {
+    date == crate::seed::OPEN_FROM_BIRTHDAY || date == crate::seed::OPEN_TO_BIRTHDAY
+}
+
 /// Where a category's birthday bound lands when the determining day moves
 /// from `old` to `new`: the same year at the new day and month, if the bound
 /// looks like it was computed from `old` (UTC midnight, same day and month).
-/// `None` if it stays as it is. The open bounds (1900-01-01, 9999-12-31) are
-/// not tied to the determining day. A 29 Feb that doesn't exist in the
-/// bound's year becomes 28 Feb.
+/// `None` if it stays as it is. The open bounds never move.
 pub fn move_birthday_bound(bound: OffsetDateTime, old: Date, new: Date) -> Option<OffsetDateTime> {
     let date = bound.date();
-    let open = date == crate::seed::OPEN_FROM_BIRTHDAY || date == crate::seed::OPEN_TO_BIRTHDAY;
     let midnight = bound.offset().is_utc() && bound.time() == time::Time::MIDNIGHT;
-    if open || !midnight || date.month() != old.month() || date.day() != old.day() {
+    if is_open_birthday_bound(date)
+        || !midnight
+        || date.month() != old.month()
+        || date.day() != old.day()
+    {
         return None;
     }
-    let day = new
-        .day()
-        .min(time::util::days_in_month(new.month(), date.year()));
-    let moved = Date::from_calendar_date(date.year(), new.month(), day).ok()?;
+    let moved = Date::from_calendar_date(date.year(), new.month(), new.day()).ok()?;
     Some(moved.midnight().assume_utc())
 }
 
