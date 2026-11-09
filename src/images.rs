@@ -545,8 +545,8 @@ pub struct ImageState {
     pub source: ImageSource,
     /// The URL of a URL source.
     pub url: Option<String>,
-    /// Whether there are bytes to serve: false for a URL that was never
-    /// downloaded successfully.
+    /// Whether there are bytes to serve: false for a URL image that never had
+    /// any (a new URL keeps the old bytes until its first good download).
     pub has_image: bool,
     /// When the URL was last tried.
     pub fetched_at: Option<OffsetDateTime>,
