@@ -26,8 +26,6 @@ pub struct NormalMode {
     pub server: HttpServer,
     /// The keys the server's sessions are signed with.
     pub jwt: Arc<JWTConfig>,
-    /// The address from the settings. A handover keeps the listener it has.
-    pub http_address: String,
 }
 
 /// Everything a normal start does after the competition file was applied:
@@ -77,6 +75,7 @@ pub async fn build(
     // Songs uploaded while the server was down or before normalization existed.
     normalize::resume(&db, &settings.data_path).await?;
 
+    let photos = Photos::new().map_err(|e| eyre!(e))?;
     let player_hub = PlayerHub::new(db.clone());
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
@@ -84,10 +83,8 @@ pub async fn build(
     // URL images (logo, break image, sponsors) are downloaded in the
     // background, so an unreachable server never delays the start (#291).
     ImageFetcher::shared().refresh_in_background(db.clone(), None);
-    let photos = Photos::new().map_err(|e| eyre!(e))?;
     photos.start(db.clone());
 
-    let http_address = settings.http_address.clone();
     let server = HttpServer::new(
         HttpServerOptions {
             bind_address: settings.http_address,
@@ -104,11 +101,7 @@ pub async fn build(
         player_hub,
         photos,
     );
-    Ok(NormalMode {
-        server,
-        jwt,
-        http_address,
-    })
+    Ok(NormalMode { server, jwt })
 }
 
 #[cfg(feature = "local-audio")]

@@ -508,6 +508,7 @@ async fn complete_setup(
     // Its own task: a client that disconnects must not cancel the completion
     // between writing the file and creating the admin.
     let task_state = state.clone();
+    let task_secure = state.secure_cookie();
     let result = tokio::spawn(async move { complete::complete(&task_state, input).await }).await;
     match result {
         Ok(Ok(mut done)) => {
@@ -547,6 +548,10 @@ async fn complete_setup(
             failure(StatusCode::INTERNAL_SERVER_ERROR, &e)
         }
         Err(e) => {
+            // A panic after the setup was saved: only a restart helps.
+            if state.is_done() {
+                state.set_handover(Handover::Failed);
+            }
             warn!("First-run setup task failed: {e}");
             failure(StatusCode::INTERNAL_SERVER_ERROR, "setup failed")
         }

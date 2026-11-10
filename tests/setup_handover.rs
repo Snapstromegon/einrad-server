@@ -252,6 +252,14 @@ async fn the_completion_logs_the_admin_in_with_a_cookie_of_the_new_secret() {
     assert_eq!(done.body["redirect"], "/admin-competition");
 
     let cookie = done.cookie("jwt").expect("a session cookie");
+    let attributes = done.cookies.iter().find(|c| c.starts_with("jwt=")).unwrap();
+    assert!(attributes.contains("HttpOnly"), "{attributes}");
+    assert!(
+        attributes.contains("Path=/;")
+            || attributes.contains("Path=/,")
+            || attributes.ends_with("Path=/"),
+        "{attributes}"
+    );
     let whoami = s
         .api(Method::GET, "/api/query/whoami", None, Some(&cookie))
         .await;
@@ -456,4 +464,30 @@ async fn completion_rejects_inputs_that_are_not_needed() {
         .await
         .unwrap();
     assert_eq!(admins, 0);
+}
+
+#[tokio::test]
+async fn the_switch_happens_on_the_same_listener() {
+    let s = Server::start(CliArgs::default()).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let app = s.app.clone();
+    let server = tokio::spawn(einrad_server::setup::serve(
+        listener,
+        app,
+        std::future::pending(),
+    ));
+    let client = reqwest::Client::new();
+    let url = format!("{base}/api/query/get_system_status");
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 503);
+    let done = client
+        .post(format!("{base}/api/setup/complete"))
+        .header("x-setup-token", s.state.token())
+        .json(&complete_body("smtp://localhost:1025"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(done.status(), 200);
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 200);
+    server.abort();
 }
