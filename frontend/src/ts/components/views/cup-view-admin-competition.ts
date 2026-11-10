@@ -9,6 +9,7 @@ import {
   systemStatusContext,
 } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
+import "../elements/cup-competition-create.js";
 import "../elements/cup-competition-form.js";
 import "../elements/cup-competition-images.js";
 import { iconStyles, resetStyles } from "../../styles/base";
@@ -61,6 +62,8 @@ export default class CupViewAdminCompetition extends LitElement {
   @consume({ context: systemStatusContext, subscribe: true })
   systemStatus: SystemStatus | null = null;
 
+  /** Setup mode: which way to a competition shows. */
+  @state() private setupChoice: "import" | "create" = "import";
   @state() private busy = false;
   @state() private error = "";
   /** The chosen file's content. */
@@ -99,11 +102,43 @@ export default class CupViewAdminCompetition extends LitElement {
                 </div>
               </section>`
           : html`<div class="info-banner" role="status">
-              Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du die
-              Wettkampfdatei importierst.
+              Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du eine
+              Wettkampfdatei importierst oder einen Wettkampf neu anlegst.
+            </div>
+            <div class="toolbar" role="tablist">
+              <button
+                class="btn ${this.setupChoice === "import" ? "primary" : ""}"
+                role="tab"
+                aria-selected=${this.setupChoice === "import"}
+                data-choice="import"
+                @click=${this.chooseWay}
+              >
+                Datei importieren
+              </button>
+              <button
+                class="btn ${this.setupChoice === "create" ? "primary" : ""}"
+                role="tab"
+                aria-selected=${this.setupChoice === "create"}
+                data-choice="create"
+                @click=${this.chooseWay}
+              >
+                Neu anlegen
+              </button>
             </div>`
       }
-      <section>
+      ${
+        !competition && this.setupChoice === "create"
+          ? html`<section>
+              <h2>Wettkampf neu anlegen</h2>
+              <cup-competition-create></cup-competition-create>
+            </section>`
+          : this.renderImportSection(competition)
+      }
+    </div>`;
+  }
+
+  private renderImportSection(competition: unknown) {
+    return html`<section>
         <h2>Wettkampfdatei importieren</h2>
         <p class="muted">
           Eine Wettkampfdatei wie <code>competition.toml</code>.
@@ -120,8 +155,7 @@ export default class CupViewAdminCompetition extends LitElement {
           }
         </p>
         ${this.remapFile ? this.renderRemapFile(this.remapFile) : this.renderImport()}
-      </section>
-    </div>`;
+      </section>`;
   }
 
   private renderImport() {
@@ -212,6 +246,11 @@ export default class CupViewAdminCompetition extends LitElement {
         >
         <button class="btn" @click=${this.reload}>Weiter</button>
       </div>`;
+  }
+
+  private chooseWay(event: Event) {
+    const choice = (event.currentTarget as HTMLElement).dataset.choice;
+    this.setupChoice = choice === "create" ? "create" : "import";
   }
 
   private async choose(event: Event) {
