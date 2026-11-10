@@ -3,3 +3,6 @@ cup_service_manager: supervisord
 cup_binary_source: github
 # The web backend `uberspace web backend set <domain> --http --port <cup_port>`.
 cup_domain: anmeldung.lmfreestyle27.de
+# 3000 is taken on the Uberspace host (jury-db), and 3001 by the 2026
+# registration; `uberspace web backend list` shows the ports in use.
+cup_port: 3027
