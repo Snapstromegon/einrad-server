@@ -36,7 +36,7 @@ pub const DEFAULT_DATA_PATH: &str = "./data";
 
 /// CLI flags and environment variables. Every value is optional here, so that
 /// the config file can fill in what's missing.
-#[derive(Debug, Default, clap::Parser)]
+#[derive(Debug, Default, Clone, clap::Parser)]
 pub struct CliArgs {
     /// Path to the TOML config file. Defaults to `./config.toml` if it exists.
     #[clap(long, env = "CONFIG")]
@@ -90,7 +90,7 @@ pub struct CliArgs {
     pub moderation_input: Option<bool>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigFile {
     pub server: ServerConfig,
@@ -145,14 +145,21 @@ impl ConfigFile {
 
     /// Loads the config file from `path`, or from `./config.toml` if no path is
     /// given and that file exists. Without a file, an empty config is returned.
+    /// A `path` that doesn't exist yet counts as an empty config too, so the
+    /// first-run setup writes its file exactly there; other read errors fail.
     pub fn load(path: Option<&Path>) -> Result<Self, String> {
         let path = match path {
             Some(path) => path,
             None if Path::new(DEFAULT_CONFIG_PATH).exists() => Path::new(DEFAULT_CONFIG_PATH),
             None => return Ok(Self::default()),
         };
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Couldn't read config file {}: {e}", path.display()))?;
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => {
+                return Err(format!("Couldn't read config file {}: {e}", path.display()));
+            }
+        };
         Self::parse(&content).map_err(|e| format!("Invalid config file {}: {e}", path.display()))
     }
 }
@@ -193,7 +200,7 @@ impl CompetitionFile {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
     pub base_url: Option<Url>,
@@ -205,13 +212,13 @@ pub struct ServerConfig {
     pub local_player: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SmtpConfig {
     pub server: Option<String>,
@@ -219,7 +226,7 @@ pub struct SmtpConfig {
     pub password: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
     pub jwt_secret: Option<String>,
@@ -888,9 +895,20 @@ impl Bootstrap {
     }
 }
 
+/// The competition file: `--competition`/`COMPETITION`, or `./competition.toml`
+/// if it exists.
+#[must_use]
+pub fn competition_file_path(cli: &CliArgs) -> Option<PathBuf> {
+    cli.competition.clone().or_else(|| {
+        Path::new(DEFAULT_COMPETITION_PATH)
+            .exists()
+            .then(|| PathBuf::from(DEFAULT_COMPETITION_PATH))
+    })
+}
+
 /// A setting that is empty or only whitespace counts as not set, so an empty
 /// `JWT_SECRET=` neither passes as a secret nor shadows the file's value.
-fn non_blank(value: Option<String>) -> Option<String> {
+pub(crate) fn non_blank(value: Option<String>) -> Option<String> {
     value.filter(|v| !v.trim().is_empty())
 }
 
@@ -921,6 +939,7 @@ impl Settings {
     /// ```
     pub fn resolve(cli: CliArgs, file: ConfigFile) -> Result<Self, String> {
         let bootstrap = Bootstrap::resolve(&cli, &file);
+        let competition_file = competition_file_path(&cli);
         let mut missing = Vec::new();
         let mut required = |value: Option<String>, name: &str| {
             value.unwrap_or_else(|| {
@@ -981,11 +1000,7 @@ impl Settings {
                 jury_registration: cli.jury_registration.or(file.features.jury_registration),
                 moderation_input: cli.moderation_input.or(file.features.moderation_input),
             },
-            competition_file: cli.competition.or_else(|| {
-                Path::new(DEFAULT_COMPETITION_PATH)
-                    .exists()
-                    .then(|| PathBuf::from(DEFAULT_COMPETITION_PATH))
-            }),
+            competition_file,
             replace_competition: cli.replace_competition,
             warnings: Vec::new(),
         })

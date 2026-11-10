@@ -1,4 +1,5 @@
 pub mod act_type;
+pub mod admin_user;
 pub mod bookings;
 pub mod club_mails;
 pub mod colors;
