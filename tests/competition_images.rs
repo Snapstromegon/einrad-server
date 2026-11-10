@@ -773,18 +773,34 @@ async fn a_file_with_a_logo_svg_and_url_or_an_unsafe_sponsor_stops_the_import() 
 #[tokio::test]
 async fn the_same_images_in_the_file_change_nothing() {
     let (app, admin) = app().await;
+    // Nothing is put there: the downloads each import starts in the
+    // background fail, so they never change the stored image.
+    let origin = Origin::start().await;
     import(&app, &admin, COMPETITION).await;
     let file = insert_competition_lines(
         COMPETITION,
         &format!(
-            "break_image_svg = '''{SVG_B}'''\nsponsors = [{{ name = \"Sponsor A\", svg = '''{SVG_A}''' }}, {{ name = \"Sponsor B\", url = \"https://example.org/b.svg\" }}]"
+            "break_image_svg = '''{SVG_B}'''\nsponsors = [{{ name = \"Sponsor A\", svg = '''{SVG_A}''' }}, {{ name = \"Sponsor B\", url = \"{}\" }}]",
+            origin.url("/b.svg")
         ),
     );
     assert_eq!(
         import(&app, &admin, &file).await.body["outcome"],
         "replaced"
     );
-    let before = images::list(&app.db).await.unwrap();
+    // When a background download finishes is up to the scheduler, so its
+    // bookkeeping is left out of the comparison.
+    let images_without_fetch_state = |images: Vec<images::Image>| {
+        images
+            .into_iter()
+            .map(|image| images::Image {
+                fetched_at: None,
+                fetch_error: None,
+                ..image
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = images_without_fetch_state(images::list(&app.db).await.unwrap());
 
     let preview = command(
         &app,
@@ -799,7 +815,10 @@ async fn the_same_images_in_the_file_change_nothing() {
         import(&app, &admin, &file).await.body["outcome"],
         "unchanged"
     );
-    assert_eq!(images::list(&app.db).await.unwrap(), before);
+    assert_eq!(
+        images_without_fetch_state(images::list(&app.db).await.unwrap()),
+        before
+    );
 }
 
 #[tokio::test]
