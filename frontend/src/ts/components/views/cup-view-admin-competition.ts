@@ -105,11 +105,10 @@ export default class CupViewAdminCompetition extends LitElement {
               Noch kein Wettkampf: Die Anmeldung ist geschlossen, bis du eine
               Wettkampfdatei importierst oder einen Wettkampf neu anlegst.
             </div>
-            <div class="toolbar" role="tablist">
+            <div class="toolbar">
               <button
                 class="btn ${this.setupChoice === "import" ? "primary" : ""}"
-                role="tab"
-                aria-selected=${this.setupChoice === "import"}
+                aria-pressed=${this.setupChoice === "import"}
                 data-choice="import"
                 @click=${this.chooseWay}
               >
@@ -117,8 +116,7 @@ export default class CupViewAdminCompetition extends LitElement {
               </button>
               <button
                 class="btn ${this.setupChoice === "create" ? "primary" : ""}"
-                role="tab"
-                aria-selected=${this.setupChoice === "create"}
+                aria-pressed=${this.setupChoice === "create"}
                 data-choice="create"
                 @click=${this.chooseWay}
               >

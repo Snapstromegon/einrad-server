@@ -125,6 +125,10 @@ async fn invalid_fields_are_explained_in_german_and_create_nothing() {
         ("id", json!(""), "Die ID"),
         ("id", json!("Test Cup"), "Die ID"),
         ("id", json!("-testcup"), "Die ID"),
+        ("id", json!("testcup-"), "Die ID"),
+        ("id", json!("test--cup"), "Die ID"),
+        ("id", json!("Köln"), "Die ID"),
+        ("id", json!("a".repeat(65)), "Die ID"),
     ];
     for (field, value, message) in cases {
         let response = create(&app, &admin, with(field, value.clone())).await;
