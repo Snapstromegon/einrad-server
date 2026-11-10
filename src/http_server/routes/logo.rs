@@ -1,10 +1,12 @@
-//! The competition's logo at `/api/competition/logo`, for every page and the
-//! favicon (see `crate::logo`). The URL never changes, so browsers ask again
+//! The competition's images (see `crate::images`): the logo at
+//! `/api/competition/logo`, for every page and the favicon, the info board's
+//! break image and the sponsor logos. The URL never changes, so browsers ask again
 //! each time (`no-cache`) and mostly get a 304 by the ETag, which only reads
 //! the logo's `updated_at`.
 
 use axum::{
     Extension,
+    extract::Path,
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{
@@ -21,6 +23,7 @@ use tracing::warn;
 
 use super::etag::{fnv1a, if_none_match};
 use crate::{
+    images::{self, Slot},
     logo::{self, Format},
     reloadable_sqlite::ReloadableSqlite,
 };
@@ -34,22 +37,66 @@ const HTTP_DATE: &[BorrowedFormatItem<'_>] = macros::format_description!(
     "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT"
 );
 
-/// So the default logo's ETag changes with the logo.
-const DEFAULT_HASH: u64 = fnv1a(logo::DEFAULT_SVG);
+/// So a default's ETag changes with the image.
+const DEFAULT_LOGO_HASH: u64 = fnv1a(logo::DEFAULT_SVG);
+const DEFAULT_BREAK_HASH: u64 = fnv1a(images::DEFAULT_BREAK_SVG);
 
 /// The competition's logo, or the built-in default without one.
 pub async fn competition_logo(
     Extension(db): Extension<ReloadableSqlite>,
     request: HeaderMap,
 ) -> Response {
+    let default = Some((logo::DEFAULT_SVG, DEFAULT_LOGO_HASH));
+    serve(db, request, &[Slot::Logo], default).await
+}
+
+/// The info board's break image: the competition's own, else its logo, else
+/// the one built into the binary (#291).
+pub async fn break_image(
+    Extension(db): Extension<ReloadableSqlite>,
+    request: HeaderMap,
+) -> Response {
+    let default = Some((images::DEFAULT_BREAK_SVG, DEFAULT_BREAK_HASH));
+    serve(db, request, &[Slot::Break, Slot::Logo], default).await
+}
+
+/// A sponsor's logo; 404 if it has none (a sponsor has no default).
+pub async fn sponsor_image(
+    Extension(db): Extension<ReloadableSqlite>,
+    Path(id): Path<i64>,
+    request: HeaderMap,
+) -> Response {
+    serve(db, request, &[Slot::Sponsor(id)], None).await
+}
+
+/// Serves the first image of `slots` that has bytes, else `default` (its
+/// content and hash for the ETag), else 404. The ETag names the image that
+/// answers, so a fallback that changes under it is noticed.
+async fn serve(
+    db: ReloadableSqlite,
+    request: HeaderMap,
+    slots: &[Slot],
+    default: Option<(&'static [u8], u64)>,
+) -> Response {
     let db = db.get().await.clone();
-    let updated_at = match logo::updated_at(&db).await {
-        Ok(updated_at) => updated_at,
-        Err(e) => return failed(e),
-    };
-    let etag = match updated_at {
-        Some(updated_at) => format!("\"logo-{}\"", updated_at.unix_timestamp_nanos()),
-        None => format!("\"default-{DEFAULT_HASH:016x}\""),
+    let mut found = None;
+    for slot in slots {
+        match images::meta(&db, *slot).await {
+            Ok(Some(meta)) => {
+                found = Some(meta);
+                break;
+            }
+            Ok(None) => {}
+            Err(e) => return failed(e),
+        }
+    }
+    let updated_at = found.map(|(_, updated_at)| updated_at);
+    let etag = match (found, default) {
+        (Some((id, updated_at)), _) => {
+            format!("\"img-{id}-{}\"", updated_at.unix_timestamp_nanos())
+        }
+        (None, Some((_, hash))) => format!("\"default-{hash:016x}\""),
+        (None, None) => return StatusCode::NOT_FOUND.into_response(),
     };
     let last_modified = updated_at
         .and_then(|updated_at| updated_at.to_offset(UtcOffset::UTC).format(HTTP_DATE).ok());
@@ -71,23 +118,19 @@ pub async fn competition_logo(
         return (StatusCode::NOT_MODIFIED, headers).into_response();
     }
 
-    let stored = match updated_at {
+    let stored = match found {
         None => None,
         // `None` if it was removed in between.
-        Some(_) => match logo::load(&db).await {
+        Some((id, _)) => match images::load(&db, id).await {
             Ok(stored) => stored,
             Err(e) => return failed(e),
         },
     };
-    let (mime_type, data) = stored.map_or_else(
-        || {
-            (
-                Format::Svg.mime_type().to_string(),
-                logo::DEFAULT_SVG.to_vec(),
-            )
-        },
-        |stored| (stored.mime_type, stored.data),
-    );
+    let (mime_type, data) = match (stored, default) {
+        (Some(stored), _) => (stored.mime_type, stored.data),
+        (None, Some((data, _))) => (Format::Svg.mime_type().to_string(), data.to_vec()),
+        (None, None) => return StatusCode::NOT_FOUND.into_response(),
+    };
     if let Ok(value) = HeaderValue::from_str(&mime_type) {
         headers.insert(CONTENT_TYPE, value);
     }
@@ -110,6 +153,6 @@ fn not_modified(request: &HeaderMap, etag: &str, updated_at: Option<OffsetDateTi
 }
 
 fn failed(e: sqlx::Error) -> Response {
-    warn!("Couldn't load the competition logo: {e}");
+    warn!("Couldn't load a competition image: {e}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }

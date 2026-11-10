@@ -4,9 +4,9 @@
 //! file gives the same file again.
 //!
 //! In the file: the competition with its id, the features it sets, the
-//! photos with their password, an SVG logo, the colors it sets, the
+//! photos with their password, the logo and break image as SVG or URL, the sponsors, the colors it sets, the
 //! categories with explicit birthday bounds, the finals, the timeplan
-//! entries and the jury categories. Not in it: a raster logo (only SVG fits
+//! entries and the jury categories. Not in it: a raster image (only SVG fits
 //! into the file; the header says so), default colors (an import keeps the
 //! colors, like the logo, unless the file sets them), anything clubs
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
@@ -19,10 +19,11 @@ use crate::{
     competition::Competition,
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig,
-        JuryCategoryConfig, TimeplanEntryConfig,
+        JuryCategoryConfig, SponsorConfig, TimeplanEntryConfig,
     },
     finals,
-    logo::{self, Format},
+    images::{self, Image, ImageUrl},
+    logo::{Format, SvgLogo},
     seed::{OPEN_FROM_BIRTHDAY, OPEN_TO_BIRTHDAY},
     timeplan::EntryKind,
 };
@@ -47,24 +48,27 @@ fn bound(value: Option<OffsetDateTime>, open: Date) -> Option<Date> {
 /// The current competition as a competition file.
 pub struct Export {
     pub file: CompetitionFile,
-    /// The format of a logo the file leaves out, e.g. "PNG": only an SVG
-    /// logo fits into the file.
-    pub logo_left_out: Option<&'static str>,
+    /// The raster images the file leaves out, e.g. "the logo (PNG)": only
+    /// an SVG fits into the file.
+    pub left_out: Vec<String>,
 }
 
 impl Export {
     /// The file's content, with a header on what's in it.
     pub fn content(&self) -> Result<String, String> {
-        let note = self
-            .logo_left_out
-            .map(|format| {
-                format!(
-                    "# The competition's logo is a {format} image, which the file leaves out:\n\
-                     # only an SVG logo fits into it. An import into this database keeps the\n\
-                     # logo; elsewhere, upload it again in the admin UI.\n\n"
-                )
-            })
-            .unwrap_or_default();
+        let note = if self.left_out.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "# The file leaves out these raster images: only an SVG fits into it. An\n\
+                 # import into this database keeps them; elsewhere, upload them again in\n\
+                 # the admin UI.\n{}\n",
+                self.left_out
+                    .iter()
+                    .map(|image| format!("# - {image}\n"))
+                    .collect::<String>()
+            )
+        };
         Ok(format!("{HEADER}{note}{}", self.file.to_toml()?))
     }
 }
@@ -74,16 +78,32 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let Some(competition) = Competition::current(&mut *conn).await? else {
         return Ok(None);
     };
-    let (logo_svg, logo_left_out) = match logo::load(&mut *conn).await? {
-        None => (Branding::Keep, None),
-        Some(stored) => match stored.svg() {
-            Some(svg) => (Branding::Set(svg), None),
-            None => (
-                Branding::Keep,
-                Some(stored.format().map_or("raster", Format::name)),
-            ),
-        },
-    };
+    let images = images::list(&mut *conn).await?;
+    let mut left_out = Vec::new();
+    let (mut logo_svg, mut logo_url) = (Branding::Keep, Branding::Keep);
+    let (mut break_image_svg, mut break_image_url) = (Branding::Keep, Branding::Keep);
+    let mut sponsors = Vec::new();
+    for image in &images {
+        match image.kind.as_str() {
+            "logo" => {
+                (logo_svg, logo_url) = source_of(conn, image, "the logo", &mut left_out).await?;
+            }
+            "break" => {
+                (break_image_svg, break_image_url) =
+                    source_of(conn, image, "the break image", &mut left_out).await?;
+            }
+            _ => {
+                let label = format!("the sponsor {}", image.name);
+                let (svg, url) = source_of(conn, image, &label, &mut left_out).await?;
+                sponsors.push(SponsorConfig {
+                    name: image.name.clone(),
+                    link: image.link.clone(),
+                    svg: svg.value().cloned(),
+                    url: url.value().cloned(),
+                });
+            }
+        }
+    }
 
     let categories = sqlx::query!(
         r#"
@@ -202,6 +222,10 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         file: CompetitionFile {
             competition: CompetitionConfig {
                 logo_svg,
+                logo_url,
+                break_image_svg,
+                break_image_url,
+                sponsors: (!sponsors.is_empty()).then_some(sponsors),
                 ..CompetitionConfig::from(&competition)
             },
             categories,
@@ -209,6 +233,36 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             timeplan,
             jury_categories,
         },
-        logo_left_out,
+        left_out,
     }))
+}
+
+/// How the file gives an image: its URL, or an inline SVG, or not at all (a
+/// raster image is noted in `left_out`).
+async fn source_of(
+    conn: &mut sqlx::SqliteConnection,
+    image: &Image,
+    label: &str,
+    left_out: &mut Vec<String>,
+) -> sqlx::Result<(Branding<SvgLogo>, Branding<ImageUrl>)> {
+    if let Some(url) = &image.source_url {
+        return Ok((
+            Branding::Keep,
+            url.parse().map_or(Branding::Keep, Branding::Set),
+        ));
+    }
+    if !image.has_data {
+        return Ok((Branding::Keep, Branding::Keep));
+    }
+    match images::load(&mut *conn, image.id)
+        .await?
+        .and_then(|stored| stored.svg())
+    {
+        Some(svg) => Ok((Branding::Set(svg), Branding::Keep)),
+        None => {
+            let format = image.format().map_or("raster", Format::name);
+            left_out.push(format!("{label} ({format})"));
+            Ok((Branding::Keep, Branding::Keep))
+        }
+    }
 }

@@ -1,12 +1,12 @@
-use axum::{Extension, Json, extract::Multipart, http::StatusCode};
+use axum::{Extension, Json, extract::Multipart};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
+use super::image_support::{read_upload, store_upload};
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    logo::{self, Logo},
+    images::Slot,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -14,7 +14,7 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetCompetitionLogoResponse {}
 
-/// The multipart body: the logo as its only file.
+/// The multipart body: the image as its only file.
 #[derive(ToSchema, Debug)]
 pub struct LogoUpload {
     #[allow(dead_code)]
@@ -24,11 +24,11 @@ pub struct LogoUpload {
 
 /// Upload the competition's logo.
 ///
-/// Replaces an earlier logo (#286). The format comes from the content: PNG,
-/// JPEG, WebP or SVG, up to 1 MiB. Raster logos are scaled down to 512 px on
-/// the long edge and lose their metadata; SVG logos are stored as they are,
-/// but refused if they could run scripts or load other files (see
-/// `crate::logo`). Admin.
+/// Replaces an earlier logo or URL source (#286). The format comes from the
+/// content: PNG, JPEG, WebP or SVG, of any size. Raster images are scaled
+/// down to 3840 px (4K) on the long edge if larger and lose their metadata;
+/// SVG images are stored as they are, but refused if they could run scripts
+/// or load other files (see `crate::logo`). Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],
@@ -48,32 +48,10 @@ pub struct LogoUpload {
 pub async fn set_competition_logo(
     Extension(db): Extension<ReloadableSqlite>,
     _: Granted<permit::ManageCompetition>,
-    mut body: Multipart,
+    body: Multipart,
 ) -> Result<Json<SetCompetitionLogoResponse>, HttpError> {
-    let field = body
-        .next_field()
-        .await
-        .map_err(|e| HttpError::StatusCode(e.status()))?
-        .ok_or(HttpError::StatusCode(StatusCode::BAD_REQUEST))?;
-    // A body over the request limit fails here, as 413.
-    let bytes = field
-        .bytes()
-        .await
-        .map_err(|e| HttpError::StatusCode(e.status()))?;
-    // Scaling a raster logo takes a moment.
-    let logo = tokio::task::spawn_blocking(move || Logo::from_upload(&bytes))
-        .await
-        .map_err(|_| HttpError::InternalServerError)?
-        .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let db = db.get().await.clone();
-    let competition = Competition::current(&db)
-        .await?
-        .ok_or(HttpError::NotFound)?;
-    logo::store(&db, &competition.id, &logo).await?;
-    info!(
-        "Set the logo of competition {} ({})",
-        competition.id,
-        logo.format.name()
-    );
+    let (_, logo) = read_upload(body).await?;
+    store_upload(&db, Slot::Logo, &logo).await?;
+    info!("Set the competition logo ({})", logo.format.name());
     Ok(Json(SetCompetitionLogoResponse {}))
 }

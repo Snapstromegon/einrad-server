@@ -1,8 +1,8 @@
 use clap::Parser;
-use eyre::eyre;
 use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
     http_server::{HttpServer, HttpServerOptions},
+    image_fetch::ImageFetcher,
     jwt::JWTConfig,
     mailer::Mailer,
     normalize,
@@ -12,6 +12,7 @@ use einrad_server::{
     roles::Role,
     seed,
 };
+use eyre::eyre;
 use password_auth::generate_hash;
 use sqlx::migrate;
 use std::sync::Arc;
@@ -100,6 +101,9 @@ async fn main() -> eyre::Result<()> {
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
     }
+    // URL images (logo, break image, sponsors) are downloaded in the
+    // background, so an unreachable server never delays the start (#291).
+    ImageFetcher::shared().refresh_in_background(db.clone(), None);
     let photos = Photos::new().map_err(|e| eyre!(e))?;
     photos.start(db.clone());
 

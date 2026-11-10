@@ -9,7 +9,7 @@ export type Dropped = schemas.Dropped;
 
 export const partNames: Record<Part, string> = {
   settings: "Einstellungen",
-  logo: "Logo",
+  images: "Logo, Pausenbild, Sponsoren",
   colors: "Farben",
   categories: "Kategorien",
   finals: "Finals",

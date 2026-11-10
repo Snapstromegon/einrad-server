@@ -20,6 +20,7 @@ import {
   blockOf,
   breakEnd,
   customOf,
+  breakImage,
   competitionLogo,
   competitionName,
   currentTimeplanAct,
@@ -30,12 +31,16 @@ import {
   lastTimeplanEntry,
   nextTimeplanEntry,
   participantName,
+  sponsorImage,
   startCategory,
   startActId,
   startName,
   TimeplanStatus,
   timeplanStatus,
 } from "../../utils";
+
+/** How often the info board asks for new sponsors, in ms. */
+const SPONSORS_RELOAD_MS = 60_000;
 
 type Act = schemas.Act;
 type Timeplan = schemas.Timeplan;
@@ -347,6 +352,9 @@ export default class CupViewInfoBoard extends LitElement {
    */
   @state() status?: TimeplanStatus;
   @state() acts = new Map<string, Act>();
+  /** The footer's sponsors, loaded now and then (#291). */
+  @state() sponsors: schemas.Sponsor[] = [];
+  private sponsorsLoadedAt = 0;
 
   poll = new PollController(this, 1000, (signal) => this.refresh(signal));
 
@@ -375,6 +383,7 @@ export default class CupViewInfoBoard extends LitElement {
         console.error(error);
       }
     }
+    await this.refreshSponsors(signal);
     const raw = JSON.stringify(timeplan);
     if (raw !== this.lastRawTimeplan) {
       this.predictedTimeplan = timeplan;
@@ -383,6 +392,22 @@ export default class CupViewInfoBoard extends LitElement {
     const status = timeplanStatus(timeplan);
     if (status !== this.status) {
       this.status = status;
+    }
+  }
+
+  /** Reloads the sponsors once a minute; the old ones stay if it fails. */
+  private async refreshSponsors(signal?: AbortSignal) {
+    if (Date.now() - this.sponsorsLoadedAt < SPONSORS_RELOAD_MS) {
+      return;
+    }
+    this.sponsorsLoadedAt = Date.now();
+    try {
+      const sponsors = await unwrap(client.listSponsors({ signal }));
+      if (JSON.stringify(sponsors) !== JSON.stringify(this.sponsors)) {
+        this.sponsors = sponsors;
+      }
+    } catch (error) {
+      console.error(error);
     }
   }
 
@@ -421,7 +446,7 @@ export default class CupViewInfoBoard extends LitElement {
     if (!this.predictedTimeplan) {
       return html`<div class="break">
         <cup-fotobox
-          src="/assets/images/logo_with_blobs.svg"
+          src=${breakImage()}
           auto-reload
         ></cup-fotobox>
         <cup-clock></cup-clock>
@@ -442,11 +467,7 @@ export default class CupViewInfoBoard extends LitElement {
       case TimeplanStatus.Break:
         return html`<div class="break">
           <cup-fotobox
-            src=${
-              lastEntry
-                ? "/api/photos/random"
-                : "/assets/images/logo_with_blobs.svg"
-            }
+            src=${lastEntry ? "/api/photos/random" : breakImage()}
             auto-reload
           ></cup-fotobox>
           <cup-clock></cup-clock>
@@ -534,6 +555,24 @@ export default class CupViewInfoBoard extends LitElement {
     </div>`;
   }
 
+  /** The sponsors' logos; no footer without sponsors (#291). */
+  renderSponsors() {
+    if (!this.sponsors.length) {
+      return nothing;
+    }
+    return html`<footer>
+      ${repeat(
+        this.sponsors,
+        (sponsor) => sponsor.id,
+        (sponsor) =>
+          html`<img
+            src=${sponsorImage(sponsor.id, sponsor.version)}
+            alt=${sponsor.name}
+          />`,
+      )}
+    </footer>`;
+  }
+
   override render() {
     return html`
       <div id="wrapper">
@@ -548,18 +587,7 @@ export default class CupViewInfoBoard extends LitElement {
           <cup-timeplan .timeplan=${this.predictedTimeplan}></cup-timeplan>
         </aside>
         <main>${this.renderMain()}</main>
-        <footer>
-          <img src="/assets/images/gwn.svg" alt=${competitionName(this.systemStatus?.competition)} />
-          <img
-            src="/assets/images/heiner-weiss.svg"
-            alt=${competitionName(this.systemStatus?.competition)}
-          />
-          <img src="/assets/images/gwn.svg" alt=${competitionName(this.systemStatus?.competition)} />
-          <img
-            src="/assets/images/heiner-weiss.svg"
-            alt=${competitionName(this.systemStatus?.competition)}
-          />
-        </footer>
+        ${this.renderSponsors()}
       </div>
     `;
   }

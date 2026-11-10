@@ -6,6 +6,7 @@ mod add_club_judge;
 mod add_final;
 mod add_jury_category;
 mod add_rider;
+mod add_sponsor;
 mod add_timeplan_entry;
 mod apply_jury_remap;
 mod assign_judge;
@@ -30,6 +31,7 @@ mod edit_final;
 mod edit_jury_category;
 mod edit_rider;
 mod edit_timeplan_entry;
+mod image_support;
 mod import_competition;
 mod leave_pair;
 mod link_pair;
@@ -41,11 +43,15 @@ mod move_timeplan_down;
 mod move_timeplan_up;
 mod preview_club_mail;
 mod preview_competition_import;
+mod refresh_images;
 mod register;
 mod reload_db;
+mod remove_break_image;
 mod remove_competition_logo;
+mod remove_sponsor;
 mod rename_club;
 mod rename_club_group;
+mod reorder_sponsors;
 mod replace_act_rider;
 mod request_pair;
 mod request_password_reset;
@@ -58,6 +64,7 @@ mod set_act_music_started;
 mod set_act_order;
 mod set_act_withdrawn;
 mod set_block_order;
+mod set_break_image;
 mod set_checked_in;
 mod set_club_group_members;
 mod set_club_group_type;
@@ -66,6 +73,7 @@ mod set_competition_logo;
 mod set_fee_waived;
 mod set_final_placement;
 mod set_final_published;
+mod set_image_source;
 mod set_jury_category_order;
 mod set_jury_deployments_override;
 mod set_jury_plan_published;
@@ -77,6 +85,8 @@ mod set_user_roles;
 mod timeplan_backward;
 mod timeplan_forward;
 mod unassign_judge;
+mod update_sponsor;
+mod upload_sponsor_image;
 mod verify_email;
 
 pub fn get_command_router() -> OpenApiRouter {
@@ -147,8 +157,14 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(import_competition::import_competition))
         .routes(routes!(edit_competition::edit_competition))
-        .routes(routes!(set_competition_logo::set_competition_logo))
         .routes(routes!(remove_competition_logo::remove_competition_logo))
+        .routes(routes!(remove_break_image::remove_break_image))
+        .routes(routes!(set_image_source::set_image_source))
+        .routes(routes!(refresh_images::refresh_images))
+        .routes(routes!(add_sponsor::add_sponsor))
+        .routes(routes!(update_sponsor::update_sponsor))
+        .routes(routes!(remove_sponsor::remove_sponsor))
+        .routes(routes!(reorder_sponsors::reorder_sponsors))
         .routes(routes!(apply_jury_remap::apply_jury_remap))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
@@ -163,4 +179,12 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(send_club_mail::send_club_mail))
         .routes(routes!(preview_club_mail::preview_club_mail))
         .layer(DefaultBodyLimit::max(save_act_song::MAX_REQUEST_SIZE))
+        // Image uploads have no limit (ADR 0010): they're scaled down.
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(set_competition_logo::set_competition_logo))
+                .routes(routes!(set_break_image::set_break_image))
+                .routes(routes!(upload_sponsor_image::upload_sponsor_image))
+                .layer(DefaultBodyLimit::disable()),
+        )
 }

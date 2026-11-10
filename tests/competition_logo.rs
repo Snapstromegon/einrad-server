@@ -109,7 +109,7 @@ fn message(response: &TestResponse) -> String {
 }
 
 #[tokio::test]
-async fn unsupported_or_too_large_logos_are_refused_with_a_reason() {
+async fn unsupported_logos_are_refused_with_a_reason() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
     upload(&app, &admin, "logo.svg", SVG_LOGO.as_bytes()).await;
@@ -129,13 +129,6 @@ async fn unsupported_or_too_large_logos_are_refused_with_a_reason() {
             response.body
         );
     }
-
-    let padding = "<!-- padding -->".repeat(70_000);
-    let large = SVG_LOGO.replace("</svg>", &format!("{padding}</svg>"));
-    assert!(large.len() > 1024 * 1024);
-    let response = upload(&app, &admin, "logo.svg", large.as_bytes()).await;
-    assert_ne!(response.status, StatusCode::OK);
-    assert!(message(&response).contains("1 MiB"), "{:?}", response.body);
 
     assert_eq!(app.get_raw(LOGO_URL, &[]).await.bytes, SVG_LOGO.as_bytes());
 }
@@ -256,21 +249,22 @@ async fn raster_logos_are_scaled_down_and_lose_their_metadata() {
     for (name, bytes, mime_type, size) in [
         (
             "logo.png",
-            image(1024, 512, image::ImageFormat::Png),
+            image(4000, 1000, image::ImageFormat::Png),
             "image/png",
-            (512, 256),
+            (3840, 960),
         ),
         (
             "logo.png",
+            // Up to 3840 px stays as it is.
             image(256, 1024, image::ImageFormat::Png),
             "image/png",
-            (128, 512),
+            (256, 1024),
         ),
         (
             "logo.webp",
-            image(800, 800, image::ImageFormat::WebP),
+            image(4096, 2048, image::ImageFormat::WebP),
             "image/webp",
-            (512, 512),
+            (3840, 1920),
         ),
         ("logo.jpg", jpeg, "image/jpeg", (300, 200)),
     ] {
@@ -297,7 +291,7 @@ async fn raster_logos_are_scaled_down_and_lose_their_metadata() {
 }
 
 #[tokio::test]
-async fn broken_or_huge_raster_logos_are_refused_with_a_reason() {
+async fn broken_raster_logos_are_refused_with_a_reason() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
 
@@ -306,16 +300,6 @@ async fn broken_or_huge_raster_logos_are_refused_with_a_reason() {
     let response = upload(&app, &admin, "logo.png", &broken).await;
     assert_ne!(response.status, StatusCode::OK);
     assert!(message(&response).contains("Bild"), "{:?}", response.body);
-
-    let response = upload(
-        &app,
-        &admin,
-        "logo.png",
-        &image(5000, 1, image::ImageFormat::Png),
-    )
-    .await;
-    assert_ne!(response.status, StatusCode::OK);
-    assert!(message(&response).contains("4096"), "{:?}", response.body);
 
     assert_eq!(app.get_raw(LOGO_URL, &[]).await.bytes, DEFAULT_LOGO);
 }
@@ -463,7 +447,7 @@ async fn a_replace_keeps_the_logo_unless_the_file_sets_or_resets_it() {
     let response = preview(&app, &admin, &reset).await;
     assert_eq!(
         response.body["changes"],
-        json!(["logo"]),
+        json!(["images"]),
         "{:?}",
         response.body
     );
@@ -495,7 +479,7 @@ async fn the_same_logo_in_the_file_changes_nothing() {
     let file = competition_file_with(&format!("logo_svg = '''\n{SVG_LOGO}\n'''"));
     assert_eq!(
         preview(&app, &admin, &file).await.body["changes"],
-        json!(["logo"])
+        json!(["images"])
     );
     import(&app, &admin, &file).await;
     let etag = app.get_raw(LOGO_URL, &[]).await.headers[header::ETAG].clone();
@@ -590,4 +574,32 @@ async fn a_raster_logo_is_left_out_of_the_export_with_a_note() {
         "unchanged"
     );
     assert_eq!(app.get_raw(LOGO_URL, &[]).await.bytes, uploaded);
+}
+
+#[tokio::test]
+async fn an_svg_over_1_mib_is_accepted() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let padding = "<!-- padding -->".repeat(70_000);
+    let large = SVG_LOGO.replace("</svg>", &format!("{padding}</svg>"));
+    assert!(large.len() > 1024 * 1024);
+    let response = upload(&app, &admin, "logo.svg", large.as_bytes()).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(app.get_raw(LOGO_URL, &[]).await.bytes, large.as_bytes());
+}
+
+#[tokio::test]
+async fn a_raster_image_longer_than_4096_px_is_scaled_down_not_refused() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let response = upload(
+        &app,
+        &admin,
+        "logo.png",
+        &image(8000, 2000, image::ImageFormat::Png),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let served = image::load_from_memory(&app.get_raw(LOGO_URL, &[]).await.bytes).unwrap();
+    assert_eq!((served.width(), served.height()), (3840, 960));
 }
