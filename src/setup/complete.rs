@@ -11,16 +11,18 @@ use std::{
     time::Duration,
 };
 
+use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 use url::Url;
 
-use super::SetupState;
+use super::{Handover, SetupState};
 use crate::{
     admin_user,
     config::{CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, non_blank},
     mailer::Mailer,
+    seed, startup,
     utils::check_password,
 };
 
@@ -73,6 +75,9 @@ pub enum Source {
     Env,
     /// Set in the config file, or (for the admin) in the database.
     Done,
+    /// Not set, and the setup doesn't ask for it: the system config is
+    /// already complete, so only the admin is created.
+    NotNeeded,
 }
 
 impl Source {
@@ -108,6 +113,8 @@ struct Snapshot {
     file: ConfigFile,
     file_exists: bool,
     /// Whether the system config is incomplete, so the setup writes a file.
+    /// If not, base_url, reload_db_token and metrics_token are `NotNeeded`
+    /// when unset.
     needs_file: bool,
     base_url: Source,
     smtp_server: Source,
@@ -127,22 +134,38 @@ impl Snapshot {
         let admin = admin_user::admin_exists(&env.db)
             .await
             .map_err(|e| format!("Couldn't read the database: {e}"))?;
+        let needs_file = Settings::resolve(cli.clone(), file.clone()).is_err();
+        // With a complete system config the setup writes nothing, so what
+        // is unset stays unset instead of "missing".
+        let unneeded = |s: Source| {
+            if !needs_file && s.missing() {
+                Source::NotNeeded
+            } else {
+                s
+            }
+        };
         Ok(Self {
-            needs_file: Settings::resolve(cli.clone(), file.clone()).is_err(),
+            needs_file,
             file_exists: env.config_path.exists(),
-            base_url: Source::of(cli.base_url.is_some(), file.server.base_url.is_some()),
+            base_url: unneeded(Source::of(
+                cli.base_url.is_some(),
+                file.server.base_url.is_some(),
+            )),
             smtp_server: Source::of(nb(&cli.smtp_server), nb(&file.smtp.server)),
             smtp_user: Source::of(nb(&cli.smtp_username), nb(&file.smtp.user)),
             smtp_password: Source::of(nb(&cli.smtp_password), nb(&file.smtp.password)),
             jwt_secret: Source::of(nb(&cli.jwt_secret), nb(&file.auth.jwt_secret)),
-            reload_db_token: Source::of(nb(&cli.reload_db_token), nb(&file.server.reload_db_token)),
-            metrics_token: Source::of(
+            reload_db_token: unneeded(Source::of(
+                nb(&cli.reload_db_token),
+                nb(&file.server.reload_db_token),
+            )),
+            metrics_token: unneeded(Source::of(
                 cli.metrics_token.as_deref().is_some_and(|t| !t.is_empty()),
                 file.server
                     .metrics_token
                     .as_deref()
                     .is_some_and(|t| !t.is_empty()),
-            ),
+            )),
             admin: if admin { Source::Done } else { Source::Missing },
             file,
         })
@@ -322,9 +345,19 @@ pub struct Completed {
     pub metrics_token: Option<String>,
     pub config_written: bool,
     pub config_path: PathBuf,
-    /// Until the in-process handover exists, the server has to be restarted.
+    /// Always false: the server switched into normal mode in this process.
+    /// (If the switch fails, the completion is an error instead.)
     pub restart_required: bool,
+    /// Where the browser goes next: the competition step of setup mode.
+    pub redirect: &'static str,
+    /// The new admin's session cookie, signed with the new secret. Not part
+    /// of the JSON body; the route sets it. Empty if no admin was created.
+    #[serde(skip)]
+    pub session: Option<CookieJar>,
 }
+
+/// The page after the setup: import or create the competition.
+const AFTER_SETUP: &str = "/admin-competition";
 
 pub enum CompleteError {
     AlreadyDone,
@@ -488,6 +521,15 @@ pub async fn complete(
 
     // 1. Validate everything in memory.
     let mut write = ToWrite::default();
+    if !snap.needs_file {
+        // The status says these aren't needed, so they aren't silently dropped.
+        if !input.base_url.trim().is_empty() {
+            errors.push("base_url: not needed, the system config is already complete".to_string());
+        }
+        if input.metrics {
+            errors.push("metrics: not needed, the system config is already complete".to_string());
+        }
+    }
     if snap.needs_file {
         let text = |value: &str| non_blank(Some(value.trim().to_string()));
         if snap.base_url.missing() {
@@ -636,22 +678,75 @@ pub async fn complete(
 
     // 3. The admin. A failure leaves what the trigger rule already covers:
     // the next start (or status) shows only the admin as missing.
+    let mut admin_id = None;
     if let Some((name, email, hash)) = hashed {
-        admin_user::insert_admin_with_hash(&env.db, &name, &email, &hash)
+        admin_id = admin_user::create_admin_with_hash(&env.db, &name, &email, &hash)
             .await
             .map_err(|e| CompleteError::Failed(format!("Couldn't create the admin: {e}")))?;
         info!("Created the admin {email}");
     }
 
-    // 4. The token file goes away; the setup is done.
+    // 4. The token file goes away; the setup is done. Setup endpoints
+    // answer "already done" from here on, and the gate keeps answering 503
+    // until the normal server is built.
     state.finish();
     *done = true;
+
+    // 5. The handover into normal mode.
+    state.set_handover(Handover::Switching);
+    let session = match hand_over(state, admin_id).await {
+        Ok(session) => {
+            state.set_handover(Handover::Done);
+            session
+        }
+        Err(e) => {
+            state.set_handover(Handover::Failed);
+            warn!("Couldn't switch into normal mode: {e}");
+            return Err(CompleteError::Failed(format!(
+                "The setup is saved, but the server couldn't switch into normal mode: {e}. \
+                 Restart the server."
+            )));
+        }
+    };
     Ok(Completed {
         metrics_token: write.metrics_token,
         config_written: snap.needs_file,
         config_path: path,
-        restart_required: true,
+        restart_required: false,
+        redirect: AFTER_SETUP,
+        session,
     })
+}
+
+/// Builds the normal server the way a start does, with the settings the
+/// config file and the CLI/environment now give, and swaps it in. Returns
+/// the new admin's session cookie, signed with the new secret.
+async fn hand_over(
+    state: &SetupState,
+    admin_id: Option<uuid::Uuid>,
+) -> Result<Option<CookieJar>, String> {
+    let env = &state.env;
+    let file = env.load_file()?;
+    let settings = Settings::resolve(env.cli.clone(), file)?;
+    for warning in &settings.warnings {
+        warn!("{warning}");
+    }
+    let report = seed::apply_settings(&env.db, &settings).await?;
+    let normal = startup::build(env.db.clone(), settings, &report)
+        .await
+        .map_err(|e| e.to_string())?;
+    let session = match admin_id {
+        Some(id) => Some(
+            normal
+                .jwt
+                .add_jwt_cookie(CookieJar::new(), id)
+                .map_err(|e| e.to_string())?,
+        ),
+        None => None,
+    };
+    state.switch_to(normal.server.router());
+    info!("Switched into normal mode");
+    Ok(session)
 }
 
 #[cfg(test)]

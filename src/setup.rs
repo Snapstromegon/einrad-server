@@ -14,14 +14,15 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{FromRequestParts, Request, State},
     http::{HeaderValue, Method, StatusCode, Uri, header, request::Parts},
     middleware::{self, Next},
@@ -35,6 +36,7 @@ use axum_extra::extract::{
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
+use tower::ServiceExt;
 use tracing::{info, warn};
 use url::Url;
 
@@ -141,6 +143,24 @@ pub struct SetupState {
     /// At most one test mail at a time: it connects to a server of the
     /// caller's choice.
     test_mail: tokio::sync::Semaphore,
+    /// What serves everything outside the setup API: the gate, until the
+    /// handover swaps in the normal server's router.
+    switch: RwLock<Router>,
+    /// How far the handover is; see [`Handover`].
+    handover: AtomicU8,
+}
+
+/// How far the handover into normal mode is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Handover {
+    /// The setup is pending or being completed.
+    Pending = 0,
+    /// The normal server is being built; the gate still answers.
+    Switching = 1,
+    /// The normal server is serving.
+    Done = 2,
+    /// The setup is saved but the switch failed: only a restart helps.
+    Failed = 3,
 }
 
 // No derive: the token and the environment's secrets must never be printed.
@@ -165,7 +185,28 @@ impl SetupState {
             completion: tokio::sync::Mutex::new(false),
             done: AtomicBool::new(false),
             test_mail: tokio::sync::Semaphore::new(1),
+            switch: RwLock::new(Router::new().fallback(gate)),
+            handover: AtomicU8::new(Handover::Pending as u8),
         })
+    }
+
+    fn set_handover(&self, phase: Handover) {
+        self.handover.store(phase as u8, Ordering::SeqCst);
+    }
+
+    /// Whether the setup is saved but only a restart can switch to normal mode.
+    fn restart_required(&self) -> bool {
+        self.handover.load(Ordering::SeqCst) == Handover::Failed as u8
+    }
+
+    /// Replaces what serves everything outside the setup API. Requests
+    /// already running finish on the router they started with.
+    fn switch_to(&self, router: Router) {
+        *self.switch.write().unwrap() = router;
+    }
+
+    fn current(&self) -> Router {
+        self.switch.read().unwrap().clone()
     }
 
     fn is_done(&self) -> bool {
@@ -403,7 +444,7 @@ async fn setup_api_guard(
     next: Next,
 ) -> Response {
     let mut response = if state.is_done() {
-        already_done()
+        already_done(&state)
     } else {
         next.run(request).await
     };
@@ -413,16 +454,25 @@ async fn setup_api_guard(
     response
 }
 
-fn already_done() -> Response {
+fn already_done(state: &SetupState) -> Response {
     (
         StatusCode::GONE,
         Json(serde_json::json!({
             "error": "first-run setup already done",
             "complete": true,
-            "restart_required": true,
+            "restart_required": state.restart_required(),
         })),
     )
         .into_response()
+}
+
+/// Everything outside the setup API goes to whatever the switch holds now.
+async fn switched(State(state): State<Arc<SetupState>>, request: Request<Body>) -> Response {
+    let router = state.current();
+    match router.oneshot(request).await {
+        Ok(response) => response,
+        Err(never) => match never {},
+    }
 }
 
 fn failure(status: StatusCode, message: &str) -> Response {
@@ -457,10 +507,20 @@ async fn complete_setup(
 ) -> Response {
     // Its own task: a client that disconnects must not cancel the completion
     // between writing the file and creating the admin.
-    let result = tokio::spawn(async move { complete::complete(&state, input).await }).await;
+    let task_state = state.clone();
+    let result = tokio::spawn(async move { complete::complete(&task_state, input).await }).await;
     match result {
-        Ok(Ok(done)) => Json(done).into_response(),
-        Ok(Err(CompleteError::AlreadyDone)) => already_done(),
+        Ok(Ok(mut done)) => {
+            // The admin's session cookie, and the end of the setup cookie.
+            let jar = done.session.take().unwrap_or_default().add(
+                Cookie::build((SESSION_COOKIE, ""))
+                    .path("/api/setup")
+                    .max_age(time::Duration::ZERO)
+                    .build(),
+            );
+            (jar, Json(done)).into_response()
+        }
+        Ok(Err(CompleteError::AlreadyDone)) => already_done(&state),
         Ok(Err(CompleteError::Invalid(errors))) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(serde_json::json!({ "errors": errors })),
@@ -493,7 +553,8 @@ async fn complete_setup(
     }
 }
 
-/// The router of a pending first-run setup.
+/// The router the process serves from the first request on: the setup API,
+/// and behind it the gate, which the handover replaces by the normal server.
 pub fn router(state: Arc<SetupState>) -> Router {
     Router::new()
         .route("/api/setup/session", get(session).post(exchange_token))
@@ -504,7 +565,7 @@ pub fn router(state: Arc<SetupState>) -> Router {
             state.clone(),
             setup_api_guard,
         ))
-        .fallback(gate)
+        .fallback(switched)
         .with_state(state)
 }
 

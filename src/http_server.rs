@@ -129,18 +129,23 @@ impl HttpServer {
         }
     }
 
-    pub fn start<F>(&mut self, shutdown_signal: F) -> tokio::task::JoinHandle<()>
-    where
-        F: std::future::Future<Output = ()> + Send + 'static,
-    {
-        let app = routes::get_router(
+    /// The routes of the normal server, without a listener.
+    pub fn router(&self) -> axum::Router {
+        routes::get_router(
             self.options.clone(),
             self.db.clone(),
             self.mailer.clone(),
             self.jwt.clone(),
             self.player_hub.clone(),
             self.photos.clone(),
-        );
+        )
+    }
+
+    pub fn start<F>(&mut self, shutdown_signal: F) -> tokio::task::JoinHandle<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let app = self.router();
         let address = self.options.bind_address.clone();
 
         tokio::spawn(async move {

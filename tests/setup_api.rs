@@ -114,8 +114,13 @@ async fn harness(cli: CliArgs, config: Option<&str>) -> Harness {
     if let Some(config) = config {
         std::fs::write(&path, config).unwrap();
     }
+    // Completion hands over to normal mode, which reads the data path.
+    let data = dir.0.join("data");
+    std::fs::create_dir_all(&data).unwrap();
     let cli = CliArgs {
         config: Some(path),
+        data: Some(data),
+        local_player: None,
         ..cli
     };
     let db = in_memory_migrated().await;
@@ -380,7 +385,7 @@ async fn completion_writes_the_config_and_creates_the_admin() {
     let (status, done) = h.complete(body).await;
     assert_eq!(status, StatusCode::OK, "{done}");
     assert_eq!(done["config_written"], true);
-    assert_eq!(done["restart_required"], true);
+    assert_eq!(done["restart_required"], false);
     let metrics_token = done["metrics_token"].as_str().unwrap().to_string();
     assert_eq!(metrics_token.len(), 43);
 
