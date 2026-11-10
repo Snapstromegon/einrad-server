@@ -27,6 +27,7 @@ pub mod reloadable_sqlite;
 pub mod rider_registration;
 pub mod roles;
 pub mod seed;
+pub mod setup;
 pub mod system_status;
 pub mod templates;
 pub mod timeplan;

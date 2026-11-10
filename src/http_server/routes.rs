@@ -40,7 +40,7 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 
 #[derive(RustEmbed, Clone)]
 #[folder = "./static/"]
-struct StaticAssets;
+pub(crate) struct StaticAssets;
 
 #[derive(OpenApiTrait)]
 #[openapi(
