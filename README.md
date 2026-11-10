@@ -19,6 +19,13 @@ optional TOML config file, in that order of precedence. The config file is read
 from `--config` / `CONFIG`, or from `./config.toml` if it exists. See
 [`config.example.toml`](config.example.toml) for all options.
 
+The SMTP settings and `jwt_secret` (`--jwt-secret`, `JWT_SECRET`, `[auth]
+jwt_secret`) are required: the server refuses to start without them and names
+what is missing. There are no built-in secrets. `reload_db_token`
+(`RELOAD_DB_TOKEN`) and `metrics_token` (`METRICS_TOKEN`) are optional: without them the token
+path of `reload_db` and `GET /metrics` are off (a logged-in admin can still
+reload).
+
 The competition comes from a separate competition file, read from
 `--competition` / `COMPETITION`, or from `./competition.toml` if it exists. See
 [`competition.example.toml`](competition.example.toml). A config file that
@@ -189,7 +196,9 @@ Event day setup:
    `INSECURE_COOKIES=true`, otherwise the login cookie is `Secure` and the
    browsers drop it.
 4. After the event, upload the database with `make sync-up` and make the
-   online server load it with `POST /api/command/reload_db?token=<RELOAD_DB_TOKEN>`.
+   online server load it: log in as an admin and call `POST /api/command/reload_db`,
+   or, if `RELOAD_DB_TOKEN` is set, as any logged-in user with
+   `POST /api/command/reload_db?token=<RELOAD_DB_TOKEN>`.
 
 ## Info board, moderation screen and photos
 
@@ -529,8 +538,8 @@ ansible-playbook -i deploy/inventory.yml deploy/preview-pr.yml \
 - **Config:** `~/previews/pr-12/env`, rendered from
   [`templates/preview-pr.env.j2`](deploy/templates/preview-pr.env.j2)
   without secrets: `BASE_URL`, `HTTP_ADDRESS` and SMTP to Mailpit
-  (`smtp://127.0.0.1:1025`). `secrets.env` next to it holds `JWT_SECRET` and
-  `RELOAD_DB_TOKEN`, generated with `openssl rand` on the first deploy and
+  (`smtp://127.0.0.1:1025`). `secrets.env` next to it holds the required `JWT_SECRET` and
+  the optional `RELOAD_DB_TOKEN`, generated with `openssl rand` on the first deploy and
   kept, so logins survive a deploy. No `config.toml` or `competition.toml`.
 - **Demo data:** every run stops the instance and recreates its database
   with `seed_demo` and `demo-data.toml`, which bring the competition. The

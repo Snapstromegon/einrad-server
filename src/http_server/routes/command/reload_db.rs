@@ -10,6 +10,7 @@ use crate::{
         ClientError, HttpError, HttpServerOptions,
         extractor::auth::{Auth, Granted},
     },
+    metrics::constant_time_eq,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -49,7 +50,14 @@ pub async fn reload_db(
     Query(query): Query<ReloadDBQuery>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
 ) -> Result<Json<ReloadDBResponse>, HttpError> {
-    if user_manager.is_none() && query.token != Some(http_options.reload_db_token.clone()) {
+    // Without a configured token, only admins can reload.
+    let token_matches = http_options.reload_db_token.as_ref().is_some_and(|token| {
+        query
+            .token
+            .as_deref()
+            .is_some_and(|given| constant_time_eq(given.as_bytes(), token.as_bytes()))
+    });
+    if user_manager.is_none() && !token_matches {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
 

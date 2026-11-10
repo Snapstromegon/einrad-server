@@ -89,7 +89,9 @@ pub struct HttpServerOptions {
     pub bind_address: String,
     pub base_url: String,
     pub data_path: PathBuf,
-    pub reload_db_token: String,
+    /// Lets a logged-in non-admin reload the database; without one only
+    /// admins can.
+    pub reload_db_token: Option<String>,
     /// Bearer token for `GET /metrics`; without one the endpoint is off.
     pub metrics_token: Option<String>,
     /// The system config's `[features]`: the defaults for the features a

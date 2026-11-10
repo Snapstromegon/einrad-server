@@ -12,6 +12,8 @@
 # http_address = "127.0.0.1:3000"                    # HTTP_ADDRESS
 # data_path = "./data"                               # DATA_PATH
 # insecure_cookies = false                           # INSECURE_COOKIES
+# Optional. Lets a logged-in non-admin call POST /api/command/reload_db?token=…;
+# without it (or empty) only admins can reload.
 # reload_db_token = "…"                              # RELOAD_DB_TOKEN
 # Turns on GET /metrics for Prometheus (Authorization: Bearer <token>).
 # metrics_token = "…"                                # METRICS_TOKEN
@@ -29,6 +31,8 @@
 # password = "…"                                     # SMTP_PASSWORD
 
 [auth]
+# Required: the server doesn't start without it. Use a long random string,
+# e.g. `openssl rand -hex 32`.
 # jwt_secret = "…"                                   # JWT_SECRET
 
 # Features that are still being refined. A competition turns each on or off

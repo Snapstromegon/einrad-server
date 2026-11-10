@@ -237,15 +237,40 @@ impl TestApp {
         Self::build(db, mailer, None, true, Some(file_id))
     }
 
-    /// `jury_registration` is the system default for the feature,
-    /// `competition_file_id` the id in the competition file the server
-    /// started with.
+    /// App without a `reload_db_token`: the token path of `reload_db` is off.
+    pub async fn without_reload_token(db: SqlitePool) -> Self {
+        seed_db(&db, &open_registration()).await;
+        let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+        Self::build_with(db, mailer, None, true, None, None)
+    }
+
     fn build(
         db: SqlitePool,
         mailer: Mailer,
         mailpit: Option<Mailpit>,
         jury_registration: bool,
         competition_file_id: Option<&str>,
+    ) -> Self {
+        Self::build_with(
+            db,
+            mailer,
+            mailpit,
+            jury_registration,
+            competition_file_id,
+            Some(RELOAD_DB_TOKEN),
+        )
+    }
+
+    /// `jury_registration` is the system default for the feature,
+    /// `competition_file_id` the id in the competition file the server
+    /// started with, `reload_db_token` the system config's token.
+    fn build_with(
+        db: SqlitePool,
+        mailer: Mailer,
+        mailpit: Option<Mailpit>,
+        jury_registration: bool,
+        competition_file_id: Option<&str>,
+        reload_db_token: Option<&str>,
     ) -> Self {
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_aud = false;
@@ -261,7 +286,7 @@ impl TestApp {
             bind_address: "127.0.0.1:0".into(),
             base_url: BASE_URL.into(),
             data_path: data_dir.0.clone(),
-            reload_db_token: RELOAD_DB_TOKEN.into(),
+            reload_db_token: reload_db_token.map(Into::into),
             metrics_token: Some(METRICS_TOKEN.into()),
             features: Features {
                 jury_registration: Some(jury_registration),

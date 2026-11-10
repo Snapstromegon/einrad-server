@@ -33,8 +33,6 @@ pub const DEFAULT_BASE_URL: &str = "http://localhost:3000";
 pub const DEFAULT_HTTP_ADDRESS: &str = "127.0.0.1:3000";
 pub const DEFAULT_DATABASE_URL: &str = "sqlite://./db.sqlite?mode=rwc";
 pub const DEFAULT_DATA_PATH: &str = "./data";
-pub const DEFAULT_JWT_SECRET: &str = "supersecretsupersecret";
-pub const DEFAULT_RELOAD_DB_TOKEN: &str = "reload_db";
 
 /// CLI flags and environment variables. Every value is optional here, so that
 /// the config file can fill in what's missing.
@@ -834,7 +832,8 @@ pub struct Settings {
     pub jwt_secret: String,
     pub admin: Option<AdminConfig>,
     pub insecure_cookies: bool,
-    pub reload_db_token: String,
+    /// Lets a logged-in non-admin reload the database; `None` turns that off.
+    pub reload_db_token: Option<String>,
     pub metrics_token: Option<String>,
     pub local_player: Option<String>,
     /// Defaults for the features a competition leaves unset (`[features]`).
@@ -845,6 +844,12 @@ pub struct Settings {
     pub replace_competition: bool,
     /// Problems that don't stop the server, e.g. insecure defaults.
     pub warnings: Vec<String>,
+}
+
+/// A setting that is empty or only whitespace counts as not set, so an empty
+/// `JWT_SECRET=` neither passes as a secret nor shadows the file's value.
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|v| !v.trim().is_empty())
 }
 
 impl Settings {
@@ -858,6 +863,9 @@ impl Settings {
     ///     server = "smtp.example.org"
     ///     user = "cup@example.org"
     ///     password = "from-file"
+    ///
+    ///     [auth]
+    ///     jwt_secret = "a-long-random-secret"
     /// "#).unwrap();
     /// let cli = CliArgs { smtp_password: Some("from-env".into()), ..Default::default() };
     ///
@@ -865,10 +873,12 @@ impl Settings {
     /// assert_eq!(settings.smtp_password, "from-env");
     /// assert_eq!(settings.smtp_server, "smtp.example.org");
     /// assert_eq!(settings.http_address, "127.0.0.1:3000");
+    /// // jwt_secret is required; reload_db_token is optional (off without it).
+    /// assert!(settings.reload_db_token.is_none());
+    /// assert!(Settings::resolve(CliArgs::default(), ConfigFile::parse("").unwrap()).is_err());
     /// ```
     pub fn resolve(cli: CliArgs, file: ConfigFile) -> Result<Self, String> {
         let mut missing = Vec::new();
-        let mut warnings = Vec::new();
         let mut required = |value: Option<String>, name: &str| {
             value.unwrap_or_else(|| {
                 missing.push(name.to_string());
@@ -888,6 +898,10 @@ impl Settings {
             cli.smtp_password.or(file.smtp.password),
             "SMTP password (--smtp-password, SMTP_PASSWORD or [smtp] password)",
         );
+        let jwt_secret = required(
+            non_blank(cli.jwt_secret).or(non_blank(file.auth.jwt_secret)),
+            "JWT secret (--jwt-secret, JWT_SECRET or [auth] jwt_secret)",
+        );
         if !missing.is_empty() {
             return Err(format!(
                 "Missing required settings:\n- {}",
@@ -904,20 +918,8 @@ impl Settings {
             .or(file.server.data_path)
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_PATH));
 
-        let jwt_secret = cli
-            .jwt_secret
-            .or(file.auth.jwt_secret)
-            .unwrap_or_else(|| DEFAULT_JWT_SECRET.to_string());
-        if jwt_secret == DEFAULT_JWT_SECRET {
-            warnings.push("JWT_SECRET uses the insecure built-in default.".to_string());
-        }
-        let reload_db_token = cli
-            .reload_db_token
-            .or(file.server.reload_db_token)
-            .unwrap_or_else(|| DEFAULT_RELOAD_DB_TOKEN.to_string());
-        if reload_db_token == DEFAULT_RELOAD_DB_TOKEN {
-            warnings.push("RELOAD_DB_TOKEN uses the insecure built-in default.".to_string());
-        }
+        let reload_db_token =
+            non_blank(cli.reload_db_token).or(non_blank(file.server.reload_db_token));
 
         Ok(Self {
             base_url: cli
@@ -955,7 +957,7 @@ impl Settings {
                     .then(|| PathBuf::from(DEFAULT_COMPETITION_PATH))
             }),
             replace_competition: cli.replace_competition,
-            warnings,
+            warnings: Vec::new(),
         })
     }
 }
@@ -969,6 +971,9 @@ mod tests {
         server = "smtp.example.org"
         user = "cup@example.org"
         password = "secret"
+
+        [auth]
+        jwt_secret = "a-real-secret"
     "#;
 
     fn resolve(cli: CliArgs, file: &str) -> Result<Settings, String> {
@@ -1005,26 +1010,63 @@ mod tests {
         assert!(err.contains("SMTP server"), "{err}");
         assert!(err.contains("SMTP user"), "{err}");
         assert!(err.contains("SMTP password"), "{err}");
+        assert!(err.contains("JWT_SECRET"), "{err}");
     }
 
     #[test]
-    fn insecure_defaults_produce_warnings() {
-        let settings = resolve(CliArgs::default(), SMTP).unwrap();
-        assert!(settings.warnings.iter().any(|w| w.contains("JWT_SECRET")));
-        assert!(
-            settings
-                .warnings
-                .iter()
-                .any(|w| w.contains("RELOAD_DB_TOKEN"))
-        );
+    fn jwt_secret_is_required() {
+        let smtp_only = r#"
+            [smtp]
+            server = "smtp.example.org"
+            user = "cup@example.org"
+            password = "secret"
+        "#;
+        let err = resolve(CliArgs::default(), smtp_only).unwrap_err();
+        assert!(err.contains("--jwt-secret"), "{err}");
+        assert!(err.contains("JWT_SECRET"), "{err}");
+        assert!(err.contains("[auth] jwt_secret"), "{err}");
 
         let cli = CliArgs {
-            jwt_secret: Some("a-real-secret".into()),
+            jwt_secret: Some("from-env".into()),
+            ..Default::default()
+        };
+        let settings = resolve(cli, smtp_only).unwrap();
+        assert_eq!(settings.jwt_secret, "from-env");
+
+        // Empty or blank doesn't count as set, and doesn't shadow the file.
+        for blank in ["", "  "] {
+            let cli = CliArgs {
+                jwt_secret: Some(blank.into()),
+                ..Default::default()
+            };
+            let err = resolve(cli, smtp_only).unwrap_err();
+            assert!(err.contains("JWT_SECRET"), "{err}");
+        }
+        let cli = CliArgs {
+            jwt_secret: Some(String::new()),
+            ..Default::default()
+        };
+        let settings = resolve(cli, SMTP).unwrap();
+        assert_eq!(settings.jwt_secret, "a-real-secret");
+    }
+
+    #[test]
+    fn reload_db_token_is_optional_and_empty_means_off() {
+        let settings = resolve(CliArgs::default(), SMTP).unwrap();
+        assert_eq!(settings.reload_db_token, None);
+
+        let cli = CliArgs {
+            reload_db_token: Some("  ".into()),
+            ..Default::default()
+        };
+        assert_eq!(resolve(cli, SMTP).unwrap().reload_db_token, None);
+
+        let cli = CliArgs {
             reload_db_token: Some("a-real-token".into()),
             ..Default::default()
         };
         let settings = resolve(cli, SMTP).unwrap();
-        assert!(settings.warnings.is_empty(), "{:?}", settings.warnings);
+        assert_eq!(settings.reload_db_token.as_deref(), Some("a-real-token"));
     }
 
     #[test]
