@@ -129,6 +129,16 @@ async fn no_admin_starts_the_setup_even_with_a_complete_config() {
 }
 
 #[tokio::test]
+async fn an_existing_competition_without_an_admin_starts_the_setup() {
+    let db = in_memory_migrated().await;
+    common::seed_db(&db, &common::open_registration()).await;
+    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &db)
+        .await
+        .unwrap();
+    assert_eq!(reason, Some(PendingReason::NoAdmin));
+}
+
+#[tokio::test]
 async fn a_complete_config_with_an_admin_starts_normally() {
     let db = in_memory_migrated().await;
     add_admin(&db).await;

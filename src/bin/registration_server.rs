@@ -78,9 +78,6 @@ async fn main() -> eyre::Result<()> {
         setup::serve(listener, setup::router(state), shutdown_signal()).await?;
         return Ok(());
     }
-    // Complete config and an admin: a token file of an earlier start would
-    // point at a setup that is over.
-    let _ = std::fs::remove_file(config_dir.join(setup::TOKEN_FILE_NAME));
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
