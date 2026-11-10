@@ -542,7 +542,7 @@ pub async fn metrics_handler(
 }
 
 /// Compares without leaking the length of the matching prefix.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
@@ -583,7 +583,7 @@ mod tests {
             bind_address: String::new(),
             base_url: String::new(),
             data_path: std::path::PathBuf::new(),
-            reload_db_token: String::new(),
+            reload_db_token: None,
             metrics_token: None,
             features: Features::default(),
             competition_file_id: None,

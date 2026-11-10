@@ -572,6 +572,34 @@ async fn reload_db_rejects_non_admin_without_token() {
 }
 
 #[tokio::test]
+async fn reload_db_token_path_is_off_without_a_configured_token() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::without_reload_token(db).await;
+    let user = app.cookie_for(app.create_user("Alex", false).await);
+
+    for token in ["", "wrong", "reload_db", RELOAD_DB_TOKEN] {
+        let response = app
+            .post(
+                &format!("/api/command/reload_db?token={token}"),
+                json!(null),
+                Some(&user),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::FORBIDDEN, "token {token:?}");
+    }
+    let no_token = app
+        .post("/api/command/reload_db", json!(null), Some(&user))
+        .await;
+    assert_eq!(no_token.status, StatusCode::FORBIDDEN);
+
+    let admin = app.cookie_for(app.create_user("Max Müller", true).await);
+    let response = app
+        .post("/api/command/reload_db", json!(null), Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn unknown_api_route_is_not_found() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
