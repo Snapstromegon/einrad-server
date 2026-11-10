@@ -7,7 +7,6 @@ import {
   MAX_COMPETITION_ID_LENGTH,
   toOffsetTime,
 } from "../../competition";
-import { SYSTEM_STATUS_CHANGED } from "../../contexts/systemStatus";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 
@@ -208,7 +207,6 @@ export default class CupCompetitionCreate extends LitElement {
           },
         }),
       );
-      window.dispatchEvent(new Event(SYSTEM_STATUS_CHANGED));
       // Into the new competition: everything reads it again.
       location.reload();
     } catch (error) {
