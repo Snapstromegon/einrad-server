@@ -13,21 +13,33 @@ impl Mailer {
     /// SMTP authentication) or an `smtp://`/`smtps://` URL. Include URL
     /// credentials in the URL when required; `from_address` is always the
     /// sender address.
+    ///
+    /// # Panics
+    /// If the server is invalid; see [`Mailer::try_new`].
     pub fn new(server: &str, username: &str, password: &str, from_address: &str) -> Self {
+        Self::try_new(server, username, password, from_address)
+            .expect("invalid SMTP server configuration")
+    }
+
+    /// Like [`Mailer::new`], but an invalid server is an error. No connection
+    /// is opened; it must be called within a Tokio runtime.
+    pub fn try_new(
+        server: &str,
+        username: &str,
+        password: &str,
+        from_address: &str,
+    ) -> Result<Self, lettre::transport::smtp::Error> {
         let transport = if server.starts_with("smtp://") || server.starts_with("smtps://") {
-            AsyncSmtpTransport::<Tokio1Executor>::from_url(server)
-                .expect("invalid SMTP server configuration")
-                .build()
+            AsyncSmtpTransport::<Tokio1Executor>::from_url(server)?.build()
         } else {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(server)
-                .expect("invalid SMTP server configuration")
+            AsyncSmtpTransport::<Tokio1Executor>::relay(server)?
                 .credentials(Credentials::new(username.to_owned(), password.to_owned()))
                 .build()
         };
-        Self {
+        Ok(Self {
             transport,
             from_address: from_address.to_owned(),
-        }
+        })
     }
 
     /// Creates a mailer from an SMTP connection URL.

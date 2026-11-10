@@ -16,7 +16,9 @@ use axum::{
 use common::{TempDir, in_memory_migrated};
 use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
-    setup::{PendingReason, SetupState, TOKEN_FILE_NAME, config_dir, pending_reason, router},
+    setup::{
+        PendingReason, SetupEnv, SetupState, TOKEN_FILE_NAME, config_dir, pending_reason, router,
+    },
 };
 use tower::ServiceExt;
 use url::Url;
@@ -51,8 +53,19 @@ fn base_url() -> Option<Url> {
     Some(Url::parse("https://cup.example.org").unwrap())
 }
 
+/// A setup whose config path is `config.toml` in `dir`. The token tests never
+/// touch the database, so its pool connects lazily (and never).
 fn state_in(dir: &TempDir, base_url: Option<Url>) -> Arc<SetupState> {
-    SetupState::new(base_url, &dir.0)
+    SetupState::new(base_url, env_in(&dir.0))
+}
+
+fn env_in(dir: &Path) -> SetupEnv {
+    let cli = CliArgs {
+        config: Some(dir.join("config.toml")),
+        ..Default::default()
+    };
+    let db = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+    SetupEnv::new(db, cli)
 }
 
 async fn send(app: &Router, method: Method, uri: &str, body: Option<&str>) -> Response {
@@ -234,7 +247,7 @@ fn every_start_makes_a_new_token_and_replaces_the_file() {
 #[test]
 fn an_unwritable_directory_is_an_error_not_a_panic() {
     let dir = TempDir::new();
-    let state = SetupState::new(None, &dir.0.join("missing"));
+    let state = SetupState::new(None, env_in(&dir.0.join("missing")));
     assert!(state.write_token_file().is_err());
     // The token is still known, for the log.
     assert!(!state.token().is_empty());
