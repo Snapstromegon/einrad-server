@@ -47,10 +47,8 @@ const undebug = (message: string) => {
   };
   return message
     .slice(1, -1)
-    .replace(
-      /\\(u\{([0-9a-fA-F]{1,6})\}|.)/g,
-      (_, seq: string, hex?: string) =>
-        hex ? String.fromCodePoint(parseInt(hex, 16)) : (escapes[seq] ?? seq),
+    .replace(/\\(u\{([0-9a-fA-F]{1,6})\}|.)/g, (_, seq: string, hex?: string) =>
+      hex ? String.fromCodePoint(parseInt(hex, 16)) : (escapes[seq] ?? seq),
     );
 };
 
