@@ -7,7 +7,7 @@ use crate::{
     system_status::StatusOptions,
 };
 
-time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+time::serde::format_description!(pub(crate) iso_date, Date, "[year]-[month]-[day]");
 
 /// Event specific settings, stored in the `competition` table.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
