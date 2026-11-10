@@ -241,6 +241,14 @@ export default defineConfig(({ mode }) => ({
     emptyOutDir: true,
     target: "esnext",
     sourcemap: mode !== "release",
+    // The app and the setup shell, which the server shows instead while its
+    // first-run setup is pending.
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("src/index.html", import.meta.url)),
+        setup: fileURLToPath(new URL("src/setup.html", import.meta.url)),
+      },
+    },
   },
   server: {
     proxy: {
