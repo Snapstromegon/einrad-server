@@ -18,6 +18,9 @@ const SYSTEM_CONFIG: &str = r#"
 server = "smtp.example.org"
 user = "cup@example.org"
 password = "secret"
+
+[auth]
+jwt_secret = "test-jwt-secret"
 "#;
 
 const COMPETITION: &str = include_str!("fixtures/competition.toml");
