@@ -260,7 +260,11 @@ pub async fn test_mail(env: &SetupEnv, input: TestMailInput) -> Result<(), Strin
         .clone()
         .or_else(|| non_blank(Some(input.smtp.server.clone())));
     let user = pick(&cli.smtp_username, &file.smtp.user, &input.smtp.user);
-    let password = pick(&cli.smtp_password, &file.smtp.password, &input.smtp.password);
+    let password = pick(
+        &cli.smtp_password,
+        &file.smtp.password,
+        &input.smtp.password,
+    );
     let (Some(server), Some(user), Some(password)) = (server, user, password) else {
         return Err("SMTP server, user and password are needed for a test mail.".into());
     };

@@ -181,8 +181,8 @@ fn the_token_file_goes_next_to_the_config_path() {
 
 // The token and its file
 
-#[test]
-fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
+#[tokio::test]
+async fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, base_url());
     state.write_token_file().unwrap();
@@ -197,8 +197,8 @@ fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
     );
 }
 
-#[test]
-fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
+#[tokio::test]
+async fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, None);
     state.write_token_file().unwrap();
@@ -208,8 +208,8 @@ fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
     assert_eq!(state.token_line(), state.token());
 }
 
-#[test]
-fn a_base_url_with_a_path_keeps_it() {
+#[tokio::test]
+async fn a_base_url_with_a_path_keeps_it() {
     let dir = TempDir::new();
     let url = Url::parse("https://example.org/cup/").unwrap();
     let state = state_in(&dir, Some(url));
@@ -219,8 +219,8 @@ fn a_base_url_with_a_path_keeps_it() {
     );
 }
 
-#[test]
-fn every_start_makes_a_new_token_and_replaces_the_file() {
+#[tokio::test]
+async fn every_start_makes_a_new_token_and_replaces_the_file() {
     let dir = TempDir::new();
     let first = state_in(&dir, None);
     first.write_token_file().unwrap();
@@ -244,8 +244,8 @@ fn every_start_makes_a_new_token_and_replaces_the_file() {
     assert!(!second.token_matches(first.token()));
 }
 
-#[test]
-fn an_unwritable_directory_is_an_error_not_a_panic() {
+#[tokio::test]
+async fn an_unwritable_directory_is_an_error_not_a_panic() {
     let dir = TempDir::new();
     let state = SetupState::new(None, env_in(&dir.0.join("missing")));
     assert!(state.write_token_file().is_err());
@@ -253,8 +253,8 @@ fn an_unwritable_directory_is_an_error_not_a_panic() {
     assert!(!state.token().is_empty());
 }
 
-#[test]
-fn the_token_matches_bare_or_inside_a_url() {
+#[tokio::test]
+async fn the_token_matches_bare_or_inside_a_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, base_url());
     let token = state.token().to_owned();
