@@ -28,8 +28,20 @@ _Avoid_: Partner, sponsor logo (for the entry)
 **Image source**:
 Where the logo, break image or a sponsor's logo comes from: an inline SVG, an upload, or a URL the server downloads at startup and on "Bilder aktualisieren". The server serves its local copy and keeps the last good one if a download fails (ADR 0010).
 
+**System config**:
+The settings of the server itself (address, database, SMTP, secrets), from the config file, environment variables and CLI flags; separate from the competition, which lives in the database.
+_Avoid_: Config (for the competition), settings (for the competition's)
+
+**First-run setup** (Ersteinrichtung):
+The guided steps a server shows instead of refusing to start, when its system config is incomplete or there is no admin yet: it saves the system config and creates the first admin, then hands over to setup mode (ADR 0011).
+_Avoid_: Onboarding, installer, setup mode (for this)
+
+**Setup token**:
+The one-time secret that unlocks first-run setup, made new on every start and valid until the first-run setup is done; whoever can read the server's log or its working directory has it.
+_Avoid_: Setup password, invite code
+
 **Setup mode**:
-The server running without a competition, until an admin imports the competition file in the admin UI; everyone else sees "noch nicht eröffnet".
+The server running without a competition, until an admin imports a competition file or creates a competition from scratch in the admin UI; everyone else sees "noch nicht eröffnet".
 
 **Remap file**:
 The list of judge registrations a replace dropped because their jury category has no namesake in the new competition file, with an empty jury category to fill in.
