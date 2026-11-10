@@ -470,12 +470,15 @@ async fn complete_setup(
             reason,
             path,
             content,
+            partial,
         })) => (
             StatusCode::CONFLICT,
             Json(serde_json::json!({
                 "reason": reason,
                 "config_path": path,
                 "config_content": content,
+                // If true, add these lines to the existing file instead.
+                "partial": partial,
             })),
         )
             .into_response(),

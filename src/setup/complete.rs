@@ -52,7 +52,14 @@ impl SetupEnv {
     /// The config file as it is on disk now; a missing file is an empty
     /// config. Read fresh each time, so a file the user saved by hand counts.
     fn load_file(&self) -> Result<ConfigFile, String> {
-        ConfigFile::load(Some(&self.config_path))
+        // No parser message: it would quote the offending line, which may
+        // be a secret.
+        ConfigFile::load(Some(&self.config_path)).map_err(|_| {
+            format!(
+                "The config file {} can't be read or parsed. Fix it and reload.",
+                self.config_path.display()
+            )
+        })
     }
 }
 
@@ -237,18 +244,23 @@ pub struct TestMailInput {
 pub async fn test_mail(env: &SetupEnv, input: TestMailInput) -> Result<(), String> {
     let file = env.load_file()?;
     let cli = &env.cli;
+    // Stored credentials only go to a stored server; with a server from the
+    // input, the credentials come from the input too.
+    let stored_server =
+        non_blank(cli.smtp_server.clone()).or_else(|| non_blank(file.smtp.server.clone()));
     let pick = |cli: &Option<String>, file: &Option<String>, input: &str| {
-        non_blank(cli.clone())
-            .or_else(|| non_blank(file.clone()))
-            .or_else(|| non_blank(Some(input.to_string())))
+        let stored = if stored_server.is_some() {
+            non_blank(cli.clone()).or_else(|| non_blank(file.clone()))
+        } else {
+            None
+        };
+        stored.or_else(|| non_blank(Some(input.to_string())))
     };
-    let server = pick(&cli.smtp_server, &file.smtp.server, &input.smtp.server);
+    let server = stored_server
+        .clone()
+        .or_else(|| non_blank(Some(input.smtp.server.clone())));
     let user = pick(&cli.smtp_username, &file.smtp.user, &input.smtp.user);
-    let password = pick(
-        &cli.smtp_password,
-        &file.smtp.password,
-        &input.smtp.password,
-    );
+    let password = pick(&cli.smtp_password, &file.smtp.password, &input.smtp.password);
     let (Some(server), Some(user), Some(password)) = (server, user, password) else {
         return Err("SMTP server, user and password are needed for a test mail.".into());
     };
@@ -320,6 +332,9 @@ pub enum CompleteError {
         reason: &'static str,
         path: PathBuf,
         content: String,
+        /// A file is already there: `content` is only the missing settings,
+        /// to add to it, not a replacement.
+        partial: bool,
     },
     Failed(String),
 }
@@ -572,6 +587,16 @@ pub async fn complete(
         return Err(CompleteError::Invalid(errors));
     }
 
+    if snap.needs_file && snap.file_exists {
+        // Known now; no need to hash a password first.
+        return Err(CompleteError::Conflict {
+            reason: "exists",
+            partial: true,
+            path: absolute(&env.config_path),
+            content: content.unwrap_or_default(),
+        });
+    }
+
     // Hashing is slow; do it before anything is written.
     let hashed = match admin {
         Some((name, email, password)) => {
@@ -597,6 +622,7 @@ pub async fn complete(
         if let Some(reason) = reason {
             return Err(CompleteError::Conflict {
                 reason,
+                partial: snap.file_exists,
                 path,
                 content,
             });

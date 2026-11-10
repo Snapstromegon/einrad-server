@@ -505,6 +505,7 @@ async fn an_existing_config_file_is_never_overwritten() {
     let (status, body) = h.complete(complete_body()).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     assert_eq!(body["reason"], "exists");
+    assert_eq!(body["partial"], true);
     assert_eq!(
         body["config_path"].as_str().map(Path::new),
         Some(h.config_path().as_path())
@@ -527,6 +528,39 @@ async fn an_existing_config_file_is_never_overwritten() {
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
     assert!(names.iter().all(|n| !n.ends_with(".tmp")), "{names:?}");
+}
+
+#[tokio::test]
+async fn a_broken_config_file_is_reported_without_its_content() {
+    let h = harness(
+        CliArgs::default(),
+        Some("[smtp]\npassword = \"leaky-secret\n"),
+    )
+    .await;
+    let (status, body) = h.call(Method::GET, "/api/setup/status", None).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(!body.to_string().contains("leaky-secret"), "{body}");
+}
+
+#[tokio::test]
+async fn stored_credentials_are_not_sent_to_a_server_from_the_input() {
+    let (url, mails) = fake_smtp().await;
+    let cli = CliArgs {
+        smtp_username: Some("env@example.org".into()),
+        smtp_password: Some("env-secret".into()),
+        ..Default::default()
+    };
+    let h = harness(cli, None).await;
+    let (_, body) = h
+        .call(
+            Method::POST,
+            "/api/setup/test-mail",
+            Some(json!({ "smtp": { "server": url }, "to": "max@example.org" })),
+        )
+        .await;
+    // The user and password of the input are needed, the stored ones don't count.
+    assert_eq!(body["ok"], false, "{body}");
+    assert!(mails.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
