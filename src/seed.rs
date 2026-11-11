@@ -32,22 +32,29 @@ use crate::{
     timeplan::EntryKind,
 };
 
-/// Lower birthday bound for categories without a maximum age.
+/// The lower birthday bound older competition files and databases stored
+/// for categories without a maximum age.
 pub const OPEN_FROM_BIRTHDAY: Date = time::macros::date!(1900 - 01 - 01);
-/// Upper birthday bound for categories without a minimum age.
+/// The upper birthday bound older competition files and databases stored
+/// for categories without a minimum age.
 pub const OPEN_TO_BIRTHDAY: Date = time::macros::date!(9999 - 12 - 31);
 
-/// A category from the config with its birthday bounds calculated.
+/// A category from the config with its birthday bounds derived from the
+/// determining day; they are never stored (#256).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedCategory {
     pub name: String,
     pub description: Option<String>,
     pub act_type: ActType,
     pub single_male: bool,
-    /// Inclusive.
-    pub from_birthday: Date,
-    /// Exclusive.
-    pub to_birthday: Date,
+    /// `None` for an open end at the bottom, e.g. "70+" has no `under_age`.
+    pub min_age: Option<f64>,
+    /// `None` for an open end at the top, e.g. "U11" has no `min_age`.
+    pub under_age: Option<f64>,
+    /// Inclusive, from `under_age`; `None` for no lower bound.
+    pub from_birthday: Option<Date>,
+    /// Exclusive, from `min_age`; `None` for no upper bound.
+    pub to_birthday: Option<Date>,
     pub einfahrzeit_seconds: i64,
     pub act_duration_seconds: i64,
     pub judge_duration_seconds: i64,
@@ -79,6 +86,36 @@ pub fn years_before(day: Date, years: f64) -> Date {
     }
 }
 
+/// The age (AGE-4) that a birthday bound of an older competition file or
+/// database stands for: its whole months before `determining_day`, e.g.
+/// 2016-06-01 against 2027-06-01 is 11 and 2017-12-01 is 9.5. The open
+/// bounds 1900-01-01 and 9999-12-31 give `None`. Any other date fails, as it
+/// isn't a whole number of months before the determining day: no rounding.
+///
+/// ```
+/// use einrad_server::seed::age_of_birthday_bound;
+/// use time::macros::date;
+///
+/// let day = date!(2027 - 06 - 01);
+/// assert_eq!(age_of_birthday_bound(date!(2016 - 06 - 01), day), Ok(Some(11.0)));
+/// assert_eq!(age_of_birthday_bound(date!(9999 - 12 - 31), day), Ok(None));
+/// assert!(age_of_birthday_bound(date!(2016 - 05 - 15), day).is_err());
+/// ```
+pub fn age_of_birthday_bound(bound: Date, determining_day: Date) -> Result<Option<f64>, String> {
+    if bound == OPEN_FROM_BIRTHDAY || bound == OPEN_TO_BIRTHDAY {
+        return Ok(None);
+    }
+    let months = (determining_day.year() - bound.year()) * 12
+        + (determining_day.month() as i32 - bound.month() as i32);
+    if bound.day() != determining_day.day() || months < 0 {
+        return Err(format!(
+            "the birthday bound {bound} isn't a whole number of months before the \
+             determining day {determining_day}; give min_age / under_age instead"
+        ));
+    }
+    Ok(Some(f64::from(months) / 12.0))
+}
+
 fn minutes_to_seconds(minutes: f64, field: &str, category: &str) -> Result<i64, String> {
     if minutes < 0.0 || !minutes.is_finite() {
         return Err(format!(
@@ -88,13 +125,46 @@ fn minutes_to_seconds(minutes: f64, field: &str, category: &str) -> Result<i64, 
     Ok((minutes * 60.0).round() as i64)
 }
 
-/// Calculates the birthday bounds of all categories against `determining_day`
-/// and validates them.
+/// Checks a category's ages and derives its birthday bounds from
+/// `determining_day` (AGE-2): `(from_birthday, to_birthday)`, the first
+/// inclusive, the second exclusive, `None` for an open end.
 ///
 /// A rider whose N-th birthday is on the determining day remains in the
 /// younger category, so `under_age = N` gives
 /// `from_birthday = determining_day - N years`. `min_age = M` gives
-/// `to_birthday = determining_day - M years` (exclusive).
+/// `to_birthday = determining_day - M years`.
+pub fn birthday_bounds(
+    name: &str,
+    min_age: Option<f64>,
+    under_age: Option<f64>,
+    determining_day: Date,
+) -> Result<(Option<Date>, Option<Date>), String> {
+    for age in [min_age, under_age].into_iter().flatten() {
+        if age < 0.0 || !age.is_finite() {
+            return Err(format!("Category {name}: ages must not be negative."));
+        }
+    }
+    if let (Some(min), Some(under)) = (min_age, under_age)
+        && min >= under
+    {
+        return Err(format!(
+            "Category {name}: min_age ({min}) must be lower than under_age ({under})."
+        ));
+    }
+    let from_birthday = under_age.map(|under| years_before(determining_day, under));
+    let to_birthday = min_age.map(|min| years_before(determining_day, min));
+    if let (Some(from), Some(to)) = (from_birthday, to_birthday)
+        && from >= to
+    {
+        return Err(format!(
+            "Category {name}: min_age and under_age must be at least a month apart."
+        ));
+    }
+    Ok((from_birthday, to_birthday))
+}
+
+/// Calculates the birthday bounds of all categories against `determining_day`
+/// and validates them (see [`birthday_bounds`]).
 pub fn resolve_categories(
     categories: &[CategoryConfig],
     determining_day: Date,
@@ -109,40 +179,15 @@ pub fn resolve_categories(
         if !names.insert(name.clone()) {
             return Err(format!("Category {name} is defined more than once."));
         }
-        for age in [category.min_age, category.under_age].into_iter().flatten() {
-            if age < 0.0 || !age.is_finite() {
-                return Err(format!("Category {name}: ages must not be negative."));
-            }
-        }
-        if let (Some(min), Some(under)) = (category.min_age, category.under_age)
-            && min >= under
-        {
-            return Err(format!(
-                "Category {name}: min_age ({min}) must be lower than under_age ({under})."
-            ));
-        }
-
-        let from_birthday = match (category.from_birthday, category.under_age) {
-            (Some(date), _) => date,
-            (None, Some(under)) => years_before(determining_day, under),
-            (None, None) => OPEN_FROM_BIRTHDAY,
-        };
-        let to_birthday = match (category.to_birthday, category.min_age) {
-            (Some(date), _) => date,
-            (None, Some(min)) => years_before(determining_day, min),
-            (None, None) => OPEN_TO_BIRTHDAY,
-        };
-        if from_birthday >= to_birthday {
-            return Err(format!(
-                "Category {name}: from_birthday ({from_birthday}) must be before to_birthday ({to_birthday})."
-            ));
-        }
-
+        let (from_birthday, to_birthday) =
+            birthday_bounds(name, category.min_age, category.under_age, determining_day)?;
         resolved.push(ResolvedCategory {
             name: name.clone(),
             description: category.description.clone(),
             act_type: category.act_type,
             single_male: category.single_male,
+            min_age: category.min_age,
+            under_age: category.under_age,
             from_birthday,
             to_birthday,
             einfahrzeit_seconds: minutes_to_seconds(
@@ -236,42 +281,83 @@ pub fn coverage_warnings(categories: &[ResolvedCategory]) -> Vec<String> {
             .push(category);
     }
 
+    // Open ends as the earliest and latest possible birthday.
+    let from = |c: &ResolvedCategory| c.from_birthday.unwrap_or(Date::MIN);
+    let to = |c: &ResolvedCategory| c.to_birthday.unwrap_or(Date::MAX);
     let mut warnings = Vec::new();
     for ((act_type, single_male), mut group) in groups {
-        group.sort_by_key(|c| c.from_birthday);
+        group.sort_by_key(|c| from(c));
         let label = format!("{act_type}{}", if single_male { ", male" } else { "" });
-        if group[0].from_birthday > OPEN_FROM_BIRTHDAY {
+        if let Some(first) = group[0].from_birthday {
             warnings.push(format!(
-                "Categories ({label}): riders born before {} match no category.",
-                group[0].from_birthday
+                "Categories ({label}): riders born before {first} match no category."
             ));
         }
         for pair in group.windows(2) {
             let (current, next) = (pair[0], pair[1]);
-            if next.from_birthday < current.to_birthday {
+            if from(next) < to(current) {
                 warnings.push(format!(
                     "Categories ({label}): {} and {} overlap.",
                     current.name, next.name
                 ));
-            } else if next.from_birthday > current.to_birthday {
+            } else if from(next) > to(current) {
                 warnings.push(format!(
                     "Categories ({label}): riders born from {} to before {} match neither {} nor {}.",
-                    current.to_birthday, next.from_birthday, current.name, next.name
+                    to(current),
+                    from(next),
+                    current.name,
+                    next.name
                 ));
             }
         }
         let last = group
             .iter()
-            .max_by_key(|c| c.to_birthday)
+            .max_by_key(|c| to(c))
             .expect("group isn't empty");
-        if last.to_birthday < OPEN_TO_BIRTHDAY {
+        if let Some(last) = last.to_birthday {
             warnings.push(format!(
-                "Categories ({label}): riders born on or after {} match no category.",
-                last.to_birthday
+                "Categories ({label}): riders born on or after {last} match no category."
             ));
         }
     }
     warnings
+}
+
+/// [`coverage_warnings`] for the categories in the database, with the bounds
+/// derived from the competition's determining day: the check the import
+/// runs, for edits in the admin UI. Empty without a competition.
+pub async fn stored_coverage_warnings(
+    conn: &mut sqlx::SqliteConnection,
+) -> Result<Vec<String>, String> {
+    let Some(competition) = Competition::current(&mut *conn).await.map_err(db_error)? else {
+        return Ok(vec![]);
+    };
+    let categories = sqlx::query!(
+        r#"
+        SELECT name as "name!", act_type as "act_type: ActType", is_single_male, min_age, under_age
+        FROM categories ORDER BY "order", name
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db_error)?
+    .into_iter()
+    .map(|row| CategoryConfig {
+        name: row.name,
+        description: None,
+        act_type: row.act_type,
+        single_male: row.is_single_male,
+        min_age: row.min_age,
+        under_age: row.under_age,
+        einfahrzeit_minutes: 0.0,
+        act_duration_minutes: 0.0,
+        judge_duration_minutes: 0.0,
+    })
+    .collect::<Vec<_>>();
+    Ok(coverage_warnings(&resolve_categories(
+        &categories,
+        competition.determining_day,
+    )?))
 }
 
 /// The act types (singles split by gender) that need at least one category.
@@ -487,10 +573,6 @@ pub fn validate_timeplan(
         }
     }
     Ok(())
-}
-
-fn midnight_utc(date: Date) -> OffsetDateTime {
-    date.midnight().assume_utc()
 }
 
 /// What [`apply`] did with the competition file.
@@ -932,7 +1014,7 @@ impl Snapshot {
             colors: rows(r#"SELECT json_array(primary_color, secondary_color) FROM competition"#)
                 .await?,
             categories: rows(
-                r#"SELECT json_array(name, description, from_birthday, to_birthday, act_type,
+                r#"SELECT json_array(name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds,
                     judge_duration_seconds)
                 FROM categories ORDER BY "order", name"#,
@@ -1145,19 +1227,17 @@ async fn write(
         }
         for (index, category) in resolved.iter().enumerate() {
             let order = index as i64 + 1;
-            let from_birthday = midnight_utc(category.from_birthday);
-            let to_birthday = midnight_utc(category.to_birthday);
             sqlx::query!(
                 r#"
                 INSERT INTO categories (
-                    name, description, from_birthday, to_birthday, act_type,
+                    name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 category.name,
                 category.description,
-                from_birthday,
-                to_birthday,
+                category.min_age,
+                category.under_age,
                 category.act_type,
                 category.single_male,
                 order,
@@ -1523,11 +1603,66 @@ mod tests {
         let config =
             categories(&(category("U15", None, Some(15.0)) + &category("15+", Some(15.0), None)));
         let resolved = resolve_categories(&config, DAY).unwrap();
-        assert_eq!(resolved[0].from_birthday, date!(2012 - 06 - 01));
-        assert_eq!(resolved[0].to_birthday, OPEN_TO_BIRTHDAY);
-        assert_eq!(resolved[1].from_birthday, OPEN_FROM_BIRTHDAY);
-        assert_eq!(resolved[1].to_birthday, date!(2012 - 06 - 01));
+        assert_eq!(resolved[0].from_birthday, Some(date!(2012 - 06 - 01)));
+        assert_eq!(resolved[0].to_birthday, None);
+        assert_eq!(resolved[1].from_birthday, None);
+        assert_eq!(resolved[1].to_birthday, Some(date!(2012 - 06 - 01)));
         assert!(coverage_warnings(&resolved).is_empty());
+    }
+
+    #[test]
+    fn the_ages_are_kept_next_to_the_derived_bounds() {
+        let config = categories(&category("U13", Some(11.0), Some(13.0)));
+        let resolved = resolve_categories(&config, DAY).unwrap();
+        assert_eq!(resolved[0].min_age, Some(11.0));
+        assert_eq!(resolved[0].under_age, Some(13.0));
+    }
+
+    #[test]
+    fn the_bounds_on_29_february_fall_back_to_the_28th() {
+        let leap_day = date!(2028 - 02 - 29);
+        let config = categories(&category("U13", Some(1.0), Some(13.0)));
+        let resolved = resolve_categories(&config, leap_day).unwrap();
+        assert_eq!(resolved[0].from_birthday, Some(date!(2015 - 02 - 28)));
+        assert_eq!(resolved[0].to_birthday, Some(date!(2027 - 02 - 28)));
+    }
+
+    #[test]
+    fn birthday_bounds_on_the_day_of_the_month_become_whole_months() {
+        assert_eq!(
+            age_of_birthday_bound(date!(2016 - 06 - 01), DAY),
+            Ok(Some(11.0))
+        );
+        assert_eq!(
+            age_of_birthday_bound(date!(2017 - 12 - 01), DAY),
+            Ok(Some(9.5))
+        );
+        assert_eq!(
+            age_of_birthday_bound(date!(1957 - 06 - 01), DAY),
+            Ok(Some(70.0))
+        );
+        let months = age_of_birthday_bound(date!(2016 - 05 - 01), DAY)
+            .unwrap()
+            .unwrap();
+        assert_eq!(years_before(DAY, months), date!(2016 - 05 - 01));
+    }
+
+    #[test]
+    fn the_open_birthday_bounds_become_empty_ages() {
+        assert_eq!(age_of_birthday_bound(OPEN_FROM_BIRTHDAY, DAY), Ok(None));
+        assert_eq!(age_of_birthday_bound(OPEN_TO_BIRTHDAY, DAY), Ok(None));
+    }
+
+    #[test]
+    fn other_birthday_bounds_fail() {
+        for bound in [
+            date!(2016 - 05 - 15),
+            date!(2016 - 06 - 02),
+            date!(2028 - 06 - 01),
+        ] {
+            let error = age_of_birthday_bound(bound, DAY).unwrap_err();
+            assert!(error.contains(&bound.to_string()), "{error}");
+        }
     }
 
     #[test]
@@ -1536,18 +1671,19 @@ mod tests {
             &(category("U9,5", None, Some(9.5)) + &category("U11", Some(9.5), Some(11.0))),
         );
         let resolved = resolve_categories(&config, DAY).unwrap();
-        assert_eq!(resolved[0].from_birthday, date!(2017 - 12 - 01));
-        assert_eq!(resolved[1].from_birthday, date!(2016 - 06 - 01));
-        assert_eq!(resolved[1].to_birthday, date!(2017 - 12 - 01));
+        assert_eq!(resolved[0].from_birthday, Some(date!(2017 - 12 - 01)));
+        assert_eq!(resolved[1].from_birthday, Some(date!(2016 - 06 - 01)));
+        assert_eq!(resolved[1].to_birthday, Some(date!(2017 - 12 - 01)));
     }
 
     #[test]
-    fn explicit_birthdays_override_ages() {
-        let config = categories(
-            "[[categories]]\nname = \"X\"\nact_type = \"pair\"\nunder_age = 15\nfrom_birthday = 2000-01-01\n",
-        );
-        let resolved = resolve_categories(&config, DAY).unwrap();
-        assert_eq!(resolved[0].from_birthday, date!(2000 - 01 - 01));
+    fn a_category_has_no_birthday_fields() {
+        let error = toml::from_str::<Lists>(
+            "[[categories]]\nname = \"X\"\nact_type = \"pair\"\nfrom_birthday = 2000-01-01\n",
+        )
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("from_birthday"), "{error}");
     }
 
     #[test]

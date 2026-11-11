@@ -27,10 +27,9 @@ fn category_body(name: &str) -> Value {
     json!({
         "name": name,
         "description": "Testkategorie",
-        // Format sent by the admin frontend.
-        "from_birthday": "2000-01-01T00:00:00Z",
-        "to_birthday": "2010-01-01T00:00:00Z",
-        "act_type": "single",
+        "min_age": 17,
+        "under_age": 27.5,
+        "act_type": "pair",
         "is_single_male": false,
         "einfahrzeit_seconds": 300,
         "act_duration_seconds": 120,
@@ -342,23 +341,131 @@ async fn admin_can_add_and_edit_category() {
 }
 
 #[tokio::test]
-#[ignore = "known bug: category birthdays are stored unvalidated and break list_categories"]
-async fn category_with_date_only_birthday_does_not_break_listing() {
+async fn categories_take_and_return_ages_without_birthdays() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    let mut body = category_body("DATE-ONLY");
-    body["from_birthday"] = json!("2000-01-01");
-
+    let mut body = category_body("OPEN");
+    body["under_age"] = Value::Null;
     let added = app
         .post("/api/command/add_category", body, Some(&admin))
         .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
 
-    // Either the input is rejected, or the listing keeps working.
-    if added.status == StatusCode::OK {
-        let response = app.get("/api/query/list_categories", None).await;
-        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let response = app.get("/api/query/list_categories", None).await;
+    let categories = response.body.as_array().unwrap();
+    let open = categories.iter().find(|c| c["name"] == "OPEN").unwrap();
+    assert_eq!(open["min_age"], 17.0);
+    assert_eq!(open["under_age"], Value::Null);
+    assert!(open.get("from_birthday").is_none(), "{open}");
+    let u13 = categories.iter().find(|c| c["name"] == "EWU13").unwrap();
+    assert_eq!(u13["min_age"], 11.0);
+    assert_eq!(u13["under_age"], 13.0);
+}
+
+#[tokio::test]
+async fn category_ages_are_validated() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    for (min_age, under_age) in [
+        (json!(13), json!(11)),
+        (json!(11), json!(11)),
+        (json!(-1), Value::Null),
+    ] {
+        let mut body = category_body("BAD");
+        body["min_age"] = min_age.clone();
+        body["under_age"] = under_age.clone();
+        let added = app
+            .post("/api/command/add_category", body.clone(), Some(&admin))
+            .await;
+        // Rejected with the reason, as the competition edit does.
+        assert_eq!(
+            added.status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{min_age} {under_age}: {:?}",
+            added.body
+        );
+        assert!(
+            added.body["message"].as_str().unwrap().contains("age"),
+            "{:?}",
+            added.body
+        );
+
+        body["name"] = json!("EWU13");
+        body["new_name"] = json!("EWU13");
+        let edited = app
+            .post("/api/command/edit_category", body, Some(&admin))
+            .await;
+        // Rejected with the reason, as the competition edit does.
+        assert_eq!(
+            edited.status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{min_age} {under_age}: {:?}",
+            edited.body
+        );
+        assert!(
+            edited.body["message"].as_str().unwrap().contains("age"),
+            "{:?}",
+            edited.body
+        );
     }
+    assert!(
+        !category_orders(&app)
+            .await
+            .iter()
+            .any(|(name, _)| name == "BAD")
+    );
+}
+
+#[tokio::test]
+async fn category_edits_report_gaps_and_overlaps_on_the_derived_bounds() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let warnings = |body: &Value| -> Vec<String> {
+        body["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_str().unwrap().to_string())
+            .collect()
+    };
+
+    // EWU13 is 11 to under 13: 12 to under 13 leaves a gap after EWU11.
+    let mut body = category_body("EWU13");
+    body["new_name"] = json!("EWU13");
+    body["act_type"] = json!("single");
+    body["min_age"] = json!(12);
+    body["under_age"] = json!(13);
+    let edited = app
+        .post("/api/command/edit_category", body.clone(), Some(&admin))
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
+    let gap = warnings(&edited.body);
+    assert_eq!(gap.len(), 1, "{gap:?}");
+    assert!(gap[0].contains("2015-06-01"), "{gap:?}");
+    assert!(gap[0].contains("2016-06-01"), "{gap:?}");
+
+    body["min_age"] = json!(11);
+    let edited = app
+        .post("/api/command/edit_category", body, Some(&admin))
+        .await;
+    assert_eq!(warnings(&edited.body), Vec::<String>::new());
+
+    let mut overlap = category_body("EW10-12");
+    overlap["act_type"] = json!("single");
+    overlap["min_age"] = json!(10);
+    overlap["under_age"] = json!(12);
+    let added = app
+        .post("/api/command/add_category", overlap, Some(&admin))
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+    assert!(
+        warnings(&added.body).iter().any(|w| w.contains("overlap")),
+        "{:?}",
+        added.body
+    );
 }
 
 #[tokio::test]

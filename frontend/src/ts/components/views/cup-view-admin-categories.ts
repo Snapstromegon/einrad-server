@@ -4,8 +4,20 @@ import { css, html, LitElement, nothing } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
+import {
+  type BirthdayBounds,
+  birthdayBounds,
+  birthdayRangeText,
+  dayBefore,
+  formatAgeInput,
+  parseAgeInput,
+} from "../../age-class";
 import { errorMessage, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
+import {
+  type SystemStatus,
+  systemStatusContext,
+} from "../../contexts/systemStatus";
 import { type User, userContext } from "../../contexts/user";
 import { can } from "../../roles";
 import { adminStyles } from "../../styles/admin";
@@ -32,10 +44,10 @@ interface Data {
 interface CategoryDraft {
   name: string;
   description: string;
-  /** "YYYY-MM-DD" */
-  from_birthday: string;
-  /** "YYYY-MM-DD", exclusive */
-  to_birthday: string;
+  /** Mindestalter as typed, "" for none. */
+  min_age: string;
+  /** "unter Alter" as typed, "" for none. */
+  under_age: string;
   act_type: ActType;
   is_single_male: boolean;
   /** Durations as "m:ss" or plain seconds. */
@@ -52,19 +64,9 @@ interface Editing {
 
 const actTypes = Object.entries(actTypeLabels) as [ActType, string][];
 
-/** The UTC day of a date-time from the server, as "YYYY-MM-DD" ("" if none). */
-const dateOnly = (value: string | null | undefined) => {
-  const date = value ? new Date(value) : null;
-  return date && !Number.isNaN(date.getTime())
-    ? date.toISOString().slice(0, 10)
-    : "";
-};
-
-/** Placeholder bounds like 1900-01-01 or 9999-12-31 mean "no limit". */
-const isOpenBound = (day: string) => {
-  const year = Number(day.slice(0, 4));
-  return year <= 1900 || year >= 9999;
-};
+/** Open ends of a birthday range, for comparing ranges as text. */
+const EARLIEST = "0000-01-01";
+const LATEST = "9999-12-31";
 
 /**
  * Planned length of a category's block, as the timeplan computes it. A block
@@ -85,7 +87,10 @@ const blockTitle = (category: Category, acts: number) =>
       `(${formatDuration(category.act_duration_seconds)} Kür + ` +
       `${formatDuration(category.judge_duration_seconds)} Bewertung)`;
 
-/** A category's birthday range: days as "YYYY-MM-DD", `to` exclusive. */
+/**
+ * A category's birthday range: days as "YYYY-MM-DD", `to` exclusive, open
+ * ends as EARLIEST and LATEST.
+ */
 interface Range {
   name: string;
   /** Categories with the same group compete for the same acts. */
@@ -104,18 +109,24 @@ interface RangeIssue {
 const rangeGroup = (actType: ActType, isSingleMale: boolean) =>
   actType === "single" ? `single-${isSingleMale}` : actType;
 
-const rangeOf = (category: Category): Range => ({
-  name: category.name,
-  group: rangeGroup(category.act_type, category.is_single_male),
-  from: dateOnly(category.from_birthday),
-  to: dateOnly(category.to_birthday),
+const rangeOf = (
+  name: string,
+  group: string,
+  bounds: BirthdayBounds,
+): Range => ({
+  name,
+  group,
+  from: bounds.from ?? EARLIEST,
+  to: bounds.to ?? LATEST,
 });
 
-/** The day before "YYYY-MM-DD". */
-const dayBefore = (day: string) =>
-  new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+/** A category's range on `determiningDay`. */
+const categoryRange = (category: Category, determiningDay: string) =>
+  rangeOf(
+    category.name,
+    rangeGroup(category.act_type, category.is_single_male),
+    birthdayBounds(category.min_age, category.under_age, determiningDay),
+  );
 
 /**
  * Overlaps and gaps between the birthday ranges of categories competing for
@@ -133,7 +144,7 @@ const rangeIssues = (ranges: Range[]) => {
   };
   const groups = new Map<string, Range[]>();
   for (const range of ranges) {
-    if (range.from && range.to && range.from < range.to) {
+    if (range.from < range.to) {
       groups.set(range.group, [...(groups.get(range.group) ?? []), range]);
     }
   }
@@ -171,8 +182,8 @@ const rangeIssues = (ranges: Range[]) => {
 const draftOf = (category: Category): CategoryDraft => ({
   name: category.name,
   description: category.description ?? "",
-  from_birthday: dateOnly(category.from_birthday),
-  to_birthday: dateOnly(category.to_birthday),
+  min_age: formatAgeInput(category.min_age),
+  under_age: formatAgeInput(category.under_age),
   act_type: category.act_type,
   is_single_male: category.is_single_male,
   einfahrzeit: formatDuration(category.einfahrzeit_seconds),
@@ -183,8 +194,8 @@ const draftOf = (category: Category): CategoryDraft => ({
 const newDraft = (): CategoryDraft => ({
   name: "",
   description: "",
-  from_birthday: "",
-  to_birthday: "",
+  min_age: "",
+  under_age: "",
   act_type: "single",
   is_single_male: false,
   einfahrzeit: "10:00",
@@ -216,6 +227,14 @@ export default class CupViewAdminCategories extends LitElement {
         width: 4.5em;
       }
 
+      input.age {
+        width: 3.5em;
+      }
+
+      td.nowrap {
+        white-space: nowrap;
+      }
+
       textarea.desc {
         width: 100%;
         min-width: 12em;
@@ -245,6 +264,10 @@ export default class CupViewAdminCategories extends LitElement {
 
   @consume({ context: userContext, subscribe: true })
   user: User | null = null;
+
+  /** Its competition's determining day gives the birthday ranges. */
+  @consume({ context: systemStatusContext, subscribe: true })
+  systemStatus: SystemStatus | null = null;
 
   @state() private editing: Editing | null = null;
   @state() private busy = false;
@@ -284,9 +307,29 @@ export default class CupViewAdminCategories extends LitElement {
     return this.data.value ?? this.last;
   }
 
+  /** The determining day ("YYYY-MM-DD"), `null` without a competition. */
+  private get determiningDay() {
+    return this.systemStatus?.competition?.determining_day ?? null;
+  }
+
+  /** A category's birthday bounds, `null` without a determining day. */
+  private boundsOf(
+    minAge: number | null | undefined,
+    underAge: number | null | undefined,
+  ) {
+    const day = this.determiningDay;
+    return day ? birthdayBounds(minAge, underAge, day) : null;
+  }
+
   override render() {
     const data = this.current;
-    const ranges = data ? rangeIssues(data.categories.map(rangeOf)) : null;
+    const day = this.determiningDay;
+    const ranges =
+      data && day
+        ? rangeIssues(data.categories.map((c) => categoryRange(c, day)))
+        : data
+          ? rangeIssues([])
+          : null;
     return html`<div class="page-pad">
       <div class="toolbar">
         <h1>Kategorien</h1>
@@ -440,12 +483,19 @@ export default class CupViewAdminCategories extends LitElement {
           <th class="c" title="Nur Einzelküren werden nach Geschlecht getrennt">
             Männlich
           </th>
-          <th title="Geburtsdatum ab diesem Tag (einschließlich)">Von</th>
           <th
-            title="Geburtsdatum vor diesem Tag: der Tag selbst gehört nicht mehr dazu"
+            class="num"
+            title="Alter am Stichtag, ab dem FahrerInnen dazugehören, z. B. 70 für 70+; leer für keine Untergrenze. 9,5 = 9 Jahre 6 Monate"
           >
-            Bis (exkl.)
+            Mindestalter
           </th>
+          <th
+            class="num"
+            title="Alter am Stichtag, unter dem FahrerInnen bleiben, z. B. 11 für U11; leer für keine Obergrenze. Wer am Stichtag Geburtstag hat, bleibt jünger"
+          >
+            unter Alter
+          </th>
+          <th title="Aus den Altern und dem Stichtag berechnet">Geburtstage</th>
           <th class="num" title="Einfahrzeit (m:ss)">Einfahren</th>
           <th class="num" title="Dauer einer Kür (m:ss)">Kür</th>
           <th class="num" title="Bewertungszeit nach jeder Kür (m:ss)">
@@ -485,14 +535,14 @@ export default class CupViewAdminCategories extends LitElement {
         ${
           categories.length === 0 && !this.editing
             ? html`<tr>
-              <td colspan="12" class="empty">Noch keine Kategorien.</td>
+              <td colspan="13" class="empty">Noch keine Kategorien.</td>
             </tr>`
             : nothing
         }
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="9">Summe</td>
+          <td colspan="10">Summe</td>
           <td class="num">${totalActs}</td>
           <td class="num">${formatDuration(totalSeconds)}</td>
           <td class="actions"></td>
@@ -501,26 +551,26 @@ export default class CupViewAdminCategories extends LitElement {
     </table>`;
   }
 
-  private renderBound(value: string | null | undefined) {
-    const day = dateOnly(value);
-    if (!day) {
-      return html`<span class="muted">–</span>`;
-    }
-    if (isOpenBound(day)) {
-      return html`<span class="muted" title="ohne Grenze (${formatDate(day)})"
-        >–</span
-      >`;
-    }
-    return formatDate(day);
+  private renderAge(age: number | null | undefined) {
+    return age == null
+      ? html`<span class="muted" title="ohne Grenze">–</span>`
+      : formatAgeInput(age);
   }
 
-  /** A birthday bound, marked when it overlaps or leaves a gap. */
-  private renderRangeCell(value: string | null | undefined, issue?: string) {
+  /** The derived birthdays, read-only. */
+  private renderBirthdays(bounds: BirthdayBounds | null) {
+    return bounds
+      ? birthdayRangeText(bounds)
+      : html`<span class="muted" title="Kein Wettkampf mit Stichtag">–</span>`;
+  }
+
+  /** An age, marked when its birthday bound overlaps or leaves a gap. */
+  private renderAgeCell(age: number | null | undefined, issue?: string) {
     return issue
-      ? html`<td class="text-warn" title=${issue}>
-          ⚠ ${this.renderBound(value)}
+      ? html`<td class="num text-warn" title=${issue}>
+          ⚠ ${this.renderAge(age)}
         </td>`
-      : html`<td>${this.renderBound(value)}</td>`;
+      : html`<td class="num">${this.renderAge(age)}</td>`;
   }
 
   private renderRow(
@@ -547,8 +597,13 @@ export default class CupViewAdminCategories extends LitElement {
             : html`<span class="muted" title="nur für Einzelküren">–</span>`
         }
       </td>
-      ${this.renderRangeCell(category.from_birthday, rangeIssue?.from)}
-      ${this.renderRangeCell(category.to_birthday, rangeIssue?.to)}
+      ${this.renderAgeCell(category.min_age, rangeIssue?.to)}
+      ${this.renderAgeCell(category.under_age, rangeIssue?.from)}
+      <td class="nowrap">
+        ${this.renderBirthdays(
+          this.boundsOf(category.min_age, category.under_age),
+        )}
+      </td>
       <td class="num">${formatDuration(category.einfahrzeit_seconds)}</td>
       <td class="num">${formatDuration(category.act_duration_seconds)}</td>
       <td class="num">${formatDuration(category.judge_duration_seconds)}</td>
@@ -676,30 +731,35 @@ export default class CupViewAdminCategories extends LitElement {
           @change=${this.onDraftInput}
         />
       </td>
-      <td>
+      <td class="num">
         <input
-          class=${classMap({ inline: true, invalid: problems.from })}
-          type="date"
-          aria-label="Geburtsdatum von"
-          required
-          data-field="from_birthday"
-          .value=${draft.from_birthday}
-          @input=${this.onDraftInput}
-        />
-        ${this.renderRangeWarning(rangeIssue?.from)}
-      </td>
-      <td>
-        <input
-          class=${classMap({ inline: true, invalid: problems.to })}
-          type="date"
-          aria-label="Geburtsdatum bis (exklusiv)"
-          required
-          data-field="to_birthday"
-          .value=${draft.to_birthday}
+          class=${classMap({ inline: true, num: true, age: true, invalid: problems.min })}
+          type="text"
+          inputmode="decimal"
+          placeholder="–"
+          title="Mindestalter am Stichtag, z. B. 70 für 70+; leer für keine Untergrenze. 9,5 = 9 Jahre 6 Monate"
+          aria-label="Mindestalter"
+          data-field="min_age"
+          .value=${draft.min_age}
           @input=${this.onDraftInput}
         />
         ${this.renderRangeWarning(rangeIssue?.to)}
       </td>
+      <td class="num">
+        <input
+          class=${classMap({ inline: true, num: true, age: true, invalid: problems.under })}
+          type="text"
+          inputmode="decimal"
+          placeholder="–"
+          title="unter diesem Alter am Stichtag, z. B. 11 für U11; leer für keine Obergrenze. 9,5 = 9 Jahre 6 Monate"
+          aria-label="unter Alter"
+          data-field="under_age"
+          .value=${draft.under_age}
+          @input=${this.onDraftInput}
+        />
+        ${this.renderRangeWarning(rangeIssue?.from)}
+      </td>
+      <td class="nowrap">${this.renderBirthdays(this.draftBounds(draft))}</td>
       <td class="num">
         <input
           class=${classMap({
@@ -781,28 +841,41 @@ export default class CupViewAdminCategories extends LitElement {
     </tr>`;
   }
 
-  /** A warning below a birthday input; it doesn't block saving. */
+  /** A warning below an age input; it doesn't block saving. */
   private renderRangeWarning(issue: string | undefined) {
     return issue
       ? html`<div class="small text-warn range-warn">⚠ ${issue}</div>`
       : nothing;
   }
 
+  /** The draft's birthday bounds, `null` while an age is invalid. */
+  private draftBounds(draft: CategoryDraft) {
+    const minAge = parseAgeInput(draft.min_age);
+    const underAge = parseAgeInput(draft.under_age);
+    return minAge === undefined || underAge === undefined
+      ? null
+      : this.boundsOf(minAge, underAge);
+  }
+
   /** Overlaps and gaps the draft's birthdays leave with the other categories. */
   private draftRangeIssue(draft: CategoryDraft) {
     const name = draft.name.trim() || "neue Kategorie";
+    const day = this.determiningDay;
+    const bounds = this.draftBounds(draft);
+    if (!day || !bounds) {
+      return undefined;
+    }
     const others = (this.current?.categories ?? [])
       .filter((c) => c.name !== this.editing?.original && c.name !== name)
-      .map(rangeOf);
-    const own: Range = {
+      .map((c) => categoryRange(c, day));
+    const own = rangeOf(
       name,
-      group: rangeGroup(
+      rangeGroup(
         draft.act_type,
         draft.act_type === "single" && draft.is_single_male,
       ),
-      from: draft.from_birthday,
-      to: draft.to_birthday,
-    };
+      bounds,
+    );
     return rangeIssues([...others, own]).issues.get(name);
   }
 
@@ -812,16 +885,18 @@ export default class CupViewAdminCategories extends LitElement {
     const taken =
       name !== this.editing?.original &&
       !!this.current?.categories.some((c) => c.name === name);
-    const order =
-      !!draft.from_birthday &&
-      !!draft.to_birthday &&
-      draft.from_birthday >= draft.to_birthday;
+    const minAge = parseAgeInput(draft.min_age);
+    const underAge = parseAgeInput(draft.under_age);
+    const order = minAge != null && underAge != null && minAge >= underAge;
     return {
       name: !name || taken,
       taken,
-      from: !draft.from_birthday || order,
-      to: !draft.to_birthday || order,
+      min: minAge === undefined || order,
+      under: underAge === undefined || order,
+      invalidAge: minAge === undefined || underAge === undefined,
       order,
+      minAge,
+      underAge,
     };
   }
 
@@ -915,9 +990,9 @@ export default class CupViewAdminCategories extends LitElement {
     const messages = [
       !draft.name.trim() && "Bitte einen Namen eingeben.",
       problems.taken && `Die Kategorie „${draft.name.trim()}“ gibt es schon.`,
-      (!draft.from_birthday || !draft.to_birthday) &&
-        "Bitte beide Geburtsdaten (Von und Bis) eingeben.",
-      problems.order && "„Von“ muss vor „Bis“ liegen.",
+      problems.invalidAge &&
+        "Alter bitte als Zahl eingeben, z. B. 11 oder 9,5 (leer für keine Grenze).",
+      problems.order && "Das Mindestalter muss unter dem „unter Alter“ liegen.",
       (einfahrzeit === null ||
         actDuration === null ||
         judgeDuration === null) &&
@@ -925,6 +1000,8 @@ export default class CupViewAdminCategories extends LitElement {
     ].filter(Boolean);
     if (
       messages.length ||
+      problems.minAge === undefined ||
+      problems.underAge === undefined ||
       einfahrzeit === null ||
       actDuration === null ||
       judgeDuration === null
@@ -936,8 +1013,8 @@ export default class CupViewAdminCategories extends LitElement {
     const body = {
       name: draft.name.trim(),
       description: draft.description.trim() || null,
-      from_birthday: `${draft.from_birthday}T00:00:00Z`,
-      to_birthday: `${draft.to_birthday}T00:00:00Z`,
+      min_age: problems.minAge,
+      under_age: problems.underAge,
       act_type: draft.act_type,
       is_single_male: draft.act_type === "single" && draft.is_single_male,
       einfahrzeit_seconds: einfahrzeit,

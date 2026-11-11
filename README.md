@@ -77,8 +77,8 @@ the competition file only an import:
   competition file that the import and `--competition` take unchanged, e.g. to
   save a test instance's settings: the settings with the id, the features it
   sets, the photos with their password (share the file only in trusted
-  channels), the categories with explicit birthday bounds, the finals, the
-  timeplan and the jury categories. Nothing clubs entered, no bookings, fee
+  channels), the categories with their ages (so the file carries over to the
+  next season), the finals, the timeplan and the jury categories. Nothing clubs entered, no bookings, fee
   waivers, users, act order, progress, placements or jury plan.
 - A filled-in remap file is applied on the admin judges screen ("Jury",
   "Remap-Datei anwenden"): entries with an existing `jury_category` register

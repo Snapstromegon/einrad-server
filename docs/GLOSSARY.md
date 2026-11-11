@@ -165,8 +165,8 @@ A discipline and an age class in which acts are ranked against each other, e.g. 
 _Avoid_: Altersklasse, Wertungsklasse, class
 
 **Age class** (Altersklasse):
-The age part of a category, e.g. U13 or 70+: a minimum age, an age to be under on the determining day, or both; groups only have Junior Expert (under 15) and Expert.
-_Avoid_: Category (for the age part only)
+The age part of a category, e.g. U13 or 70+: a minimum age and an age the riders are under on the determining day, either left open (U11 has no minimum, 70+ no upper age); a rider whose birthday is on the determining day stays in the younger class. Which birthdays it takes follows from the determining day, so a new season moves every age class along. Groups only have Junior Expert (under 15) and Expert.
+_Avoid_: Category (for the age part only), birthday range (as what defines it)
 
 **Heat** (Vorlauf):
 A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Group categories have no heat.

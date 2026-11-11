@@ -8,18 +8,27 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
+    seed,
 };
 
+use super::add_category::check_ages;
+
 #[derive(Debug, Serialize, ToSchema)]
-pub struct EditCategoryResponse {}
+pub struct EditCategoryResponse {
+    /// Gaps and overlaps between the categories' birthday bounds, derived
+    /// from the determining day, as the import reports them.
+    warnings: Vec<String>,
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditCategoryBody {
     name: String, // Primary key - category to edit
     new_name: String,
     description: Option<String>,
-    from_birthday: String, // ISO date string
-    to_birthday: String,   // ISO date string
+    /// See `AddCategoryBody::min_age`.
+    min_age: Option<f64>,
+    /// See `AddCategoryBody::under_age`.
+    under_age: Option<f64>,
     act_type: ActType,
     is_single_male: bool,
     einfahrzeit_seconds: i32,
@@ -52,6 +61,7 @@ pub async fn edit_category(
 
     // Start a transaction to ensure atomicity
     let mut tx = begin_write(&db).await?;
+    check_ages(&mut tx, &body.new_name, body.min_age, body.under_age).await?;
 
     sqlx::query!("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *tx)
@@ -79,8 +89,8 @@ pub async fn edit_category(
         SET 
             name = $1,
             description = $2,
-            from_birthday = $3,
-            to_birthday = $4,
+            min_age = $3,
+            under_age = $4,
             act_type = $5,
             is_single_male = $6,
             einfahrzeit_seconds = $7,
@@ -90,8 +100,8 @@ pub async fn edit_category(
         "#,
         body.new_name,
         body.description,
-        body.from_birthday,
-        body.to_birthday,
+        body.min_age,
+        body.under_age,
         body.act_type,
         body.is_single_male,
         body.einfahrzeit_seconds,
@@ -102,8 +112,10 @@ pub async fn edit_category(
     .execute(&mut *tx)
     .await?;
 
-    // Commit the transaction
+    let warnings = seed::stored_coverage_warnings(&mut tx)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
     tx.commit().await?;
 
-    Ok(Json(EditCategoryResponse {}))
+    Ok(Json(EditCategoryResponse { warnings }))
 }

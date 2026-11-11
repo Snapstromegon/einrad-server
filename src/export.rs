@@ -5,7 +5,7 @@
 //!
 //! In the file: the competition with its id, the features it sets, the
 //! photos with their password, the logo and break image as SVG or URL, the sponsors, the colors it sets, the
-//! categories with explicit birthday bounds, the finals, the timeplan
+//! categories with their ages, the finals, the timeplan
 //! entries and the jury categories. Not in it: a raster image (only SVG fits
 //! into the file; the header says so), default colors (an import keeps the
 //! colors, like the logo, unless the file sets them), anything clubs
@@ -24,7 +24,6 @@ use crate::{
     finals,
     images::{self, Image, ImageUrl},
     logo::{Format, SvgLogo},
-    seed::{OPEN_FROM_BIRTHDAY, OPEN_TO_BIRTHDAY},
     timeplan::EntryKind,
 };
 
@@ -38,11 +37,6 @@ const HEADER: &str = "\
 
 fn minutes(seconds: i64) -> f64 {
     seconds as f64 / 60.0
-}
-
-/// A stored birthday bound as a date, `None` for an open one.
-fn bound(value: Option<OffsetDateTime>, open: Date) -> Option<Date> {
-    value.map(|value| value.date()).filter(|date| *date != open)
 }
 
 /// The current competition as a competition file.
@@ -109,8 +103,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         r#"
         SELECT
             name as "name!", description, act_type as "act_type: ActType",
-            is_single_male, from_birthday as "from_birthday: OffsetDateTime",
-            to_birthday as "to_birthday: OffsetDateTime", einfahrzeit_seconds,
+            is_single_male, min_age, under_age, einfahrzeit_seconds,
             act_duration_seconds, judge_duration_seconds
         FROM categories ORDER BY "order", name
         "#
@@ -123,10 +116,8 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         description: row.description,
         act_type: row.act_type,
         single_male: row.is_single_male,
-        min_age: None,
-        under_age: None,
-        from_birthday: bound(row.from_birthday, OPEN_FROM_BIRTHDAY),
-        to_birthday: bound(row.to_birthday, OPEN_TO_BIRTHDAY),
+        min_age: row.min_age,
+        under_age: row.under_age,
         einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
         act_duration_minutes: minutes(row.act_duration_seconds),
         judge_duration_minutes: minutes(row.judge_duration_seconds),

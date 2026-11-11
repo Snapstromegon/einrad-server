@@ -121,10 +121,13 @@ reference = "Startgeld"
 
 # Categories in timeplan order.
 #
-# Ages are determined relative to the determining day; a birthday on that day
-# stays in the younger category. "U15" = under_age 15. A missing bound means
-# open-ended. Explicit from_birthday (inclusive) / to_birthday (exclusive)
-# dates override the ages.
+# A category is defined by its age class on the determining day: min_age
+# (e.g. 70 for "70+") and under_age (e.g. 15 for "U15"), or both ("U13" =
+# min_age 11, under_age 13); a missing age means open-ended. Fractions are
+# months: 9.5 = 9 years 6 months. A birthday on the determining day stays in
+# the younger category. The birthday bounds are derived from the determining
+# day, so changing it moves every category. Older files with from_birthday /
+# to_birthday import if each date is whole months before the determining day.
 # act_type is "single", "pair", "group_small" (Kleingruppe, 3 to 8 riders) or
 # "group_large" (Großgruppe, more than 8 riders). single_male = true marks the
 # male single categories; the other single categories are for female riders.

@@ -73,6 +73,10 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
     assert!(file.contains("einfahrzeit_minutes = 5.0"), "{file}");
     assert!(file.contains("internal = true"), "{file}");
     assert!(file.contains("registration_end = "), "{file}");
+    // Categories as ages, so the file carries over to the next season.
+    assert!(file.contains("under_age = 11.0"), "{file}");
+    assert!(file.contains("min_age = 70.0"), "{file}");
+    assert!(!file.contains("birthday"), "{file}");
     CompetitionFile::parse(&file).unwrap();
 
     let fresh = TestApp::without_competition(common::in_memory_migrated().await).await;
