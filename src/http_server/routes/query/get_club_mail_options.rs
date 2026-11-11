@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
     club_mails::{self, Access, ClubMailOptions},
     competition::Features,
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -26,14 +24,13 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options))]
+#[instrument(skip(db))]
 pub async fn get_club_mail_options(
     Extension(db): Extension<ReloadableSqlite>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     granted: Granted<permit::MailClubs>,
 ) -> Result<Json<ClubMailOptions>, HttpError> {
     let db = db.get().await.clone();
-    let features = Features::current(&db, &http_options.features).await?;
+    let features = Features::current(&db).await?;
     Ok(Json(
         club_mails::options(&db, Access::of(&granted, features)).await?,
     ))

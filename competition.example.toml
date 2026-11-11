@@ -98,8 +98,8 @@ reference = "Startgeld"
 # registration_end = 2027-04-30T23:59:59+02:00  # default: registration_end
 
 # Optional: features that are still being refined, on (true) or off (false).
-# Unset ones follow [features] in the system config, then the build default
-# (on in debug builds, off in release builds).
+# Unset ones follow the build default: jury registration is on in debug builds
+# and off in release builds, moderation input is on.
 [competition.features]
 # Clubs register judges, admins plan the jury.
 # jury_registration = true

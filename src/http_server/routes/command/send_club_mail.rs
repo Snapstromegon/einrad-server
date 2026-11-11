@@ -6,7 +6,7 @@ use tracing::{info, instrument};
 use crate::{
     club_mails::{self, Access, ClubMailInput, SentClubMail},
     competition::Features,
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     mailer::Mailer,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
@@ -30,17 +30,16 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, mailer, http_options, input))]
+#[instrument(skip(db, mailer, input))]
 #[axum::debug_handler]
 pub async fn send_club_mail(
     Extension(db): Extension<ReloadableSqlite>,
     Extension(mailer): Extension<Arc<Mailer>>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     granted: Granted<permit::MailClubs>,
     Json(input): Json<ClubMailInput>,
 ) -> Result<Json<SentClubMail>, HttpError> {
     let db = db.get().await.clone();
-    let features = Features::current(&db, &http_options.features).await?;
+    let features = Features::current(&db).await?;
     let prepared = club_mails::prepare(&db, &input, Access::of(&granted, features)).await?;
     info!(
         "{} sends a club mail of {} mails",

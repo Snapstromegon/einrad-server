@@ -88,11 +88,7 @@ pub async fn list_club_acts(
     let db = db.get().await.clone();
     let mut connection = db.acquire().await?;
     ensure_club_access(&mut connection, &auth, query.club_id).await?;
-    let moderation_input = Features::of(
-        Competition::current(&db).await?.as_ref(),
-        &http_options.features,
-    )
-    .moderation_input;
+    let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
     let acts_with_club_participation = sqlx::query!(
         r#"
         SELECT

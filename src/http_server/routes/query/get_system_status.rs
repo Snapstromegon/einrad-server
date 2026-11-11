@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
     competition::{Competition, Features},
-    http_server::{HttpError, HttpServerOptions},
+    http_server::HttpError,
     reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
 };
@@ -17,7 +15,7 @@ pub struct SystemStatus {
     /// The current competition; `None` until one is configured.
     competition: Option<Competition>,
     /// Whether the jury registration is on (the competition's feature, else
-    /// the system default); everything about judges is hidden without it.
+    /// the build default); everything about judges is hidden without it.
     jury_registration: bool,
     /// Whether the act description field is enabled for the current competition.
     moderation_input: bool,
@@ -35,15 +33,14 @@ pub struct SystemStatus {
         (status=200, content_type="application/json", body=SystemStatus),
     ),
 )]
-#[instrument(skip(db, http_options))]
+#[instrument(skip(db))]
 pub async fn get_system_status(
     Extension(db): Extension<ReloadableSqlite>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     capabilities: Capabilities,
 ) -> Result<Json<SystemStatus>, HttpError> {
     let db = db.get().await.clone();
     let competition = Competition::current(&db).await?;
-    let features = Features::of(competition.as_ref(), &http_options.features);
+    let features = Features::of(competition.as_ref());
     Ok(Json(SystemStatus {
         capabilities,
         competition,

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
 use uuid::Uuid;
@@ -8,7 +6,7 @@ use crate::{
     bookings::{Payment, payments_of_club, round_cents},
     competition::{Competition, Features},
     fees::{AmountDue, fees_of_club},
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
+    http_server::{ClientError, HttpError, extractor::auth::Auth},
     jury::JuryObligation,
     reloadable_sqlite::ReloadableSqlite,
     roles::Permission,
@@ -65,10 +63,9 @@ pub struct GetClubQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options))]
+#[instrument(skip(db))]
 pub async fn get_club(
     Extension(db): Extension<ReloadableSqlite>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Query(query): Query<GetClubQuery>,
     auth: Option<Auth>,
 ) -> Result<Json<Club>, HttpError> {
@@ -118,7 +115,7 @@ pub async fn get_club(
         };
         if may_see_owner {
             let competition = Competition::current(&db).await?;
-            let features = Features::of(competition.as_ref(), &http_options.features);
+            let features = Features::of(competition.as_ref());
             let fees = fees_of_club(
                 &db,
                 competition.as_ref(),

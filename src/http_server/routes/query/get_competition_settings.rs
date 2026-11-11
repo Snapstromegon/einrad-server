@@ -18,8 +18,8 @@ pub struct CompetitionSettings {
     pub competition: Competition,
     /// Where the info board's photos come from, with the password.
     pub photos: Option<PhotosSettings>,
-    /// What the features the competition leaves unset are: the system
-    /// config's `[features]`, else the build default.
+    /// What the features the competition leaves unset are: the build
+    /// default.
     pub feature_defaults: ResolvedFeatures,
     /// The id in the competition file the server started with, if it
     /// differs from the competition's: that file is ignored.
@@ -49,7 +49,7 @@ pub async fn get_competition_settings(
         .ok_or(HttpError::NotFound)?;
     Ok(Json(CompetitionSettings {
         photos: competition.photos.take(),
-        feature_defaults: Features::default().resolve(&http_options.features),
+        feature_defaults: Features::default().resolve(),
         file_id_mismatch: http_options
             .competition_file_id
             .clone()

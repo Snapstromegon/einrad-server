@@ -18,6 +18,10 @@ _Avoid_: Config (for the competition)
 The competition's logo and colors on every page; without its own, the competition shows the default built into the server, and a replace keeps it unless the competition file sets it (ADR 0009).
 _Avoid_: Theme, design (for the logo and colors)
 
+**Feature** (Funktion):
+A part of the tool that is still being refined and that the competition turns on, off or leaves unset (`[competition.features]`, or "Funktionen" in the admin UI); unset follows the default built into the server. Not part of the system config.
+_Avoid_: Feature flag, setting (for this)
+
 **Break image** (Pausenbild):
 The image the info board shows while no act runs. Without its own, the logo applies, and without that the break image built into the server.
 

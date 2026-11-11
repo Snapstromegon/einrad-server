@@ -401,7 +401,8 @@ async fn completion_writes_the_config_and_creates_the_admin() {
     assert!(content.contains("# insecure_cookies = "), "{content}");
     assert!(content.contains("# local_player = "), "{content}");
     assert!(content.contains("# url = \"sqlite://"), "{content}");
-    assert!(content.contains("# [features]"), "{content}");
+    // Features are competition settings, not part of the system config.
+    assert!(!content.contains("[features]"), "{content}");
     assert!(
         content.contains("created by the first-run setup and lives in the database"),
         "{content}"

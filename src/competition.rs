@@ -64,8 +64,8 @@ pub struct Competition {
     pub secondary_color: Option<HexColor>,
 }
 
-/// Features that are still being refined, as a competition (or the system
-/// config's `[features]`) sets them: on, off, or unset.
+/// Features that are still being refined, as a competition sets them: on,
+/// off, or unset (the build default).
 #[derive(
     Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
 )]
@@ -91,36 +91,27 @@ impl Features {
         *self == Self::default()
     }
 
-    /// Fills in what's unset from `defaults` (the system config's
-    /// `[features]`), then each feature's default.
-    pub fn resolve(&self, defaults: &Features) -> ResolvedFeatures {
+    /// Fills in what's unset with each feature's build default: the jury
+    /// registration is on in debug builds only, the moderation input is on.
+    pub fn resolve(&self) -> ResolvedFeatures {
         ResolvedFeatures {
-            jury_registration: self
-                .jury_registration
-                .or(defaults.jury_registration)
-                .unwrap_or(cfg!(debug_assertions)),
-            moderation_input: self
-                .moderation_input
-                .or(defaults.moderation_input)
-                .unwrap_or(true),
+            jury_registration: self.jury_registration.unwrap_or(cfg!(debug_assertions)),
+            moderation_input: self.moderation_input.unwrap_or(true),
         }
     }
 
-    /// The features of `competition`, or only the defaults without one.
-    pub fn of(competition: Option<&Competition>, defaults: &Features) -> ResolvedFeatures {
+    /// The features of `competition`, or only the build defaults without one.
+    pub fn of(competition: Option<&Competition>) -> ResolvedFeatures {
         competition
             .map(|competition| competition.features.clone())
             .unwrap_or_default()
-            .resolve(defaults)
+            .resolve()
     }
 
     /// The features of the current competition. Read per request, so a
     /// change applies without a restart.
-    pub async fn current(
-        db: impl sqlx::SqliteExecutor<'_>,
-        defaults: &Features,
-    ) -> sqlx::Result<ResolvedFeatures> {
-        Ok(Self::of(Competition::current(db).await?.as_ref(), defaults))
+    pub async fn current(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<ResolvedFeatures> {
+        Ok(Self::of(Competition::current(db).await?.as_ref()))
     }
 }
 
@@ -497,7 +488,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unset_features_follow_the_system_config_then_the_build_default() {
+    fn unset_features_follow_the_build_default() {
         let on = Features {
             jury_registration: Some(true),
             moderation_input: Some(true),
@@ -507,20 +498,12 @@ mod tests {
             moderation_input: Some(false),
         };
         let unset = Features::default();
-        assert!(on.resolve(&off).jury_registration);
-        assert!(!off.resolve(&on).jury_registration);
-        assert!(unset.resolve(&on).jury_registration);
-        assert!(!unset.resolve(&off).jury_registration);
-        assert!(on.resolve(&off).moderation_input);
-        assert!(!off.resolve(&on).moderation_input);
-        assert!(unset.resolve(&on).moderation_input);
-        assert!(!unset.resolve(&off).moderation_input);
-        assert_eq!(
-            unset.resolve(&unset).jury_registration,
-            cfg!(debug_assertions)
-        );
-        assert!(unset.resolve(&unset).moderation_input);
-        assert!(Features::of(None, &on).jury_registration);
-        assert!(Features::of(None, &on).moderation_input);
+        assert!(on.resolve().jury_registration);
+        assert!(on.resolve().moderation_input);
+        assert!(!off.resolve().jury_registration);
+        assert!(!off.resolve().moderation_input);
+        assert_eq!(unset.resolve().jury_registration, cfg!(debug_assertions));
+        assert!(unset.resolve().moderation_input);
+        assert_eq!(Features::of(None), unset.resolve());
     }
 }

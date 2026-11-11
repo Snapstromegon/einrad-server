@@ -253,11 +253,7 @@ impl Metrics {
     }
 
     /// Reads the database counts into the gauges.
-    async fn refresh(
-        &self,
-        db: &sqlx::SqlitePool,
-        feature_defaults: &Features,
-    ) -> Result<(), sqlx::Error> {
+    async fn refresh(&self, db: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
         let set = |family: &GaugeFamily, rows: Vec<(Labels, i64)>| {
             family.clear();
             for (label_set, value) in rows {
@@ -442,7 +438,7 @@ impl Metrics {
             fees::fees_by_club(
                 db,
                 competition.as_ref(),
-                Features::of(competition.as_ref(), feature_defaults).jury_registration,
+                Features::of(competition.as_ref()).jury_registration,
             )
             .await?
             .values()
@@ -522,7 +518,7 @@ pub async fn metrics_handler(
     }
 
     let db = db.get().await.clone();
-    if let Err(e) = metrics().refresh(&db, &options.features).await {
+    if let Err(e) = metrics().refresh(&db).await {
         error!("Couldn't read the metrics from the database: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
@@ -585,7 +581,6 @@ mod tests {
             data_path: std::path::PathBuf::new(),
             reload_db_token: None,
             metrics_token: None,
-            features: Features::default(),
             competition_file_id: None,
         };
         let mut headers = HeaderMap::new();
