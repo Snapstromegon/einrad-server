@@ -307,7 +307,9 @@ database and `data/` in `~/<cup_dir>`:
   `config.toml` goes through first-run setup (ADR 0011): the server logs a
   setup token and writes it to `einrad-server-setup-token.txt` next to the
   config. The deploy prints only that file's path (deploy logs may land in
-  CI), never the token; open or `cat` it on the server. A local file from the
+  CI), never the token; open or `cat` it on the server. If the instance had a
+  `config.toml` before the deploy and still ends up in first-run setup, the
+  deploy shows a red, ignored `WARNING` task (it doesn't fail). A local file from the
   repository root (ignored by git) is uploaded only on request, as
   `-e cup_config_src=config.production.toml` and/or
   `-e cup_competition_src=competition.production.toml`, and then replaces the
@@ -335,7 +337,7 @@ database and `data/` in `~/<cup_dir>`:
   `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
   `~/einrad-server`, and the web backend of
-  `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops before
+  `anmeldung.lmfreestyle27.de` points to its port. The playbook stops before
   changing anything if another service runs from that directory, and warns if
   ffmpeg is missing. Without a `config.toml` the server starts in first-run
   setup, and without a database it creates an empty one.

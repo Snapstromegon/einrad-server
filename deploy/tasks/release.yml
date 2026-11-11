@@ -20,6 +20,14 @@
     mode: "0750"
   loop: ["", bin, backups]
 
+# Before the upload: whether the instance already had a config, so a deploy
+# can tell a bare install from one that fell back into first-run setup.
+- name: Look for config.toml on the server
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/config.toml"
+    get_checksum: false
+  register: config_before
+
 # Only on an explicit request (cup_config_src / cup_competition_src, see
 # group_vars/all.yml); it replaces the server's file. Without one, the instance
 # keeps its files or, bare, goes through first-run setup.
@@ -160,4 +168,19 @@
       {{ inventory_hostname }} is in first-run setup. The setup token is in
       {{ setup_token_file.stat.path }} (mode 0600): open it or `cat` it on the
       server.
-  when: setup_token_file.stat.exists
+  when: setup_token_file.stat.exists and not config_before.stat.exists
+
+# A failed task that is ignored shows up red in the log and in the recap
+# (ignored=1) without failing the deploy. Likely causes: the config lacks
+# jwt_secret or SMTP, or an environment value no longer covers a removed
+# built-in default.
+- name: Warn that an instance with a config fell into first-run setup
+  ansible.builtin.fail:
+    msg: >-
+      WARNING: {{ inventory_hostname }} is in first-run setup although it had a
+      config.toml before this deploy. Its config is probably incomplete
+      (jwt_secret, SMTP) or has no admin. The setup token is in
+      {{ setup_token_file.stat.path }} (mode 0600): open it or `cat` it on the
+      server, or fix the config and restart the service.
+  ignore_errors: true
+  when: setup_token_file.stat.exists and config_before.stat.exists
