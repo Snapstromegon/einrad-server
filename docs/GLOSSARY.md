@@ -165,11 +165,11 @@ A discipline and an age class in which acts are ranked against each other, e.g. 
 _Avoid_: Altersklasse, Wertungsklasse, class
 
 **Age class** (Altersklasse):
-The age part of a category, e.g. U13 or 70+; groups only have Junior Expert (under 15) and Expert.
+The age part of a category, e.g. U13 or 70+: a minimum age, an age to be under on the determining day, or both; groups only have Junior Expert (under 15) and Expert.
 _Avoid_: Category (for the age part only)
 
 **Heat** (Vorlauf):
-A group of age classes whose acts are ranked together to find the finalists: Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older).
+A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Group categories have no heat.
 _Avoid_: Block, Vorlaufblock, round
 
 **Final** (Finale):
@@ -330,8 +330,8 @@ An award for each rider of the first three places of a final, and for each group
 - A **Club mail** gives each selected **Club** its own mail, to its **Club contact** and **Club representative**; addresses the organizer types in get one each, with the data of the club they're assigned to.
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
 - A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
-- An **Act** belongs to one **Category** once it is complete and not withdrawn; a **Category** belongs to one **Heat**.
-- The best acts of a **Heat** fill the **Finalist slots** of its **Final**.
+- An **Act** belongs to one **Category** once it is complete and not withdrawn; a singles or pairs **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
+- The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
 - A **Judge** registers for **Jury categories** for **Tasks**; the **Jury plan** assigns each judge at most one task per jury category.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
