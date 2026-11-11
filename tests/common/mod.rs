@@ -22,7 +22,6 @@ use axum::{
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
 use einrad_server::{
-    competition::Features,
     config::CompetitionFile,
     http_server::{HttpServerOptions, routes::get_api_router},
     jwt::JWTConfig,
@@ -196,21 +195,22 @@ impl TestApp {
         seed_db(&db, &status).await;
         // Nothing listens on port 1, so any attempt to send a mail fails.
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true, None)
+        Self::build(db, mailer, None, None)
     }
 
     /// App without a competition: the server in setup mode.
     pub async fn without_competition(db: SqlitePool) -> Self {
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true, None)
+        Self::build(db, mailer, None, None)
     }
 
-    /// App whose competition leaves the jury registration unset and whose
-    /// system default turns it off, as in release builds.
+    /// App whose competition turns the jury registration off, as release
+    /// builds do for a competition that leaves it unset.
     pub async fn without_jury_registration(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
+        set_jury_registration(&db, Some(false)).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, false, None)
+        Self::build(db, mailer, None, None)
     }
 
     /// App showing the photos of `photos` on the info board: the
@@ -219,7 +219,7 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         set_photos(&db, Some(&photos)).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true, None)
+        Self::build(db, mailer, None, None)
     }
 
     /// App sending mails to a dedicated Mailpit container.
@@ -227,48 +227,44 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         let mailpit = Mailpit::start().await;
         let mailer = mailpit.mailer();
-        Self::build(db, mailer, Some(mailpit), true, None)
+        Self::build(db, mailer, Some(mailpit), None)
     }
 
     /// App started with a competition file whose id is `file_id`.
     pub async fn started_with_competition_file(db: SqlitePool, file_id: &str) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build(db, mailer, None, true, Some(file_id))
+        Self::build(db, mailer, None, Some(file_id))
     }
 
     /// App without a `reload_db_token`: the token path of `reload_db` is off.
     pub async fn without_reload_token(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build_with(db, mailer, None, true, None, None)
+        Self::build_with(db, mailer, None, None, None)
     }
 
     fn build(
         db: SqlitePool,
         mailer: Mailer,
         mailpit: Option<Mailpit>,
-        jury_registration: bool,
         competition_file_id: Option<&str>,
     ) -> Self {
         Self::build_with(
             db,
             mailer,
             mailpit,
-            jury_registration,
             competition_file_id,
             Some(RELOAD_DB_TOKEN),
         )
     }
 
-    /// `jury_registration` is the system default for the feature,
     /// `competition_file_id` the id in the competition file the server
     /// started with, `reload_db_token` the system config's token.
     fn build_with(
         db: SqlitePool,
         mailer: Mailer,
         mailpit: Option<Mailpit>,
-        jury_registration: bool,
         competition_file_id: Option<&str>,
         reload_db_token: Option<&str>,
     ) -> Self {
@@ -288,10 +284,6 @@ impl TestApp {
             data_path: data_dir.0.clone(),
             reload_db_token: reload_db_token.map(Into::into),
             metrics_token: Some(METRICS_TOKEN.into()),
-            features: Features {
-                jury_registration: Some(jury_registration),
-                moderation_input: Some(true),
-            },
             competition_file_id: competition_file_id.map(Into::into),
         };
         let reloadable = ReloadableSqlite::new(db.clone(), String::new());

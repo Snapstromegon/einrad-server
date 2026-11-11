@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{Extension, Json};
 use tracing::instrument;
 use uuid::Uuid;
@@ -8,7 +6,7 @@ use crate::{
     bookings::paid_by_club,
     competition::{Competition, Features},
     fees::{AmountDue, fees_by_club},
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryObligation,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
@@ -64,10 +62,9 @@ pub struct ClubContacts {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options))]
+#[instrument(skip(db))]
 pub async fn list_clubs(
     Extension(db): Extension<ReloadableSqlite>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     _: Granted<permit::ViewClubs>,
     balances: Option<Granted<permit::ViewClubBalances>>,
     contacts: Option<Granted<permit::ViewClubContacts>>,
@@ -97,7 +94,7 @@ pub async fn list_clubs(
     .await?;
     let competition = Competition::current(&db).await?;
     let paid = paid_by_club(&db).await?;
-    let features = Features::of(competition.as_ref(), &http_options.features);
+    let features = Features::of(competition.as_ref());
     let mut fees = fees_by_club(&db, competition.as_ref(), features.jury_registration).await?;
     let clubs = rows
         .into_iter()

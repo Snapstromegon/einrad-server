@@ -482,12 +482,6 @@ fn render(w: &ToWrite) -> String {
     line(&mut out, "password", &w.smtp_password);
     out.push_str("\n[auth]\n");
     line(&mut out, "jwt_secret", &w.jwt_secret);
-    out.push_str(
-        "\n# Features that are still being refined; a competition turns each on or off.\n\
-         # [features]\n\
-         # jury_registration = true                           # JURY_REGISTRATION\n\
-         # moderation_input = true                            # MODERATION_INPUT\n",
-    );
     out
 }
 

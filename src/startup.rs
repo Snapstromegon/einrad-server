@@ -96,7 +96,6 @@ pub async fn build(
             data_path: settings.data_path,
             reload_db_token: settings.reload_db_token,
             metrics_token: settings.metrics_token,
-            features: settings.features,
             competition_file_id: report.file_id.clone(),
         },
         db,

@@ -1,10 +1,10 @@
 # Example system configuration. Copy to config.toml (ignored by git) and adjust.
 #
-# Every setting in [server], [database], [smtp], [auth], [admin] and [features] can
-# also be set by a CLI flag or environment variable (including .env), which take
+# Every setting in [server], [database], [smtp], [auth] and [admin] can also be
+# set by a CLI flag or environment variable (including .env), which take
 # precedence over this file. Secrets are better kept in environment variables.
 #
-# The competition (dates, fees, photos, categories, timeplan, …) is not in here
+# The competition (dates, fees, photos, features, categories, timeplan, …) is not in here
 # but in the competition file, see competition.example.toml.
 
 [server]
@@ -34,16 +34,6 @@
 # Required: the server doesn't start without it. Use a long random string,
 # e.g. `openssl rand -hex 32`.
 # jwt_secret = "…"                                   # JWT_SECRET
-
-# Features that are still being refined. A competition turns each on or off
-# ([competition.features]); these are the defaults for the ones it leaves
-# unset. Jury registration is on in debug builds and off in release builds;
-# moderation input is on by default.
-# [features]
-# Clubs register judges, admins plan the jury.
-# jury_registration = true                           # JURY_REGISTRATION
-# Clubs can add an extra text for moderation when they register acts.
-# moderation_input = true                            # MODERATION_INPUT
 
 # Only inserted if no admin exists yet.                # ADMIN (as JSON)
 # [admin]

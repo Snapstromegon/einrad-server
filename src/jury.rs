@@ -3,8 +3,6 @@
 //! obligation and plan the jury. Everything is behind the
 //! `jury_registration` feature of the competition (see `Features`).
 
-use std::sync::Arc;
-
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
@@ -15,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     competition::{Competition, Features, JuryRules},
     groups::ensure_club_access,
-    http_server::{HttpError, HttpServerOptions, extractor::auth::Auth},
+    http_server::{HttpError, extractor::auth::Auth},
     people::{self, Person},
     reloadable_sqlite::ReloadableSqlite,
 };
@@ -31,17 +29,11 @@ impl<S: Send + Sync> FromRequestParts<S> for JuryEnabled {
     type Rejection = HttpError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let (Some(options), Some(db)) = (
-            parts.extensions.get::<Arc<HttpServerOptions>>(),
-            parts.extensions.get::<ReloadableSqlite>(),
-        ) else {
+        let Some(db) = parts.extensions.get::<ReloadableSqlite>() else {
             return Err(HttpError::NotFound);
         };
         let db = db.get().await.clone();
-        if Features::current(&db, &options.features)
-            .await?
-            .jury_registration
-        {
+        if Features::current(&db).await?.jury_registration {
             Ok(JuryEnabled)
         } else {
             Err(HttpError::NotFound)

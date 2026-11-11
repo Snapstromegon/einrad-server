@@ -55,11 +55,7 @@ pub async fn edit_club_act(
     }
     let db = db.get().await.clone();
     ensure_act_access(&mut *db.acquire().await?, &auth, body.id).await?;
-    let moderation_input = Features::of(
-        Competition::current(&db).await?.as_ref(),
-        &http_options.features,
-    )
-    .moderation_input;
+    let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
 
     sqlx::query!(
         r#"

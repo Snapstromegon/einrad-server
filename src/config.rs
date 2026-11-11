@@ -80,14 +80,6 @@ pub struct CliArgs {
     /// card (remote playback). Needs a build with the `local-audio` feature.
     #[clap(long, env = "LOCAL_PLAYER")]
     pub local_player: Option<String>,
-    /// Turns the jury registration on or off for competitions that leave it
-    /// unset; on by default only in debug builds (see `Features`).
-    #[clap(long, env = "JURY_REGISTRATION")]
-    pub jury_registration: Option<bool>,
-    /// Turns the act description for moderation on or off for competitions
-    /// that leave it unset; on by default.
-    #[clap(long, env = "MODERATION_INPUT")]
-    pub moderation_input: Option<bool>,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -98,8 +90,6 @@ pub struct ConfigFile {
     pub smtp: SmtpConfig,
     pub auth: AuthConfig,
     pub admin: Option<AdminConfig>,
-    /// Defaults for the features a competition leaves unset.
-    pub features: Features,
 }
 
 /// The sections of the competition file, which older system configs
@@ -127,10 +117,18 @@ impl ConfigFile {
                 "{} belong in the competition file now, not in the system config. \
                  Move them into a file of their own (e.g. competition.toml, see \
                  competition.example.toml) and pass it with --competition or COMPETITION; \
-                 [server], [database], [smtp], [auth], [admin] and [features] stay \
+                 [server], [database], [smtp], [auth] and [admin] stay \
                  in the system config.",
                 moved.join(", ")
             ));
+        }
+        if table.contains_key("features") {
+            return Err(
+                "[features] is a competition setting now: move it into the competition \
+                 file as [competition.features], or set it in the admin UI under Wettkampf \
+                 bearbeiten. A feature the competition leaves unset follows the build default."
+                    .to_string(),
+            );
         }
         if table.contains_key("photos") {
             return Err(
@@ -297,7 +295,7 @@ pub struct CompetitionConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jury: Option<JuryConfig>,
     /// Features this competition turns on or off; unset ones follow the
-    /// system config's `[features]`.
+    /// build default (see `Features::resolve`).
     #[serde(default, skip_serializing_if = "Features::is_unset")]
     pub features: Features,
     /// Where the info board's photos come from; without it there are none.
@@ -843,8 +841,6 @@ pub struct Settings {
     pub reload_db_token: Option<String>,
     pub metrics_token: Option<String>,
     pub local_player: Option<String>,
-    /// Defaults for the features a competition leaves unset (`[features]`).
-    pub features: Features,
     /// The competition file, if one is given or `./competition.toml` exists.
     pub competition_file: Option<PathBuf>,
     /// Whether the competition file replaces the database's competition.
@@ -996,10 +992,6 @@ impl Settings {
                 .local_player
                 .or(file.server.local_player)
                 .filter(|name| !name.trim().is_empty()),
-            features: Features {
-                jury_registration: cli.jury_registration.or(file.features.jury_registration),
-                moderation_input: cli.moderation_input.or(file.features.moderation_input),
-            },
             competition_file,
             replace_competition: cli.replace_competition,
             warnings: Vec::new(),
@@ -1207,41 +1199,10 @@ registration_end = 2026-12-20T23:59:59+01:00
 music_upload_end = 2027-01-20T23:59:59+01:00";
 
     #[test]
-    fn feature_defaults_come_from_the_file_or_the_environment() {
-        let settings = resolve(CliArgs::default(), SMTP).unwrap();
-        assert_eq!(settings.features.jury_registration, None);
-        assert_eq!(settings.features.moderation_input, None);
-
-        let file =
-            format!("{SMTP}\n[features]\njury_registration = false\nmoderation_input = false");
-        assert_eq!(
-            resolve(CliArgs::default(), &file)
-                .unwrap()
-                .features
-                .jury_registration,
-            Some(false)
-        );
-        assert_eq!(
-            resolve(CliArgs::default(), &file)
-                .unwrap()
-                .features
-                .moderation_input,
-            Some(false)
-        );
-
-        let cli = || CliArgs {
-            jury_registration: Some(true),
-            moderation_input: Some(true),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve(cli(), &file).unwrap().features.jury_registration,
-            Some(true)
-        );
-        assert_eq!(
-            resolve(cli(), &file).unwrap().features.moderation_input,
-            Some(true)
-        );
+    fn features_in_the_system_config_are_rejected_with_where_they_went() {
+        let err = ConfigFile::parse(&format!("{SMTP}\n[features]\njury_registration = true"))
+            .unwrap_err();
+        assert!(err.contains("[competition.features]"), "{err}");
     }
 
     #[test]

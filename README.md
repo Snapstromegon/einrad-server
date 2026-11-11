@@ -91,15 +91,18 @@ the competition file only an import:
   could import.
 
 Features that are still being refined are competition settings
-(`[competition.features]`): on, off or unset. An unset feature follows
-`[features]` in the system config, then the build default: on in debug builds,
-off in release builds. A change in the database applies on the next request,
-without a restart.
+(`[competition.features]`, or "Funktionen" in "Wettkampf bearbeiten"): on, off
+or unset. An unset feature follows the build default. The system config has
+no features: a `config.toml` that still has `[features]` is rejected with
+where they went. A change in the database applies on the next request, without
+a restart.
 
-- `jury_registration` (`JURY_REGISTRATION` for the system default): clubs
+- `jury_registration` (unset: on in debug builds, off in release builds): clubs
   register judges for the jury categories, admins see the jury obligation and
   plan the jury. Off, the judge endpoints answer 404 and the UI shows nothing
   about judges.
+- `moderation_input` (unset: on): clubs can add an extra text for moderation
+  when they register acts.
 
 The database migrations only create the schema and don't insert any data.
 

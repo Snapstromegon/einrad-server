@@ -90,17 +90,23 @@ async fn the_competitions_feature_applies_on_the_next_request() {
         StatusCode::OK
     );
 
-    // Unset follows the system default again.
-    common::set_jury_registration(&app.db, None).await;
+    common::set_jury_registration(&app.db, Some(false)).await;
     assert_eq!(system_status(&app, None).await["jury_registration"], false);
     assert_eq!(
         app.get(categories, Some(&admin)).await.status,
         StatusCode::NOT_FOUND
     );
+
+    // Unset follows the build default: on in debug builds, off in release.
+    common::set_jury_registration(&app.db, None).await;
+    assert_eq!(
+        system_status(&app, None).await["jury_registration"],
+        cfg!(debug_assertions)
+    );
 }
 
 #[tokio::test]
-async fn the_competition_can_turn_off_what_the_system_default_turns_on() {
+async fn the_competition_can_turn_off_what_the_build_default_turns_on() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
