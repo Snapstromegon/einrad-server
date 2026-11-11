@@ -1,6 +1,6 @@
 use clap::Parser;
 use einrad_server::{
-    config::{CliArgs, ConfigFile, Settings},
+    config::{Bootstrap, CliArgs, ConfigFile, Settings},
     http_server::{HttpServer, HttpServerOptions},
     image_fetch::ImageFetcher,
     jwt::JWTConfig,
@@ -11,6 +11,7 @@ use einrad_server::{
     reloadable_sqlite::{self, ReloadableSqlite},
     roles::Role,
     seed,
+    setup::{self, SetupState},
 };
 use eyre::eyre;
 use password_auth::generate_hash;
@@ -35,10 +36,50 @@ async fn main() -> eyre::Result<()> {
 
     info!("Starting registration system.");
     let config_file = ConfigFile::load(cli.config.as_deref()).map_err(|e| eyre!(e))?;
-    let settings = Settings::resolve(cli, config_file).map_err(|e| eyre!(e))?;
-    for warning in &settings.warnings {
-        warn!("{warning}");
+    let bootstrap = Bootstrap::resolve(&cli, &config_file);
+    let config_dir = setup::config_dir(cli.config.as_deref());
+    // An incomplete config doesn't stop the server: it starts in first-run
+    // setup (ADR 0011), which needs the database for its admin check.
+    let settings = Settings::resolve(cli, config_file);
+
+    info!("Connecting to database");
+
+    let db = reloadable_sqlite::connect(&bootstrap.database_url)
+        .await
+        .expect("Couldn't connect to database");
+
+    info!("Running database migrations");
+    migrate!("./migrations").run(&db).await?;
+
+    let mut report = None;
+    if let Ok(settings) = &settings {
+        for warning in &settings.warnings {
+            warn!("{warning}");
+        }
+        if let Some(path) = &settings.competition_file {
+            info!("Reading the competition file {}", path.display());
+        }
+        report = Some(
+            seed::apply_settings(&db, settings)
+                .await
+                .map_err(|e| eyre!(e))?,
+        );
+        if let Some(admin) = &settings.admin {
+            info!("Inserting admin user with email: {}", admin.email);
+            insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
+        }
     }
+
+    if let Some(reason) = setup::pending_reason(&settings, &db).await? {
+        let state = SetupState::new(bootstrap.configured_base_url, &config_dir);
+        state.announce(&reason);
+        let listener = tokio::net::TcpListener::bind(&bootstrap.http_address).await?;
+        info!("First-run setup on {}", bootstrap.http_address);
+        setup::serve(listener, setup::router(state), shutdown_signal()).await?;
+        return Ok(());
+    }
+    let settings = settings.map_err(|e| eyre!(e))?;
+    let report = report.expect("the competition file was applied for a complete config");
 
     info!("Build Mail client");
 
@@ -49,26 +90,6 @@ async fn main() -> eyre::Result<()> {
         &settings.smtp_username,
     );
 
-    info!("Connecting to database");
-
-    let db = reloadable_sqlite::connect(&settings.database_url)
-        .await
-        .expect("Couldn't connect to database");
-
-    info!("Running database migrations");
-    migrate!("./migrations").run(&db).await?;
-
-    if let Some(path) = &settings.competition_file {
-        info!("Reading the competition file {}", path.display());
-    }
-    let report = seed::apply_settings(&db, &settings)
-        .await
-        .map_err(|e| eyre!(e))?;
-
-    if let Some(admin) = &settings.admin {
-        info!("Inserting admin user with email: {}", admin.email);
-        insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
-    }
     match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
         Some(competition) => info!(
             "Running competition {} ({})",

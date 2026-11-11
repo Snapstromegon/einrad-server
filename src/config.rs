@@ -846,6 +846,48 @@ pub struct Settings {
     pub warnings: Vec<String>,
 }
 
+/// What the server needs before it knows whether the system config is
+/// complete: where to listen, which database to open and the configured
+/// base URL. First-run setup runs on these (see `crate::setup`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bootstrap {
+    /// The base URL from CLI, environment or file; `None` if none is set,
+    /// unlike [`Settings::base_url`], which falls back to the local default.
+    pub configured_base_url: Option<Url>,
+    pub http_address: String,
+    pub database_url: String,
+    pub data_path: PathBuf,
+}
+
+impl Bootstrap {
+    /// Resolves the values that have defaults, so it works for an incomplete
+    /// config too.
+    #[must_use]
+    pub fn resolve(cli: &CliArgs, file: &ConfigFile) -> Self {
+        Self {
+            configured_base_url: cli
+                .base_url
+                .clone()
+                .or_else(|| file.server.base_url.clone()),
+            http_address: cli
+                .http_address
+                .clone()
+                .or_else(|| file.server.http_address.clone())
+                .unwrap_or_else(|| DEFAULT_HTTP_ADDRESS.to_string()),
+            database_url: cli
+                .db
+                .clone()
+                .or_else(|| file.database.url.clone())
+                .unwrap_or_else(|| DEFAULT_DATABASE_URL.to_string()),
+            data_path: cli
+                .data
+                .clone()
+                .or_else(|| file.server.data_path.clone())
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_PATH)),
+        }
+    }
+}
+
 /// A setting that is empty or only whitespace counts as not set, so an empty
 /// `JWT_SECRET=` neither passes as a secret nor shadows the file's value.
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -878,6 +920,7 @@ impl Settings {
     /// assert!(Settings::resolve(CliArgs::default(), ConfigFile::parse("").unwrap()).is_err());
     /// ```
     pub fn resolve(cli: CliArgs, file: ConfigFile) -> Result<Self, String> {
+        let bootstrap = Bootstrap::resolve(&cli, &file);
         let mut missing = Vec::new();
         let mut required = |value: Option<String>, name: &str| {
             value.unwrap_or_else(|| {
@@ -887,15 +930,15 @@ impl Settings {
         };
 
         let smtp_server = required(
-            cli.smtp_server.or(file.smtp.server),
+            non_blank(cli.smtp_server).or(non_blank(file.smtp.server)),
             "SMTP server (--smtp-server, SMTP_SERVER or [smtp] server)",
         );
         let smtp_username = required(
-            cli.smtp_username.or(file.smtp.user),
+            non_blank(cli.smtp_username).or(non_blank(file.smtp.user)),
             "SMTP user (--smtp-username, SMTP_USER or [smtp] user)",
         );
         let smtp_password = required(
-            cli.smtp_password.or(file.smtp.password),
+            non_blank(cli.smtp_password).or(non_blank(file.smtp.password)),
             "SMTP password (--smtp-password, SMTP_PASSWORD or [smtp] password)",
         );
         let jwt_secret = required(
@@ -909,32 +952,19 @@ impl Settings {
             ));
         }
 
-        let database_url = cli
-            .db
-            .or(file.database.url)
-            .unwrap_or_else(|| DEFAULT_DATABASE_URL.to_string());
-        let data_path = cli
-            .data
-            .or(file.server.data_path)
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_PATH));
-
         let reload_db_token =
             non_blank(cli.reload_db_token).or(non_blank(file.server.reload_db_token));
 
         Ok(Self {
-            base_url: cli
-                .base_url
-                .or(file.server.base_url)
+            base_url: bootstrap
+                .configured_base_url
                 .unwrap_or_else(|| Url::parse(DEFAULT_BASE_URL).expect("valid default URL")),
-            http_address: cli
-                .http_address
-                .or(file.server.http_address)
-                .unwrap_or_else(|| DEFAULT_HTTP_ADDRESS.to_string()),
+            http_address: bootstrap.http_address,
             smtp_server,
             smtp_username,
             smtp_password,
-            database_url,
-            data_path,
+            database_url: bootstrap.database_url,
+            data_path: bootstrap.data_path,
             jwt_secret,
             admin: cli.admin.or(file.admin),
             insecure_cookies: cli.insecure_cookies || file.server.insecure_cookies.unwrap_or(false),
@@ -992,6 +1022,39 @@ mod tests {
         let settings = resolve(cli, &file).unwrap();
         assert_eq!(settings.http_address, "0.0.0.0:2");
         assert_eq!(settings.database_url, "sqlite://file.sqlite");
+    }
+
+    #[test]
+    fn bootstrap_resolves_without_a_complete_config() {
+        let file = ConfigFile::parse("[server]\nbase_url = \"https://cup.example.org\"").unwrap();
+        let cli = CliArgs {
+            http_address: Some("0.0.0.0:2".into()),
+            ..Default::default()
+        };
+        let bootstrap = Bootstrap::resolve(&cli, &file);
+        assert_eq!(
+            bootstrap.configured_base_url.unwrap().as_str(),
+            "https://cup.example.org/"
+        );
+        assert_eq!(bootstrap.http_address, "0.0.0.0:2");
+        assert_eq!(bootstrap.database_url, DEFAULT_DATABASE_URL);
+        assert_eq!(bootstrap.data_path, PathBuf::from(DEFAULT_DATA_PATH));
+    }
+
+    #[test]
+    fn bootstrap_has_no_base_url_unless_one_is_configured() {
+        let bootstrap = Bootstrap::resolve(&CliArgs::default(), &ConfigFile::default());
+        assert_eq!(bootstrap.configured_base_url, None);
+    }
+
+    #[test]
+    fn a_blank_smtp_setting_counts_as_missing() {
+        let cli = CliArgs {
+            smtp_server: Some("  ".into()),
+            ..Default::default()
+        };
+        let err = resolve(cli, "[auth]\njwt_secret = \"s\"").unwrap_err();
+        assert!(err.contains("SMTP server"), "{err}");
     }
 
     #[test]
