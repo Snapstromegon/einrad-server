@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 
 use crate::{
     act_type::ActType,
+    heats::Discipline,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
@@ -62,6 +63,7 @@ pub async fn edit_category(
     // Start a transaction to ensure atomicity
     let mut tx = begin_write(&db).await?;
     check_ages(&mut tx, &body.new_name, body.min_age, body.under_age).await?;
+    check_heat(&mut tx, &body).await?;
 
     sqlx::query!("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *tx)
@@ -118,4 +120,33 @@ pub async fn edit_category(
     tx.commit().await?;
 
     Ok(Json(EditCategoryResponse { warnings }))
+}
+
+/// A category in a heat keeps its act type and gender (HEAT-1): the heat's
+/// other categories and its finals share them. The message is German.
+async fn check_heat(
+    conn: &mut sqlx::SqliteConnection,
+    body: &EditCategoryBody,
+) -> Result<(), HttpError> {
+    let Some(row) = sqlx::query!(
+        r#"
+        SELECT heat as "heat!", act_type as "act_type: ActType", is_single_male
+        FROM categories WHERE name = ? AND heat IS NOT NULL
+        "#,
+        body.name
+    )
+    .fetch_optional(conn)
+    .await?
+    else {
+        return Ok(());
+    };
+    if Discipline::new(row.act_type, row.is_single_male)
+        != Discipline::new(body.act_type, body.is_single_male)
+    {
+        return Err(HttpError::ErrorMessages(format!(
+            "{} gehört zum Vorlauf „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
+            body.name, row.heat
+        )));
+    }
+    Ok(())
 }

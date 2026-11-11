@@ -62,18 +62,18 @@ pub struct TimeplanBreak {
     pub planned_end: time::OffsetDateTime,
 }
 
-/// A reserved slot of a final, e.g. "3. Finalist (U17–U21)": it runs and is
+/// A reserved slot of a final, e.g. "3. Finalist (E EM 1)": it runs and is
 /// judged like an act. Planned before the finalists are known; once the
 /// final's placement is published, `act` is the act placed in it.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct TimeplanFinalist {
     pub status: TimeplanItemStatus,
     pub id: Uuid,
-    /// "3. Finalist (U17–U21)".
+    /// "3. Finalist (E EM 1)".
     pub label: String,
     pub final_name: String,
     pub final_description: String,
-    /// Where the finalist comes from, e.g. "U17–U21"; may be empty.
+    /// The heat the finalist comes from, e.g. "E EM 1".
     pub group_label: String,
     /// Counts within the group.
     pub number: i64,

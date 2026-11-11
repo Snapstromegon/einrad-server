@@ -1,0 +1,70 @@
+use axum::{Extension, Json, http::StatusCode};
+use serde::{Deserialize, Serialize};
+use tracing::{info, instrument};
+use utoipa::ToSchema;
+
+use crate::{
+    heats,
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    roles::permit,
+};
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DeleteHeatResponse {}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DeleteHeatBody {
+    name: String,
+}
+
+/// Delete a heat; its categories belong to no heat afterwards.
+///
+/// Not possible while a final's slots are filled from it.
+#[utoipa::path(
+    post,
+    tags=["command", "heat"],
+    path="/delete_heat",
+    request_body=DeleteHeatBody,
+    responses(
+        (status=200, content_type="application/json", body=DeleteHeatResponse),
+        (status=403, content_type="application/json", body=ClientError),
+        (status=404, content_type="application/json", body=ClientError),
+        (status=500, content_type="application/json", body=ClientError),
+    ),
+)]
+#[instrument(skip(db))]
+#[axum::debug_handler]
+pub async fn delete_heat(
+    Extension(db): Extension<ReloadableSqlite>,
+    _: Granted<permit::PlanCompetition>,
+    Json(body): Json<DeleteHeatBody>,
+) -> Result<Json<DeleteHeatResponse>, HttpError> {
+    let db = db.get().await.clone();
+    let mut tx = begin_write(&db).await?;
+
+    let finals = heats::finals_of(&mut tx, &body.name).await?;
+    if !finals.is_empty() {
+        let names: Vec<String> = finals.iter().map(|(name, _)| format!("„{name}“")).collect();
+        return Err(HttpError::ErrorMessages(format!(
+            "Der Vorlauf füllt Finalplätze in {} {}; bitte ihn dort zuerst durch einen anderen ersetzen.",
+            if names.len() == 1 {
+                "dem Finale"
+            } else {
+                "den Finals"
+            },
+            names.join(", ")
+        )));
+    }
+    info!("Deleting heat {:?}", body.name);
+    // Its categories leave it (foreign key).
+    let result = sqlx::query!("DELETE FROM heats WHERE name = ?", body.name)
+        .execute(&mut *tx)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
+    }
+
+    tx.commit().await?;
+    Ok(Json(DeleteHeatResponse {}))
+}

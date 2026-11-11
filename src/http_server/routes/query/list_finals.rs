@@ -22,9 +22,9 @@ pub struct Final {
     einfahrzeit_seconds: i64,
     act_duration_seconds: i64,
     judge_duration_seconds: i64,
-    /// The reserved slots in start order, e.g. 5 × "U11–U15".
+    /// The reserved slots in start order, e.g. 5 × "JE EM".
     slot_groups: Vec<SlotGroup>,
-    /// The categories whose acts can be placed in the slots.
+    /// The categories of its heats, whose acts can be placed in the slots.
     categories: Vec<String>,
     /// The slots in start order, with their placed acts.
     slots: Vec<FinalSlot>,
@@ -39,8 +39,9 @@ pub struct Final {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct FinalSlot {
     id: Uuid,
-    /// "3. Finalist (U17–U21)".
+    /// "3. Finalist (E EM 1)".
     label: String,
+    /// The heat whose acts fill the slot.
     group_label: String,
     /// Counts within the group.
     number: i64,
@@ -74,7 +75,7 @@ pub async fn list_finals(
         SELECT
             final_slots.id as "id!: Uuid",
             final_name,
-            group_label,
+            heat as "heat!",
             number,
             act_id as "act_id: Uuid",
             started_at IS NOT NULL as "started!: bool",
@@ -89,8 +90,8 @@ pub async fn list_finals(
     {
         slots.entry(row.final_name).or_default().push(FinalSlot {
             id: row.id,
-            label: finals::finalist_label(row.number, &row.group_label),
-            group_label: row.group_label,
+            label: finals::finalist_label(row.number, &row.heat),
+            group_label: row.heat,
             number: row.number,
             act_id: row
                 .act_id
@@ -101,10 +102,10 @@ pub async fn list_finals(
     let mut categories: HashMap<String, Vec<String>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT final_name, category
-        FROM final_categories
-        LEFT JOIN categories ON categories.name = final_categories.category
-        ORDER BY final_name, categories."order", category
+        SELECT DISTINCT final_slots.final_name, categories.name as "category!", categories."order"
+        FROM final_slots
+        JOIN categories ON categories.heat = final_slots.heat
+        ORDER BY final_slots.final_name, categories."order", categories.name
         "#
     )
     .fetch_all(&mut *tx)

@@ -23,6 +23,8 @@ pub struct Category {
     einfahrzeit_seconds: Option<i64>,
     act_duration_seconds: Option<i64>,
     judge_duration_seconds: Option<i64>,
+    /// The heat it belongs to, if any; clubs never pick it.
+    heat: Option<String>,
 }
 
 /// Get information about a club.
@@ -45,7 +47,7 @@ pub async fn list_categories(
     let club_categories = sqlx::query_as!(
         Category,
         r#"
-        SELECT name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
+        SELECT name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat
         FROM categories ORDER BY "order" ASC
         "#
     )

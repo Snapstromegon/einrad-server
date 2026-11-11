@@ -5,7 +5,7 @@
 //!
 //! In the file: the competition with its id, the features it sets, the
 //! photos with their password, the logo and break image as SVG or URL, the sponsors, the colors it sets, the
-//! categories with their ages, the finals, the timeplan
+//! categories with their ages, the heats, the finals, the timeplan
 //! entries and the jury categories. Not in it: a raster image (only SVG fits
 //! into the file; the header says so), default colors (an import keeps the
 //! colors, like the logo, unless the file sets them), anything clubs
@@ -18,7 +18,7 @@ use crate::{
     act_type::ActType,
     competition::Competition,
     config::{
-        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig,
+        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
         JuryCategoryConfig, SponsorConfig, TimeplanEntryConfig,
     },
     finals,
@@ -124,6 +124,35 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     })
     .collect();
 
+    // In the order of their first category, empty ones last, as the admin
+    // UI lists them.
+    let mut heats = Vec::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT name as "name!", description
+        FROM heats
+        ORDER BY
+            (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
+            (SELECT MIN("order") FROM categories WHERE heat = heats.name),
+            name
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        let categories = sqlx::query_scalar!(
+            r#"SELECT name as "name!" FROM categories WHERE heat = ? ORDER BY "order", name"#,
+            row.name
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        heats.push(HeatConfig {
+            name: row.name,
+            description: row.description,
+            categories,
+        });
+    }
+
     let rows = sqlx::query!(
         r#"
         SELECT
@@ -137,21 +166,14 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     .await?;
     let mut final_configs = Vec::with_capacity(rows.len());
     for row in rows {
-        let labels = sqlx::query_scalar!(
-            "SELECT group_label FROM final_slots WHERE final_name = ? ORDER BY position",
-            row.name
-        )
-        .fetch_all(&mut *conn)
-        .await?;
-        let categories = sqlx::query_scalar!(
-            "SELECT category FROM final_categories WHERE final_name = ? ORDER BY category",
+        let heats = sqlx::query_scalar!(
+            r#"SELECT heat as "heat!" FROM final_slots WHERE final_name = ? ORDER BY position"#,
             row.name
         )
         .fetch_all(&mut *conn)
         .await?;
         final_configs.push(FinalConfig {
-            slots: finals::group_slots(labels.iter().map(String::as_str)),
-            categories,
+            slots: finals::group_slots(heats.iter().map(String::as_str)),
             name: row.name,
             description: row.description,
             act_type: row.act_type,
@@ -220,6 +242,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
                 ..CompetitionConfig::from(&competition)
             },
             categories,
+            heats,
             finals: final_configs,
             timeplan,
             jury_categories,

@@ -142,9 +142,9 @@ async fn finals_are_seeded_with_their_slots() {
     assert_eq!(
         texts(slots.as_array().unwrap(), "label"),
         [
-            "1. Finalist (U11–U15)",
-            "2. Finalist (U11–U15)",
-            "1. Finalist (U17+)"
+            "1. Finalist (JE EW)",
+            "2. Finalist (JE EW)",
+            "1. Finalist (E EW)"
         ]
     );
     assert!(
@@ -166,9 +166,10 @@ async fn finals_are_seeded_with_their_slots() {
             "act_duration_seconds": 180,
             "judge_duration_seconds": 120,
             "slot_groups": [
-                { "label": "U11–U15", "count": 2 },
-                { "label": "U17+", "count": 1 },
+                { "heat": "JE EW", "count": 2 },
+                { "heat": "E EW", "count": 1 },
             ],
+            // From its heats.
             "categories": ["EWU11", "EWU13", "EWU15", "EWU17"],
             "slots": null,
             "placement_published": false,
@@ -228,12 +229,12 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
     assert_eq!(
         texts(&slots, "label"),
         [
-            "1. Finalist (U11–U15)",
-            "2. Finalist (U11–U15)",
-            "1. Finalist (U17+)"
+            "1. Finalist (JE EW)",
+            "2. Finalist (JE EW)",
+            "1. Finalist (E EW)"
         ]
     );
-    assert_eq!(texts(&slots, "group_label"), ["U11–U15", "U11–U15", "U17+"]);
+    assert_eq!(texts(&slots, "group_label"), ["JE EW", "JE EW", "E EW"]);
     for slot in &slots {
         assert_eq!(slot["final_name"], FINAL);
         assert_eq!(slot["final_description"], "Finale Einzel Weiblich");
@@ -262,8 +263,8 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
     let csv = response.body.as_str().unwrap();
     for label in [
         "Finale Einzel Weiblich",
-        "1. Finalist (U11–U15)",
-        "1. Finalist (U17+)",
+        "1. Finalist (JE EW)",
+        "1. Finalist (E EW)",
     ] {
         assert!(
             csv.lines()
@@ -386,13 +387,28 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     assert_eq!(finalists(&item).len(), 3);
 }
 
+/// Adds a heat through the admin API.
+async fn add_heat(app: &TestApp, admin: &str, name: &str, categories: &[&str]) {
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            json!({ "name": name, "description": null, "categories": categories }),
+            Some(admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+}
+
 #[tokio::test]
 async fn admins_add_edit_and_delete_finals() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
-    let groups = json!([{ "label": " U17  bis U21 ", "count": 2 }, { "label": "", "count": 1 }]);
+    add_heat(&app, &admin, "E EM 1", &["EMU17", "EMU19", "EMU21"]).await;
+    add_heat(&app, &admin, "E EM 2", &["EMU23", "EMU25"]).await;
+    add_heat(&app, &admin, "E P 2", &["PU23", "PU25"]).await;
+    let groups = json!([{ "heat": " E EM 1 ", "count": 2 }, { "heat": "E EM 2", "count": 1 }]);
 
     for cookie in [None, Some(owner.as_str())] {
         let response = app
@@ -404,6 +420,8 @@ async fn admins_add_edit_and_delete_finals() {
             .await;
         assert_ne!(response.status, StatusCode::OK);
     }
+    let mut group_final = final_body("Finale KG", json!([{ "heat": "E EM 1", "count": 1 }]));
+    group_final["act_type"] = json!("group_small");
     for (body, message) in [
         (final_body(" ", groups.clone()), "Namen"),
         (final_body(FINAL, groups.clone()), "gibt es schon"),
@@ -412,9 +430,24 @@ async fn admins_add_edit_and_delete_finals() {
             "mindestens einen Finalplatz",
         ),
         (
-            final_body("Finale EM", json!([{ "label": "U17", "count": 0 }])),
+            final_body("Finale EM", json!([{ "heat": "E EM 1", "count": 0 }])),
             "mindestens einen Platz",
         ),
+        (
+            final_body("Finale EM", json!([{ "heat": "", "count": 1 }])),
+            "Vorlauf",
+        ),
+        (
+            final_body("Finale EM", json!([{ "heat": "E EM 9", "count": 1 }])),
+            "E EM 9",
+        ),
+        // Every heat competes in the final's discipline.
+        (
+            final_body("Finale EM", json!([{ "heat": "E P 2", "count": 1 }])),
+            "E P 2",
+        ),
+        // Group categories are their own final.
+        (group_final, "Einzel- und Paarküren"),
     ] {
         let response = app.post("/api/command/add_final", body, Some(&admin)).await;
         rejected(&response, message);
@@ -435,12 +468,16 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(finals[1]["is_single_male"], true);
     assert_eq!(
         finals[1]["slot_groups"],
-        json!([{ "label": "U17 bis U21", "count": 2 }, { "label": "", "count": 1 }])
+        json!([{ "heat": "E EM 1", "count": 2 }, { "heat": "E EM 2", "count": 1 }])
+    );
+    assert_eq!(
+        finals[1]["categories"],
+        json!(["EMU17", "EMU19", "EMU21", "EMU23", "EMU25"])
     );
 
     // Planned, renamed: the timeplan follows. Pairs are never male.
     replace_timeplan(&app, &admin, &[final_entry("Finale EM", Some(START))]).await;
-    let mut body = final_body("Finale Paar", json!([{ "label": "U23+", "count": 4 }]));
+    let mut body = final_body("Finale Paar", json!([{ "heat": "E P 2", "count": 4 }]));
     body["name"] = json!("Finale EM");
     body["new_name"] = json!("Finale Paar");
     body["act_type"] = json!("pair");
@@ -453,30 +490,31 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(finals[1]["is_single_male"], false);
     assert_eq!(
         finals[1]["slot_groups"],
-        json!([{ "label": "U23+", "count": 4 }])
+        json!([{ "heat": "E P 2", "count": 4 }])
     );
     assert_eq!(list_timeplan(&app).await[0]["final_name"], "Finale Paar");
     let item = predicted_items(&app).await.remove(0);
     assert_eq!(
         texts(&finalists(&item), "label"),
         [
-            "1. Finalist (U23+)",
-            "2. Finalist (U23+)",
-            "3. Finalist (U23+)",
-            "4. Finalist (U23+)"
+            "1. Finalist (E P 2)",
+            "2. Finalist (E P 2)",
+            "3. Finalist (E P 2)",
+            "4. Finalist (E P 2)"
         ]
     );
 
     // Once it has started, its slots stay; other fields can still change.
     step(&app, &admin, "timeplan_forward").await;
     step(&app, &admin, "timeplan_forward").await;
-    let mut body = final_body("Finale Paar", json!([{ "label": "U23+", "count": 3 }]));
+    let mut body = final_body("Finale Paar", json!([{ "heat": "E P 2", "count": 3 }]));
     body["new_name"] = json!("Finale Paar");
+    body["act_type"] = json!("pair");
     let response = app
         .post("/api/command/edit_final", body.clone(), Some(&admin))
         .await;
     rejected(&response, "schon begonnen");
-    body["slot_groups"] = json!([{ "label": "U23+", "count": 4 }]);
+    body["slot_groups"] = json!([{ "heat": "E P 2", "count": 4 }]);
     body["judge_duration_seconds"] = json!(60);
     let response = app
         .post("/api/command/edit_final", body, Some(&admin))
@@ -614,7 +652,7 @@ async fn placed_acts_show_once_the_placement_is_published() {
         [json!(anna), json!(berta), Value::Null]
     );
     let finalist = finalists(&predicted_items(&app).await[0]).remove(0);
-    assert_eq!(finalist["label"], "1. Finalist (U11–U15)");
+    assert_eq!(finalist["label"], "1. Finalist (JE EW)");
     assert_eq!(finalist["act"]["category"], "EWU13");
     assert_eq!(
         finalist["act"]["category_description"],
@@ -642,25 +680,13 @@ async fn placed_acts_show_once_the_placement_is_published() {
         &place(
             &app,
             &admin,
-            json!([{ "slot_id": slots[2], "act_id": anna }]),
+            json!([{ "slot_id": slots[0], "act_id": anna }]),
         )
         .await,
         "nur einen Finalplatz",
     );
-    // Only acts of the final's categories.
-    let mut body = final_body(
-        FINAL,
-        json!([
-            { "label": "U11–U15", "count": 2 },
-            { "label": "U17+", "count": 1 },
-        ]),
-    );
-    body["new_name"] = json!(FINAL);
-    body["categories"] = json!(["EWU11"]);
-    let response = app
-        .post("/api/command/edit_final", body.clone(), Some(&admin))
-        .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    // A slot takes only acts of its heat: Carla starts in EWU13, a
+    // category of "JE EW", not of "E EW".
     let carla = app.add_single_act(&owner, club_id, "Carla").await;
     rejected(
         &place(
@@ -669,18 +695,20 @@ async fn placed_acts_show_once_the_placement_is_published() {
             json!([{ "slot_id": slots[2], "act_id": carla }]),
         )
         .await,
-        "nicht zu diesem Finale",
+        "nicht zum Vorlauf „E EW“",
     );
-    // Acts placed before stay.
+    // Acts placed before stay when their category leaves the heat.
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({ "name": "JE EW", "new_name": "JE EW", "description": null, "categories": ["EWU11"] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(
         timeplan_acts(&app).await,
         [json!(berta), json!(anna), Value::Null]
-    );
-    body["categories"] = json!(["EWU99"]);
-    rejected(
-        &app.post("/api/command/edit_final", body, Some(&admin))
-            .await,
-        "EWU99",
     );
     // Slots of other finals are refused.
     rejected(
@@ -734,26 +762,33 @@ async fn placements_survive_new_slot_groups() {
         &app,
         &admin,
         json!([
+            { "slot_id": slots[0], "act_id": berta },
             { "slot_id": slots[1], "act_id": anna },
-            { "slot_id": slots[2], "act_id": berta },
         ]),
     )
     .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
-    // "2. Finalist (U11–U15)" is still there, "1. Finalist (U17+)" isn't.
-    let mut body = final_body(FINAL, json!([{ "label": "U11–U15", "count": 3 }]));
+    // "1. Finalist (JE EW)" is still there, now second; "2. Finalist (JE EW)"
+    // isn't.
+    let mut body = final_body(
+        FINAL,
+        json!([{ "heat": "E EW", "count": 1 }, { "heat": "JE EW", "count": 1 }]),
+    );
     body["new_name"] = json!(FINAL);
-    body["categories"] = json!(["EWU13"]);
+    body["is_single_male"] = json!(false);
     let response = app
         .post("/api/command/edit_final", body, Some(&admin))
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(
         placed(&app, Some(&admin)).await,
-        [Value::Null, json!(anna), Value::Null]
+        [Value::Null, json!(berta)]
     );
-    assert_eq!(list_finals(&app).await[0]["categories"], json!(["EWU13"]));
+    assert_eq!(
+        list_finals(&app).await[0]["categories"],
+        json!(["EWU11", "EWU13", "EWU15", "EWU17"])
+    );
 }
 
 #[tokio::test]

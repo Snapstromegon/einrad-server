@@ -5,12 +5,12 @@
 # - It is applied only when the database has no competition yet. Later edits
 #   to this file change nothing; the server warns that the file differs.
 # - --replace-competition / REPLACE_COMPETITION replaces the competition,
-#   categories, finals, timeplan and jury categories with this file. Club data
-#   (clubs, riders, acts with music, judges, bookings, …) is kept; timeplan
-#   slots and progress, finals placements and the jury plan are dropped. Judge
-#   registrations are matched to the new jury categories by name; the others
-#   are written to data_path/remap/ to fill in. A file that changes nothing
-#   replaces nothing.
+#   categories, heats, finals, timeplan and jury categories with this file.
+#   Club data (clubs, riders, acts with music, judges, bookings, …) is kept;
+#   timeplan slots and progress, finals placements and the jury plan are
+#   dropped. Judge registrations are matched to the new jury categories by
+#   name; the others are written to data_path/remap/ to fill in. A file that
+#   changes nothing replaces nothing.
 # - The logo, break image, sponsors and colors are the exception (ADR 0009,
 #   ADR 0010): a replace keeps them unless the file sets logo_svg/logo_url,
 #   break_image_svg/break_image_url, sponsors, primary_color or
@@ -535,14 +535,66 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 5
 judge_duration_minutes = 3
 
+# Heats (Vorläufe): the categories of one discipline whose acts are ranked
+# together; their best fill a final's slots. A heat's categories share one
+# act type and, for singles, gender; a category is in at most one heat, group
+# categories in none (they are their own final). Clubs never pick a heat: it
+# follows from the category.
+
+[[heats]]
+name = "JE EM"
+description = "Junior Expert Einzel Männlich (U11–U15)"
+categories = ["EMU11", "EMU13", "EMU15"]
+
+[[heats]]
+name = "E EM 1"
+description = "Expert 1 Einzel Männlich (U17–U21)"
+categories = ["EMU17", "EMU19", "EMU21"]
+
+[[heats]]
+name = "E EM 2"
+description = "Expert 2 Einzel Männlich (U23 und älter)"
+categories = ["EMU23", "EMU25", "EMU30", "EMU50", "EMU70", "EM70+"]
+
+[[heats]]
+name = "JE EW"
+description = "Junior Expert Einzel Weiblich (U11–U15)"
+categories = ["EWU11", "EWU13", "EWU15"]
+
+[[heats]]
+name = "E EW 1"
+description = "Expert 1 Einzel Weiblich (U17–U21)"
+categories = ["EWU17", "EWU19", "EWU21"]
+
+[[heats]]
+name = "E EW 2"
+description = "Expert 2 Einzel Weiblich (U23 und älter)"
+categories = ["EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
+
+[[heats]]
+name = "JE P"
+description = "Junior Expert Paar (U11–U15)"
+categories = ["PU11", "PU13", "PU15"]
+
+[[heats]]
+name = "E P 1"
+description = "Expert 1 Paar (U17–U21)"
+categories = ["PU17", "PU19", "PU21"]
+
+[[heats]]
+name = "E P 2"
+description = "Expert 2 Paar (U23 und älter)"
+categories = ["PU23", "PU25", "PU30", "PU50", "PU70", "P70+"]
+
 # Finals: reserved slots for the best riders of the heats, planned before the
 # results are known. Each slot runs like an act with the final's durations;
-# slots lists them in start order as groups, e.g. 5 slots "U11–U15" become
-# "1. Finalist (U11–U15)" … "5. Finalist (U11–U15)". A [[timeplan]] entry with
-# final = "<name>" plans a final (each final once). act_type and single_male
-# name the discipline. categories lists the categories whose acts admins can
-# place in the slots once the heats are judged (optional, also editable in
-# the admin UI); the placement shows in the timeplan once it is published.
+# slots lists them in start order as groups filled from a heat, e.g. 5 slots
+# from the heat "JE EM" become "1. Finalist (JE EM)" … "5. Finalist (JE EM)".
+# A [[timeplan]] entry with final = "<name>" plans a final (each final once).
+# act_type and single_male name the discipline, which every heat of the final
+# shares; only singles and pairs have finals. The final's categories are
+# those of its heats: once the heats are judged, admins place their acts in
+# the slots; the placement shows in the timeplan once it is published.
 
 [[finals]]
 name = "Finale 1 EM"
@@ -552,8 +604,7 @@ single_male = true
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 4
-slots = [{ label = "U11–U15", count = 5 }]
-categories = ["EMU11", "EMU13", "EMU15"]
+slots = [{ heat = "JE EM", count = 5 }]
 
 [[finals]]
 name = "Finale 2 EM"
@@ -563,8 +614,7 @@ single_male = true
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 6
-slots = [{ label = "U17–U21", count = 4 }, { label = "U23+", count = 4 }]
-categories = ["EMU17", "EMU19", "EMU21", "EMU23", "EMU25", "EMU30", "EMU50", "EMU70", "EM70+"]
+slots = [{ heat = "E EM 1", count = 4 }, { heat = "E EM 2", count = 4 }]
 
 [[finals]]
 name = "Finale 1 EW"
@@ -574,8 +624,7 @@ single_male = false
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 4
-slots = [{ label = "U11–U15", count = 5 }]
-categories = ["EWU11", "EWU13", "EWU15"]
+slots = [{ heat = "JE EW", count = 5 }]
 
 [[finals]]
 name = "Finale 2 EW"
@@ -585,8 +634,7 @@ single_male = false
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 6
-slots = [{ label = "U17–U21", count = 4 }, { label = "U23+", count = 4 }]
-categories = ["EWU17", "EWU19", "EWU21", "EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
+slots = [{ heat = "E EW 1", count = 4 }, { heat = "E EW 2", count = 4 }]
 
 [[finals]]
 name = "Finale 1 P"
@@ -595,8 +643,7 @@ act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 2
-slots = [{ label = "U11–U15", count = 5 }]
-categories = ["PU11", "PU13", "PU15"]
+slots = [{ heat = "JE P", count = 5 }]
 
 [[finals]]
 name = "Finale 2 P"
@@ -605,8 +652,7 @@ act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 2
-slots = [{ label = "U17–U21", count = 4 }, { label = "U23+", count = 4 }]
-categories = ["PU17", "PU19", "PU21", "PU23", "PU25", "PU30", "PU50", "PU70", "P70+"]
+slots = [{ heat = "E P 1", count = 4 }, { heat = "E P 2", count = 4 }]
 
 # Timeplan in order. An entry runs a category (its duration comes from the
 # category and its acts), a final (from the final and its slots), or is a

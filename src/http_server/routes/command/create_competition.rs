@@ -148,6 +148,7 @@ pub async fn create_competition(
             secondary_color: Branding::Keep,
         },
         categories: vec![],
+        heats: vec![],
         finals: vec![],
         timeplan: vec![],
         jury_categories: vec![],

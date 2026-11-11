@@ -16,7 +16,7 @@
 //!    and "Zurück" always see the done part of a block as a prefix.
 //!
 //! A block running a final (`timeplan.final_name`) holds the final's reserved
-//! slots instead ("1. Finalist (U11–U15)", see `crate::finals`). They run and
+//! slots instead ("1. Finalist (JE EM)", see `crate::finals`). They run and
 //! are judged like acts, with the final's durations. Once the final's
 //! placement is published, each slot carries its placed act, whose song
 //! plays in it; the act's own progress (in its heat) stays untouched.
@@ -248,7 +248,7 @@ pub struct BreakSlot {
     pub ended_at: Option<OffsetDateTime>,
 }
 
-/// A reserved slot of a final, e.g. "3. Finalist (U17–U21)".
+/// A reserved slot of a final, e.g. "3. Finalist (E EM 1)".
 #[derive(Debug, Clone)]
 pub struct FinalistSlot {
     pub id: Uuid,
@@ -266,7 +266,7 @@ pub struct FinalistSlot {
 }
 
 impl FinalistSlot {
-    /// "3. Finalist (U17–U21)".
+    /// "3. Finalist (E EM 1)".
     pub fn label(&self) -> String {
         crate::finals::finalist_label(self.number, &self.group_label)
     }
@@ -576,7 +576,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         SELECT
             final_slots.id as "id!: Uuid",
             final_name,
-            group_label,
+            heat as "heat!",
             number,
             act_id as "act_id: Uuid",
             finals.placement_published,
@@ -604,7 +604,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             .push(Slot::Finalist(FinalistSlot {
                 id: row.id,
                 final_name: row.final_name,
-                group_label: row.group_label,
+                group_label: row.heat,
                 number: row.number,
                 act,
                 started_at: row.started_at,

@@ -78,11 +78,15 @@ pub async fn add_final(
     )
     .execute(&mut *tx)
     .await?;
+    finals::check_heats(
+        &mut tx,
+        fields.act_type,
+        fields.is_single_male,
+        &fields.slot_groups,
+    )
+    .await
+    .map_err(HttpError::ErrorMessages)?;
     finals::replace_slots(&mut tx, &name, &fields.slot_groups).await?;
-    finals::check_categories(&mut tx, &fields.categories)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    finals::set_categories(&mut tx, &name, &fields.categories).await?;
 
     tx.commit().await?;
     Ok(Json(AddFinalResponse {}))

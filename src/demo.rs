@@ -20,8 +20,8 @@ use uuid::Uuid;
 use crate::{
     act_type::ActType,
     config::{
-        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, JuryCategoryConfig,
-        TimeplanEntryConfig, toml_date, toml_datetime_option,
+        CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
+        JuryCategoryConfig, TimeplanEntryConfig, toml_date, toml_datetime_option,
     },
     gender::Gender,
     groups,
@@ -35,6 +35,8 @@ pub struct DemoData {
     pub competition: CompetitionConfig,
     #[serde(default)]
     pub categories: Vec<CategoryConfig>,
+    #[serde(default)]
+    pub heats: Vec<HeatConfig>,
     #[serde(default)]
     pub finals: Vec<FinalConfig>,
     #[serde(default)]
@@ -292,6 +294,7 @@ impl DemoData {
         let file = CompetitionFile {
             competition: self.competition.clone(),
             categories: self.categories.clone(),
+            heats: self.heats.clone(),
             finals: self.finals.clone(),
             timeplan,
             jury_categories: self.jury_categories.clone(),
