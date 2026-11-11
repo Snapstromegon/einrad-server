@@ -303,13 +303,22 @@ database and `data/` in `~/<cup_dir>`:
   there. `build.yml` checks this with
   [`check-cpu-baseline.sh`](.github/scripts/check-cpu-baseline.sh) on an
   emulated CPU without AVX.
-- **Config:** `config.<environment>.toml` and `competition.<environment>.toml`
-  from the repository root (ignored by git, `config.preview.toml` …) are
-  uploaded as `config.toml` and `competition.toml`. Without such a file, the
-  one on the server stays as it is. The service sets `HTTP_ADDRESS`,
-  `DATABASE_URL` (`sqlite://./db.sqlite?mode=rwc`, so the server creates the
-  database on the first start) and on the preview `BASE_URL`, which take
-  precedence over both.
+- **Config:** by default nothing is uploaded. An instance without a
+  `config.toml` goes through first-run setup (ADR 0011): the server logs a
+  setup token and writes it to `einrad-server-setup-token.txt` next to the
+  config. The deploy prints only that file's path (deploy logs may land in
+  CI), never the token; open or `cat` it on the server. If the instance had a
+  `config.toml` before the deploy and still ends up in first-run setup, the
+  deploy shows a red, ignored `WARNING` task (it doesn't fail). A local file from the
+  repository root (ignored by git) is uploaded only on request, as
+  `-e cup_config_src=config.production.toml` and/or
+  `-e cup_competition_src=competition.production.toml`, and then replaces the
+  server's `config.toml` / `competition.toml` (0600). The service sets
+  `HTTP_ADDRESS`, `DATABASE_URL` (`sqlite://./db.sqlite?mode=rwc`, so the
+  server creates the database on the first start) and `BASE_URL` (preview and
+  production, so the token file holds a clickable URL), which take precedence
+  over both. The preview additionally loads `secrets.env` (`JWT_SECRET`,
+  `RELOAD_DB_TOKEN`), generated once on the VM and never overwritten.
 - **Update:** a new binary only starts after the service was stopped and the
   database was copied to `backups/` (the newest 10 are kept); the old binary
   stays as `bin/einrad-server.previous`. A new config only
@@ -319,8 +328,8 @@ database and `data/` in `~/<cup_dir>`:
   points `einrad-server.home.hoeser.dev` at it with the site file
   `/etc/caddy/sites/einrad-server.caddy` on `caddy` (see
   [Caddy site files](#caddy-site-files); an entry for the domain in the
-  Caddyfile itself is removed). It keeps the database and `config.toml` on
-  the VM and stops before changing anything if `config.toml` is missing (see
+  Caddyfile itself is removed). It keeps the database, `config.toml` and
+  `secrets.env` on the VM (see
   [The central 2027 instance](#the-central-2027-instance)); without a
   database, the server creates an empty one.
   `-e preview_seed_demo=true` backs up the database and recreates it with the demo data:
@@ -328,11 +337,10 @@ database and `data/` in `~/<cup_dir>`:
   `seed_demo-linux` asset (`latest-build` doesn't have one).
 - **Production:** runs as the supervisord service `einrad-server` in
   `~/einrad-server`, and the web backend of
-  `anmeldung.freestyle-cup.nrw` points to its port. The playbook stops before
-  changing anything if `~/einrad-server/config.toml` is missing (and there's no
-  `config.production.toml` to upload) or still has competition sections, or if
-  another service runs from that directory, and warns if ffmpeg is missing.
-  Without a database, the server creates an empty one.
+  `anmeldung.lmfreestyle27.de` points to its port. The playbook stops before
+  changing anything if another service runs from that directory, and warns if
+  ffmpeg is missing. Without a `config.toml` the server starts in first-run
+  setup, and without a database it creates an empty one.
 
 The settings and their defaults are in [`deploy/group_vars/`](deploy/group_vars).
 
@@ -371,11 +379,12 @@ replaces a waiting one, also a manual one with `reseed` (start it again). A
 run whose commit is no longer the newest of `main` skips release and deploy,
 as the newer commit's run does both.
 
-The instance keeps its database and `config.toml` (with real SMTP: it sends
-**real mail**, unlike the [PR previews](#pr-previews)) in
+The instance keeps its database, `config.toml` (with real SMTP: it sends
+**real mail**, unlike the [PR previews](#pr-previews)) and `secrets.env` in
 `~deploy/einrad-server` on the VM; nothing in the repository holds them. The
-playbook stops before it changes anything if `config.toml` is missing, or if
-it still has competition sections, which the server would refuse. Without a
+playbook uploads no config (a bare instance goes through first-run setup, and
+the deploy prints the setup token file's path). A config that still has
+competition sections fails the server's start and the health check. Without a
 database, the server creates an empty one on start (setup mode, see above). A
 new binary backs up the database and then migrates it on start.
 
