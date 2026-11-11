@@ -13,16 +13,20 @@ use std::{
     future::Future,
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use axum::{
     Json, Router,
-    extract::{FromRequestParts, State},
+    extract::{FromRequestParts, Request, State},
     http::{HeaderValue, Method, StatusCode, Uri, header, request::Parts},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use axum_extra::extract::{
     CookieJar,
@@ -35,6 +39,11 @@ use tracing::{info, warn};
 use url::Url;
 
 use crate::{config::Settings, http_server::routes::StaticAssets, roles::Role};
+
+mod complete;
+pub use complete::{
+    AdminInput, CompleteError, CompleteInput, Completed, SetupEnv, Source, Status, TestMailInput,
+};
 
 /// The file the setup token is written to, next to the config path.
 pub const TOKEN_FILE_NAME: &str = "einrad-server-setup-token.txt";
@@ -119,25 +128,62 @@ fn extract_token(input: &str) -> &str {
 }
 
 /// The state of a pending first-run setup, shared by the setup API.
-#[derive(Debug)]
 pub struct SetupState {
     token: String,
     base_url: Option<Url>,
     token_file: PathBuf,
     sessions: Mutex<HashMap<String, Instant>>,
+    env: SetupEnv,
+    /// The completion's lock; `true` once the setup is done.
+    completion: tokio::sync::Mutex<bool>,
+    /// Mirrors the lock's flag for the cheap check in front of every endpoint.
+    done: AtomicBool,
+    /// At most one test mail at a time: it connects to a server of the
+    /// caller's choice.
+    test_mail: tokio::sync::Semaphore,
+}
+
+// No derive: the token and the environment's secrets must never be printed.
+impl fmt::Debug for SetupState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetupState").finish_non_exhaustive()
+    }
 }
 
 impl SetupState {
     /// A new setup with a new token. `base_url` is the configured one, if
-    /// any; the token file goes into `config_dir`.
+    /// any; the token file goes next to the config path of `env`.
     #[must_use]
-    pub fn new(base_url: Option<Url>, config_dir: &Path) -> Arc<Self> {
+    pub fn new(base_url: Option<Url>, env: SetupEnv) -> Arc<Self> {
+        let config_dir = config_dir(Some(&env.config_path));
         Arc::new(Self {
             token: random_secret(),
             base_url,
             token_file: config_dir.join(TOKEN_FILE_NAME),
             sessions: Mutex::new(HashMap::new()),
+            env,
+            completion: tokio::sync::Mutex::new(false),
+            done: AtomicBool::new(false),
+            test_mail: tokio::sync::Semaphore::new(1),
         })
+    }
+
+    fn is_done(&self) -> bool {
+        self.done.load(Ordering::SeqCst)
+    }
+
+    /// Ends the setup: the token file is deleted and every session ends.
+    fn finish(&self) {
+        match std::fs::remove_file(&self.token_file) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => warn!(
+                "Couldn't delete the setup token file {}: {e}",
+                self.token_file.display()
+            ),
+        }
+        self.sessions.lock().unwrap().clear();
+        self.done.store(true, Ordering::SeqCst);
     }
 
     #[must_use]
@@ -349,10 +395,115 @@ async fn gate(method: Method, uri: Uri) -> Response {
     response
 }
 
+/// In front of every setup endpoint: once the setup is done they all answer
+/// "already done", and no response is cached (some carry secrets).
+async fn setup_api_guard(
+    State(state): State<Arc<SetupState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut response = if state.is_done() {
+        already_done()
+    } else {
+        next.run(request).await
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn already_done() -> Response {
+    (
+        StatusCode::GONE,
+        Json(serde_json::json!({
+            "error": "first-run setup already done",
+            "complete": true,
+            "restart_required": true,
+        })),
+    )
+        .into_response()
+}
+
+fn failure(status: StatusCode, message: &str) -> Response {
+    (status, Json(serde_json::json!({ "error": message }))).into_response()
+}
+
+async fn status(_auth: SetupAuth, State(state): State<Arc<SetupState>>) -> Response {
+    match complete::status(&state.env).await {
+        Ok(status) => Json(status).into_response(),
+        Err(e) => failure(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
+async fn test_mail(
+    _auth: SetupAuth,
+    State(state): State<Arc<SetupState>>,
+    Json(input): Json<TestMailInput>,
+) -> Response {
+    let Ok(_permit) = state.test_mail.try_acquire() else {
+        return failure(StatusCode::TOO_MANY_REQUESTS, "a test mail is being sent");
+    };
+    match complete::test_mail(&state.env, input).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(error) => Json(serde_json::json!({ "ok": false, "error": error })).into_response(),
+    }
+}
+
+async fn complete_setup(
+    _auth: SetupAuth,
+    State(state): State<Arc<SetupState>>,
+    Json(input): Json<CompleteInput>,
+) -> Response {
+    // Its own task: a client that disconnects must not cancel the completion
+    // between writing the file and creating the admin.
+    let result = tokio::spawn(async move { complete::complete(&state, input).await }).await;
+    match result {
+        Ok(Ok(done)) => Json(done).into_response(),
+        Ok(Err(CompleteError::AlreadyDone)) => already_done(),
+        Ok(Err(CompleteError::Invalid(errors))) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "errors": errors })),
+        )
+            .into_response(),
+        Ok(Err(CompleteError::Conflict {
+            reason,
+            path,
+            content,
+            partial,
+        })) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "reason": reason,
+                "config_path": path,
+                "config_content": content,
+                // If true, add these lines to the existing file instead.
+                "partial": partial,
+            })),
+        )
+            .into_response(),
+        Ok(Err(CompleteError::Failed(e))) => {
+            warn!("First-run setup failed: {e}");
+            failure(StatusCode::INTERNAL_SERVER_ERROR, &e)
+        }
+        Err(e) => {
+            warn!("First-run setup task failed: {e}");
+            failure(StatusCode::INTERNAL_SERVER_ERROR, "setup failed")
+        }
+    }
+}
+
 /// The router of a pending first-run setup.
 pub fn router(state: Arc<SetupState>) -> Router {
     Router::new()
         .route("/api/setup/session", get(session).post(exchange_token))
+        .route("/api/setup/status", get(status))
+        .route("/api/setup/test-mail", post(test_mail))
+        .route("/api/setup/complete", post(complete_setup))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            setup_api_guard,
+        ))
         .fallback(gate)
         .with_state(state)
 }

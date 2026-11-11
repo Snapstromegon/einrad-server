@@ -16,7 +16,9 @@ use axum::{
 use common::{TempDir, in_memory_migrated};
 use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
-    setup::{PendingReason, SetupState, TOKEN_FILE_NAME, config_dir, pending_reason, router},
+    setup::{
+        PendingReason, SetupEnv, SetupState, TOKEN_FILE_NAME, config_dir, pending_reason, router,
+    },
 };
 use tower::ServiceExt;
 use url::Url;
@@ -51,8 +53,19 @@ fn base_url() -> Option<Url> {
     Some(Url::parse("https://cup.example.org").unwrap())
 }
 
+/// A setup whose config path is `config.toml` in `dir`. The token tests never
+/// touch the database, so its pool connects lazily (and never).
 fn state_in(dir: &TempDir, base_url: Option<Url>) -> Arc<SetupState> {
-    SetupState::new(base_url, &dir.0)
+    SetupState::new(base_url, env_in(&dir.0))
+}
+
+fn env_in(dir: &Path) -> SetupEnv {
+    let cli = CliArgs {
+        config: Some(dir.join("config.toml")),
+        ..Default::default()
+    };
+    let db = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+    SetupEnv::new(db, cli)
 }
 
 async fn send(app: &Router, method: Method, uri: &str, body: Option<&str>) -> Response {
@@ -168,8 +181,8 @@ fn the_token_file_goes_next_to_the_config_path() {
 
 // The token and its file
 
-#[test]
-fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
+#[tokio::test]
+async fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, base_url());
     state.write_token_file().unwrap();
@@ -184,8 +197,8 @@ fn the_token_file_is_private_and_holds_the_setup_url_with_a_base_url() {
     );
 }
 
-#[test]
-fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
+#[tokio::test]
+async fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, None);
     state.write_token_file().unwrap();
@@ -195,8 +208,8 @@ fn the_token_file_holds_only_the_bare_token_without_a_base_url() {
     assert_eq!(state.token_line(), state.token());
 }
 
-#[test]
-fn a_base_url_with_a_path_keeps_it() {
+#[tokio::test]
+async fn a_base_url_with_a_path_keeps_it() {
     let dir = TempDir::new();
     let url = Url::parse("https://example.org/cup/").unwrap();
     let state = state_in(&dir, Some(url));
@@ -206,8 +219,8 @@ fn a_base_url_with_a_path_keeps_it() {
     );
 }
 
-#[test]
-fn every_start_makes_a_new_token_and_replaces_the_file() {
+#[tokio::test]
+async fn every_start_makes_a_new_token_and_replaces_the_file() {
     let dir = TempDir::new();
     let first = state_in(&dir, None);
     first.write_token_file().unwrap();
@@ -231,17 +244,17 @@ fn every_start_makes_a_new_token_and_replaces_the_file() {
     assert!(!second.token_matches(first.token()));
 }
 
-#[test]
-fn an_unwritable_directory_is_an_error_not_a_panic() {
+#[tokio::test]
+async fn an_unwritable_directory_is_an_error_not_a_panic() {
     let dir = TempDir::new();
-    let state = SetupState::new(None, &dir.0.join("missing"));
+    let state = SetupState::new(None, env_in(&dir.0.join("missing")));
     assert!(state.write_token_file().is_err());
     // The token is still known, for the log.
     assert!(!state.token().is_empty());
 }
 
-#[test]
-fn the_token_matches_bare_or_inside_a_url() {
+#[tokio::test]
+async fn the_token_matches_bare_or_inside_a_url() {
     let dir = TempDir::new();
     let state = state_in(&dir, base_url());
     let token = state.token().to_owned();

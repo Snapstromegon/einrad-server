@@ -868,6 +868,20 @@ pub async fn apply_settings(db: &sqlx::SqlitePool, settings: &Settings) -> Resul
     .await
 }
 
+/// Checks a competition file the way the start applies it: it's loaded and
+/// applied to a throwaway in-memory database, so a broken file fails early
+/// without touching the real database.
+///
+/// # Errors
+/// What applying the file reports for an invalid file.
+pub async fn check_file(path: &Path) -> Result<(), String> {
+    let file = CompetitionFile::load(path)?;
+    let db = crate::reloadable_sqlite::in_memory_migrated().await;
+    apply(&db, Some(&file), false, &std::env::temp_dir())
+        .await
+        .map(|_| ())
+}
+
 fn db_error(e: sqlx::Error) -> String {
     format!("Database error while applying the competition file: {e}")
 }
