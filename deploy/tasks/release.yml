@@ -28,6 +28,8 @@
     src: "{{ [playbook_dir | dirname, item.src] | path_join }}"
     dest: "{{ app_dir }}/{{ item.dest }}"
     mode: "0600"
+  # The config holds secrets (SMTP password): keep it out of --diff output.
+  diff: false
   loop:
     - { src: "{{ cup_config_src }}", dest: config.toml }
     - { src: "{{ cup_competition_src }}", dest: competition.toml }
