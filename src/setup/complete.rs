@@ -804,9 +804,14 @@ async fn hand_over(
     let report = seed::apply_settings(&env.db, &settings)
         .await
         .map_err(|e| clean(&e))?;
-    let normal = startup::build(env.db.clone(), settings, &report)
-        .await
-        .map_err(|e| clean(&e.to_string()))?;
+    let normal = startup::build(
+        env.db.clone(),
+        settings,
+        &report,
+        &super::config_dir(Some(&env.config_path)),
+    )
+    .await
+    .map_err(|e| clean(&e.to_string()))?;
     let session = match admin_id {
         Some(id) => Some(
             normal

@@ -584,3 +584,52 @@ async fn smtp_errors_never_echo_credentials() {
         );
     }
 }
+
+// A stale setup token file
+
+/// A normal start with a complete config and an admin, as the binary does it.
+async fn normal_start(dir: &TempDir, db: &SqlitePool) {
+    einrad_server::admin_user::insert_admin_user(db, "Max Müller", "max@example.org", PASSWORD)
+        .await
+        .unwrap();
+    let cli = CliArgs {
+        config: Some(dir.0.join("config.toml")),
+        data: Some(dir.0.join("data")),
+        local_player: None,
+        ..env_system_config()
+    };
+    let settings = einrad_server::config::Settings::resolve(cli, ConfigFile::default()).unwrap();
+    let report = einrad_server::seed::apply_settings(db, &settings)
+        .await
+        .unwrap();
+    einrad_server::startup::build(db.clone(), settings, &report, &dir.0)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_normal_start_removes_a_stale_setup_token_file() {
+    let dir = TempDir::new();
+    let db = in_memory_migrated().await;
+    let token_file = dir.0.join(einrad_server::setup::TOKEN_FILE_NAME);
+    std::fs::write(&token_file, "stale-token\n").unwrap();
+    normal_start(&dir, &db).await;
+    assert!(!token_file.exists());
+}
+
+#[tokio::test]
+async fn a_normal_start_without_a_token_file_is_fine() {
+    let dir = TempDir::new();
+    let db = in_memory_migrated().await;
+    normal_start(&dir, &db).await;
+}
+
+#[tokio::test]
+async fn a_start_in_first_run_setup_still_writes_a_fresh_token_file() {
+    let s = Server::start(CliArgs::default()).await;
+    s.state
+        .announce(&einrad_server::setup::PendingReason::NoAdmin);
+    let content =
+        std::fs::read_to_string(s.dir.0.join(einrad_server::setup::TOKEN_FILE_NAME)).unwrap();
+    assert_eq!(content.trim(), s.state.token());
+}

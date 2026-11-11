@@ -109,6 +109,30 @@ pub fn config_dir(config: Option<&Path>) -> PathBuf {
     }
 }
 
+/// Deletes the token file. Returns whether there was one.
+fn remove_token_file(path: &Path) -> io::Result<bool> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// A normal start deletes a token file left behind (e.g. by a hand-made or
+/// uploaded config that made the setup unnecessary). A failing delete only
+/// warns; the file's content is never logged.
+pub fn remove_stale_token_file(config_dir: &Path) {
+    let path = config_dir.join(TOKEN_FILE_NAME);
+    match remove_token_file(&path) {
+        Ok(true) => info!("Removed the stale setup token file {}", path.display()),
+        Ok(false) => {}
+        Err(e) => warn!(
+            "Couldn't delete the stale setup token file {}: {e}",
+            path.display()
+        ),
+    }
+}
+
 /// 32 random bytes as hex.
 fn random_secret() -> String {
     let mut bytes = [0u8; 32];
@@ -215,13 +239,11 @@ impl SetupState {
 
     /// Ends the setup: the token file is deleted and every session ends.
     fn finish(&self) {
-        match std::fs::remove_file(&self.token_file) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => warn!(
+        if let Err(e) = remove_token_file(&self.token_file) {
+            warn!(
                 "Couldn't delete the setup token file {}: {e}",
                 self.token_file.display()
-            ),
+            );
         }
         self.sessions.lock().unwrap().clear();
         self.done.store(true, Ordering::SeqCst);
@@ -516,6 +538,7 @@ async fn complete_setup(
             let jar = done.session.take().unwrap_or_default().add(
                 Cookie::build((SESSION_COOKIE, ""))
                     .path("/api/setup")
+                    .secure(task_secure)
                     .max_age(time::Duration::ZERO)
                     .build(),
             );
