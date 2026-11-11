@@ -13,6 +13,7 @@ mod assign_judge;
 mod create_booking;
 mod create_club;
 mod create_club_group;
+mod create_competition;
 mod delete_booking;
 mod delete_category;
 mod delete_club_group;
@@ -155,6 +156,7 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(
             preview_competition_import::preview_competition_import
         ))
+        .routes(routes!(create_competition::create_competition))
         .routes(routes!(import_competition::import_competition))
         .routes(routes!(edit_competition::edit_competition))
         .routes(routes!(remove_competition_logo::remove_competition_logo))

@@ -802,6 +802,28 @@ pub async fn preview(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<Pr
     })
 }
 
+/// Creates the competition of `file` (just its `[competition]`, the lists
+/// stay empty) in setup mode. Refused with a German message while a
+/// competition exists: a database has one (ADR 0001). Nothing is written on
+/// an error.
+pub async fn create(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<(), String> {
+    let mut tx = begin_write(db).await.map_err(db_error)?;
+    if Competition::current(&mut *tx)
+        .await
+        .map_err(db_error)?
+        .is_some()
+    {
+        return Err(
+            "Der Wettkampf lässt sich nicht anlegen, weil es schon einen Wettkampf gibt."
+                .to_string(),
+        );
+    }
+    write(&mut tx, file, &file.competition.id).await?;
+    tx.commit().await.map_err(db_error)?;
+    info!("Created competition {}", file.competition.id);
+    Ok(())
+}
+
 /// The competition the server starts with, or `None` for setup mode:
 /// without a competition the server starts as long as an admin exists, who
 /// imports one in the admin UI. Without either it refuses to start, as

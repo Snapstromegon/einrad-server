@@ -96,3 +96,34 @@ export const referenceExample = (prefix: string) =>
     "Einradverein Musterstadt",
     "EV-K7Q3",
   );
+
+/** The longest competition id the server accepts. */
+export const MAX_COMPETITION_ID_LENGTH = 64;
+
+/**
+ * The id suggested for a new competition: the name as a slug (umlauts as
+ * "ae", "oe", "ue", "ss", anything else but letters and digits as a hyphen)
+ * followed by the year of `startDate` (`YYYY-MM-DD`). A year the name ends
+ * with isn't repeated. Always a valid id, as far as the name and date allow;
+ * empty without either.
+ */
+export const deriveCompetitionId = (
+  name: string,
+  startDate: string,
+): string => {
+  const year = /^\d{4}(?=-)/.exec(startDate)?.[0] ?? "";
+  const slug = name
+    .toLowerCase()
+    .replaceAll("ä", "ae")
+    .replaceAll("ö", "oe")
+    .replaceAll("ü", "ue")
+    .replaceAll("ß", "ss")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const suffix = year && !slug.endsWith(year) ? year : "";
+  const room = MAX_COMPETITION_ID_LENGTH - (suffix ? suffix.length + 1 : 0);
+  const base = slug.slice(0, room).replace(/-$/, "");
+  return [base, suffix].filter(Boolean).join("-");
+};
