@@ -12,6 +12,7 @@ export const partNames: Record<Part, string> = {
   images: "Logo, Pausenbild, Sponsoren",
   colors: "Farben",
   categories: "Kategorien",
+  heats: "Vorläufe",
   finals: "Finals",
   timeplan: "Zeitplan",
   jury_categories: "Jury-Kategorien",

@@ -502,42 +502,12 @@ export const describeGroup = (
   return `${actTypeShort[type]}${age} · ${countRiders(regular)}${extra}`;
 };
 
-/** A run of a final's reserved slots, e.g. 5 slots "U11–U15". */
+/** A run of a final's reserved slots filled from one heat, e.g. 5 × "JE EM". */
 export type SlotGroup = schemas.SlotGroup;
 
-/** Slot groups as admins type them: "5 × U11–U15, 4 × U23+". */
+/** Slot groups as admins read them: "5 × JE EM, 4 × E EM 1". */
 export const formatSlotGroups = (groups: SlotGroup[]) =>
-  groups
-    .map((group) =>
-      group.label ? `${group.count} × ${group.label}` : String(group.count),
-    )
-    .join(", ");
-
-/**
- * Parses slot groups typed like "5 × U11–U15, 4 × U23+" ("x", "*" or no
- * sign work too; the label may be left out). `null` if a part has no count
- * of at least 1 or nothing is given.
- */
-export const parseSlotGroups = (text: string): SlotGroup[] | null => {
-  const parts = text
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!parts.length) {
-    return null;
-  }
-  const groups: SlotGroup[] = [];
-  for (const part of parts) {
-    // The sign must stand alone, so "3 Xtreme" keeps its label.
-    const match = /^(\d+)\s*(?:[×xX*](?=\s|$)\s*)?(.*)$/.exec(part);
-    const count = match ? Number(match[1]) : 0;
-    if (!match || count < 1) {
-      return null;
-    }
-    groups.push({ count, label: (match[2] ?? "").trim() });
-  }
-  return groups;
-};
+  groups.map((group) => `${group.count} × ${group.heat}`).join(", ");
 
 /**
  * The song file to play: the loudness-normalized copy once it is ready,

@@ -31,6 +31,9 @@ import {
   parseDuration,
 } from "../../utils";
 import "../elements/cup-admin-finals.js";
+import "../elements/cup-admin-heats.js";
+import type CupAdminFinals from "../elements/cup-admin-finals.js";
+import type CupAdminHeats from "../elements/cup-admin-heats.js";
 
 type Category = schemas.Category;
 
@@ -255,6 +258,7 @@ export default class CupViewAdminCategories extends LitElement {
         white-space: pre-line;
       }
 
+      cup-admin-heats,
       cup-admin-finals {
         display: block;
         margin-top: 2rem;
@@ -277,6 +281,12 @@ export default class CupViewAdminCategories extends LitElement {
 
   @query("tr.editing input[data-field=name]")
   private editNameInput?: HTMLInputElement | null;
+
+  @query("cup-admin-heats")
+  private heatsElement?: CupAdminHeats | null;
+
+  @query("cup-admin-finals")
+  private finalsElement?: CupAdminFinals | null;
 
   /** The last loaded data: a failed reload keeps showing it. */
   private last?: Data;
@@ -377,6 +387,7 @@ export default class CupViewAdminCategories extends LitElement {
                 </div>`,
             })
       }
+      <cup-admin-heats @heats-changed=${this.onHeatsChanged}></cup-admin-heats>
       <cup-admin-finals></cup-admin-finals>
     </div>`;
   }
@@ -484,6 +495,11 @@ export default class CupViewAdminCategories extends LitElement {
             Männlich
           </th>
           <th
+            title="Der Vorlauf, in dem die Kategorie gewertet wird; zuordnen unter „Vorläufe“"
+          >
+            Vorlauf
+          </th>
+          <th
             class="num"
             title="Alter am Stichtag, ab dem FahrerInnen dazugehören, z. B. 70 für 70+; leer für keine Untergrenze. 9,5 = 9 Jahre 6 Monate"
           >
@@ -535,14 +551,14 @@ export default class CupViewAdminCategories extends LitElement {
         ${
           categories.length === 0 && !this.editing
             ? html`<tr>
-              <td colspan="13" class="empty">Noch keine Kategorien.</td>
+              <td colspan="14" class="empty">Noch keine Kategorien.</td>
             </tr>`
             : nothing
         }
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="10">Summe</td>
+          <td colspan="11">Summe</td>
           <td class="num">${totalActs}</td>
           <td class="num">${formatDuration(totalSeconds)}</td>
           <td class="actions"></td>
@@ -597,6 +613,7 @@ export default class CupViewAdminCategories extends LitElement {
             : html`<span class="muted" title="nur für Einzelküren">–</span>`
         }
       </td>
+      <td>${category.heat ?? html`<span class="muted">–</span>`}</td>
       ${this.renderAgeCell(category.min_age, rangeIssue?.to)}
       ${this.renderAgeCell(category.under_age, rangeIssue?.from)}
       <td class="nowrap">
@@ -663,6 +680,8 @@ export default class CupViewAdminCategories extends LitElement {
   private renderEditRow(draft: CategoryDraft, category: Category | null) {
     const problems = this.draftProblems(draft);
     const single = draft.act_type === "single";
+    // In a heat, the type and gender stay (HEAT-1).
+    const heat = category?.heat ?? null;
     const acts = category
       ? (this.current?.actCounts.get(category.name) ?? 0)
       : 0;
@@ -704,6 +723,8 @@ export default class CupViewAdminCategories extends LitElement {
         <select
           class="inline"
           aria-label="Typ"
+          title=${heat ? `Im Vorlauf „${heat}“ bleibt der Typ` : nothing}
+          ?disabled=${!!heat}
           data-field="act_type"
           @change=${this.onDraftInput}
         >
@@ -724,13 +745,20 @@ export default class CupViewAdminCategories extends LitElement {
         <input
           type="checkbox"
           aria-label="Männlich"
-          title=${single ? "Männlich" : "nur für Einzelküren"}
+          title=${
+            heat
+              ? `Im Vorlauf „${heat}“ bleibt das Geschlecht`
+              : single
+                ? "Männlich"
+                : "nur für Einzelküren"
+          }
           data-field="is_single_male"
-          ?disabled=${!single}
+          ?disabled=${!single || !!heat}
           .checked=${single && draft.is_single_male}
           @change=${this.onDraftInput}
         />
       </td>
+      <td>${heat ?? ""}</td>
       <td class="num">
         <input
           class=${classMap({ inline: true, num: true, age: true, invalid: problems.min })}
@@ -1035,6 +1063,7 @@ export default class CupViewAdminCategories extends LitElement {
       }
       this.editing = null;
       await this.data.run();
+      this.reloadPlanning();
     } catch (error) {
       // Keep the row in edit mode, so nothing typed is lost.
       this.error = `Speichern fehlgeschlagen: ${errorMessage(error)}`;
@@ -1159,10 +1188,23 @@ export default class CupViewAdminCategories extends LitElement {
     try {
       await run();
       await this.data.run();
+      this.reloadPlanning();
     } catch (error) {
       this.error = `${failure}: ${errorMessage(error)}`;
     } finally {
       this.busy = false;
     }
+  }
+
+  /** The heats and finals show category names: reload them after a change. */
+  private reloadPlanning() {
+    this.heatsElement?.reload();
+    this.finalsElement?.reload();
+  }
+
+  /** A heat changed: the categories' heat column and the finals follow. */
+  private onHeatsChanged() {
+    void this.data.run();
+    this.finalsElement?.reload();
   }
 }
