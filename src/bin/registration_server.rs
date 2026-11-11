@@ -1,7 +1,9 @@
 use clap::Parser;
 use einrad_server::{
     admin_user::insert_admin_user,
-    config::{Bootstrap, CliArgs, ConfigFile, Settings, competition_file_path},
+    config::{
+        Bootstrap, CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, competition_file_path,
+    },
     reloadable_sqlite, seed,
     setup::{self, SetupEnv, SetupState},
     startup,
@@ -35,7 +37,11 @@ async fn main() -> eyre::Result<()> {
     let admin = cli.admin.clone().or_else(|| config_file.admin.clone());
     let competition_file = competition_file_path(&cli);
     let setup_cli = cli.clone();
-    let config_dir = setup::config_dir(cli.config.as_deref());
+    let config_dir = setup::config_dir(Some(
+        cli.config
+            .as_deref()
+            .unwrap_or(std::path::Path::new(DEFAULT_CONFIG_PATH)),
+    ));
     let settings = Settings::resolve(cli, config_file);
 
     info!("Connecting to database");
