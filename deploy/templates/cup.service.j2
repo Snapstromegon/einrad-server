@@ -10,6 +10,9 @@ User={{ ansible_facts.user_id }}
 Group={{ ansible_facts.user_gid }}
 WorkingDirectory={{ app_dir }}
 ExecStart={{ app_dir }}/bin/einrad-server
+{% if cup_generate_secrets %}
+EnvironmentFile={{ app_dir }}/secrets.env
+{% endif %}
 {% for name, value in cup_service_env.items() %}
 Environment="{{ name }}={{ value }}"
 {% endfor %}

@@ -65,8 +65,6 @@
     cup_systemd_template: einrad-server@.service.j2
     # The config is env (templates/preview-pr.env.j2) and secrets.env; the
     # competition comes from demo-data.toml.
-    cup_config_src: ""
-    cup_competition_src: ""
     # seed_demo recreates the database anyway.
     cup_backups_kept: 0
     preview_seed_demo: true
@@ -121,15 +119,8 @@
         mode: "0600"
 
     # Once per preview, so logins survive a deploy.
-    - name: Generate secrets.env
-      ansible.builtin.shell:
-        cmd: |
-          set -eu
-          umask 077
-          printf 'JWT_SECRET=%s\nRELOAD_DB_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > secrets.env.new
-          mv secrets.env.new secrets.env
-        chdir: "{{ app_dir }}"
-        creates: secrets.env
+    - name: Set up secrets.env
+      ansible.builtin.import_tasks: tasks/secrets.yml
 
     - name: Upload seed_demo and demo-data.toml
       ansible.builtin.copy:
