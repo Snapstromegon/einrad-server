@@ -877,9 +877,12 @@ pub async fn apply_settings(db: &sqlx::SqlitePool, settings: &Settings) -> Resul
 pub async fn check_file(path: &Path) -> Result<(), String> {
     let file = CompetitionFile::load(path)?;
     let db = crate::reloadable_sqlite::in_memory_migrated().await;
-    apply(&db, Some(&file), false, &std::env::temp_dir())
-        .await
-        .map(|_| ())
+    // A scratch dir of its own for anything the apply writes, never the
+    // system temp dir itself; removed again.
+    let scratch = std::env::temp_dir().join(format!("einrad-check-{}", uuid::Uuid::new_v4()));
+    let result = apply(&db, Some(&file), false, &scratch).await.map(|_| ());
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
 }
 
 fn db_error(e: sqlx::Error) -> String {

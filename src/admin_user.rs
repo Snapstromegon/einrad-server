@@ -63,6 +63,22 @@ pub async fn insert_admin_with_hash(
     email: &str,
     hash: &str,
 ) -> sqlx::Result<bool> {
+    Ok(create_admin_with_hash(db, name, email, hash)
+        .await?
+        .is_some())
+}
+
+/// Like [`insert_admin_with_hash`], returning the new admin's id, or `None`
+/// if the database already has an admin.
+///
+/// # Errors
+/// If the database can't be written, e.g. the email is taken.
+pub async fn create_admin_with_hash(
+    db: &SqlitePool,
+    name: &str,
+    email: &str,
+    hash: &str,
+) -> sqlx::Result<Option<Uuid>> {
     let mut tx = db.begin().await?;
     let admins = sqlx::query_scalar!(
         r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
@@ -71,7 +87,7 @@ pub async fn insert_admin_with_hash(
     .fetch_one(&mut *tx)
     .await?;
     if admins > 0 {
-        return Ok(false);
+        return Ok(None);
     }
     let id = Uuid::now_v7();
     sqlx::query!(
@@ -91,5 +107,5 @@ pub async fn insert_admin_with_hash(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(true)
+    Ok(Some(id))
 }

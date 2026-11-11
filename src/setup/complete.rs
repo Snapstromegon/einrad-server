@@ -11,16 +11,18 @@ use std::{
     time::Duration,
 };
 
+use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 use url::Url;
 
-use super::SetupState;
+use super::{Handover, SetupState};
 use crate::{
     admin_user,
     config::{CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, non_blank},
     mailer::Mailer,
+    seed, startup,
     utils::check_password,
 };
 
@@ -73,6 +75,9 @@ pub enum Source {
     Env,
     /// Set in the config file, or (for the admin) in the database.
     Done,
+    /// Not set, and the setup doesn't ask for it: the system config is
+    /// already complete, so only the admin is created.
+    NotNeeded,
 }
 
 impl Source {
@@ -108,6 +113,8 @@ struct Snapshot {
     file: ConfigFile,
     file_exists: bool,
     /// Whether the system config is incomplete, so the setup writes a file.
+    /// If not, base_url, reload_db_token and metrics_token are `NotNeeded`
+    /// when unset.
     needs_file: bool,
     base_url: Source,
     smtp_server: Source,
@@ -127,22 +134,38 @@ impl Snapshot {
         let admin = admin_user::admin_exists(&env.db)
             .await
             .map_err(|e| format!("Couldn't read the database: {e}"))?;
+        let needs_file = Settings::resolve(cli.clone(), file.clone()).is_err();
+        // With a complete system config the setup writes nothing, so what
+        // is unset stays unset instead of "missing".
+        let unneeded = |s: Source| {
+            if !needs_file && s.missing() {
+                Source::NotNeeded
+            } else {
+                s
+            }
+        };
         Ok(Self {
-            needs_file: Settings::resolve(cli.clone(), file.clone()).is_err(),
+            needs_file,
             file_exists: env.config_path.exists(),
-            base_url: Source::of(cli.base_url.is_some(), file.server.base_url.is_some()),
+            base_url: unneeded(Source::of(
+                cli.base_url.is_some(),
+                file.server.base_url.is_some(),
+            )),
             smtp_server: Source::of(nb(&cli.smtp_server), nb(&file.smtp.server)),
             smtp_user: Source::of(nb(&cli.smtp_username), nb(&file.smtp.user)),
             smtp_password: Source::of(nb(&cli.smtp_password), nb(&file.smtp.password)),
             jwt_secret: Source::of(nb(&cli.jwt_secret), nb(&file.auth.jwt_secret)),
-            reload_db_token: Source::of(nb(&cli.reload_db_token), nb(&file.server.reload_db_token)),
-            metrics_token: Source::of(
+            reload_db_token: unneeded(Source::of(
+                nb(&cli.reload_db_token),
+                nb(&file.server.reload_db_token),
+            )),
+            metrics_token: unneeded(Source::of(
                 cli.metrics_token.as_deref().is_some_and(|t| !t.is_empty()),
                 file.server
                     .metrics_token
                     .as_deref()
                     .is_some_and(|t| !t.is_empty()),
-            ),
+            )),
             admin: if admin { Source::Done } else { Source::Missing },
             file,
         })
@@ -280,19 +303,51 @@ pub async fn test_mail(env: &SetupEnv, input: TestMailInput) -> Result<(), Strin
     .await;
     match sent {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Err(e)) => Err(scrub(&e.to_string(), &[&password])),
         Err(_) => Err("The mail server didn't answer in time.".into()),
     }
 }
 
+/// `text` without credentials, for responses and logs: the userinfo of any
+/// URL (`scheme://user:password@host` becomes `scheme://***@host`), and every
+/// non-empty one of `secrets`.
+fn scrub(text: &str, secrets: &[&str]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        // The userinfo ends at the last `@` before the path or whitespace.
+        let authority_end = tail
+            .find(|c: char| c == '/' || c == '?' || c == '#' || c.is_whitespace())
+            .unwrap_or(tail.len());
+        match tail[..authority_end].rfind('@') {
+            Some(i) => {
+                out.push_str("***");
+                rest = &tail[i..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        out = out.replace(secret, "***");
+    }
+    out
+}
+
 /// The mailer the server builds from these settings (the sender is the SMTP
-/// user), checked so that it can't panic.
+/// user), checked so that it can't panic. The errors carry no credentials.
 fn build_mailer(server: &str, user: &str, password: &str) -> Result<Mailer, String> {
     user.parse::<lettre::message::Mailbox>().map_err(|_| {
-        format!("The SMTP user {user:?} isn't an email address, which mails need as sender.")
+        "The SMTP user isn't an email address, which mails need as sender.".to_string()
     })?;
-    Mailer::try_new(server, user, password, user)
-        .map_err(|e| format!("The SMTP server setting is invalid: {e}"))
+    Mailer::try_new(server, user, password, user).map_err(|e| {
+        scrub(
+            &format!("The SMTP server setting is invalid: {e}"),
+            &[password],
+        )
+    })
 }
 
 #[derive(Deserialize, Default)]
@@ -322,9 +377,19 @@ pub struct Completed {
     pub metrics_token: Option<String>,
     pub config_written: bool,
     pub config_path: PathBuf,
-    /// Until the in-process handover exists, the server has to be restarted.
+    /// Always false: the server switched into normal mode in this process.
+    /// (If the switch fails, the completion is an error instead.)
     pub restart_required: bool,
+    /// Where the browser goes next: the competition step of setup mode.
+    pub redirect: &'static str,
+    /// The new admin's session cookie, signed with the new secret. Not part
+    /// of the JSON body; the route sets it. Empty if no admin was created.
+    #[serde(skip)]
+    pub session: Option<CookieJar>,
 }
+
+/// The page after the setup: import or create the competition.
+const AFTER_SETUP: &str = "/admin-competition";
 
 pub enum CompleteError {
     AlreadyDone,
@@ -473,6 +538,31 @@ fn write_new_file(path: &Path, content: &str) -> Result<(), WriteError> {
     })
 }
 
+/// What the handover would refuse, found without writing anything: the SMTP
+/// setting, a present competition file, and the photos client.
+async fn preflight(settings: &Settings) -> Vec<String> {
+    let mut errors = Vec::new();
+    if let Err(e) = build_mailer(
+        &settings.smtp_server,
+        &settings.smtp_username,
+        &settings.smtp_password,
+    ) {
+        errors.push(format!("smtp: {e}"));
+    }
+    if let Some(path) = &settings.competition_file {
+        if let Err(e) = seed::check_file(path).await {
+            errors.push(format!(
+                "competition: {}",
+                scrub(&e, &[&settings.smtp_password, &settings.jwt_secret])
+            ));
+        }
+    }
+    if let Err(e) = crate::photos::Photos::new() {
+        errors.push(format!("photos: {}", scrub(&e, &[])));
+    }
+    errors
+}
+
 /// Completes the setup behind one lock; see ADR 0011 for the order.
 pub async fn complete(
     state: &SetupState,
@@ -488,6 +578,24 @@ pub async fn complete(
 
     // 1. Validate everything in memory.
     let mut write = ToWrite::default();
+    let mut resolved = None;
+    if !snap.needs_file {
+        // The status says these aren't needed, so they aren't silently dropped.
+        if !input.base_url.trim().is_empty() {
+            errors.push("base_url: not needed, the system config is already complete".to_string());
+        }
+        if input.metrics {
+            errors.push("metrics: not needed, the system config is already complete".to_string());
+        }
+        let smtp = &input.smtp;
+        if [&smtp.server, &smtp.user, &smtp.password]
+            .iter()
+            .any(|v| !v.trim().is_empty())
+        {
+            errors.push("smtp: not needed, the system config is already complete".to_string());
+        }
+        resolved = Settings::resolve(env.cli.clone(), snap.file.clone()).ok();
+    }
     if snap.needs_file {
         let text = |value: &str| non_blank(Some(value.trim().to_string()));
         if snap.base_url.missing() {
@@ -568,24 +676,24 @@ pub async fn complete(
     if snap.needs_file && errors.is_empty() {
         let rendered = render(&write);
         // What the file will say must resolve to complete settings.
-        let resolved = ConfigFile::parse(&rendered)
-            .map_err(|e| format!("the written config doesn't parse: {e}"))
+        let settings = ConfigFile::parse(&rendered)
+            // No parser message: it quotes the offending line, which may be a secret.
+            .map_err(|_| "the written config doesn't parse".to_string())
             .and_then(|parsed| {
                 Settings::resolve(env.cli.clone(), overlay(snap.file.clone(), parsed))
             });
-        match resolved {
-            Ok(settings) => {
-                if let Err(e) = build_mailer(
-                    &settings.smtp_server,
-                    &settings.smtp_username,
-                    &settings.smtp_password,
-                ) {
-                    errors.push(format!("smtp: {e}"));
-                }
-            }
-            Err(e) => errors.push(e),
+        match settings {
+            Ok(settings) => resolved = Some(settings),
+            Err(e) => errors.push(scrub(&e, &[&input.smtp.password])),
         }
         content = Some(rendered);
+    }
+    // Everything the handover can refuse without side effects is checked
+    // now, so bad input fails before anything is saved.
+    if errors.is_empty() {
+        if let Some(settings) = &resolved {
+            errors.extend(preflight(settings).await);
+        }
     }
     if !errors.is_empty() {
         return Err(CompleteError::Invalid(errors));
@@ -636,27 +744,109 @@ pub async fn complete(
 
     // 3. The admin. A failure leaves what the trigger rule already covers:
     // the next start (or status) shows only the admin as missing.
+    let mut admin_id = None;
     if let Some((name, email, hash)) = hashed {
-        admin_user::insert_admin_with_hash(&env.db, &name, &email, &hash)
+        admin_id = admin_user::create_admin_with_hash(&env.db, &name, &email, &hash)
             .await
             .map_err(|e| CompleteError::Failed(format!("Couldn't create the admin: {e}")))?;
         info!("Created the admin {email}");
     }
 
-    // 4. The token file goes away; the setup is done.
+    // 4. The token file goes away; the setup is done. Setup endpoints
+    // answer "already done" from here on, and the gate keeps answering 503
+    // until the normal server is built.
     state.finish();
     *done = true;
+
+    // 5. The handover into normal mode.
+    state.set_handover(Handover::Switching);
+    let session = match hand_over(state, admin_id).await {
+        Ok(session) => {
+            state.set_handover(Handover::Done);
+            session
+        }
+        Err(e) => {
+            state.set_handover(Handover::Failed);
+            // `e` is scrubbed by `hand_over`.
+            warn!("Couldn't switch into normal mode: {e}");
+            return Err(CompleteError::Failed(format!(
+                "The setup is saved, but the server couldn't switch into normal mode: {e}. \
+                 Restart the server."
+            )));
+        }
+    };
     Ok(Completed {
         metrics_token: write.metrics_token,
         config_written: snap.needs_file,
         config_path: path,
-        restart_required: true,
+        restart_required: false,
+        redirect: AFTER_SETUP,
+        session,
     })
+}
+
+/// Builds the normal server the way a start does, with the settings the
+/// config file and the CLI/environment now give, and swaps it in. Returns
+/// the new admin's session cookie, signed with the new secret.
+async fn hand_over(
+    state: &SetupState,
+    admin_id: Option<uuid::Uuid>,
+) -> Result<Option<CookieJar>, String> {
+    let env = &state.env;
+    let file = env.load_file()?;
+    let settings = Settings::resolve(env.cli.clone(), file)?;
+    // Errors and warnings may quote settings; they must not show secrets.
+    let secrets = [settings.smtp_password.clone(), settings.jwt_secret.clone()];
+    let clean = |text: &str| scrub(text, &[&secrets[0], &secrets[1]]);
+    for warning in &settings.warnings {
+        warn!("{}", clean(warning));
+    }
+    let report = seed::apply_settings(&env.db, &settings)
+        .await
+        .map_err(|e| clean(&e))?;
+    let normal = startup::build(
+        env.db.clone(),
+        settings,
+        &report,
+        &super::config_dir(Some(&env.config_path)),
+    )
+    .await
+    .map_err(|e| clean(&e.to_string()))?;
+    let session = match admin_id {
+        Some(id) => Some(
+            normal
+                .jwt
+                .add_jwt_cookie(CookieJar::new(), id)
+                .map_err(|e| e.to_string())?,
+        ),
+        None => None,
+    };
+    state.switch_to(normal.server.router());
+    info!("Switched into normal mode");
+    Ok(session)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrub_hides_url_credentials_and_known_secrets() {
+        assert_eq!(
+            scrub("bad smtp://max:hunter2@mail.example.org:25/x done", &[]),
+            "bad smtp://***@mail.example.org:25/x done"
+        );
+        assert_eq!(scrub("smtps://max:p@ss@host", &[]), "smtps://***@host");
+        assert_eq!(
+            scrub("https://example.org/a@b", &[]),
+            "https://example.org/a@b"
+        );
+        assert_eq!(scrub("a://x:y@h b://u:v@i", &[]), "a://***@h b://***@i");
+        assert_eq!(
+            scrub("the secret is s3cret", &["s3cret", ""]),
+            "the secret is ***"
+        );
+    }
 
     #[test]
     fn random_tokens_are_43_url_safe_characters() {

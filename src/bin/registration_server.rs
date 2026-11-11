@@ -1,21 +1,15 @@
 use clap::Parser;
 use einrad_server::{
     admin_user::insert_admin_user,
-    config::{Bootstrap, CliArgs, ConfigFile, Settings, competition_file_path},
-    http_server::{HttpServer, HttpServerOptions},
-    image_fetch::ImageFetcher,
-    jwt::JWTConfig,
-    mailer::Mailer,
-    normalize,
-    photos::Photos,
-    player::PlayerHub,
-    reloadable_sqlite::{self, ReloadableSqlite},
-    seed,
+    config::{
+        Bootstrap, CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, competition_file_path,
+    },
+    reloadable_sqlite, seed,
     setup::{self, SetupEnv, SetupState},
+    startup,
 };
 use eyre::eyre;
 use sqlx::migrate;
-use std::sync::Arc;
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
@@ -43,6 +37,11 @@ async fn main() -> eyre::Result<()> {
     let admin = cli.admin.clone().or_else(|| config_file.admin.clone());
     let competition_file = competition_file_path(&cli);
     let setup_cli = cli.clone();
+    let config_dir = setup::config_dir(Some(
+        cli.config
+            .as_deref()
+            .unwrap_or(std::path::Path::new(DEFAULT_CONFIG_PATH)),
+    ));
     let settings = Settings::resolve(cli, config_file);
 
     info!("Connecting to database");
@@ -90,71 +89,10 @@ async fn main() -> eyre::Result<()> {
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
-    info!("Build Mail client");
-
-    let mailer = Mailer::new(
-        &settings.smtp_server,
-        &settings.smtp_username,
-        &settings.smtp_password,
-        &settings.smtp_username,
-    );
-
-    match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
-        Some(competition) => info!(
-            "Running competition {} ({})",
-            competition.name, competition.id
-        ),
-        None => warn!(
-            "No competition yet: starting in setup mode. An admin imports the competition file \
-             in the admin UI (Wettkampf)."
-        ),
-    }
-
-    info!("Build JWT config");
-    let jwt_algorithm = jsonwebtoken::Algorithm::HS512;
-    let mut validator = jsonwebtoken::Validation::new(jwt_algorithm);
-    validator.validate_aud = false;
-    let jwt_config = JWTConfig::new(
-        jsonwebtoken::EncodingKey::from_secret(settings.jwt_secret.as_bytes()),
-        jsonwebtoken::DecodingKey::from_secret(settings.jwt_secret.as_bytes()),
-        jwt_algorithm,
-        validator,
-        settings.insecure_cookies,
-    );
+    let mut normal = startup::build(db, settings, &report, &config_dir).await?;
 
     info!("Starting HTTP server");
-    let db = ReloadableSqlite::new(db, settings.database_url);
-    // Songs uploaded while the server was down or before normalization existed.
-    normalize::resume(&db, &settings.data_path).await?;
-
-    let player_hub = PlayerHub::new(db.clone());
-    if let Some(name) = settings.local_player {
-        start_local_player(&player_hub, &settings.data_path, name);
-    }
-    // URL images (logo, break image, sponsors) are downloaded in the
-    // background, so an unreachable server never delays the start (#291).
-    ImageFetcher::shared().refresh_in_background(db.clone(), None);
-    let photos = Photos::new().map_err(|e| eyre!(e))?;
-    photos.start(db.clone());
-
-    HttpServer::new(
-        HttpServerOptions {
-            bind_address: settings.http_address,
-            base_url: settings.base_url.to_string(),
-            data_path: settings.data_path,
-            reload_db_token: settings.reload_db_token,
-            metrics_token: settings.metrics_token,
-            features: settings.features,
-            competition_file_id: report.file_id,
-        },
-        db,
-        Arc::new(jwt_config),
-        Arc::new(mailer),
-        player_hub,
-        photos,
-    )
-    .start(shutdown_signal())
-    .await?;
+    normal.server.start(shutdown_signal()).await?;
 
     Ok(())
 }
@@ -183,16 +121,4 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-}
-
-#[cfg(feature = "local-audio")]
-fn start_local_player(hub: &Arc<PlayerHub>, data_path: &std::path::Path, name: String) {
-    einrad_server::player::local::start(hub.clone(), data_path.to_owned(), name);
-}
-
-#[cfg(not(feature = "local-audio"))]
-fn start_local_player(_hub: &Arc<PlayerHub>, _data_path: &std::path::Path, name: String) {
-    warn!(
-        "LOCAL_PLAYER is set to {name:?}, but this server was built without the local-audio feature; the server player is off."
-    );
 }

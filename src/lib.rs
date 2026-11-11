@@ -29,6 +29,7 @@ pub mod rider_registration;
 pub mod roles;
 pub mod seed;
 pub mod setup;
+pub mod startup;
 pub mod system_status;
 pub mod templates;
 pub mod timeplan;
