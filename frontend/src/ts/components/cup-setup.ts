@@ -120,7 +120,10 @@ export class CupSetup extends LitElement {
       } else if (response.status === 410) {
         await this.done(response);
       } else {
-        this.error = "Der Einrichtungs-Token ist ungültig.";
+        this.error =
+          response.status === 401
+            ? "Der Einrichtungs-Token ist ungültig."
+            : `Der Server antwortete mit ${response.status}.`;
         this.show("locked");
       }
     } catch {

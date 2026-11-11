@@ -163,7 +163,12 @@ export class CupSetupWizard extends LitElement {
   private loading = false;
 
   override updated(changed: PropertyValues<this>) {
-    if (changed.has("active") && this.active && !this.status && !this.loading) {
+    if (
+      changed.has("active") &&
+      this.active &&
+      (!this.status || this.phase === "loading") &&
+      !this.loading
+    ) {
       void this.load();
     }
   }
@@ -257,6 +262,7 @@ export class CupSetupWizard extends LitElement {
         this.invalidateTest();
         break;
       default:
+        if (key === "admin.email" && !this.testToTouched) this.invalidateTest();
         next.admin[key.slice(6) as keyof WizardForm["admin"]] = value;
     }
     this.form = next;
@@ -562,13 +568,13 @@ export class CupSetupWizard extends LitElement {
               this.form.base_url,
               "Daraus entstehen Links in Mails. Vorbelegt mit der Adresse, unter der du gerade bist.",
             )
-          : html`<p>${views.steps[0].label}</p>`
+          : html`<p>${this.labelOf(views, "base_url")}</p>`
       }
       ${
         insecure
           ? html`<p class="box" role="note">
               Achtung: Diese Adresse nutzt http statt https. Der Login-Cookie
-              wird nur über HTTPS gesendet (außer auf localhost): Anmeldungen
+              wird nur über HTTPS gesendet (außer auf localhost): Logins
               funktionieren über http nicht. Richte HTTPS ein, bevor du den
               Server benutzt.
             </p>`
@@ -622,7 +628,7 @@ export class CupSetupWizard extends LitElement {
             ${s.user.editable ? this.renderInput("smtp.user", "SMTP-Benutzer (E-Mail-Adresse, zugleich Absender)", "text", "off", this.form.smtp.user) : this.renderFixed("SMTP-Benutzer", s.user)}
             ${s.password.editable ? this.renderInput("smtp.password", "SMTP-Passwort", "password", "new-password", this.form.smtp.password) : this.renderFixed("SMTP-Passwort", s.password)}
             ${this.renderTest(views)}`
-          : html`<p>${views.steps[1].label}</p>`
+          : html`<p>${this.labelOf(views, "smtp")}</p>`
       }
     </fieldset>`;
   }
@@ -660,9 +666,13 @@ export class CupSetupWizard extends LitElement {
             ${this.renderInput("admin.email", "E-Mail-Adresse", "email", "email", this.form.admin.email)}
             ${this.renderInput("admin.password", "Passwort", "password", "new-password", this.form.admin.password, "Mindestens 8 Zeichen aus mindestens 3 Kategorien: Kleinbuchstaben, Großbuchstaben, Zahlen, Sonderzeichen.")}
             ${this.renderInput("admin.password_repeat", "Passwort wiederholen", "password", "new-password", this.form.admin.password_repeat)}`
-          : html`<p>${views.steps[3].label}</p>`
+          : html`<p>${this.labelOf(views, "admin")}</p>`
       }
     </fieldset>`;
+  }
+
+  private labelOf(views: ReturnType<typeof stepViews>, id: string) {
+    return views.steps.find((step) => step.id === id)?.label ?? "";
   }
 
   private renderStepItems(views: ReturnType<typeof stepViews>) {
