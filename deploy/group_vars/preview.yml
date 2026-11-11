@@ -5,10 +5,9 @@ cup_domain: einrad-server.home.hoeser.dev
 # creates it); their home directory holds cup_dir.
 preview_user: deploy
 
-cup_service_env:
-  HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
-  DATABASE_URL: sqlite://./{{ cup_database }}?mode=rwc
-  BASE_URL: https://{{ cup_domain }}/
+cup_service_env: "{{ cup_service_env_common | combine({'BASE_URL': 'https://' ~ cup_domain ~ '/'}) }}"
+# JWT_SECRET and RELOAD_DB_TOKEN come from secrets.env, generated once on the VM.
+cup_generate_secrets: true
 
 # Recreate the database with the demo data (seed_demo) after the deploy.
 # seed_demo is the file next to cup_binary or the release's

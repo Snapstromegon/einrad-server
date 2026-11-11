@@ -27,13 +27,23 @@ cup_database: db.sqlite
 cup_backups_kept: 10
 
 # Local files uploaded as config.toml and competition.toml, relative to the
-# repository. A missing file leaves the one on the server as it is.
-cup_config_src: config.{{ cup_environment }}.toml
-cup_competition_src: competition.{{ cup_environment }}.toml
+# repository. Empty by default: nothing is uploaded, and an instance without a
+# config.toml goes through first-run setup (ADR 0011). An upload happens only
+# when requested explicitly, e.g. `-e cup_config_src=config.production.toml`,
+# and then replaces the server's file (a missing local file fails the deploy).
+cup_config_src: ""
+cup_competition_src: ""
+
+# Whether the service loads secrets.env (JWT_SECRET, RELOAD_DB_TOKEN) from
+# cup_dir, generated once on the server by tasks/secrets.yml. Only systemd
+# instances (preview) use it; production creates its secrets in first-run setup.
+cup_generate_secrets: false
 
 # Environment of the service, overriding .env and config.toml. DATABASE_URL
 # keeps the database at cup_database, where the backups look for it, and
-# mode=rwc lets the server create it on the first start.
-cup_service_env:
+# mode=rwc lets the server create it on the first start. Groups add to
+# cup_service_env_common instead of replacing it.
+cup_service_env_common:
   HTTP_ADDRESS: 0.0.0.0:{{ cup_port }}
   DATABASE_URL: sqlite://./{{ cup_database }}?mode=rwc
+cup_service_env: "{{ cup_service_env_common }}"
