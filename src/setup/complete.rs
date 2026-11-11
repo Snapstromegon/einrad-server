@@ -677,13 +677,14 @@ pub async fn complete(
         let rendered = render(&write);
         // What the file will say must resolve to complete settings.
         let settings = ConfigFile::parse(&rendered)
-            .map_err(|e| format!("the written config doesn't parse: {e}"))
+            // No parser message: it quotes the offending line, which may be a secret.
+            .map_err(|_| "the written config doesn't parse".to_string())
             .and_then(|parsed| {
                 Settings::resolve(env.cli.clone(), overlay(snap.file.clone(), parsed))
             });
         match settings {
             Ok(settings) => resolved = Some(settings),
-            Err(e) => errors.push(scrub(&e, &[])),
+            Err(e) => errors.push(scrub(&e, &[&input.smtp.password])),
         }
         content = Some(rendered);
     }
