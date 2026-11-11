@@ -160,6 +160,8 @@ export class CupSetupWizard extends LitElement {
 
   private testSeq = 0;
   private busy = false;
+  /** What went wrong, for the done page if the setup ended meanwhile. */
+  private pendingMessage = "";
   private loading = false;
 
   override updated(changed: PropertyValues<this>) {
@@ -170,6 +172,9 @@ export class CupSetupWizard extends LitElement {
       !this.loading
     ) {
       void this.load();
+    } else if (changed.has("active") && this.active && this.phase === "form") {
+      // Back from the token entry: focus has nowhere to be otherwise.
+      this.focusHeading();
     }
   }
 
@@ -188,7 +193,7 @@ export class CupSetupWizard extends LitElement {
       new CustomEvent("setup-gone", {
         bubbles: true,
         composed: true,
-        detail: { restartRequired },
+        detail: { restartRequired, message: this.pendingMessage },
       }),
     );
   }
@@ -226,6 +231,7 @@ export class CupSetupWizard extends LitElement {
       }
       this.phase = "form";
       this.failure = "";
+      this.focusHeading();
     } catch (e) {
       this.failure = `Der Status der Einrichtung konnte nicht geladen werden: ${e instanceof Error ? e.message : String(e)}`;
       this.phase = "failed";
@@ -302,9 +308,19 @@ export class CupSetupWizard extends LitElement {
 
   private async sendTestMail() {
     if (!this.status || this.test === "sending") return;
-    if (!this.recipient) {
-      this.test = "failed";
-      this.testMessage = "Gib eine Empfängeradresse für die Testmail ein.";
+    this.errors = Object.fromEntries(
+      Object.entries(this.errors).filter(([key]) => !key.startsWith("smtp.")),
+    );
+    const missing = Object.entries(validateForm(this.status, this.form)).filter(
+      ([key]) => key.startsWith("smtp."),
+    );
+    if (missing.length > 0 || !this.recipient) {
+      // Nothing was sent, so this is no failed test.
+      this.errors = { ...this.errors, ...Object.fromEntries(missing) };
+      this.test = "none";
+      this.testMessage = missing.length
+        ? "Fülle zuerst die SMTP-Angaben aus."
+        : "Gib eine Empfängeradresse für die Testmail ein.";
       return;
     }
     const views = stepViews(this.status);
@@ -326,7 +342,7 @@ export class CupSetupWizard extends LitElement {
     );
     // The inputs changed while the mail was on its way: it says nothing now.
     if (seq !== this.testSeq || !result) return;
-    this.test = result.ok ? "ok" : "failed";
+    this.test = result.ok ? "ok" : result.sent ? "failed" : "none";
     this.testMessage = result.ok
       ? `Die Testmail an ${this.recipient} wurde versendet.`
       : result.error;
@@ -343,6 +359,7 @@ export class CupSetupWizard extends LitElement {
       if (response.status === 429) {
         return {
           ok: false,
+          sent: false,
           error:
             "Es wird gerade schon eine Testmail versendet. Versuche es gleich noch einmal.",
         };
@@ -351,17 +368,24 @@ export class CupSetupWizard extends LitElement {
       if (!response.ok) {
         return {
           ok: false,
-          error: data.error ?? `Der Server antwortete mit ${response.status}.`,
+          sent: false,
+          error:
+            `Der Server antwortete mit ${response.status}. ${data.error ?? ""}`.trim(),
         };
       }
       return data.ok
-        ? { ok: true, error: "" }
+        ? { ok: true, sent: true, error: "" }
         : {
             ok: false,
+            sent: true,
             error: `Der Versand ist fehlgeschlagen: ${data.error ?? "unbekannter Fehler"}`,
           };
     } catch {
-      return { ok: false, error: "Der Server ist nicht erreichbar." };
+      return {
+        ok: false,
+        sent: false,
+        error: "Der Server ist nicht erreichbar.",
+      };
     }
   }
 
@@ -415,6 +439,8 @@ export class CupSetupWizard extends LitElement {
       this.errors = fields;
       this.general = general;
       this.phase = "form";
+      // An error outside the fields may mean that the status is stale.
+      if (general.length > 0) await this.load();
       this.focusSummary();
     } else if (response.status === 409) {
       this.conflict = conflictView(body as ConflictBody);
@@ -433,7 +459,9 @@ export class CupSetupWizard extends LitElement {
 
   /** After an error of unknown outcome: show it, then what the server says now. */
   private async afterFailure(message: string) {
+    this.pendingMessage = message;
     await this.load();
+    this.pendingMessage = "";
     if (this.phase !== "failed") this.phase = "form";
     this.general = [message];
     this.focusSummary();
@@ -447,6 +475,7 @@ export class CupSetupWizard extends LitElement {
       this.phase = "token";
       this.focusHeading();
     } else {
+      this.form = emptyForm();
       location.assign(this.redirect);
     }
   }
@@ -500,6 +529,7 @@ export class CupSetupWizard extends LitElement {
 
   private continueAfterToken() {
     this.metricsToken = "";
+    this.form = emptyForm();
     location.assign(this.redirect);
   }
 
@@ -613,7 +643,9 @@ export class CupSetupWizard extends LitElement {
                   <p class="hint">
                     Du kannst trotzdem speichern. Prüfe die SMTP-Angaben später in der Konfiguration.
                   </p>`
-              : nothing
+              : this.testMessage
+                ? html`<p class="error">${this.testMessage}</p>`
+                : nothing
         }
       </div>`;
   }
@@ -683,6 +715,10 @@ export class CupSetupWizard extends LitElement {
     return keys.map((key) => this.renderErrorLink(key));
   }
 
+  private renderGeneralMessages() {
+    return this.general.map((m) => html`<p class="error">${m}</p>`);
+  }
+
   private renderGeneral() {
     return this.general.map((message) => html`<li>${message}</li>`);
   }
@@ -707,7 +743,7 @@ export class CupSetupWizard extends LitElement {
   private renderErrors() {
     const keys = Object.keys(this.errors);
     if (keys.length === 0 && this.general.length === 0) return nothing;
-    return html`<div class="box" id="error-summary" role="alert" tabindex="-1">
+    return html`<div class="box" id="error-summary" role="group" aria-label="Fehler" tabindex="-1">
       <strong>Bitte prüfe die Eingaben:</strong>
       <ul>
         ${this.renderErrorLinks(keys)}
@@ -801,6 +837,7 @@ export class CupSetupWizard extends LitElement {
       case "failed":
         return html`<h2 tabindex="-1" data-focus>Fehler</h2>
           <p class="error" role="alert">${this.failure}</p>
+          ${this.renderGeneralMessages()}
           <div class="actions">
             <button type="button" @click=${this.reload}>Erneut laden</button>
           </div>`;

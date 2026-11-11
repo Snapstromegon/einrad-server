@@ -61,6 +61,8 @@ export class CupSetup extends LitElement {
   @state() private phase: Phase = "checking";
   @state() private error = "";
   @state() private restartRequired = false;
+  /** What went wrong before the setup turned out to be saved. */
+  @state() private message = "";
   /** Whether the wizard was shown, so it is mounted from then on. */
   @state() private wizardMounted = false;
   @query("input") private input?: HTMLInputElement;
@@ -74,6 +76,8 @@ export class CupSetup extends LitElement {
   private show(phase: Phase) {
     this.phase = phase;
     if (phase === "unlocked") this.wizardMounted = true;
+    // Typed passwords don't stay in a hidden form.
+    if (phase === "done") this.wizardMounted = false;
     if (phase !== "unlocked") {
       void this.updateComplete.then(() => this.focusTarget?.focus());
     }
@@ -143,8 +147,11 @@ export class CupSetup extends LitElement {
     this.show("locked");
   }
 
-  private async onGone(event: CustomEvent<{ restartRequired: boolean }>) {
+  private onGone(
+    event: CustomEvent<{ restartRequired: boolean; message: string }>,
+  ) {
     this.restartRequired = event.detail.restartRequired;
+    this.message = event.detail.message;
     this.show("done");
   }
 
@@ -178,6 +185,7 @@ export class CupSetup extends LitElement {
   private renderDone() {
     return html`<h2 tabindex="-1" data-focus>Einrichtung abgeschlossen</h2>
       <p>Die Ersteinrichtung dieses Servers ist abgeschlossen.</p>
+      ${this.message ? html`<p class="box" role="note">${this.message}</p>` : nothing}
       ${
         this.restartRequired
           ? html`<p class="box" role="note">
