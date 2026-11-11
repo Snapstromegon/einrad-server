@@ -167,7 +167,7 @@ impl ConfigFile {
 /// source of the competition (see `crate::seed::apply`). The export writes
 /// one (see `crate::export`).
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "CompetitionFileInput")]
 pub struct CompetitionFile {
     pub competition: CompetitionConfig,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -178,6 +178,105 @@ pub struct CompetitionFile {
     pub timeplan: Vec<TimeplanEntryConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jury_categories: Vec<JuryCategoryConfig>,
+}
+
+/// A competition file as read, before older categories with birthday bounds
+/// are converted to ages (AGE-4).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompetitionFileInput {
+    competition: CompetitionConfig,
+    #[serde(default)]
+    categories: Vec<CategoryInput>,
+    #[serde(default)]
+    finals: Vec<FinalConfig>,
+    #[serde(default)]
+    timeplan: Vec<TimeplanEntryConfig>,
+    #[serde(default)]
+    jury_categories: Vec<JuryCategoryConfig>,
+}
+
+/// A category as read: the fields of a [`CategoryConfig`], and the birthday
+/// bounds older files give instead of ages.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CategoryInput {
+    name: String,
+    description: Option<String>,
+    act_type: ActType,
+    #[serde(default)]
+    single_male: bool,
+    min_age: Option<f64>,
+    under_age: Option<f64>,
+    /// The lower birthday bound (inclusive) of older files.
+    #[serde(default, deserialize_with = "toml_date_option")]
+    from_birthday: Option<Date>,
+    /// The upper birthday bound (exclusive) of older files.
+    #[serde(default, deserialize_with = "toml_date_option")]
+    to_birthday: Option<Date>,
+    #[serde(default)]
+    einfahrzeit_minutes: f64,
+    #[serde(default)]
+    act_duration_minutes: f64,
+    #[serde(default)]
+    judge_duration_minutes: f64,
+}
+
+impl CategoryInput {
+    /// The category with its birthday bounds converted to ages against
+    /// `determining_day`; fails naming the category if one doesn't convert.
+    fn into_config(self, determining_day: Date) -> Result<CategoryConfig, String> {
+        let name = &self.name;
+        let age = |age: Option<f64>, bound: Option<Date>, field: &str, age_field: &str| {
+            let Some(bound) = bound else {
+                return Ok(age);
+            };
+            if age.is_some() {
+                return Err(format!(
+                    "Category {name}: give either {age_field} or {field}, not both."
+                ));
+            }
+            crate::seed::age_of_birthday_bound(bound, determining_day)
+                .map_err(|e| format!("Category {name}: {field}: {e}."))
+        };
+        let under_age = age(
+            self.under_age,
+            self.from_birthday,
+            "from_birthday",
+            "under_age",
+        )?;
+        let min_age = age(self.min_age, self.to_birthday, "to_birthday", "min_age")?;
+        Ok(CategoryConfig {
+            name: self.name,
+            description: self.description,
+            act_type: self.act_type,
+            single_male: self.single_male,
+            min_age,
+            under_age,
+            einfahrzeit_minutes: self.einfahrzeit_minutes,
+            act_duration_minutes: self.act_duration_minutes,
+            judge_duration_minutes: self.judge_duration_minutes,
+        })
+    }
+}
+
+impl TryFrom<CompetitionFileInput> for CompetitionFile {
+    type Error = String;
+
+    fn try_from(input: CompetitionFileInput) -> Result<Self, String> {
+        let determining_day = input.competition.determining_day;
+        Ok(Self {
+            categories: input
+                .categories
+                .into_iter()
+                .map(|category| category.into_config(determining_day))
+                .collect::<Result<_, _>>()?,
+            competition: input.competition,
+            finals: input.finals,
+            timeplan: input.timeplan,
+            jury_categories: input.jury_categories,
+        })
+    }
 }
 
 impl CompetitionFile {
@@ -596,28 +695,15 @@ pub struct CategoryConfig {
     pub act_type: ActType,
     #[serde(default, skip_serializing_if = "is_false")]
     pub single_male: bool,
-    /// Minimum age threshold; birthdays on the determining day remain younger.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Minimum age on the determining day, e.g. 70 for "70+"; empty for no
+    /// lower age. Fractions are months: 9.5 is 9 years 6 months. Birthdays
+    /// on the determining day remain younger.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_age: Option<f64>,
-    /// Upper age threshold, e.g. 15 for "U15"; birthdays on the determining day remain younger.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The age the riders are under on the determining day, e.g. 11 for
+    /// "U11"; empty for no upper age. Fractions are months.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub under_age: Option<f64>,
-    /// Explicit lower birthday bound (inclusive); overrides `under_age`.
-    #[serde(
-        default,
-        deserialize_with = "toml_date_option",
-        serialize_with = "date_option_to_toml",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub from_birthday: Option<Date>,
-    /// Explicit upper birthday bound (exclusive); overrides `min_age`.
-    #[serde(
-        default,
-        deserialize_with = "toml_date_option",
-        serialize_with = "date_option_to_toml",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub to_birthday: Option<Date>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub einfahrzeit_minutes: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -1197,6 +1283,97 @@ determining_day = 2027-06-01
 registration_start = 2026-11-20T00:00:00+01:00
 registration_end = 2026-12-20T23:59:59+01:00
 music_upload_end = 2027-01-20T23:59:59+01:00";
+
+    /// A competition file with `categories` (TOML), as older exports wrote
+    /// them with birthday bounds.
+    fn file_with_categories(categories: &str) -> Result<CompetitionFile, String> {
+        CompetitionFile::parse(&format!(
+            "[competition]\nid = \"c\"\nname = \"C\"\nlocation = \"L\"\nfee_per_start = 15\n{VALID_DATES}\n{categories}"
+        ))
+    }
+
+    fn ages(file: &CompetitionFile) -> Vec<(String, Option<f64>, Option<f64>)> {
+        file.categories
+            .iter()
+            .map(|c| (c.name.clone(), c.min_age, c.under_age))
+            .collect()
+    }
+
+    #[test]
+    fn an_older_file_with_birthday_bounds_imports_as_ages() {
+        let file = file_with_categories(
+            r#"
+            [[categories]]
+            name = "EWU11"
+            act_type = "single"
+            from_birthday = 2016-06-01
+
+            [[categories]]
+            name = "EWU13"
+            act_type = "single"
+            from_birthday = 2014-06-01
+            to_birthday = 2016-06-01
+
+            [[categories]]
+            name = "U9,5"
+            act_type = "pair"
+            from_birthday = 2017-12-01
+
+            [[categories]]
+            name = "EW70+"
+            act_type = "single"
+            to_birthday = 1957-06-01
+
+            [[categories]]
+            name = "Offen"
+            act_type = "group_large"
+            from_birthday = 1900-01-01
+            to_birthday = 9999-12-31
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            ages(&file),
+            [
+                ("EWU11".to_string(), None, Some(11.0)),
+                ("EWU13".to_string(), Some(11.0), Some(13.0)),
+                ("U9,5".to_string(), None, Some(9.5)),
+                ("EW70+".to_string(), Some(70.0), None),
+                ("Offen".to_string(), None, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_older_file_with_a_birthday_bound_off_the_determining_day_names_the_category() {
+        let error = file_with_categories(
+            "[[categories]]\nname = \"EWU13\"\nact_type = \"single\"\nfrom_birthday = 2014-05-15\n",
+        )
+        .unwrap_err();
+        assert!(error.contains("EWU13"), "{error}");
+        assert!(error.contains("2014-05-15"), "{error}");
+    }
+
+    #[test]
+    fn a_category_with_an_age_and_a_birthday_bound_for_the_same_end_is_rejected() {
+        let error = file_with_categories(
+            "[[categories]]\nname = \"EWU13\"\nact_type = \"single\"\nunder_age = 13\nfrom_birthday = 2014-06-01\n",
+        )
+        .unwrap_err();
+        assert!(error.contains("EWU13"), "{error}");
+    }
+
+    #[test]
+    fn an_older_file_converted_to_ages_writes_only_ages() {
+        let file = file_with_categories(
+            "[[categories]]\nname = \"EWU13\"\nact_type = \"single\"\nfrom_birthday = 2014-06-01\nto_birthday = 2016-06-01\n",
+        )
+        .unwrap();
+        let toml = file.to_toml().unwrap();
+        assert!(!toml.contains("birthday"), "{toml}");
+        assert!(toml.contains("min_age = 11"), "{toml}");
+        assert!(toml.contains("under_age = 13"), "{toml}");
+    }
 
     #[test]
     fn features_in_the_system_config_are_rejected_with_where_they_went() {

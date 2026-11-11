@@ -11,10 +11,12 @@ use crate::{
 pub struct Category {
     name: String,
     description: Option<String>,
-    #[serde(with = "time::serde::iso8601::option")]
-    from_birthday: Option<time::OffsetDateTime>,
-    #[serde(with = "time::serde::iso8601::option")]
-    to_birthday: Option<time::OffsetDateTime>,
+    /// The age on the determining day from which on riders belong to the
+    /// category; `None` for no lower age. Fractions are months.
+    min_age: Option<f64>,
+    /// The age riders are under on the determining day; `None` for no
+    /// upper age.
+    under_age: Option<f64>,
     act_type: ActType,
     is_single_male: bool,
     order: Option<i64>,
@@ -43,7 +45,7 @@ pub async fn list_categories(
     let club_categories = sqlx::query_as!(
         Category,
         r#"
-        SELECT name as "name!", description, from_birthday, to_birthday, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
+        SELECT name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
         FROM categories ORDER BY "order" ASC
         "#
     )

@@ -2,16 +2,12 @@ use std::sync::Arc;
 
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     colors,
-    competition::{
-        Competition, is_open_birthday_bound, move_birthday_bound, parse_birthday_bound,
-        upsert_competition,
-    },
+    competition::{Competition, upsert_competition},
     config::{Branding, CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::{Photos, PhotosSettings},
@@ -39,78 +35,10 @@ fn filled(text: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-/// Moves the birthday bounds of every category that looked like it was
-/// computed from the `old` determining day to the `new` one. Returns a
-/// warning for each category with a bound that wasn't adjusted: one that
-/// doesn't match, can't be read, or whose move would put the from-bound at or
-/// after the to-bound (then neither bound moves). Open bounds don't count.
-async fn move_category_bounds(
-    transaction: &mut sqlx::SqliteConnection,
-    old: time::Date,
-    new: time::Date,
-) -> Result<Vec<String>, HttpError> {
-    let categories = sqlx::query!(
-        r#"SELECT name as "name!", from_birthday as "from_birthday: String",
-            to_birthday as "to_birthday: String"
-        FROM categories ORDER BY "order", name"#
-    )
-    .fetch_all(&mut *transaction)
-    .await?;
-    let mut warnings = vec![];
-    for category in categories {
-        let name = &category.name;
-        let parse = |bound: &Option<String>| bound.as_deref().and_then(parse_birthday_bound);
-        let (from, to) = (parse(&category.from_birthday), parse(&category.to_birthday));
-        let moved_from = from.and_then(|bound| move_birthday_bound(bound, old, new));
-        let moved_to = to.and_then(|bound| move_birthday_bound(bound, old, new));
-        // A missing or open bound isn't tied to the determining day.
-        let is_open = |text: &Option<String>, bound: Option<OffsetDateTime>| {
-            text.is_none() || bound.is_some_and(|bound| is_open_birthday_bound(bound.date()))
-        };
-        let from_left = moved_from.is_none() && !is_open(&category.from_birthday, from);
-        let to_left = moved_to.is_none() && !is_open(&category.to_birthday, to);
-        if let (Some(from), Some(to)) = (moved_from.or(from), moved_to.or(to))
-            && (moved_from.is_some() || moved_to.is_some())
-            && from >= to
-        {
-            warnings.push(format!(
-                "Kategorie {name}: Die Altersgrenzen wurden nicht an den neuen Stichtag \
-                 angepasst, weil sonst die Von-Grenze nicht mehr vor der Bis-Grenze läge."
-            ));
-            continue;
-        }
-        match (from_left, to_left) {
-            (false, false) => {}
-            (true, true) => warnings.push(format!(
-                "Kategorie {name}: Beide Altersgrenzen liegen nicht auf dem alten Stichtag \
-                 und wurden nicht angepasst."
-            )),
-            (true, false) | (false, true) => warnings.push(format!(
-                "Kategorie {name}: Die {}-Grenze liegt nicht auf dem alten Stichtag und \
-                 wurde nicht angepasst.",
-                if from_left { "Von" } else { "Bis" }
-            )),
-        }
-        if moved_from.is_none() && moved_to.is_none() {
-            continue;
-        }
-        // Only a moved bound is rewritten; the other keeps its stored text.
-        sqlx::query(
-            "UPDATE categories SET from_birthday = COALESCE(?, from_birthday), \
-             to_birthday = COALESCE(?, to_birthday) WHERE name = ?",
-        )
-        .bind(moved_from)
-        .bind(moved_to)
-        .bind(name)
-        .execute(&mut *transaction)
-        .await?;
-    }
-    Ok(warnings)
-}
-
 /// Changes the competition's settings, also while the registration is open
 /// (ADR 0005). Validated like the competition file; applies right away. The
-/// determining day moves the category bounds that looked like it along. Admin.
+/// categories' birthday bounds follow the determining day, as they're derived
+/// from it. Admin.
 #[utoipa::path(
     post,
     tags=["command", "competition"],
@@ -137,16 +65,7 @@ pub async fn edit_competition(
         .await?
         .ok_or(HttpError::NotFound)?;
     let edited = body.competition;
-    let mut warnings = if edited.determining_day != current.determining_day {
-        move_category_bounds(
-            &mut transaction,
-            current.determining_day,
-            edited.determining_day,
-        )
-        .await?
-    } else {
-        vec![]
-    };
+    let mut warnings = vec![];
     let competition = Competition {
         id: current.id,
         name: edited.name.trim().to_string(),
