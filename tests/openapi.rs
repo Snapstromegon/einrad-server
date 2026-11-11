@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "apply_jury_remap",
     "create_booking",
     "create_club",
+    "create_competition",
     "create_club_group",
     "delete_booking",
     "delete_category",
