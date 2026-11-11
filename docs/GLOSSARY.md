@@ -169,7 +169,7 @@ The age part of a category, e.g. U13 or 70+: a minimum age and an age the riders
 _Avoid_: Category (for the age part only), birthday range (as what defines it)
 
 **Heat** (Vorlauf):
-A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Group categories have no heat.
+A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Group categories have no heat. It runs as its categories' blocks; clubs never pick it, it follows from the category (ADR 0013).
 _Avoid_: Block, Vorlaufblock, round
 
 **Final** (Finale):
@@ -177,7 +177,7 @@ The final round of singles or pairs, with reserved finalist slots for the best o
 _Avoid_: Finalrunde
 
 **Finalist slot** (Finalplatz):
-A reserved start in a final, e.g. "1. Finalist (U11–U15)", filled with an act once the heats are ranked.
+A reserved start in a final, named after the heat that fills it, e.g. "1. Finalist (JE EM)", filled with an act of that heat once the heats are ranked.
 
 ### Timeplan and event day
 
@@ -331,7 +331,8 @@ An award for each rider of the first three places of a final, and for each group
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
 - A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
 - An **Act** belongs to one **Category** once it is complete and not withdrawn; a singles or pairs **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
-- The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name.
+- The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name, and its categories are theirs.
+- A **Heat** runs as the **Blocks** of its categories; it has no block of its own.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
 - A **Judge** registers for **Jury categories** for **Tasks**; the **Jury plan** assigns each judge at most one task per jury category.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
