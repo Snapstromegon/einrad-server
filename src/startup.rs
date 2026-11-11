@@ -19,6 +19,7 @@ use crate::{
     player::PlayerHub,
     reloadable_sqlite::ReloadableSqlite,
     seed::{self, Report},
+    setup,
 };
 
 /// The normal-mode server, ready to serve.
@@ -30,7 +31,8 @@ pub struct NormalMode {
 
 /// Everything a normal start does after the competition file was applied:
 /// mailer, the competition (or setup mode when there is none), JWT keys,
-/// player hub and background jobs. Nothing is bound or served yet.
+/// player hub and background jobs. Nothing is bound or served yet. A setup
+/// token file left in `config_dir` is removed: the setup isn't needed.
 ///
 /// # Errors
 /// If the mailer's SMTP server setting is invalid or a component can't start.
@@ -38,7 +40,9 @@ pub async fn build(
     db: SqlitePool,
     settings: Settings,
     report: &Report,
+    config_dir: &std::path::Path,
 ) -> eyre::Result<NormalMode> {
+    setup::remove_stale_token_file(config_dir);
     info!("Build Mail client");
     let mailer = Mailer::try_new(
         &settings.smtp_server,

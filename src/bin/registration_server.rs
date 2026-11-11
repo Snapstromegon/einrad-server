@@ -35,6 +35,7 @@ async fn main() -> eyre::Result<()> {
     let admin = cli.admin.clone().or_else(|| config_file.admin.clone());
     let competition_file = competition_file_path(&cli);
     let setup_cli = cli.clone();
+    let config_dir = setup::config_dir(cli.config.as_deref());
     let settings = Settings::resolve(cli, config_file);
 
     info!("Connecting to database");
@@ -82,7 +83,7 @@ async fn main() -> eyre::Result<()> {
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
-    let mut normal = startup::build(db, settings, &report).await?;
+    let mut normal = startup::build(db, settings, &report, &config_dir).await?;
 
     info!("Starting HTTP server");
     normal.server.start(shutdown_signal()).await?;
