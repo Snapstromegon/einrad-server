@@ -5,10 +5,12 @@
 #
 #   make deploy-preview   # or: ansible-playbook -i deploy/inventory.yml deploy/preview.yml
 #
-# It keeps the database and config.toml on the VM, and stops before changing
-# anything if config.toml (or a local config.preview.toml to upload) is
-# missing, or if it still has competition sections. Without a database, the
-# server creates an empty one.
+# It keeps the database, config.toml and secrets.env on the VM. It uploads
+# no config: an instance without config.toml goes through first-run setup (the
+# deploy prints the setup token file's path). An upload is explicit, e.g.
+# -e cup_config_src=config.preview.toml (and cup_competition_src=...), and
+# replaces the server's file. Without a database, the server creates an
+# empty one.
 # -e preview_seed_demo=true backs up the database and recreates it with the
 # demo data.
 #
@@ -25,11 +27,11 @@
           or User in ~/.ssh/config), not {{ ansible_facts.user_id }}; see bootstrap.yml.
         quiet: true
 
-    # The instance keeps its config (with real SMTP) on the VM; a missing
-    # database is fine, the server creates it. See "The central 2027
-    # instance" in the README for the one-time move.
-    - name: Check the config on the server
-      ansible.builtin.import_tasks: tasks/config_check.yml
+    # A bare instance goes through first-run setup (ADR 0011); a missing
+    # database is fine, the server creates it. JWT_SECRET and RELOAD_DB_TOKEN
+    # come from secrets.env (the built-in defaults are gone), once on the VM.
+    - name: Set up secrets.env
+      ansible.builtin.import_tasks: tasks/secrets.yml
 
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml

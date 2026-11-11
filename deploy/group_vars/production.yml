@@ -6,3 +6,5 @@ cup_domain: anmeldung.lmfreestyle27.de
 # 3000 is taken on the Uberspace host (jury-db), and 3001 by the 2026
 # registration; `uberspace web backend list` shows the ports in use.
 cup_port: 3027
+# BASE_URL lets the setup token file (first-run setup) hold a clickable URL.
+cup_service_env: "{{ cup_service_env_common | combine({'BASE_URL': 'https://' ~ cup_domain ~ '/'}) }}"

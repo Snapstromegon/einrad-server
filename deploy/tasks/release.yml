@@ -20,18 +20,31 @@
     mode: "0750"
   loop: ["", bin, backups]
 
+# Before the upload: whether the instance already had a config, so a deploy
+# can tell a bare install from one that fell back into first-run setup.
+- name: Look for config.toml on the server
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/config.toml"
+    get_checksum: false
+  register: config_before
+
+# Only on an explicit request (cup_config_src / cup_competition_src, see
+# group_vars/all.yml); it replaces the server's file. Without one, the instance
+# keeps its files or, bare, goes through first-run setup.
 - name: Upload config.toml and competition.toml
   ansible.builtin.copy:
     src: "{{ [playbook_dir | dirname, item.src] | path_join }}"
     dest: "{{ app_dir }}/{{ item.dest }}"
     mode: "0600"
+  # The config holds secrets (SMTP password): keep it out of --diff output.
+  diff: false
   loop:
     - { src: "{{ cup_config_src }}", dest: config.toml }
     - { src: "{{ cup_competition_src }}", dest: competition.toml }
   loop_control:
     label: "{{ item.src }}"
   # An empty src uploads nothing.
-  when: item.src | length > 0 and ([playbook_dir | dirname, item.src] | path_join) is file
+  when: item.src | length > 0
   register: config_files
 
 - name: Read the installed binary's checksum
@@ -106,6 +119,7 @@
   ansible.builtin.set_fact:
     cup_restart: >-
       {{ new_binary is changed or config_files is changed
+         or (secrets_env | default({})) is changed
          or systemd_unit is changed or supervisord_ini is changed }}
 
 - name: Start the service
@@ -130,6 +144,8 @@
   failed_when: supervisorctl.rc != 0 and 'already started' not in supervisorctl.stdout
   when: cup_service_manager == 'supervisord' and supervisord_ini is not changed
 
+# Never dump the service's logs on a failure here: in first-run setup they
+# contain the setup token, and deploys can run in CI.
 - name: Wait for the server
   ansible.builtin.uri:
     url: http://127.0.0.1:{{ cup_port }}/
@@ -137,3 +153,34 @@
   until: health.status == 200
   retries: 30
   delay: 2
+
+# The token of first-run setup unlocks the setup of the instance, so only its
+# path is printed (deploy logs may land in CI), never its content.
+- name: Look for the setup token file
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/einrad-server-setup-token.txt"
+    get_checksum: false
+  register: setup_token_file
+
+- name: Point to the setup token
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is in first-run setup. The setup token is in
+      {{ setup_token_file.stat.path }} (mode 0600): open it or `cat` it on the
+      server.
+  when: setup_token_file.stat.exists and not config_before.stat.exists
+
+# A failed task that is ignored shows up red in the log and in the recap
+# (ignored=1) without failing the deploy. Likely causes: the config lacks
+# jwt_secret or SMTP, or an environment value no longer covers a removed
+# built-in default.
+- name: Warn that an instance with a config fell into first-run setup
+  ansible.builtin.fail:
+    msg: >-
+      WARNING: {{ inventory_hostname }} is in first-run setup although it had a
+      config.toml before this deploy. Its config is probably incomplete
+      (jwt_secret, SMTP) or has no admin. The setup token is in
+      {{ setup_token_file.stat.path }} (mode 0600): open it or `cat` it on the
+      server, or fix the config and restart the service.
+  ignore_errors: true
+  when: setup_token_file.stat.exists and config_before.stat.exists

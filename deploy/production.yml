@@ -3,18 +3,17 @@
 #
 #   make deploy-production   # or: ansible-playbook -i deploy/inventory.yml deploy/production.yml
 #
-# It stops before changing anything if config.toml (or a local
-# config.production.toml to upload) is missing in ~/<cup_dir>, or if it still
-# has competition sections. Without a database, the server creates an empty
+# It uploads no config: an instance without config.toml goes through
+# first-run setup, unlocked by the setup token (the deploy prints the token
+# file's path in ~/<cup_dir>, never its content). An upload is explicit, e.g.
+# -e cup_config_src=config.production.toml (and cup_competition_src=...), and
+# replaces the server's file. Without a database, the server creates an empty
 # one.
 #
 # Settings and their defaults: group_vars/all.yml and group_vars/production.yml.
 - name: Deploy production
   hosts: production
   tasks:
-    - name: Check the config on the server
-      ansible.builtin.import_tasks: tasks/config_check.yml
-
     - name: Find the binary
       ansible.builtin.import_tasks: tasks/binary.yml
 
