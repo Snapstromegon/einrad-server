@@ -392,8 +392,9 @@ async fn mails_after_the_switch_use_the_new_smtp_server_and_base_url() {
 }
 
 #[tokio::test]
-async fn a_failing_handover_keeps_the_saved_setup_and_asks_for_a_restart() {
-    // The competition file is only read at the handover; here it's broken.
+async fn a_competition_file_that_fails_is_a_422_before_anything_is_saved() {
+    // The competition file is read again at the handover; a broken one must
+    // fail before the config file or the admin are written.
     let broken = TempDir::new();
     let path = broken.0.join("competition.toml");
     std::fs::write(&path, "this is not a competition").unwrap();
@@ -405,19 +406,43 @@ async fn a_failing_handover_keeps_the_saved_setup_and_asks_for_a_restart() {
     let done = s.complete(complete_body("smtp://localhost:1025")).await;
     assert_eq!(
         done.status,
-        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::UNPROCESSABLE_ENTITY,
         "{}",
         done.body
     );
-    assert!(s.config_path().exists());
-    let again = s.setup_status().await;
-    assert_eq!(again.status, StatusCode::GONE);
-    assert_eq!(again.body["restart_required"], true);
-    // Nothing half-built is reachable.
-    let api = s
-        .api(Method::GET, "/api/query/get_system_status", None, None)
-        .await;
-    assert_eq!(api.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(done.body["errors"].to_string().contains("competition"));
+    assert!(!s.config_path().exists());
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(users, 0);
+    // The setup is still open.
+    assert_eq!(s.setup_status().await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_competition_file_that_fails_with_a_complete_config_is_a_422_too() {
+    let broken = TempDir::new();
+    let path = broken.0.join("competition.toml");
+    std::fs::write(&path, "this is not a competition").unwrap();
+    let s = Server::start(CliArgs {
+        competition: Some(path),
+        ..env_system_config()
+    })
+    .await;
+    let done = s.complete(json!({ "admin": admin_json() })).await;
+    assert_eq!(
+        done.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        done.body
+    );
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(users, 0);
 }
 
 // Complete system config, only the admin missing
@@ -490,4 +515,72 @@ async fn the_switch_happens_on_the_same_listener() {
     assert_eq!(done.status(), 200);
     assert_eq!(client.get(&url).send().await.unwrap().status(), 200);
     server.abort();
+}
+
+#[tokio::test]
+async fn completion_rejects_smtp_input_when_the_config_is_complete() {
+    let s = Server::start(env_system_config()).await;
+    let status = s.setup_status().await.body;
+    // Set, so not actionable.
+    assert_eq!(status["steps"]["smtp"]["state"], "env");
+    let reply = s
+        .complete(json!({
+            "smtp": { "server": "smtp://localhost:1025", "user": "other@example.org", "password": "x" },
+            "admin": admin_json(),
+        }))
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.body
+    );
+    let errors = reply.body["errors"].to_string();
+    assert!(errors.contains("smtp"), "{errors}");
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(users, 0);
+}
+
+const LEAKY_PASSWORD: &str = "hunter2-do-not-leak";
+
+#[tokio::test]
+async fn smtp_errors_never_echo_credentials() {
+    let s = Server::start(CliArgs::default()).await;
+    for server in [
+        format!("smtp://max:{LEAKY_PASSWORD}@127.0.0.1:1"),
+        format!("smtps://max:{LEAKY_PASSWORD}@"),
+        format!("smtp://max:{LEAKY_PASSWORD}@exa mple.org"),
+        format!("max:{LEAKY_PASSWORD}@not a host"),
+    ] {
+        // Test mail
+        let mail = s
+            .send(
+                Method::POST,
+                "/api/setup/test-mail",
+                Some(json!({
+                    "smtp": { "server": server, "user": "cup@example.org", "password": LEAKY_PASSWORD },
+                    "to": "max@example.org",
+                })),
+                None,
+                true,
+            )
+            .await;
+        assert!(
+            !mail.body.to_string().contains(LEAKY_PASSWORD),
+            "{server}: {}",
+            mail.body
+        );
+        // Completion
+        let mut body = complete_body(&server);
+        body["smtp"]["password"] = json!(LEAKY_PASSWORD);
+        let done = s.complete(body).await;
+        assert!(
+            !done.body.to_string().contains(LEAKY_PASSWORD),
+            "{server}: {}",
+            done.body
+        );
+    }
 }

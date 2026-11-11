@@ -303,19 +303,51 @@ pub async fn test_mail(env: &SetupEnv, input: TestMailInput) -> Result<(), Strin
     .await;
     match sent {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Err(e)) => Err(scrub(&e.to_string(), &[&password])),
         Err(_) => Err("The mail server didn't answer in time.".into()),
     }
 }
 
+/// `text` without credentials, for responses and logs: the userinfo of any
+/// URL (`scheme://user:password@host` becomes `scheme://***@host`), and every
+/// non-empty one of `secrets`.
+fn scrub(text: &str, secrets: &[&str]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        // The userinfo ends at the last `@` before the path or whitespace.
+        let authority_end = tail
+            .find(|c: char| c == '/' || c == '?' || c == '#' || c.is_whitespace())
+            .unwrap_or(tail.len());
+        match tail[..authority_end].rfind('@') {
+            Some(i) => {
+                out.push_str("***");
+                rest = &tail[i..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        out = out.replace(secret, "***");
+    }
+    out
+}
+
 /// The mailer the server builds from these settings (the sender is the SMTP
-/// user), checked so that it can't panic.
+/// user), checked so that it can't panic. The errors carry no credentials.
 fn build_mailer(server: &str, user: &str, password: &str) -> Result<Mailer, String> {
     user.parse::<lettre::message::Mailbox>().map_err(|_| {
-        format!("The SMTP user {user:?} isn't an email address, which mails need as sender.")
+        "The SMTP user isn't an email address, which mails need as sender.".to_string()
     })?;
-    Mailer::try_new(server, user, password, user)
-        .map_err(|e| format!("The SMTP server setting is invalid: {e}"))
+    Mailer::try_new(server, user, password, user).map_err(|e| {
+        scrub(
+            &format!("The SMTP server setting is invalid: {e}"),
+            &[password],
+        )
+    })
 }
 
 #[derive(Deserialize, Default)]
@@ -506,6 +538,31 @@ fn write_new_file(path: &Path, content: &str) -> Result<(), WriteError> {
     })
 }
 
+/// What the handover would refuse, found without writing anything: the SMTP
+/// setting, a present competition file, and the photos client.
+async fn preflight(settings: &Settings) -> Vec<String> {
+    let mut errors = Vec::new();
+    if let Err(e) = build_mailer(
+        &settings.smtp_server,
+        &settings.smtp_username,
+        &settings.smtp_password,
+    ) {
+        errors.push(format!("smtp: {e}"));
+    }
+    if let Some(path) = &settings.competition_file {
+        if let Err(e) = seed::check_file(path).await {
+            errors.push(format!(
+                "competition: {}",
+                scrub(&e, &[&settings.smtp_password, &settings.jwt_secret])
+            ));
+        }
+    }
+    if let Err(e) = crate::photos::Photos::new() {
+        errors.push(format!("photos: {}", scrub(&e, &[])));
+    }
+    errors
+}
+
 /// Completes the setup behind one lock; see ADR 0011 for the order.
 pub async fn complete(
     state: &SetupState,
@@ -521,6 +578,7 @@ pub async fn complete(
 
     // 1. Validate everything in memory.
     let mut write = ToWrite::default();
+    let mut resolved = None;
     if !snap.needs_file {
         // The status says these aren't needed, so they aren't silently dropped.
         if !input.base_url.trim().is_empty() {
@@ -529,6 +587,14 @@ pub async fn complete(
         if input.metrics {
             errors.push("metrics: not needed, the system config is already complete".to_string());
         }
+        let smtp = &input.smtp;
+        if [&smtp.server, &smtp.user, &smtp.password]
+            .iter()
+            .any(|v| !v.trim().is_empty())
+        {
+            errors.push("smtp: not needed, the system config is already complete".to_string());
+        }
+        resolved = Settings::resolve(env.cli.clone(), snap.file.clone()).ok();
     }
     if snap.needs_file {
         let text = |value: &str| non_blank(Some(value.trim().to_string()));
@@ -610,24 +676,23 @@ pub async fn complete(
     if snap.needs_file && errors.is_empty() {
         let rendered = render(&write);
         // What the file will say must resolve to complete settings.
-        let resolved = ConfigFile::parse(&rendered)
+        let settings = ConfigFile::parse(&rendered)
             .map_err(|e| format!("the written config doesn't parse: {e}"))
             .and_then(|parsed| {
                 Settings::resolve(env.cli.clone(), overlay(snap.file.clone(), parsed))
             });
-        match resolved {
-            Ok(settings) => {
-                if let Err(e) = build_mailer(
-                    &settings.smtp_server,
-                    &settings.smtp_username,
-                    &settings.smtp_password,
-                ) {
-                    errors.push(format!("smtp: {e}"));
-                }
-            }
-            Err(e) => errors.push(e),
+        match settings {
+            Ok(settings) => resolved = Some(settings),
+            Err(e) => errors.push(scrub(&e, &[])),
         }
         content = Some(rendered);
+    }
+    // Everything the handover can refuse without side effects is checked
+    // now, so bad input fails before anything is saved.
+    if errors.is_empty() {
+        if let Some(settings) = &resolved {
+            errors.extend(preflight(settings).await);
+        }
     }
     if !errors.is_empty() {
         return Err(CompleteError::Invalid(errors));
@@ -701,6 +766,7 @@ pub async fn complete(
         }
         Err(e) => {
             state.set_handover(Handover::Failed);
+            // `e` is scrubbed by `hand_over`.
             warn!("Couldn't switch into normal mode: {e}");
             return Err(CompleteError::Failed(format!(
                 "The setup is saved, but the server couldn't switch into normal mode: {e}. \
@@ -728,13 +794,18 @@ async fn hand_over(
     let env = &state.env;
     let file = env.load_file()?;
     let settings = Settings::resolve(env.cli.clone(), file)?;
+    // Errors and warnings may quote settings; they must not show secrets.
+    let secrets = [settings.smtp_password.clone(), settings.jwt_secret.clone()];
+    let clean = |text: &str| scrub(text, &[&secrets[0], &secrets[1]]);
     for warning in &settings.warnings {
-        warn!("{warning}");
+        warn!("{}", clean(warning));
     }
-    let report = seed::apply_settings(&env.db, &settings).await?;
+    let report = seed::apply_settings(&env.db, &settings)
+        .await
+        .map_err(|e| clean(&e))?;
     let normal = startup::build(env.db.clone(), settings, &report)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| clean(&e.to_string()))?;
     let session = match admin_id {
         Some(id) => Some(
             normal
@@ -752,6 +823,24 @@ async fn hand_over(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrub_hides_url_credentials_and_known_secrets() {
+        assert_eq!(
+            scrub("bad smtp://max:hunter2@mail.example.org:25/x done", &[]),
+            "bad smtp://***@mail.example.org:25/x done"
+        );
+        assert_eq!(scrub("smtps://max:p@ss@host", &[]), "smtps://***@host");
+        assert_eq!(
+            scrub("https://example.org/a@b", &[]),
+            "https://example.org/a@b"
+        );
+        assert_eq!(scrub("a://x:y@h b://u:v@i", &[]), "a://***@h b://***@i");
+        assert_eq!(
+            scrub("the secret is s3cret", &["s3cret", ""]),
+            "the secret is ***"
+        );
+    }
 
     #[test]
     fn random_tokens_are_43_url_safe_characters() {
