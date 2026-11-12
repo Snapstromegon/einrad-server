@@ -803,16 +803,18 @@ pub struct HeatConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// All of one act type and gender; a category is in at most one heat,
-    /// group categories in none.
+    /// group categories too.
     #[serde(default)]
     pub categories: Vec<String>,
     /// The fewest acts it needs for its Vorlauf. Without: 6 if all its
     /// categories are U15 or younger (Junior Expert), otherwise 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threshold: Option<i64>,
-    /// Its Vorlauf is skipped: its acts start directly in its final.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub skip: bool,
+    /// Its Vorlauf is skipped: its acts start directly in its final. Without:
+    /// skipped for a heat of group categories, which start in their final,
+    /// otherwise not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip: Option<bool>,
 }
 
 /// A final: reserved slots for the best riders of the heats, e.g. 5 slots

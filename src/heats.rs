@@ -2,8 +2,9 @@
 //! whose acts are ranked together to fill a final's finalist slots.
 //!
 //! HEAT-1: all categories of a heat share one act type and, for singles,
-//! gender; a category belongs to at most one heat (`categories.heat`), group
-//! categories to none: they are their own final. A heat may be empty until
+//! gender; a category belongs to at most one heat (`categories.heat`). Group
+//! categories belong to heats like any other (#345, ADR 0015); a heat of
+//! groups has its Vorlauf skipped from the start. A heat may be empty until
 //! the admin assigns its categories. Its discipline follows from its
 //! categories; an empty heat has none and fits any final.
 //!
@@ -31,8 +32,8 @@ impl Discipline {
         }
     }
 
-    fn is_group(self) -> bool {
-        matches!(self.act_type, ActType::GroupSmall | ActType::GroupLarge)
+    pub fn is_group(self) -> bool {
+        self.act_type.is_group()
     }
 }
 
@@ -50,8 +51,6 @@ pub struct CategoryInfo {
 pub enum Problem {
     /// No category of that name.
     Unknown(String),
-    /// A group category: groups are their own final.
-    Group(String),
     /// Of another act type or gender than the first category.
     OtherDiscipline { category: String, first: String },
     /// Already in another heat.
@@ -63,9 +62,6 @@ impl Problem {
     pub fn german(&self) -> String {
         match self {
             Problem::Unknown(category) => format!("Die Kategorie {category} gibt es nicht."),
-            Problem::Group(category) => format!(
-                "{category} ist eine Gruppenkategorie; Gruppen sind ihr eigenes Finale und gehören zu keiner Vorlaufklasse."
-            ),
             Problem::OtherDiscipline { category, first } => format!(
                 "{category} hat einen anderen Typ oder ein anderes Geschlecht als {first}; alle Kategorien einer Vorlaufklasse teilen beides."
             ),
@@ -81,9 +77,6 @@ impl Problem {
             Problem::Unknown(category) => {
                 format!("category {category} isn't a category of the file")
             }
-            Problem::Group(category) => format!(
-                "{category} is a group category; groups are their own final and belong to no heat"
-            ),
             Problem::OtherDiscipline { category, first } => format!(
                 "{category} has another act type or gender than {first}; a heat's categories share both"
             ),
@@ -125,9 +118,6 @@ pub fn check(
         let Some(category) = known.iter().find(|c| &c.name == name) else {
             return Err(Problem::Unknown(name.clone()));
         };
-        if category.discipline.is_group() {
-            return Err(Problem::Group(name.clone()));
-        }
         if let Some(other) = category.heat.as_deref().filter(|other| *other != heat) {
             return Err(Problem::InOtherHeat {
                 category: name.clone(),
@@ -381,9 +371,25 @@ mod tests {
             check("X", &names(&["EMU99"]), &known),
             Err(Problem::Unknown("EMU99".into()))
         );
+        // Groups are heats like any other (#345), of one act type.
         assert_eq!(
             check("X", &names(&["KG"]), &known),
-            Err(Problem::Group("KG".into()))
+            Ok(Some(Discipline::new(ActType::GroupSmall, false)))
+        );
+        assert_eq!(
+            check(
+                "X",
+                &names(&["KG", "GG"]),
+                &[
+                    known.to_vec(),
+                    vec![info("GG", ActType::GroupLarge, false, None)]
+                ]
+                .concat()
+            ),
+            Err(Problem::OtherDiscipline {
+                category: "GG".into(),
+                first: "KG".into()
+            })
         );
         assert_eq!(
             check("X", &names(&["EMU17", "EWU17"]), &known),

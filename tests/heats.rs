@@ -505,8 +505,6 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
         (heat_body(" ", &[]), "Namen"),
         (heat_body("JE EW", &[]), "gibt es schon"),
         (heat_body("X", &["EMU99"]), "EMU99"),
-        // Group categories are their own final.
-        (heat_body("X", &["KG15+"]), "KG15+"),
         // One act type and gender.
         (heat_body("X", &["EMU17", "EWU19"]), "EWU19"),
         (heat_body("X", &["PU17", "EWU19"]), "EWU19"),

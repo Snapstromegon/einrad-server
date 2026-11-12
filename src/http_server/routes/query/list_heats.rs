@@ -30,7 +30,8 @@ pub struct Heat {
     /// Its acts at the moment, without withdrawn ones.
     act_count: i64,
     /// Whether the tool suggests skipping its Vorlauf: it has fewer acts than
-    /// its threshold. The organizer decides.
+    /// its threshold; never for groups, which start in their final. The
+    /// organizer decides.
     skip_suggested: bool,
 }
 
@@ -120,7 +121,8 @@ pub async fn list_heats(
                     threshold: row.threshold,
                     skip: row.skip,
                     act_count: row.act_count,
-                    skip_suggested: row.act_count < row.threshold,
+                    skip_suggested: !discipline.is_some_and(|d| d.is_group())
+                        && row.act_count < row.threshold,
                 }
             })
             .collect(),

@@ -99,7 +99,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         }
     }
 
-    let categories = sqlx::query!(
+    let categories: Vec<CategoryConfig> = sqlx::query!(
         r#"
         SELECT
             name as "name!", description, act_type as "act_type: ActType",
@@ -124,6 +124,11 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     })
     .collect();
 
+    let group_categories: Vec<String> = categories
+        .iter()
+        .filter(|c| c.act_type.is_group())
+        .map(|c| c.name.clone())
+        .collect();
     // In the order of their first category, empty ones last, as the admin
     // UI lists them.
     let mut heats = Vec::new();
@@ -146,12 +151,17 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         )
         .fetch_all(&mut *conn)
         .await?;
+        // Only a skip that differs from the default (groups skip, others
+        // don't) goes into the file.
+        let is_group = categories
+            .first()
+            .is_some_and(|first| group_categories.contains(first));
         heats.push(HeatConfig {
             name: row.name,
             description: row.description,
             categories,
             threshold: Some(row.threshold),
-            skip: row.skip,
+            skip: (row.skip != is_group).then_some(row.skip),
         });
     }
 

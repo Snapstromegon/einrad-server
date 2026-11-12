@@ -50,15 +50,9 @@ pub struct FinalFields {
 
 impl FinalFields {
     /// Trims the texts and checks the durations and slot groups. Only singles
-    /// and pairs have finals, only singles are male or female. The message is
+    /// are male or female. The message is
     /// German.
     pub fn normalize(self) -> Result<Self, String> {
-        if !matches!(self.act_type, ActType::Single | ActType::Pair) {
-            return Err(
-                "Finals gibt es nur für Einzel- und Paarküren; Gruppen sind ihr eigenes Finale."
-                    .to_string(),
-            );
-        }
         if [
             self.einfahrzeit_seconds,
             self.act_duration_seconds,

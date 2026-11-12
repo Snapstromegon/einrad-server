@@ -447,8 +447,8 @@ async fn admins_add_edit_and_delete_finals() {
             final_body("Finale EM", json!([{ "heat": "E P 2", "count": 1 }])),
             "E P 2",
         ),
-        // Group categories are their own final.
-        (group_final, "Einzel- und Paarküren"),
+        // A group final takes group heats only (#345).
+        (group_final, "E EM 1"),
     ] {
         let response = app.post("/api/command/add_final", body, Some(&admin)).await;
         rejected(&response, message);

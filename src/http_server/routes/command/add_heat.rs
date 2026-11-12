@@ -18,8 +18,9 @@ pub struct AddHeatBody {
     /// Unique, e.g. "E EM 1".
     name: String,
     description: Option<String>,
-    /// All of one act type and gender, none in another heat, no group
-    /// categories. May be empty.
+    /// All of one act type and gender, none in another heat, group
+    /// categories included. May be empty. A heat of groups starts with its
+    /// Vorlauf skipped.
     categories: Vec<String>,
     /// The fewest acts it needs for its Vorlauf. Without: 6 if all its
     /// categories are U15 or younger (Junior Expert), otherwise 5.
@@ -88,6 +89,16 @@ pub async fn add_heat(
     .execute(&mut *tx)
     .await?;
     heats::set_categories(&mut tx, &name, &categories).await?;
+    // Groups start in their final: their Vorlauf is skipped from the start
+    // (#345); the organizer may restore it.
+    if heats::discipline(&mut tx, &name)
+        .await?
+        .is_some_and(heats::Discipline::is_group)
+    {
+        sqlx::query!("UPDATE heats SET skip = TRUE WHERE name = ?", name)
+            .execute(&mut *tx)
+            .await?;
+    }
 
     tx.commit().await?;
     Ok(Json(AddHeatResponse {}))

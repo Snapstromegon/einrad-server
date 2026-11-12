@@ -289,10 +289,28 @@ pub fn resolve_heats(
             categories,
             discipline,
             threshold,
-            skip: config.skip,
+            // Groups start in their final, so their Vorlauf is skipped
+            // unless the file says otherwise (#345).
+            skip: config
+                .skip
+                .unwrap_or_else(|| discipline.is_some_and(Discipline::is_group)),
         });
     }
     Ok(resolved)
+}
+
+/// Finds categories that belong to no heat (GRP-1). Only a hint: a category
+/// can be created before its heat.
+pub fn category_heat_warnings(categories: &[String], heats: &[HeatConfig]) -> Vec<String> {
+    categories
+        .iter()
+        .filter(|name| {
+            !heats
+                .iter()
+                .any(|heat| heat.categories.iter().any(|c| c.trim() == name.as_str()))
+        })
+        .map(|name| format!("Category {name} belongs to no heat; its acts have no Vorlaufklasse."))
+        .collect()
 }
 
 /// Checks the finals of the config against its heats and converts their
@@ -314,11 +332,6 @@ pub fn resolve_finals(
             }
             if !names.insert(name.to_string()) {
                 return Err(format!("Final {name} is defined more than once."));
-            }
-            if !matches!(config.act_type, ActType::Single | ActType::Pair) {
-                return Err(format!(
-                    "Final {name}: only singles and pairs have finals; group categories are their own final."
-                ));
             }
             let slots = finals::normalize_slot_groups(&config.slots).map_err(|_| {
                 format!(
@@ -1390,6 +1403,15 @@ async fn write(
         heats::set_categories(conn, &heat.name, &heat.categories)
             .await
             .map_err(db_error)?;
+    }
+    if !categories.is_empty() {
+        let names: Vec<String> = categories
+            .iter()
+            .map(|c| c.name.trim().to_string())
+            .collect();
+        for warning in category_heat_warnings(&names, &file.heats) {
+            warn!("{warning}");
+        }
     }
     if !heats.is_empty() {
         info!("Seeded {} heats from the competition file", heats.len());
@@ -2541,6 +2563,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn heats_of_groups_skip_their_vorlauf_unless_the_file_says_otherwise() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let file = with_heats(
+            r#"
+            [[heats]]
+            name = "Kleingruppe"
+            categories = ["KG"]
+
+            [[finals]]
+            name = "Finale KG"
+            act_type = "group_small"
+            slots = [{ heat = "Kleingruppe", count = 1 }]
+            "#,
+        );
+        seed_file(&db, &file).await.unwrap();
+        let skip: bool = sqlx::query_scalar("SELECT skip FROM heats WHERE name = 'Kleingruppe'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert!(skip);
+
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        seed_file(
+            &db,
+            &file.replace(
+                "categories = [\"KG\"]",
+                "categories = [\"KG\"]\nskip = false",
+            ),
+        )
+        .await
+        .unwrap();
+        let skip: bool = sqlx::query_scalar("SELECT skip FROM heats WHERE name = 'Kleingruppe'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert!(!skip);
+        // The export gives the default back as no skip key.
+        let export = crate::export::export(&mut *db.acquire().await.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        let heat = export
+            .file
+            .heats
+            .iter()
+            .find(|h| h.name == "Kleingruppe")
+            .unwrap();
+        assert_eq!(heat.skip, Some(false));
+    }
+
+    #[test]
+    fn categories_without_a_heat_give_a_warning() {
+        let heat = |name: &str, categories: &[&str]| HeatConfig {
+            name: name.to_string(),
+            description: None,
+            categories: categories.iter().map(|c| c.to_string()).collect(),
+            threshold: None,
+            skip: None,
+        };
+        let warnings = category_heat_warnings(
+            &["KG".to_string(), "U15".to_string()],
+            &[heat("H", &["U15"])],
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("KG"), "{warnings:?}");
+    }
+
+    #[tokio::test]
     async fn the_import_checks_heats_and_names_the_offender() {
         let heat = |name: &str, categories: &str| {
             format!("[[heats]]\nname = \"{name}\"\ncategories = [{categories}]\n")
@@ -2554,8 +2644,6 @@ mod tests {
             (heat(" ", "\"U15\""), "empty name"),
             (heat("A", "\"U15\"") + &heat("A", "\"15+\""), "Heat A"),
             (heat("A", "\"U99\""), "U99"),
-            // Group categories are their own final.
-            (heat("A", "\"KG\""), "KG"),
             // One act type and gender.
             (heat("A", "\"U15\", \"PU15\""), "PU15"),
             (heat("A", "\"U15\", \"M15\""), "M15"),
@@ -2573,7 +2661,7 @@ mod tests {
             (single_final("Fehlt"), "Fehlt"),
             (heat("A", "\"PU15\"") + &single_final("A"), "Final Finale"),
             (
-                heat("A", "\"KG\"").replace("\"KG\"", "")
+                heat("A", "\"U15\"")
                     + "[[finals]]\nname = \"Gruppe\"\nact_type = \"group_small\"\nslots = [{ heat = \"A\", count = 1 }]\n",
                 "Final Gruppe",
             ),
