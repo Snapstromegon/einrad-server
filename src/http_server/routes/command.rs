@@ -5,7 +5,6 @@ mod add_category;
 mod add_club_judge;
 mod add_final;
 mod add_heat;
-mod add_jury_category;
 mod add_rider;
 mod add_sponsor;
 mod add_timeplan_entry;
@@ -21,7 +20,6 @@ mod delete_club_group;
 mod delete_club_judge;
 mod delete_final;
 mod delete_heat;
-mod delete_jury_category;
 mod delete_rider;
 mod delete_timeplan_entry;
 mod dissolve_pair;
@@ -32,7 +30,7 @@ mod edit_club_judge;
 mod edit_competition;
 mod edit_final;
 mod edit_heat;
-mod edit_jury_category;
+mod edit_jury_unit;
 mod edit_rider;
 mod edit_timeplan_entry;
 mod image_support;
@@ -43,6 +41,7 @@ mod login;
 mod logout;
 mod move_category_down;
 mod move_category_up;
+mod move_judge_registrations;
 mod move_timeplan_down;
 mod move_timeplan_up;
 mod preview_club_mail;
@@ -62,6 +61,7 @@ mod request_password_reset;
 mod resend_mail_validation;
 mod reset_block_order;
 mod reset_password;
+mod resolve_unmapped_registration;
 mod save_act_song;
 mod send_club_mail;
 mod set_act_music_started;
@@ -79,7 +79,6 @@ mod set_final_placement;
 mod set_final_published;
 mod set_heat_skip;
 mod set_image_source;
-mod set_jury_category_order;
 mod set_jury_deployments_override;
 mod set_jury_plan_published;
 mod set_photo_hidden;
@@ -96,11 +95,12 @@ mod verify_email;
 
 pub fn get_command_router() -> OpenApiRouter {
     OpenApiRouter::new()
-        .routes(routes!(add_jury_category::add_jury_category))
-        .routes(routes!(delete_jury_category::delete_jury_category))
-        .routes(routes!(edit_jury_category::edit_jury_category))
+        .routes(routes!(edit_jury_unit::edit_jury_unit))
+        .routes(routes!(move_judge_registrations::move_judge_registrations))
+        .routes(routes!(
+            resolve_unmapped_registration::resolve_unmapped_registration
+        ))
         .routes(routes!(register::register))
-        .routes(routes!(set_jury_category_order::set_jury_category_order))
         .routes(routes!(verify_email::verify_email))
         .routes(routes!(resend_mail_validation::resend_mail_validation))
         .routes(routes!(request_password_reset::request_password_reset))

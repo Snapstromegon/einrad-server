@@ -5,10 +5,10 @@
 # - It is applied only when the database has no competition yet. Later edits
 #   to this file change nothing; the server warns that the file differs.
 # - --replace-competition / REPLACE_COMPETITION replaces the competition,
-#   categories, heats, finals, timeplan and jury categories with this file.
+#   categories, heats, finals and timeplan with this file.
 #   Club data (clubs, riders, acts with music, judges, bookings, …) is kept;
 #   timeplan slots and progress, finals placements and the jury plan are
-#   dropped. Judge registrations are matched to the new jury categories by
+#   dropped. Judge registrations are matched to the new heats and finals by
 #   name; the others are written to data_path/remap/ to fill in. A file that
 #   changes nothing replaces nothing.
 # - The logo, break image, sponsors and colors are the exception (ADR 0009,
@@ -893,85 +893,12 @@ final = "GG15+"
 label = "Siegerehrung"
 duration_minutes = 45
 
-# What judges register for and get assigned to, used by the jury
-# registration ([competition.features] jury_registration). Only written into an empty
-# table, like [[categories]]. A heat (Vorlauf) counts 2 Einsätze, a final 1.
-# Optional: day (within the event), needed_technical / needed_performance
-# (default 5) and needed_dismounts (default 3).
-
-[[jury_categories]]
-name = "Einzel W – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel W – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel M – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel M – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Paar – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Paar – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Kleingruppe Junior Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Kleingruppe Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Großgruppe Junior Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Großgruppe Expert"
-deployments = 1
-day = 2027-06-05
+# Jury (jury registration, [competition.features] jury_registration): judges
+# register for the Vorlauf of every heat and for every final, and the jury plan
+# assigns them there; there is nothing to define for that. A heat counts 2
+# Einsätze, a final 1, and every unit needs 5 technical, 5 performance and 3
+# dismount judges. Where that doesn't fit, set it on the heat or final with
+# jury_deployments, jury_needed_technical, jury_needed_performance and
+# jury_needed_dismounts, or jury_registrable = false for a unit nobody
+# registers for. A skipped Vorlauf takes no registrations. The day follows the
+# timeplan.

@@ -1,5 +1,5 @@
 //! The jury registration (#225): clubs register their judges (JurorInnen)
-//! for admin-defined jury categories, admins check each club's jury
+//! for the heats' Vorlaufs and the finals (jury units), admins check each club's jury
 //! obligation and plan the jury. Everything is behind the
 //! `jury_registration` feature of the competition (see `Features`).
 
@@ -13,9 +13,14 @@ use uuid::Uuid;
 use crate::{
     competition::{Competition, Features, JuryRules},
     groups::ensure_club_access,
-    http_server::{HttpError, extractor::auth::Auth},
+    http_server::{
+        HttpError,
+        extractor::auth::Auth,
+        routes::query::predict_timeplan::{self, TimeplanEntry},
+    },
     people::{self, Person},
     reloadable_sqlite::ReloadableSqlite,
+    timeplan::Audience,
 };
 
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
@@ -41,62 +46,182 @@ impl<S: Send + Sync> FromRequestParts<S> for JuryEnabled {
     }
 }
 
-/// What judges register for and get assigned to, e.g. one heat block.
+/// Which kind of jury unit: a heat's Vorlauf or a final.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::Type,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "TEXT", rename_all = "snake_case")]
+pub enum JuryUnitKind {
+    /// The Vorlauf of a heat.
+    Heat,
+    /// A final.
+    Final,
+}
+
+impl JuryUnitKind {
+    /// How the remap file names the kind.
+    fn label(self) -> &'static str {
+        match self {
+            JuryUnitKind::Heat => "heat",
+            JuryUnitKind::Final => "final",
+        }
+    }
+}
+
+/// How a remap file names a jury unit: `heat: E EW` or `final: Finale EW`.
+pub fn unit_label(kind: JuryUnitKind, name: &str) -> String {
+    format!("{}: {name}", kind.label())
+}
+
+/// The kind and name of a unit label (see [`unit_label`]).
+pub fn parse_unit_label(label: &str) -> Option<(JuryUnitKind, &str)> {
+    let (kind, name) = label.trim().split_once(':')?;
+    let kind = match kind.trim() {
+        "heat" => JuryUnitKind::Heat,
+        "final" => JuryUnitKind::Final,
+        _ => return None,
+    };
+    Some((kind, name.trim())).filter(|(_, name)| !name.is_empty())
+}
+
+/// What judges register for and get assigned to: the Vorlauf of a heat or a
+/// final (ADR 0016). Its settings live on the heat or the final.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct JuryCategory {
+pub struct JuryUnit {
+    /// The heat's or the final's id.
     pub id: Uuid,
+    pub kind: JuryUnitKind,
+    /// The heat's or the final's name; renaming it keeps the registrations.
     pub name: String,
-    /// Jury deployments (Einsätze) it counts for: a heat 2, a final 1.
+    pub description: Option<String>,
+    /// Judges can register for it: its setting, and never for a skipped
+    /// Vorlauf.
+    pub registrable: bool,
+    /// The jury lead's setting alone, which a skipped Vorlauf overrides.
+    pub registrable_setting: bool,
+    /// The heat's Vorlauf is skipped ("Vorlauf entfällt"). Registrations it
+    /// already has are flagged for the jury lead to move.
+    pub skipped: bool,
+    /// Jury deployments (Einsätze) it counts for.
     pub deployments: i64,
-    /// The day it runs, if known.
-    #[serde(with = "iso_date::option")]
-    #[schema(value_type = Option<String>, format = Date)]
-    pub day: Option<Date>,
-    pub sort_order: i64,
     /// Judges it needs per task.
     pub needed_technical: i64,
     pub needed_performance: i64,
     pub needed_dismounts: i64,
-}
-
-/// What admins set for a jury category.
-#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
-pub struct JuryCategoryFields {
-    pub name: String,
-    pub deployments: i64,
-    #[serde(default, deserialize_with = "optional_date")]
+    /// The day it runs, derived from the timeplan; `None` while it isn't
+    /// planned in it.
+    #[serde(with = "iso_date::option")]
     #[schema(value_type = Option<String>, format = Date)]
     pub day: Option<Date>,
+}
+
+/// A heat's Vorlauf counts 2 jury deployments (Konzept: "Vorlauf entspricht
+/// 2 Wertungseinsätzen").
+pub const HEAT_DEPLOYMENTS: i64 = 2;
+/// A final counts 1.
+pub const FINAL_DEPLOYMENTS: i64 = 1;
+/// 5 judges per task allow dropping the highest and lowest score (Konzept
+/// Gemeinsame Wettkämpfe 4.1).
+pub const NEEDED_JUDGES: i64 = 5;
+pub const NEEDED_DISMOUNT_COUNTERS: i64 = 3;
+
+/// The settings of a jury unit as a heat or final stores them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitSettings {
+    pub registrable: bool,
+    pub deployments: i64,
     pub needed_technical: i64,
     pub needed_performance: i64,
     pub needed_dismounts: i64,
 }
 
-/// An optional "YYYY-MM-DD" date. Unlike `iso_date::option`, this also works
-/// inside `#[serde(flatten)]`, which hands `null` over as a unit value.
-fn optional_date<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Date>, D::Error> {
-    use serde::{Deserialize, de::Error};
-    Option::<String>::deserialize(deserializer)?
-        .map(|day| {
-            Date::parse(
-                &day,
-                time::macros::format_description!("[year]-[month]-[day]"),
-            )
-            .map_err(D::Error::custom)
-        })
-        .transpose()
+impl UnitSettings {
+    /// What a heat or final gets without settings (JURY-2): built into the
+    /// binary.
+    pub fn default_for(kind: JuryUnitKind) -> Self {
+        Self {
+            registrable: true,
+            deployments: match kind {
+                JuryUnitKind::Heat => HEAT_DEPLOYMENTS,
+                JuryUnitKind::Final => FINAL_DEPLOYMENTS,
+            },
+            needed_technical: NEEDED_JUDGES,
+            needed_performance: NEEDED_JUDGES,
+            needed_dismounts: NEEDED_DISMOUNT_COUNTERS,
+        }
+    }
+
+    /// The default with what a competition file sets; fails with an English
+    /// message on a negative number.
+    pub fn resolve(
+        kind: JuryUnitKind,
+        registrable: Option<bool>,
+        deployments: Option<i64>,
+        needed_technical: Option<i64>,
+        needed_performance: Option<i64>,
+        needed_dismounts: Option<i64>,
+    ) -> Result<Self, String> {
+        let default = Self::default_for(kind);
+        let settings = Self {
+            registrable: registrable.unwrap_or(default.registrable),
+            deployments: deployments.unwrap_or(default.deployments),
+            needed_technical: needed_technical.unwrap_or(default.needed_technical),
+            needed_performance: needed_performance.unwrap_or(default.needed_performance),
+            needed_dismounts: needed_dismounts.unwrap_or(default.needed_dismounts),
+        };
+        if [
+            settings.deployments,
+            settings.needed_technical,
+            settings.needed_performance,
+            settings.needed_dismounts,
+        ]
+        .iter()
+        .any(|n| *n < 0)
+        {
+            return Err("the jury deployments and needed judges can't be negative".to_string());
+        }
+        Ok(settings)
+    }
+
+    /// The settings as fields of the file: `None` where they are the default.
+    pub fn for_file(self, kind: JuryUnitKind) -> [Option<i64>; 5] {
+        let default = Self::default_for(kind);
+        let differs = |value: i64, default: i64| (value != default).then_some(value);
+        [
+            (self.registrable != default.registrable).then_some(i64::from(self.registrable)),
+            differs(self.deployments, default.deployments),
+            differs(self.needed_technical, default.needed_technical),
+            differs(self.needed_performance, default.needed_performance),
+            differs(self.needed_dismounts, default.needed_dismounts),
+        ]
+    }
 }
 
-impl JuryCategoryFields {
-    /// Trims the name and checks the numbers and that the day is within the
-    /// event. The message is German.
-    pub fn normalize(mut self, competition: Option<&Competition>) -> Result<Self, String> {
-        self.name = self.name.trim().to_string();
-        if self.name.is_empty() {
-            return Err("Die Jury-Kategorie braucht einen Namen.".to_string());
-        }
+/// What the jury lead sets for a jury unit (JURY-2, D2).
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct JuryUnitFields {
+    pub kind: JuryUnitKind,
+    pub id: Uuid,
+    pub registrable: bool,
+    pub deployments: i64,
+    pub needed_technical: i64,
+    pub needed_performance: i64,
+    pub needed_dismounts: i64,
+}
+
+impl JuryUnitFields {
+    /// Checks the numbers. The message is German.
+    pub fn validate(&self) -> Result<(), String> {
         if [
             self.deployments,
             self.needed_technical,
@@ -108,81 +233,153 @@ impl JuryCategoryFields {
         {
             return Err("Einsätze und benötigte JurorInnen dürfen nicht negativ sein.".to_string());
         }
-        if let (Some(day), Some(competition)) = (self.day, competition)
-            && (day < competition.start_date || day > competition.end_date)
-        {
-            return Err(format!(
-                "Der Tag muss zwischen {} und {} liegen.",
-                competition.start_date, competition.end_date
-            ));
-        }
-        Ok(self)
+        Ok(())
     }
 }
 
-/// Loads the jury categories in their order.
-pub async fn list_categories(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Vec<JuryCategory>> {
-    sqlx::query_as!(
-        JuryCategory,
+/// Loads the jury units in the order of the timeplan: by the first block of
+/// the heat's categories or of the final; units the timeplan doesn't run
+/// last, by name. The day is the planned day of that block.
+pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpError> {
+    let mut conn = db.acquire().await?;
+    let rows = sqlx::query!(
         r#"
         SELECT
             id as "id!: Uuid",
-            name,
-            deployments,
-            day as "day: Date",
-            sort_order,
-            needed_technical,
-            needed_performance,
-            needed_dismounts
-        FROM jury_categories
-        ORDER BY sort_order, name
+            kind as "kind!: JuryUnitKind",
+            name as "name!",
+            description,
+            registrable as "registrable!: bool",
+            registrable_setting as "registrable_setting!: bool",
+            skipped as "skipped!: bool",
+            deployments as "deployments!: i64",
+            needed_technical as "needed_technical!: i64",
+            needed_performance as "needed_performance!: i64",
+            needed_dismounts as "needed_dismounts!: i64"
+        FROM view_jury_unit
         "#
     )
-    .fetch_all(db)
+    .fetch_all(&mut *conn)
+    .await?;
+    let categories = sqlx::query!(r#"SELECT name as "name!", heat FROM categories"#)
+        .fetch_all(&mut *conn)
+        .await?;
+    drop(conn);
+
+    // Where each unit first runs: the position and planned day of its block.
+    // Without a timeplan (or without a start time for its first block) there
+    // are no days.
+    let blocks = match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
+        Ok(plan) => plan.items,
+        Err(_) => vec![],
+    };
+    let first_block = |matches: &dyn Fn(&TimeplanEntry) -> bool| {
+        blocks
+            .iter()
+            .enumerate()
+            .find(|(_, item)| matches(&item.timeplan_entry))
+            .map(|(position, item)| (position, item.planned_start.date()))
+    };
+    let mut units: Vec<(Option<(usize, Date)>, JuryUnit)> = rows
+        .into_iter()
+        .map(|row| {
+            let block = match row.kind {
+                JuryUnitKind::Heat => first_block(&|entry| match entry {
+                    TimeplanEntry::Acts {
+                        home_category: Some(category),
+                        ..
+                    } => categories
+                        .iter()
+                        .any(|c| &c.name == category && c.heat.as_deref() == Some(&row.name)),
+                    _ => false,
+                }),
+                JuryUnitKind::Final => first_block(&|entry| match entry {
+                    TimeplanEntry::Acts {
+                        final_name: Some(name),
+                        ..
+                    } => *name == row.name,
+                    _ => false,
+                }),
+            };
+            let unit = JuryUnit {
+                id: row.id,
+                kind: row.kind,
+                name: row.name,
+                description: row.description.filter(|d| !d.trim().is_empty()),
+                registrable: row.registrable,
+                registrable_setting: row.registrable_setting,
+                skipped: row.skipped,
+                deployments: row.deployments,
+                needed_technical: row.needed_technical,
+                needed_performance: row.needed_performance,
+                needed_dismounts: row.needed_dismounts,
+                day: block.map(|(_, day)| day),
+            };
+            (block, unit)
+        })
+        .collect();
+    units.sort_by(|(a_block, a), (b_block, b)| {
+        let key = |block: &Option<(usize, Date)>, unit: &JuryUnit| {
+            (
+                block.map_or(usize::MAX, |(position, _)| position),
+                unit.kind == JuryUnitKind::Final,
+                unit.name.clone(),
+            )
+        };
+        key(a_block, a).cmp(&key(b_block, b))
+    });
+    Ok(units.into_iter().map(|(_, unit)| unit).collect())
+}
+
+/// The jury unit a heat or final has, by its id, or `None`: whether judges
+/// can register for it now.
+pub async fn unit_is_registrable(
+    conn: &mut sqlx::SqliteConnection,
+    kind: JuryUnitKind,
+    id: Uuid,
+) -> sqlx::Result<Option<bool>> {
+    sqlx::query_scalar!(
+        r#"SELECT registrable as "registrable!: bool" FROM view_jury_unit WHERE kind = ? AND id = ?"#,
+        kind,
+        id
+    )
+    .fetch_optional(conn)
     .await
 }
 
-/// Inserts a jury category at the end of the order and returns its id. A
-/// duplicate name is refused with a German message.
-pub async fn insert_category(
+/// Refuses (German message) to delete the heat or final `name` while judges
+/// are registered or assigned to its jury unit (D4).
+pub async fn ensure_unit_unused(
     conn: &mut sqlx::SqliteConnection,
-    fields: &JuryCategoryFields,
-) -> Result<Uuid, HttpError> {
-    let id = Uuid::new_v4();
-    let result = sqlx::query!(
+    kind: JuryUnitKind,
+    name: &str,
+) -> Result<(), HttpError> {
+    let used = sqlx::query_scalar!(
         r#"
-        INSERT INTO jury_categories (
-            id, name, deployments, day, sort_order,
-            needed_technical, needed_performance, needed_dismounts
-        ) VALUES (
-            ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM jury_categories),
-            ?, ?, ?
-        )
+        SELECT (
+            (SELECT COUNT(*) FROM judge_registration r JOIN view_jury_unit u ON u.id = r.unit_id
+                WHERE u.kind = ?1 AND u.name = ?2)
+            + (SELECT COUNT(*) FROM jury_assignments a JOIN view_jury_unit u ON u.id = a.unit_id
+                WHERE u.kind = ?1 AND u.name = ?2)
+        ) as "count!: i64"
         "#,
-        id,
-        fields.name,
-        fields.deployments,
-        fields.day,
-        fields.needed_technical,
-        fields.needed_performance,
-        fields.needed_dismounts,
+        kind,
+        name
     )
-    .execute(&mut *conn)
-    .await;
-    match result {
-        Ok(_) => Ok(id),
-        Err(e) if is_unique_violation(&e) => Err(duplicate_name(&fields.name)),
-        Err(e) => Err(e.into()),
+    .fetch_one(conn)
+    .await?;
+    if used > 0 {
+        return Err(HttpError::ErrorMessages(
+            "Für die Jury dieser Vorlaufklasse oder dieses Finales sind JurorInnen gemeldet oder eingeteilt. Erst das ändern, dann löschen."
+                .to_string(),
+        ));
     }
+    Ok(())
 }
 
 pub(crate) use crate::people::is_unique_violation;
 
-pub(crate) fn duplicate_name(name: &str) -> HttpError {
-    HttpError::ErrorMessages(format!("Die Jury-Kategorie „{name}“ gibt es schon."))
-}
-
-/// What a judge does in a jury category.
+/// What a judge does in a jury unit.
 #[derive(
     Debug,
     Clone,
@@ -206,12 +403,35 @@ pub enum JudgeTask {
     Dismounts,
 }
 
-/// A judge's task in a jury category.
+/// A judge's task in a jury unit, as a club registers it.
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
 )]
 pub struct JudgeRegistration {
-    pub jury_category_id: Uuid,
+    pub unit_kind: JuryUnitKind,
+    /// The heat's or the final's id.
+    pub unit_id: Uuid,
+    pub task: JudgeTask,
+}
+
+/// A registration as listed: with whether the jury lead has to move it.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct ListedRegistration {
+    pub unit_kind: JuryUnitKind,
+    pub unit_id: Uuid,
+    pub task: JudgeTask,
+    /// Its unit takes no registrations (a skipped Vorlauf, or switched off):
+    /// it still counts, but the jury lead should move it (D7).
+    pub flagged: bool,
+}
+
+/// A registration of a migrated jury category that matched no heat or final
+/// (JURY-5), for the jury lead to move to one. It counts for nothing meanwhile.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct UnmappedRegistration {
+    pub id: i64,
+    /// The name of the old jury category.
+    pub old_unit: String,
     pub task: JudgeTask,
 }
 
@@ -228,8 +448,9 @@ pub struct ClubJudge {
     pub is_trained: bool,
     pub max_deployments: Option<i64>,
     pub note: Option<String>,
-    pub registrations: Vec<JudgeRegistration>,
-    /// What the jury categories they registered for are worth (each once).
+    pub registrations: Vec<ListedRegistration>,
+    pub unmapped_registrations: Vec<UnmappedRegistration>,
+    /// What the jury units they registered for are worth (each once).
     pub registered_deployments: i64,
     /// What of it counts for the club: see [`counted_deployments`].
     pub counted_deployments: i64,
@@ -344,7 +565,9 @@ pub async fn ensure_judge_access(
 
 /// Writes a judge's fields and replaces their registrations; an untrained
 /// judge also loses their Technik and Performance assignments. Unknown jury
-/// categories and duplicate names are refused with a German message.
+/// units, new registrations for a unit that takes none (D6; the judge's
+/// existing ones may stay) and duplicate names are refused with a German
+/// message.
 pub async fn save_judge(
     conn: &mut sqlx::SqliteConnection,
     judge_id: Uuid,
@@ -394,6 +617,20 @@ pub async fn save_judge(
             ));
         }
     }
+    let existing: std::collections::HashSet<(JuryUnitKind, Uuid)> = sqlx::query!(
+        r#"
+        SELECT
+            CASE WHEN heat_id IS NULL THEN 'final' ELSE 'heat' END as "kind!: JuryUnitKind",
+            unit_id as "unit_id!: Uuid"
+        FROM judge_registration WHERE judge_id = ?
+        "#,
+        judge_id
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|row| (row.kind, row.unit_id))
+    .collect();
     sqlx::query!(
         "DELETE FROM judge_registration WHERE judge_id = ?",
         judge_id
@@ -410,21 +647,29 @@ pub async fn save_judge(
         .await?;
     }
     for registration in &fields.registrations {
-        let known = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!: i64" FROM jury_categories WHERE id = ?"#,
-            registration.jury_category_id
-        )
-        .fetch_one(&mut *conn)
-        .await?;
-        if known == 0 {
-            return Err(HttpError::ErrorMessages(
-                "Eine gewählte Jury-Kategorie gibt es nicht mehr. Bitte neu laden.".to_string(),
-            ));
+        let registrable =
+            unit_is_registrable(conn, registration.unit_kind, registration.unit_id).await?;
+        match registrable {
+            None => {
+                return Err(HttpError::ErrorMessages(
+                    "Eine gewählte Vorlaufklasse oder ein gewähltes Finale gibt es nicht mehr. Bitte neu laden."
+                        .to_string(),
+                ));
+            }
+            Some(false) if !existing.contains(&(registration.unit_kind, registration.unit_id)) => {
+                return Err(HttpError::ErrorMessages(
+                    "Für eine gewählte Vorlaufklasse oder ein gewähltes Finale kann niemand mehr gemeldet werden. Bitte neu laden."
+                        .to_string(),
+                ));
+            }
+            Some(_) => {}
         }
+        let (heat_id, final_id) = unit_columns(registration.unit_kind, registration.unit_id);
         sqlx::query!(
-            "INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, ?)",
+            "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
             judge_id,
-            registration.jury_category_id,
+            heat_id,
+            final_id,
             registration.task,
         )
         .execute(&mut *conn)
@@ -433,24 +678,34 @@ pub async fn save_judge(
     Ok(())
 }
 
+/// The `heat_id` and `final_id` columns for a unit: exactly one is set.
+pub fn unit_columns(kind: JuryUnitKind, id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+    match kind {
+        JuryUnitKind::Heat => (Some(id), None),
+        JuryUnitKind::Final => (None, Some(id)),
+    }
+}
+
 /// Loads judges with their registrations: of one club, or of all clubs.
 pub async fn list_judges(
     conn: &mut sqlx::SqliteConnection,
     club_id: Option<Uuid>,
 ) -> sqlx::Result<Vec<ClubJudge>> {
-    let mut registrations: std::collections::HashMap<Uuid, Vec<JudgeRegistration>> =
+    let mut registrations: std::collections::HashMap<Uuid, Vec<ListedRegistration>> =
         std::collections::HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
             judge_registration.judge_id as "judge_id!: Uuid",
-            judge_registration.jury_category_id as "jury_category_id!: Uuid",
-            judge_registration.task as "task!: JudgeTask"
+            judge_registration.unit_id as "unit_id!: Uuid",
+            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
+            judge_registration.task as "task!: JudgeTask",
+            NOT view_jury_unit.registrable as "flagged!: bool"
         FROM judge_registration
         JOIN judge ON judge.id = judge_registration.judge_id
-        JOIN jury_categories ON jury_categories.id = judge_registration.jury_category_id
+        JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
-        ORDER BY jury_categories.sort_order, judge_registration.task
+        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, judge_registration.task
         "#,
         club_id
     )
@@ -460,8 +715,38 @@ pub async fn list_judges(
         registrations
             .entry(row.judge_id)
             .or_default()
-            .push(JudgeRegistration {
-                jury_category_id: row.jury_category_id,
+            .push(ListedRegistration {
+                unit_kind: row.unit_kind,
+                unit_id: row.unit_id,
+                task: row.task,
+                flagged: row.flagged,
+            });
+    }
+    let mut unmapped: std::collections::HashMap<Uuid, Vec<UnmappedRegistration>> =
+        std::collections::HashMap::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT
+            judge_registration_unmapped.id as "id!: i64",
+            judge_registration_unmapped.judge_id as "judge_id!: Uuid",
+            judge_registration_unmapped.old_unit as "old_unit!",
+            judge_registration_unmapped.task as "task!: JudgeTask"
+        FROM judge_registration_unmapped
+        JOIN judge ON judge.id = judge_registration_unmapped.judge_id
+        WHERE ?1 IS NULL OR judge.club_id = ?1
+        ORDER BY judge_registration_unmapped.id
+        "#,
+        club_id
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        unmapped
+            .entry(row.judge_id)
+            .or_default()
+            .push(UnmappedRegistration {
+                id: row.id,
+                old_unit: row.old_unit,
                 task: row.task,
             });
     }
@@ -478,16 +763,16 @@ pub async fn list_judges(
             judge.max_deployments,
             judge.note,
             (
-                SELECT COALESCE(SUM(c.deployments), 0) FROM jury_categories c
+                SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
                 WHERE c.id IN (
-                    SELECT jury_category_id FROM judge_registration
+                    SELECT unit_id FROM judge_registration
                     WHERE judge_id = judge.id
                 )
             ) as "registered_deployments!: i64",
             (
-                SELECT COALESCE(SUM(c.deployments), 0) FROM jury_categories c
+                SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
                 WHERE c.id IN (
-                    SELECT jury_category_id FROM judge_registration
+                    SELECT unit_id FROM judge_registration
                     WHERE judge_id = judge.id AND task != 'dismounts'
                 )
             ) as "countable_deployments!: i64"
@@ -504,6 +789,7 @@ pub async fn list_judges(
         .into_iter()
         .map(|row| ClubJudge {
             registrations: registrations.remove(&row.id).unwrap_or_default(),
+            unmapped_registrations: unmapped.remove(&row.id).unwrap_or_default(),
             id: row.id,
             club_id: row.club_id,
             club_name: row.club_name,
@@ -523,7 +809,7 @@ pub async fn list_judges(
         .collect())
 }
 
-/// The deployments a judge counts for their club: categories with a
+/// The deployments a judge counts for their club: jury units with a
 /// technical or performance registration, at most their maximum; untrained
 /// people count none.
 ///
@@ -582,8 +868,8 @@ pub struct JuryObligation {
 /// without the fee being waived. Fee waivers of starting acts, riders and
 /// clubs don't lower it. It counts for its owner club: the
 /// group's creator, or the club of a single's or pair's riders. A trained
-/// judge counts the deployments of every jury category they registered for
-/// as a technical or performance judge (once per category), at most
+/// judge counts the deployments of every jury unit they registered for
+/// as a technical or performance judge (once per unit), at most
 /// `max_deployments`. Dismount-only registrations do not count.
 pub async fn obligations(
     conn: &mut sqlx::SqliteConnection,
@@ -628,9 +914,9 @@ pub async fn obligations(
             judge.club_id as "club_id!: Uuid",
             judge.max_deployments,
             (
-                SELECT COALESCE(SUM(c.deployments), 0) FROM jury_categories c
+                SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
                 WHERE c.id IN (
-                    SELECT jury_category_id FROM judge_registration
+                    SELECT unit_id FROM judge_registration
                     WHERE judge_id = judge.id AND task != 'dismounts'
                 )
             ) as "deployments!: i64"
@@ -667,10 +953,12 @@ pub async fn obligations(
         .collect())
 }
 
-/// A judge's task in a jury category of the Juryplan.
+/// A judge's task in a jury unit of the Juryplan.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct JuryAssignment {
     pub judge_id: Uuid,
-    pub jury_category_id: Uuid,
+    pub unit_kind: JuryUnitKind,
+    /// The heat's or the final's id.
+    pub unit_id: Uuid,
     pub task: JudgeTask,
 }

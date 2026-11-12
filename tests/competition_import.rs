@@ -126,16 +126,16 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let categories = app
-        .get("/api/query/list_jury_categories", Some(&owner))
+    let units = app
+        .get("/api/query/list_jury_units", Some(&owner))
         .await
         .body;
-    let category = categories
+    let unit = units
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["name"] == "Kleingruppe Expert")
-        .unwrap()["id"]
+        .find(|u| u["name"] == "Finale EW")
+        .unwrap()
         .clone();
     let response = app
         .post(
@@ -148,7 +148,7 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
                 "is_trained": true,
                 "max_deployments": null,
                 "note": null,
-                "registrations": [{ "jury_category_id": category, "task": "technical" }],
+                "registrations": [{ "unit_kind": unit["kind"], "unit_id": unit["id"], "task": "technical" }],
             }),
             Some(&owner),
         )
@@ -159,8 +159,8 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     let file = COMPETITION
         .replacen("fee_per_start = 15", "fee_per_start = 20", 1)
         .replacen(
-            "[[jury_categories]]\nname = \"Kleingruppe Expert\"",
-            "[[jury_categories]]\nname = \"Kleingruppe Expert (neu)\"",
+            "[[finals]]\nname = \"Finale EW\"",
+            "[[finals]]\nname = \"Finale EW (neu)\"",
             1,
         );
     assert_ne!(
@@ -170,13 +170,10 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     let response = preview(&app, &admin, &file).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(response.body["current_id"], before.id);
-    assert_eq!(
-        response.body["changes"],
-        json!(["settings", "jury_categories"])
-    );
+    assert_eq!(response.body["changes"], json!(["settings", "finals"]));
     let dropped = &response.body["dropped"]["judge_registrations"];
     assert_eq!(dropped.as_array().unwrap().len(), 1, "{dropped:?}");
-    assert_eq!(dropped[0]["old_jury_category"], "Kleingruppe Expert");
+    assert_eq!(dropped[0]["old_jury_unit"], "final: Finale EW");
     assert_eq!(
         Competition::current(&app.db).await.unwrap().unwrap(),
         before,
@@ -196,7 +193,7 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     );
     let content = remap["content"].as_str().unwrap();
     assert!(content.contains("Müller"), "{content}");
-    assert!(content.contains("jury_category = \"\""), "{content}");
+    assert!(content.contains("jury_unit = \"\""), "{content}");
     let after = Competition::current(&app.db).await.unwrap().unwrap();
     assert_eq!(after.fee_per_start, 20.0);
     assert_eq!(after.id, before.id);

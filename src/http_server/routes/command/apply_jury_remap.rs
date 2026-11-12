@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::JuryEnabled,
+    jury::{self, JuryEnabled},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
     seed::{RemapFile, RemapRegistration},
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ApplyJuryRemapBody {
-    /// The remap file's content (TOML) with `jury_category` filled in.
+    /// The remap file's content (TOML) with `jury_unit` filled in.
     file: String,
 }
 
@@ -24,8 +24,8 @@ pub struct ApplyJuryRemapBody {
 pub enum RemapProblem {
     /// No judge (or more than one) of that name in that club.
     JudgeNotFound,
-    /// No jury category of that name.
-    JuryCategoryNotFound,
+    /// No jury unit of that name (`heat: <name>` or `final: <name>`).
+    JuryUnitNotFound,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -38,16 +38,17 @@ pub struct RemapEntryNotFound {
 pub struct ApplyJuryRemapResponse {
     /// Registrations made again (or already there).
     registered: usize,
-    /// Entries without a `jury_category`; nothing was done for them.
+    /// Entries without a `jury_unit`; nothing was done for them.
     unfilled: Vec<RemapRegistration>,
-    /// Entries whose judge or jury category isn't found.
+    /// Entries whose judge or jury unit isn't found.
     not_found: Vec<RemapEntryNotFound>,
 }
 
 /// Applies a remap file of judge registrations a replace dropped (ADR
-/// 0005): every entry with a filled-in, existing `jury_category` registers
-/// its judge for that jury category and task again. Entries whose judge or
-/// jury category isn't found are listed back. Jury lead.
+/// 0005): every entry with a filled-in, existing `jury_unit` (`heat: <name>`
+/// or `final: <name>`) registers its judge for that jury unit and task
+/// again. Entries whose judge or jury unit isn't found are listed back. Jury
+/// lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -76,8 +77,8 @@ pub async fn apply_jury_remap(
     let mut unfilled = Vec::new();
     let mut not_found = Vec::new();
     for registration in remap.jury_registrations {
-        let category_name = registration.jury_category.trim();
-        if category_name.is_empty() {
+        let label = registration.jury_unit.trim();
+        if label.is_empty() {
             unfilled.push(registration);
             continue;
         }
@@ -100,26 +101,33 @@ pub async fn apply_jury_remap(
             });
             continue;
         };
-        let category = sqlx::query_scalar!(
-            r#"SELECT id as "id!: Uuid" FROM jury_categories WHERE name = ?"#,
-            category_name
-        )
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let Some(category) = category else {
+        let unit = match jury::parse_unit_label(label) {
+            Some((kind, name)) => sqlx::query!(
+                r#"SELECT id as "id!: Uuid" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+                kind,
+                name
+            )
+            .fetch_optional(&mut *transaction)
+            .await?
+            .map(|row| (kind, row.id)),
+            None => None,
+        };
+        let Some((kind, unit)) = unit else {
             not_found.push(RemapEntryNotFound {
                 registration,
-                problem: RemapProblem::JuryCategoryNotFound,
+                problem: RemapProblem::JuryUnitNotFound,
             });
             continue;
         };
+        let (heat_id, final_id) = jury::unit_columns(kind, unit);
         sqlx::query!(
             r#"
-            INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, ?)
+            INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)
             ON CONFLICT DO NOTHING
             "#,
             judge,
-            category,
+            heat_id,
+            final_id,
             registration.task,
         )
         .execute(&mut *transaction)

@@ -26,7 +26,7 @@ use crate::{
     finals::{self, SlotGroup},
     heats::{self, Discipline},
     images::{self, Image, ImageUrl, Slot},
-    jury::JudgeTask,
+    jury::{JudgeTask, JuryUnitKind, UnitSettings},
     logo::{Logo, SvgLogo},
     reloadable_sqlite::begin_write,
     roles::Role,
@@ -222,6 +222,7 @@ pub struct ResolvedFinal {
     pub act_duration_seconds: i64,
     pub judge_duration_seconds: i64,
     pub slots: Vec<SlotGroup>,
+    pub jury: UnitSettings,
 }
 
 /// A heat from the config, checked against HEAT-1.
@@ -235,6 +236,7 @@ pub struct ResolvedHeat {
     /// The file's, or the default for its categories.
     pub threshold: i64,
     pub skip: bool,
+    pub jury: UnitSettings,
 }
 
 /// Checks the heats of the config (HEAT-1: one act type and gender, no group
@@ -279,6 +281,15 @@ pub fn resolve_heats(
                     .and_then(|category| category.under_age)
             })),
         };
+        let jury = UnitSettings::resolve(
+            JuryUnitKind::Heat,
+            config.jury_registrable,
+            config.jury_deployments,
+            config.jury_needed_technical,
+            config.jury_needed_performance,
+            config.jury_needed_dismounts,
+        )
+        .map_err(|e| format!("Heat {name}: {e}."))?;
         resolved.push(ResolvedHeat {
             name,
             description: config
@@ -294,6 +305,7 @@ pub fn resolve_heats(
             skip: config
                 .skip
                 .unwrap_or_else(|| discipline.is_some_and(Discipline::is_group)),
+            jury,
         });
     }
     Ok(resolved)
@@ -384,6 +396,15 @@ pub fn resolve_finals(
                     name,
                 )?,
                 slots,
+                jury: UnitSettings::resolve(
+                    JuryUnitKind::Final,
+                    config.jury_registrable,
+                    config.jury_deployments,
+                    config.jury_needed_technical,
+                    config.jury_needed_performance,
+                    config.jury_needed_dismounts,
+                )
+                .map_err(|e| format!("Final {name}: {e}."))?,
             })
         })
         .collect()
@@ -721,7 +742,6 @@ pub enum Part {
     Heats,
     Finals,
     Timeplan,
-    JuryCategories,
 }
 
 impl Part {
@@ -735,7 +755,6 @@ impl Part {
             Part::Heats => "the heats",
             Part::Finals => "the finals",
             Part::Timeplan => "the timeplan",
-            Part::JuryCategories => "the jury categories",
         }
     }
 }
@@ -759,9 +778,10 @@ pub struct Dropped {
     /// The jury plan's assignments.
     pub jury_assignments: i64,
     pub jury_plan_published: bool,
-    /// Judge registrations whose jury category has no namesake in the file.
+    /// Judge registrations whose jury unit (heat or final) has no namesake in
+    /// the file.
     pub judge_registrations: Vec<RemapRegistration>,
-    /// Where they were written, to fill in `jury_category` and apply again.
+    /// Where they were written, to fill in `jury_unit` and apply again.
     #[serde(skip)]
     pub remap_file: Option<PathBuf>,
 }
@@ -796,8 +816,8 @@ impl Dropped {
                 .then(|| "the published jury plan".to_string()),
             counted(
                 self.judge_registrations.len() as i64,
-                "judge registration without a matching jury category",
-                "judge registrations without a matching jury category",
+                "judge registration without a matching heat or final",
+                "judge registrations without a matching heat or final",
             ),
         ]
         .into_iter()
@@ -807,16 +827,17 @@ impl Dropped {
 }
 
 /// A judge registration a replace dropped, as in the remap file. Filling in
-/// `jury_category` says which new jury category the judge belongs to.
+/// `jury_unit` (`heat: <name>` or `final: <name>`) says which new heat's
+/// Vorlauf or final the judge belongs to.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemapRegistration {
     pub club: String,
     pub firstname: String,
     pub lastname: String,
     pub task: JudgeTask,
-    pub old_jury_category: String,
+    pub old_jury_unit: String,
     /// Empty until filled in.
-    pub jury_category: String,
+    pub jury_unit: String,
 }
 
 /// The remap file of dropped judge registrations.
@@ -1103,7 +1124,6 @@ struct Snapshot {
     heats: Vec<String>,
     finals: Vec<String>,
     timeplan: Vec<String>,
-    jury_categories: Vec<String>,
 }
 
 impl Snapshot {
@@ -1144,6 +1164,8 @@ impl Snapshot {
             .await?,
             heats: rows(
                 r#"SELECT json_array(name, description, threshold, skip,
+                    jury_registrable, jury_deployments, jury_needed_technical,
+                    jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(name)
                         FROM (SELECT name FROM categories WHERE heat = heats.name ORDER BY name)))
                 FROM heats ORDER BY name"#,
@@ -1152,6 +1174,8 @@ impl Snapshot {
             finals: rows(
                 r#"SELECT json_array(name, description, act_type, is_single_male, "order",
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
+                    jury_registrable, jury_deployments, jury_needed_technical,
+                    jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(json_array(heat, number))
                         FROM (SELECT heat, number FROM final_slots
                             WHERE final_name = finals.name ORDER BY position)))
@@ -1162,12 +1186,6 @@ impl Snapshot {
                 r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
                     final_name, kind, show_photos, internal, einfahrzeit_seconds)
                 FROM timeplan ORDER BY position, id"#,
-            )
-            .await?,
-            jury_categories: rows(
-                r#"SELECT json_array(name, deployments, day, needed_technical,
-                    needed_performance, needed_dismounts)
-                FROM jury_categories ORDER BY sort_order"#,
             )
             .await?,
         })
@@ -1183,10 +1201,6 @@ impl Snapshot {
             (self.heats != other.heats, Part::Heats),
             (self.finals != other.finals, Part::Finals),
             (self.timeplan != other.timeplan, Part::Timeplan),
-            (
-                self.jury_categories != other.jury_categories,
-                Part::JuryCategories,
-            ),
         ]
         .into_iter()
         .filter_map(|(differs, what)| differs.then_some(what))
@@ -1204,7 +1218,7 @@ fn dropped_warning(dropped: &Dropped) -> Option<String> {
         .as_ref()
         .map(|path| {
             format!(
-                " They are listed in {}, with an empty jury_category to fill in.",
+                " They are listed in {}, with an empty jury_unit to fill in.",
                 path.display()
             )
         })
@@ -1215,11 +1229,11 @@ fn dropped_warning(dropped: &Dropped) -> Option<String> {
     ))
 }
 
-/// Writes the file's competition with `id`, its categories, finals, timeplan
-/// and jury categories, replacing what the database has (ADR 0005): the
-/// planning that depends on them is dropped, club data is kept. Judge
-/// registrations follow their jury category by name; the others are returned
-/// for the remap file.
+/// Writes the file's competition with `id`, its categories, heats, finals
+/// and timeplan, replacing what the database has (ADR 0005): the planning
+/// that depends on them is dropped, club data is kept. Judge registrations
+/// follow their heat or final by name; the others are returned for the remap
+/// file.
 async fn write(
     conn: &mut sqlx::SqliteConnection,
     file: &CompetitionFile,
@@ -1279,12 +1293,14 @@ async fn write(
             judge.firstname as "firstname!",
             judge.lastname as "lastname!",
             judge_registration.task as "task!: JudgeTask",
-            jury_categories.name as "jury_category!"
+            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
+            view_jury_unit.name as "unit_name!"
         FROM judge_registration
         JOIN judge ON judge.id = judge_registration.judge_id
         JOIN clubs ON clubs.id = judge.club_id
-        JOIN jury_categories ON jury_categories.id = judge_registration.jury_category_id
-        ORDER BY clubs.name, judge.lastname, judge.firstname, jury_categories.sort_order, judge_registration.task
+        JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
+        ORDER BY clubs.name, judge.lastname, judge.firstname, view_jury_unit.kind DESC,
+            view_jury_unit.name, judge_registration.task
         "#
     )
     .fetch_all(&mut *conn)
@@ -1294,7 +1310,6 @@ async fn write(
     for table in [
         "jury_assignments",
         "judge_registration",
-        "jury_categories",
         "timeplan_slots",
         "timeplan",
         "final_slots",
@@ -1337,7 +1352,6 @@ async fn write(
     let categories = &file.categories;
     let finals = &file.finals;
     let timeplan = &file.timeplan;
-    let jury_categories = &file.jury_categories;
 
     if !categories.is_empty() {
         let determining_day = Competition::current(&mut *conn)
@@ -1391,11 +1405,21 @@ async fn write(
             );
         }
         sqlx::query!(
-            "INSERT INTO heats (name, description, threshold, skip) VALUES (?, ?, ?, ?)",
+            r#"
+            INSERT INTO heats (
+                name, description, threshold, skip, jury_registrable, jury_deployments,
+                jury_needed_technical, jury_needed_performance, jury_needed_dismounts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
             heat.name,
             heat.description,
             heat.threshold,
-            heat.skip
+            heat.skip,
+            heat.jury.registrable,
+            heat.jury.deployments,
+            heat.jury.needed_technical,
+            heat.jury.needed_performance,
+            heat.jury.needed_dismounts,
         )
         .execute(&mut *conn)
         .await
@@ -1424,8 +1448,10 @@ async fn write(
                 r#"
                 INSERT INTO finals (
                     name, description, act_type, is_single_male, "order",
-                    einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
+                    jury_registrable, jury_deployments, jury_needed_technical,
+                    jury_needed_performance, jury_needed_dismounts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 item.name,
                 item.description,
@@ -1435,6 +1461,11 @@ async fn write(
                 item.einfahrzeit_seconds,
                 item.act_duration_seconds,
                 item.judge_duration_seconds,
+                item.jury.registrable,
+                item.jury.deployments,
+                item.jury.needed_technical,
+                item.jury.needed_performance,
+                item.jury.needed_dismounts,
             )
             .execute(&mut *conn)
             .await
@@ -1496,43 +1527,23 @@ async fn write(
         );
     }
 
-    if !jury_categories.is_empty() {
-        let competition = Competition::current(&mut *conn).await.map_err(db_error)?;
-        for category in jury_categories {
-            let fields = crate::jury::JuryCategoryFields {
-                name: category.name.clone(),
-                deployments: category.deployments,
-                day: category.day,
-                needed_technical: category.needed_technical,
-                needed_performance: category.needed_performance,
-                needed_dismounts: category.needed_dismounts,
-            }
-            .normalize(competition.as_ref())
-            .map_err(|e| format!("[[jury_categories]] {:?}: {e}", category.name))?;
-            crate::jury::insert_category(conn, &fields)
-                .await
-                .map_err(|e| format!("[[jury_categories]] {:?}: {e:?}", category.name))?;
-        }
-        info!(
-            "Seeded {} jury categories from the competition file",
-            jury_categories.len()
-        );
-    }
-
     for registration in registrations {
-        let category = sqlx::query_scalar!(
-            r#"SELECT id as "id!: Uuid" FROM jury_categories WHERE name = ?"#,
-            registration.jury_category
+        let unit = sqlx::query_scalar!(
+            r#"SELECT id as "id!: Uuid" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+            registration.unit_kind,
+            registration.unit_name
         )
         .fetch_optional(&mut *conn)
         .await
         .map_err(db_error)?;
-        match category {
-            Some(category) => {
+        match unit {
+            Some(unit) => {
+                let (heat_id, final_id) = crate::jury::unit_columns(registration.unit_kind, unit);
                 sqlx::query!(
-                    "INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, ?)",
+                    "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
                     registration.judge_id,
-                    category,
+                    heat_id,
+                    final_id,
                     registration.task,
                 )
                 .execute(&mut *conn)
@@ -1544,8 +1555,11 @@ async fn write(
                 firstname: registration.firstname,
                 lastname: registration.lastname,
                 task: registration.task,
-                old_jury_category: registration.jury_category,
-                jury_category: String::new(),
+                old_jury_unit: crate::jury::unit_label(
+                    registration.unit_kind,
+                    &registration.unit_name,
+                ),
+                jury_unit: String::new(),
             }),
         }
     }
@@ -1689,9 +1703,9 @@ async fn write_sponsors(
 /// The remap file's content, with how to fill it in.
 pub fn remap_content(remap: &RemapFile) -> Result<String, String> {
     Ok(format!(
-        "# Judge registrations whose jury category the competition file dropped.\n\
-         # Fill in jury_category with the jury category of the new competition\n\
-         # each judge belongs to.\n\n{}",
+        "# Judge registrations whose heat or final the competition file dropped.\n\
+         # Fill in jury_unit with the heat's Vorlauf (\"heat: E EW\") or the final\n\
+         # (\"final: Finale EW\") of the new competition each judge belongs to.\n\n{}",
         toml::to_string(remap).map_err(|e| e.to_string())?
     ))
 }
@@ -2090,9 +2104,14 @@ mod tests {
                 "the timeplan",
             ),
             (
-                "name = \"Block B\"",
-                "name = \"Block B\"\n        deployments = 1",
-                "the jury categories",
+                "name = \"Vorlauf\"",
+                "name = \"Vorlauf\"\n        jury_deployments = 1",
+                "the heats",
+            ),
+            (
+                "name = \"Finale\"\n        act_type",
+                "name = \"Finale\"\n        jury_registrable = false\n        act_type",
+                "the finals",
             ),
         ];
         for (from, to, expected) in cases {
@@ -2163,7 +2182,7 @@ mod tests {
         assert_eq!(Competition::current(&db).await.unwrap().unwrap().id, "cup");
     }
 
-    /// [`COMPETITION`] with a final and two jury categories.
+    /// [`COMPETITION`] with a heat and a final, the two jury units.
     fn planned_competition() -> String {
         format!(
             r#"{COMPETITION}
@@ -2178,18 +2197,12 @@ mod tests {
         name = "Finale"
         act_type = "single"
         slots = [{{ heat = "Vorlauf", count = 2 }}]
-
-        [[jury_categories]]
-        name = "Block A"
-
-        [[jury_categories]]
-        name = "Block B"
         "#
         )
     }
 
     /// A club with a rider, an act, a judge registered for both jury
-    /// categories and a booking, plus planning: the act in a timeplan slot
+    /// units and a booking, plus planning: the act in a timeplan slot
     /// and a finals slot and already performed, the judge in the published
     /// jury plan.
     async fn add_club_data_and_planning(db: &sqlx::SqlitePool) {
@@ -2200,15 +2213,16 @@ mod tests {
             uuid::Uuid::new_v4(),
             uuid::Uuid::new_v4(),
         );
-        let block = |name: &'static str| {
-            sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM jury_categories WHERE name = ?")
-                .bind(name)
+        let heat_id =
+            sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM heats WHERE name = 'Vorlauf'")
                 .fetch_one(db)
-        };
-        let (block_a, block_b) = (
-            block("Block A").await.unwrap(),
-            block("Block B").await.unwrap(),
-        );
+                .await
+                .unwrap();
+        let final_id =
+            sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM finals WHERE name = 'Finale'")
+                .fetch_one(db)
+                .await
+                .unwrap();
         let statements: Vec<sqlx::query::Query<'_, sqlx::Sqlite, _>> = vec![
             sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Max', '')")
                 .bind(user),
@@ -2225,15 +2239,15 @@ mod tests {
             sqlx::query("INSERT INTO judge (id, club_id, firstname, lastname, birthdate, is_trained) VALUES (?, ?, 'Max', 'Müller', '1990-01-01T00:00:00Z', true)")
                 .bind(judge)
                 .bind(club),
-            sqlx::query("INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, 'technical')")
+            sqlx::query("INSERT INTO judge_registration (judge_id, heat_id, task) VALUES (?, ?, 'technical')")
                 .bind(judge)
-                .bind(block_a),
-            sqlx::query("INSERT INTO judge_registration (judge_id, jury_category_id, task) VALUES (?, ?, 'performance')")
+                .bind(heat_id),
+            sqlx::query("INSERT INTO judge_registration (judge_id, final_id, task) VALUES (?, ?, 'performance')")
                 .bind(judge)
-                .bind(block_b),
-            sqlx::query("INSERT INTO jury_assignments (judge_id, jury_category_id, task) VALUES (?, ?, 'technical')")
+                .bind(final_id),
+            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, task) VALUES (?, ?, 'technical')")
                 .bind(judge)
-                .bind(block_a),
+                .bind(heat_id),
             sqlx::query("UPDATE competition SET jury_plan_published_at = '2027-01-01T00:00:00Z'"),
             sqlx::query("INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ((SELECT MIN(id) FROM timeplan), 1, ?)")
                 .bind(act),
@@ -2258,7 +2272,7 @@ mod tests {
 
         let replacement = planned_competition()
             .replace("name = \"Cup\"", "name = \"Cup 2\"")
-            .replace("Block B", "Block C");
+            .replace("Finale", "Endlauf");
         let report = apply_file(&db, &replacement, true, &data.0).await.unwrap();
 
         let Applied::Replaced(dropped) = report.applied else {
@@ -2274,8 +2288,8 @@ mod tests {
             firstname: "Max".into(),
             lastname: "Müller".into(),
             task: JudgeTask::Performance,
-            old_jury_category: "Block B".into(),
-            jury_category: String::new(),
+            old_jury_unit: "final: Finale".into(),
+            jury_unit: String::new(),
         }];
         assert_eq!(dropped.judge_registrations, unmatched);
         let remap_file = dropped.remap_file.expect("a remap file");
@@ -2329,12 +2343,12 @@ mod tests {
             assert_eq!(count(&db, table).await, expected, "{table}");
         }
         let kept: (String, String) = sqlx::query_as(
-            "SELECT jury_categories.name, task FROM judge_registration JOIN jury_categories ON jury_categories.id = jury_category_id",
+            "SELECT view_jury_unit.name, task FROM judge_registration JOIN view_jury_unit ON view_jury_unit.id = unit_id",
         )
         .fetch_one(&db)
         .await
         .unwrap();
-        assert_eq!(kept, ("Block A".to_string(), "technical".to_string()));
+        assert_eq!(kept, ("Vorlauf".to_string(), "technical".to_string()));
         let progress: (Option<String>, Option<String>) =
             sqlx::query_as("SELECT started_at, ended_at FROM acts")
                 .fetch_one(&db)
@@ -2392,7 +2406,7 @@ mod tests {
         add_club_data_and_planning(&db).await;
 
         let invalid = planned_competition()
-            .replace("Block B", "Block C")
+            .replace("Finale", "Endlauf")
             .replace("category = \"15+\"", "category = \"missing\"");
         let err = apply_file(&db, &invalid, true, &data.0).await.unwrap_err();
         assert!(err.contains("missing"), "{err}");
@@ -2621,6 +2635,11 @@ mod tests {
             categories: categories.iter().map(|c| c.to_string()).collect(),
             threshold: None,
             skip: None,
+            jury_registrable: None,
+            jury_deployments: None,
+            jury_needed_technical: None,
+            jury_needed_performance: None,
+            jury_needed_dismounts: None,
         };
         let warnings = category_heat_warnings(
             &["KG".to_string(), "U15".to_string()],

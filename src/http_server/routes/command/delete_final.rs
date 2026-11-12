@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use crate::{
     finals,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
+    jury::{self, JuryUnitKind},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -48,6 +49,7 @@ pub async fn delete_final(
             "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
         ));
     }
+    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, &body.name).await?;
     info!("Deleting final {:?}", body.name);
     sqlx::query!("DELETE FROM timeplan WHERE final_name = ?", body.name)
         .execute(&mut *tx)

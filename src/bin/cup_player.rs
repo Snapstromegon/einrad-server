@@ -6,12 +6,12 @@
 use std::{io::Cursor, path::PathBuf, sync::mpsc};
 
 use clap::Parser;
-use eyre::eyre;
 use einrad_server::player::{
     Song, ToPlayer,
     audio::{self, Audio, Engine, Open},
     client::{self, Options, Songs},
 };
+use eyre::eyre;
 use rodio::Decoder;
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 use tracing::info;

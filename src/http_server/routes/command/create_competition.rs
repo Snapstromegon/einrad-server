@@ -151,7 +151,6 @@ pub async fn create_competition(
         heats: vec![],
         finals: vec![],
         timeplan: vec![],
-        jury_categories: vec![],
     };
     let db = db.get().await.clone();
     seed::create(&db, &file)

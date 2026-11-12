@@ -13,8 +13,8 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AssignJudgeResponse {}
 
-/// Assign a judge a task in a jury category of the Juryplan. Untrained
-/// people only count dismounts; one task per judge and category. Jury lead.
+/// Assign a judge a task in a jury unit of the Juryplan. Untrained
+/// people only count dismounts; one task per judge and unit. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -48,13 +48,15 @@ pub async fn assign_judge(
         ));
     }
     info!(
-        "Assigning judge {} to jury category {} ({:?})",
-        body.judge_id, body.jury_category_id, body.task
+        "Assigning judge {} to jury unit {:?} {} ({:?})",
+        body.judge_id, body.unit_kind, body.unit_id, body.task
     );
+    let (heat_id, final_id) = jury::unit_columns(body.unit_kind, body.unit_id);
     let result = sqlx::query!(
-        "INSERT INTO jury_assignments (judge_id, jury_category_id, task) VALUES (?, ?, ?)",
+        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
         body.judge_id,
-        body.jury_category_id,
+        heat_id,
+        final_id,
         body.task,
     )
     .execute(&mut *transaction)
@@ -63,7 +65,7 @@ pub async fn assign_judge(
         Ok(_) => {}
         Err(e) if jury::is_unique_violation(&e) => {
             return Err(HttpError::ErrorMessages(
-                "Die JurorIn ist in dieser Jury-Kategorie schon eingeteilt.".to_string(),
+                "Die JurorIn ist hier schon eingeteilt.".to_string(),
             ));
         }
         Err(e)

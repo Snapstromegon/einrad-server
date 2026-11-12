@@ -246,10 +246,10 @@ firstname = "Petra"
 lastname = "Wagner"
 birthdate = 1975-03-14
 registrations = [
-  { category = "Einzel Vorlauf Junior Expert", task = "technical" },
-  { category = "Einzel Vorlauf Expert", task = "technical" },
-  { category = "Paar Vorlauf Junior Expert", task = "performance" },
-  { category = "Einzel Finale Expert", task = "technical" },
+  { unit = "heat: JE EW", task = "technical" },
+  { unit = "heat: E EW", task = "technical" },
+  { unit = "final: KGU15", task = "performance" },
+  { unit = "final: Finale EW", task = "technical" },
 ]
 
 [[clubs.judges]]
@@ -258,9 +258,9 @@ lastname = "Fischer"
 birthdate = 1969-11-02
 note = "Nur am Samstag"
 registrations = [
-  { category = "Einzel Vorlauf Junior Expert", task = "performance" },
-  { category = "Einzel Vorlauf Expert", task = "performance" },
-  { category = "Kleingruppe Expert", task = "technical" },
+  { unit = "heat: JE EW", task = "performance" },
+  { unit = "heat: E EW", task = "performance" },
+  { unit = "final: KG15+", task = "technical" },
 ]
 
 [[clubs.judges]]
@@ -269,8 +269,8 @@ lastname = "Wagner"
 birthdate = 2011-04-20
 max_deployments = 2
 registrations = [
-  { category = "Einzel Vorlauf Junior Expert", task = "dismounts" },
-  { category = "Paar Vorlauf Junior Expert", task = "dismounts" },
+  { unit = "heat: JE EW", task = "dismounts" },
+  { unit = "final: KGU15", task = "dismounts" },
 ]
 
 # 20 starts, 300 € due: paid partially. Half of the riders checked in.
@@ -366,7 +366,7 @@ lastname = "Hoffmann"
 birthdate = 1988-08-08
 max_deployments = 2
 registrations = [
-  { category = "Einzel Vorlauf Expert", task = "technical" },
+  { unit = "heat: E EW", task = "technical" },
 ]
 
 [[clubs.judges]]
@@ -375,7 +375,7 @@ lastname = "Hoffmann"
 birthdate = 2013-01-15
 trained = false
 registrations = [
-  { category = "Einzel Vorlauf Junior Expert", task = "dismounts" },
+  { unit = "heat: JE EW", task = "dismounts" },
 ]
 
 # 13 starts, 195 € due: nothing paid. Nobody checked in yet.
@@ -1273,62 +1273,6 @@ duration_minutes = 45
 # The info board shows only the label and the clock.
 show_photos = false
 
-# What the demo judges register for (jury registration): heats count 2
-# Einsätze, finals 1; finals and groups run on the second day.
-[[jury_categories]]
-name = "Einzel Vorlauf Junior Expert"
-
-[[jury_categories]]
-name = "Einzel Vorlauf Expert"
-
-[[jury_categories]]
-name = "Einzel Vorlauf Expert 2"
-
-[[jury_categories]]
-name = "Einzel Finale Junior Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Einzel Finale Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Paar Vorlauf Junior Expert"
-
-[[jury_categories]]
-name = "Paar Vorlauf Expert"
-
-[[jury_categories]]
-name = "Paar Vorlauf Expert 2"
-
-[[jury_categories]]
-name = "Paar Finale Junior Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Paar Finale Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Kleingruppe Junior Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Kleingruppe Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Großgruppe Junior Expert"
-deployments = 1
-day = 2027-04-02
-
-[[jury_categories]]
-name = "Großgruppe Expert"
-deployments = 1
-day = 2027-04-02
+# The demo judges register for the Vorlauf of the heats ("heat: <name>") and
+# for the finals ("final: <name>"); see competition.example.toml for the jury
+# settings of heats and finals.

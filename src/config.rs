@@ -163,7 +163,7 @@ impl ConfigFile {
 }
 
 /// The competition file: the competition with its categories, heats,
-/// finals, timeplan and jury categories. It's only an import; the database is the
+/// finals (with the jury settings of their units) and timeplan. It's only an import; the database is the
 /// source of the competition (see `crate::seed::apply`). The export writes
 /// one (see `crate::export`).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -178,8 +178,6 @@ pub struct CompetitionFile {
     pub finals: Vec<FinalConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeplan: Vec<TimeplanEntryConfig>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub jury_categories: Vec<JuryCategoryConfig>,
 }
 
 /// A competition file as read, before older categories with birthday bounds
@@ -196,8 +194,8 @@ struct CompetitionFileInput {
     finals: Vec<FinalInput>,
     #[serde(default)]
     timeplan: Vec<TimeplanEntryConfig>,
-    #[serde(default)]
-    jury_categories: Vec<JuryCategoryConfig>,
+    /// Older files only; rejected with a message (JURY-1).
+    jury_categories: Option<Vec<toml::Value>>,
 }
 
 /// A category as read: the fields of a [`CategoryConfig`], and the birthday
@@ -284,6 +282,22 @@ struct FinalInput {
     slots: Vec<SlotGroupInput>,
     /// The categories of older files.
     categories: Option<Vec<String>>,
+    /// Whether judges can register for its jury unit. Without: they can (a
+    /// skipped Vorlauf takes none either way).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jury_registrable: Option<bool>,
+    /// Jury deployments (Einsätze) its unit counts for. Without: 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jury_deployments: Option<i64>,
+    /// Judges its unit needs per task. Without: 5 technical, 5 performance
+    /// and 3 dismount counters (5 allows dropping the highest and lowest
+    /// score, Konzept Gemeinsame Wettkämpfe 4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jury_needed_technical: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jury_needed_performance: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    jury_needed_dismounts: Option<i64>,
 }
 
 /// A slot group as read: its heat, or the label of older files.
@@ -332,14 +346,37 @@ impl FinalInput {
             einfahrzeit_minutes: self.einfahrzeit_minutes,
             act_duration_minutes: self.act_duration_minutes,
             judge_duration_minutes: self.judge_duration_minutes,
+            jury_registrable: self.jury_registrable,
+            jury_deployments: self.jury_deployments,
+            jury_needed_technical: self.jury_needed_technical,
+            jury_needed_performance: self.jury_needed_performance,
+            jury_needed_dismounts: self.jury_needed_dismounts,
         })
     }
 }
+
+/// What a file with `[[jury_categories]]` is told (JURY-1, #347, ADR 0016).
+const JURY_CATEGORIES_REJECTED: &str = "[[jury_categories]] are gone (#347): judges register for \
+    the Vorlauf of every heat and for every final, and the jury plan assigns them there. \
+    Remove them; where the defaults (a heat 2 deployments, a final 1, and 5 technical, 5 \
+    performance and 3 dismount judges each) don't fit, set the jury fields on the heat or final, \
+    e.g.:\n\n\
+    [[heats]]\n\
+    name = \"E EW\"\n\
+    jury_deployments = 2\n\
+    jury_needed_technical = 5\n\n\
+    [[finals]]\n\
+    name = \"Finale EW\"\n\
+    jury_deployments = 1\n\
+    jury_registrable = false  # no judges register for it";
 
 impl TryFrom<CompetitionFileInput> for CompetitionFile {
     type Error = String;
 
     fn try_from(input: CompetitionFileInput) -> Result<Self, String> {
+        if input.jury_categories.is_some() {
+            return Err(JURY_CATEGORIES_REJECTED.to_string());
+        }
         let determining_day = input.competition.determining_day;
         Ok(Self {
             categories: input
@@ -355,7 +392,6 @@ impl TryFrom<CompetitionFileInput> for CompetitionFile {
                 .map(FinalInput::into_config)
                 .collect::<Result<_, _>>()?,
             timeplan: input.timeplan,
-            jury_categories: input.jury_categories,
         })
     }
 }
@@ -815,6 +851,22 @@ pub struct HeatConfig {
     /// otherwise not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip: Option<bool>,
+    /// Whether judges can register for its jury unit. Without: they can (a
+    /// skipped Vorlauf takes none either way).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_registrable: Option<bool>,
+    /// Jury deployments (Einsätze) its unit counts for. Without: 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_deployments: Option<i64>,
+    /// Judges its unit needs per task. Without: 5 technical, 5 performance
+    /// and 3 dismount counters (5 allows dropping the highest and lowest
+    /// score, Konzept Gemeinsame Wettkämpfe 4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_technical: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_performance: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_dismounts: Option<i64>,
 }
 
 /// A final: reserved slots for the best riders of the heats, e.g. 5 slots
@@ -839,46 +891,22 @@ pub struct FinalConfig {
     /// The slots in start order, as groups like `{ heat = "JE EM", count = 5 }`.
     /// Its categories are those of the heats.
     pub slots: Vec<crate::finals::SlotGroup>,
-}
-
-/// What judges register for and get assigned to, e.g. one heat block (see
-/// `crate::jury`). Only seeded into an empty table.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct JuryCategoryConfig {
-    pub name: String,
-    /// Jury deployments (Einsätze) it counts for; a heat counts 2, a final
-    /// or group 1.
-    #[serde(default = "default_category_deployments")]
-    pub deployments: i64,
-    /// The day it runs; within the event.
-    #[serde(
-        default,
-        deserialize_with = "toml_date_option",
-        serialize_with = "date_option_to_toml",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub day: Option<Date>,
-    /// Judges it needs per task. 5 allows dropping the highest and lowest
-    /// score (Konzept Gemeinsame Wettkämpfe 4.1).
-    #[serde(default = "default_needed_judges")]
-    pub needed_technical: i64,
-    #[serde(default = "default_needed_judges")]
-    pub needed_performance: i64,
-    #[serde(default = "default_needed_dismount_counters")]
-    pub needed_dismounts: i64,
-}
-
-fn default_category_deployments() -> i64 {
-    2
-}
-
-fn default_needed_judges() -> i64 {
-    5
-}
-
-fn default_needed_dismount_counters() -> i64 {
-    3
+    /// Whether judges can register for its jury unit. Without: they can (a
+    /// skipped Vorlauf takes none either way).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_registrable: Option<bool>,
+    /// Jury deployments (Einsätze) its unit counts for. Without: 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_deployments: Option<i64>,
+    /// Judges its unit needs per task. Without: 5 technical, 5 performance
+    /// and 3 dismount counters (5 allows dropping the highest and lowest
+    /// score, Konzept Gemeinsame Wettkämpfe 4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_technical: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_performance: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jury_needed_dismounts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

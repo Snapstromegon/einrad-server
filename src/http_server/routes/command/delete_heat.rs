@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use crate::{
     heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
+    jury::{self, JuryUnitKind},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -56,6 +57,7 @@ pub async fn delete_heat(
             names.join(", ")
         )));
     }
+    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Heat, &body.name).await?;
     info!("Deleting heat {:?}", body.name);
     // Its categories leave it (foreign key).
     let result = sqlx::query!("DELETE FROM heats WHERE name = ?", body.name)

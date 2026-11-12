@@ -129,20 +129,20 @@ async fn only_admins_export() {
     }
 }
 
-/// A replace that drops Max Müller's registration for "Kleingruppe
-/// Expert"; returns the remap file's content.
+/// A replace that drops Max Müller's registration for the final "Finale
+/// EW"; returns the remap file's content.
 async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let categories = app
-        .get("/api/query/list_jury_categories", Some(admin))
+    let units = app
+        .get("/api/query/list_jury_units", Some(admin))
         .await
         .body;
-    let category = categories
+    let unit = units
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["name"] == "Kleingruppe Expert")
-        .unwrap()["id"]
+        .find(|u| u["name"] == "Finale EW")
+        .unwrap()
         .clone();
     let response = app
         .post(
@@ -155,15 +155,15 @@ async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
                 "is_trained": true,
                 "max_deployments": null,
                 "note": null,
-                "registrations": [{ "jury_category_id": category, "task": "technical" }],
+                "registrations": [{ "unit_kind": unit["kind"], "unit_id": unit["id"], "task": "technical" }],
             }),
             Some(&owner),
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let file = COMPETITION.replacen(
-        "[[jury_categories]]\nname = \"Kleingruppe Expert\"",
-        "[[jury_categories]]\nname = \"Kleingruppe Expert (neu)\"",
+        "[[finals]]\nname = \"Finale EW\"",
+        "[[finals]]\nname = \"Finale EW (neu)\"",
         1,
     );
     let body = import(app, admin, &file).await;
@@ -173,10 +173,10 @@ async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
 async fn registrations(app: &TestApp) -> Vec<(String, String, String)> {
     sqlx::query_as(
         r#"
-        SELECT judge.lastname, jury_categories.name, judge_registration.task
+        SELECT judge.lastname, view_jury_unit.name, judge_registration.task
         FROM judge_registration
         JOIN judge ON judge.id = judge_registration.judge_id
-        JOIN jury_categories ON jury_categories.id = judge_registration.jury_category_id
+        JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
         "#,
     )
     .fetch_all(&app.db)
@@ -213,15 +213,12 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
     assert_eq!(result["registered"], 0);
     assert_eq!(result["unfilled"].as_array().unwrap().len(), 1);
 
-    let unknown = remap.replace("jury_category = \"\"", "jury_category = \"Gibt es nicht\"");
+    let unknown = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Gibt es nicht\"");
     let result = apply(unknown).await;
-    assert_eq!(result["not_found"][0]["problem"], "jury_category_not_found");
+    assert_eq!(result["not_found"][0]["problem"], "jury_unit_not_found");
 
     let stranger = remap
-        .replace(
-            "jury_category = \"\"",
-            "jury_category = \"Kleingruppe Expert (neu)\"",
-        )
+        .replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"")
         .replace("Müller", "Unbekannt");
     let result = apply(stranger).await;
     assert_eq!(result["not_found"][0]["problem"], "judge_not_found");
@@ -230,10 +227,7 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
         "Unbekannt"
     );
 
-    let filled = remap.replace(
-        "jury_category = \"\"",
-        "jury_category = \"Kleingruppe Expert (neu)\"",
-    );
+    let filled = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"");
     let result = apply(filled.clone()).await;
     assert_eq!(result["registered"], 1, "{result:?}");
     assert_eq!(result["not_found"], json!([]));
@@ -241,7 +235,7 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
         registrations(&app).await,
         vec![(
             "Müller".to_string(),
-            "Kleingruppe Expert (neu)".to_string(),
+            "Finale EW (neu)".to_string(),
             "technical".to_string()
         )]
     );

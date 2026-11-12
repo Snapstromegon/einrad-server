@@ -17,10 +17,10 @@ pub struct UnassignJudgeResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UnassignJudgeBody {
     judge_id: Uuid,
-    jury_category_id: Uuid,
+    unit_id: Uuid,
 }
 
-/// Remove a judge from a jury category of the Juryplan. Jury lead.
+/// Remove a judge from a jury unit of the Juryplan. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -44,13 +44,13 @@ pub async fn unassign_judge(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
     info!(
-        "Removing judge {} from jury category {}",
-        body.judge_id, body.jury_category_id
+        "Removing judge {} from jury unit {}",
+        body.judge_id, body.unit_id
     );
     sqlx::query!(
-        "DELETE FROM jury_assignments WHERE judge_id = ? AND jury_category_id = ?",
+        "DELETE FROM jury_assignments WHERE judge_id = ? AND unit_id = ?",
         body.judge_id,
-        body.jury_category_id,
+        body.unit_id,
     )
     .execute(&mut *transaction)
     .await?;

@@ -24,11 +24,11 @@ mod list_club_pair_requests;
 mod list_club_riders;
 mod list_clubs;
 mod list_finals;
-mod list_heats;
 mod list_groups;
+mod list_heats;
 mod list_judges;
-mod list_jury_categories;
 mod list_jury_plan;
+mod list_jury_units;
 mod list_pair_requests;
 mod list_riders;
 mod list_sponsors;
@@ -50,7 +50,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(get_playback::get_playback))
         .routes(routes!(list_club_riders::list_club_riders))
         .routes(routes!(list_club_pair_requests::list_club_pair_requests))
-        .routes(routes!(list_jury_categories::list_jury_categories))
+        .routes(routes!(list_jury_units::list_jury_units))
         .routes(routes!(list_users::list_users))
         .routes(routes!(whoami::whoami))
         .routes(routes!(get_system_status::get_system_status))
