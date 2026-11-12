@@ -7,7 +7,7 @@ import { client, type schemas } from "../../../apiClient";
 import {
   type ClubData,
   type ClubJudge,
-  type JuryCategory,
+  type JuryUnit,
   riderName,
 } from "../../../club-data";
 import {
@@ -18,6 +18,7 @@ import {
   TASKS,
   taskLabels,
   taskNames,
+  unitName,
 } from "../../../jury";
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
@@ -41,7 +42,7 @@ interface Draft {
   /** Empty for no limit. */
   max_deployments: string;
   note: string;
-  /** "categoryId:task" of every ticked box. */
+  /** "unitId:task" of every ticked box. */
   registrations: Set<string>;
 }
 
@@ -55,7 +56,7 @@ const emptyDraft = (): Draft => ({
   registrations: new Set(),
 });
 
-const key = (categoryId: string, task: JudgeTask) => `${categoryId}:${task}`;
+const key = (unitId: string, task: JudgeTask) => `${unitId}:${task}`;
 
 const draftOf = (judge: ClubJudge): Draft => ({
   firstname: judge.firstname,
@@ -65,7 +66,7 @@ const draftOf = (judge: ClubJudge): Draft => ({
   max_deployments: judge.max_deployments?.toString() ?? "",
   note: judge.note ?? "",
   registrations: new Set(
-    judge.registrations.map((r) => key(r.jury_category_id, r.task)),
+    judge.registrations.map((r) => key(r.unit_id, r.task)),
   ),
 });
 
@@ -73,7 +74,7 @@ const draftOf = (judge: ClubJudge): Draft => ({
 const NEW = "new";
 
 /**
- * Step "Jury": the club's judges (JurorInnen) and the jury categories and
+ * Step "Jury": the club's judges (JurorInnen) and the jury units (heats' Vorlaufs and finals) and
  * tasks they can do. Only shown while the jury registration is on.
  */
 @customElement("cup-club-step-jury")
@@ -312,7 +313,7 @@ export default class CupClubStepJury extends LitElement {
         white-space: nowrap;
       }
 
-      /* Jury categories × tasks in the judge form. */
+      /* Jury units × tasks in the judge form. */
       .grid-wrap {
         flex: 1 1 100%;
         overflow-x: auto;
@@ -459,7 +460,7 @@ export default class CupClubStepJury extends LitElement {
         display: none;
       }
 
-      /* Phones: each jury category as a card with three task buttons. */
+      /* Phones: each jury unit as a card with three task buttons. */
       @media (max-width: 720px) {
         .grid-wrap {
           border: none;
@@ -606,7 +607,7 @@ export default class CupClubStepJury extends LitElement {
         gap: 0.25rem;
       }
 
-      /* Long category names wrap instead of widening the page. */
+      /* Long unit names wrap instead of widening the page. */
       .registrations .chip {
         white-space: normal;
       }
@@ -629,8 +630,9 @@ export default class CupClubStepJury extends LitElement {
     return this.data.judges ?? [];
   }
 
-  private get categories() {
-    return this.data.juryCategories ?? [];
+  /** The heats' Vorlaufs and the finals judges can be registered for. */
+  private get units() {
+    return this.data.juryUnits ?? [];
   }
 
   override render() {
@@ -743,15 +745,15 @@ export default class CupClubStepJury extends LitElement {
     if (!plan?.published_at) {
       return nothing;
     }
-    const categories = new Map(this.categories.map((c) => [c.id, c]));
+    const units = new Map(this.units.map((c) => [c.id, c]));
     const judges = new Map(this.judges.map((j) => [j.id, j]));
     const rows = plan.assignments.map((a) => {
-      const category = categories.get(a.jury_category_id);
+      const category = units.get(a.unit_id);
       const judge = judges.get(a.judge_id);
       return html`<tr>
         <td>${judge ? riderName(judge) : "?"}</td>
         <td>
-          ${category?.name ?? "?"}
+          ${category ? unitName(category) : "?"}
           ${
             category?.day
               ? html`<span class="muted">(${formatDate(category.day)})</span>`
@@ -772,7 +774,7 @@ export default class CupClubStepJury extends LitElement {
               <thead>
                 <tr>
                   <th>JurorIn</th>
-                  <th>Jury-Kategorie</th>
+                  <th>Vorlauf / Finale</th>
                   <th>Aufgabe</th>
                 </tr>
               </thead>
@@ -894,19 +896,20 @@ export default class CupClubStepJury extends LitElement {
             : html`; jeder fehlende kostet
                 ${formatMoney(rules.missing_deployment_fee)} und wird mit dem
                 Startgeld bezahlt`
-        }. Gezählt werden die Einsätze der Jury-Kategorien, für die eure
+        }. Gezählt werden die Einsätze der Vorläufe und Finals, für die eure
         geschulten JurorInnen gemeldet sind, höchstens ihre max. Einsätze.
       </p>`;
   }
 
   private renderJudge(judge: ClubJudge) {
-    const categories = new Map(this.categories.map((c) => [c.id, c.name]));
+    const units = new Map(this.units.map((c) => [c.id, c]));
     const byCategory = new Map<string, JudgeTask[]>();
+    const flagged = new Set<string>();
     for (const r of judge.registrations) {
-      byCategory.set(r.jury_category_id, [
-        ...(byCategory.get(r.jury_category_id) ?? []),
-        r.task,
-      ]);
+      byCategory.set(r.unit_id, [...(byCategory.get(r.unit_id) ?? []), r.task]);
+      if (r.flagged) {
+        flagged.add(r.unit_id);
+      }
     }
     return html`<tr>
       <td class="name">
@@ -942,8 +945,16 @@ export default class CupClubStepJury extends LitElement {
               ? html`<span class="muted">nichts gewählt</span>`
               : [...byCategory].map(
                   ([id, tasks]) =>
-                    html`<span class="chip"
-                      >${categories.get(id) ?? "?"}:
+                    html`<span
+                      class="chip"
+                      title=${
+                        flagged.has(id)
+                          ? "Vorlauf entfällt: die Juryleitung teilt neu zu. Der Einsatz zählt weiter."
+                          : ""
+                      }
+                      >${units.get(id) ? unitName(units.get(id)!) : "?"}${
+                        flagged.has(id) ? " (entfällt)" : ""
+                      }:
                       ${tasks.map((r) => taskLabels[r]).join("/")}</span
                     >`,
                 )
@@ -1067,10 +1078,16 @@ export default class CupClubStepJury extends LitElement {
     </section>`;
   }
 
-  /** Jury categories × tasks; untrained people only count dismounts. */
+  /** Jury units × tasks; untrained people only count dismounts. */
   private renderGrid() {
-    if (this.categories.length === 0) {
-      return html`<p class="muted">Noch keine Jury-Kategorien angelegt.</p>`;
+    // What takes no registrations is only shown while the judge has it.
+    const units = this.units.filter(
+      (unit) =>
+        unit.registrable ||
+        TASKS.some((task) => this.draft.registrations.has(key(unit.id, task))),
+    );
+    if (units.length === 0) {
+      return html`<p class="muted">Noch keine Vorläufe oder Finals angelegt.</p>`;
     }
     const headers = TASKS.map(
       (task) =>
@@ -1084,7 +1101,7 @@ export default class CupClubStepJury extends LitElement {
         <thead>
           <tr>
             <th scope="col">Wofür kann die JurorIn werten?</th>
-            <th class="count" scope="col" title="Juryeinsätze, für die die Kategorie zählt">
+            <th class="count" scope="col" title="Juryeinsätze, für die der Vorlauf oder das Finale zählt">
               Einsätze
             </th>
             ${headers}
@@ -1092,9 +1109,9 @@ export default class CupClubStepJury extends LitElement {
         </thead>
         <tbody>
           ${repeat(
-            this.categories,
-            (category) => category.id,
-            (category) => this.renderGridRow(category),
+            units,
+            (unit) => unit.id,
+            (unit) => this.renderGridRow(unit),
           )}
         </tbody>
         ${this.renderGridTotal()}
@@ -1102,19 +1119,29 @@ export default class CupClubStepJury extends LitElement {
     </div>`;
   }
 
-  private renderGridRow(category: JuryCategory) {
+  private renderGridRow(category: JuryUnit) {
     const cells = TASKS.map((task) => {
-      const off = !this.draft.is_trained && task !== "dismounts";
+      const ticked = this.draft.registrations.has(key(category.id, task));
+      // A unit without registrations only keeps what the judge already has.
+      const off =
+        (!this.draft.is_trained && task !== "dismounts") ||
+        (!category.registrable && !ticked);
       return html`<td
         class="task ${off ? "off" : ""}"
-        title=${off ? "Nur für geschulte JurorInnen" : taskNames[task]}
+        title=${
+          !category.registrable && !ticked
+            ? "Hier werden keine JurorInnen mehr gemeldet"
+            : off
+              ? "Nur für geschulte JurorInnen"
+              : taskNames[task]
+        }
       >
         <label>
           <input
             type="checkbox"
-            aria-label="${category.name}: ${taskNames[task]}"
+            aria-label="${unitName(category)}: ${taskNames[task]}"
             data-key=${key(category.id, task)}
-            .checked=${this.draft.registrations.has(key(category.id, task))}
+            .checked=${ticked}
             ?disabled=${off}
             @change=${this.onRegistrationChange}
           />
@@ -1128,8 +1155,14 @@ export default class CupClubStepJury extends LitElement {
     });
     return html`<tr>
       <td class="category">
-        ${category.name}
-        ${category.day ? html`<small>${formatDate(category.day)}</small>` : nothing}
+        ${unitName(category)}
+        ${
+          category.skipped
+            ? html`<small>Vorlauf entfällt</small>`
+            : category.day
+              ? html`<small>${formatDate(category.day)}</small>`
+              : nothing
+        }
       </td>
       <td class="count">
         ${category.deployments}<span class="unit">
@@ -1145,7 +1178,7 @@ export default class CupClubStepJury extends LitElement {
     const draft = this.draft;
     const max = draft.max_deployments ? Number(draft.max_deployments) : null;
     const { registered, counted } = countDeployments(
-      this.categories,
+      this.units,
       draft.registrations,
       draft.is_trained,
       max,
@@ -1232,8 +1265,13 @@ export default class CupClubStepJury extends LitElement {
         : null,
       note: draft.note || null,
       registrations: [...draft.registrations].map((k) => {
-        const [jury_category_id, task] = k.split(":");
-        return { jury_category_id, task: task as JudgeTask };
+        const [unit_id, task] = k.split(":");
+        const unit = this.units.find((u) => u.id === unit_id);
+        return {
+          unit_kind: unit?.kind ?? "heat",
+          unit_id,
+          task: task as JudgeTask,
+        };
       }),
     };
     const id = this.editing;

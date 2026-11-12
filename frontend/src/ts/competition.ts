@@ -15,7 +15,6 @@ export const partNames: Record<Part, string> = {
   heats: "Vorlaufklassen",
   finals: "Finals",
   timeplan: "Zeitplan",
-  jury_categories: "Jury-Kategorien",
 };
 
 /** `count` with its noun in singular or plural, or `null` for none. */
@@ -47,8 +46,8 @@ export const droppedItems = (dropped: Dropped): string[] =>
     dropped.jury_plan_published ? "die Veröffentlichung des Juryplans" : null,
     counted(
       dropped.judge_registrations.length,
-      "Jury-Anmeldung ohne passende Jury-Kategorie",
-      "Jury-Anmeldungen ohne passende Jury-Kategorie",
+      "Jury-Anmeldung ohne passenden Vorlauf oder Finale",
+      "Jury-Anmeldungen ohne passenden Vorlauf oder Finale",
     ),
   ].filter((item): item is string => item !== null);
 

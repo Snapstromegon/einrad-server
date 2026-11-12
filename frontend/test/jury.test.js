@@ -7,6 +7,7 @@ import {
   deploymentNote,
   obligationTone,
   planWarnings,
+  unitName,
   isJudgeRegistrationOpen,
   judgeRegistrationEnd,
 } from "../src/ts/jury.ts";
@@ -58,13 +59,13 @@ describe("jury", () => {
     assert.equal(ageOnStart("2012-06-06T00:00:00.000Z", null), null);
   });
 
-  test("coverage counts trained and untrained judges per category and task", () => {
+  test("coverage counts trained and untrained judges per jury unit and task", () => {
     const start = { start_date: "2027-06-05" };
     const judge = (birthdate, is_trained, registrations) => ({
       birthdate,
       is_trained,
-      registrations: registrations.map(([jury_category_id, task]) => ({
-        jury_category_id,
+      registrations: registrations.map(([unit_id, task]) => ({
+        unit_id,
         task,
       })),
     });
@@ -108,9 +109,9 @@ describe("jury", () => {
       { id: "4", birthdate: "2012-01-01T00:00:00.000Z" },
       { id: "5", birthdate: "1990-01-01T00:00:00.000Z" },
     ];
-    const assign = (judge_id, task, jury_category_id = "a") => ({
+    const assign = (judge_id, task, unit_id = "a") => ({
       judge_id,
-      jury_category_id,
+      unit_id,
       task,
     });
     assert.deepEqual(
@@ -205,5 +206,11 @@ describe("jury", () => {
     assert.equal(obligationTone(15, 28), "below");
     assert.equal(obligationTone(28, 28), "met");
     assert.equal(obligationTone(30, 28), "met");
+  });
+
+  test("unitName tells a heat's Vorlauf from a final", () => {
+    assert.equal(unitName({ kind: "heat", name: "E EW" }), "E EW Vorlauf");
+    assert.equal(unitName({ kind: "final", name: "Finale EW" }), "Finale EW");
+    assert.equal(unitName({ kind: "final", name: "KGU15" }), "KGU15 Finale");
   });
 });

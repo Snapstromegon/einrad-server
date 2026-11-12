@@ -71,7 +71,7 @@ export const TASKS = ["technical", "performance", "dismounts"] as const;
 
 type Task = (typeof TASKS)[number];
 
-/** Judges of one task in a jury category, trained or not. */
+/** Judges of one task in a jury unit, trained or not. */
 export interface TaskCount {
   trained: number;
   untrained: number;
@@ -83,7 +83,7 @@ export type CategoryCoverage = Record<Task, TaskCount> & {
 };
 
 /**
- * Who can judge what: per jury category and task the registered trained and
+ * Who can judge what: per jury unit and task the registered trained and
  * untrained judges, and how many of them are 15, since a category should
  * have at most three 15-year-old judges (Jury-Konzept 4).
  */
@@ -92,7 +92,7 @@ export const coverage = (
   judges: {
     birthdate: string;
     is_trained: boolean;
-    registrations: { jury_category_id: string; task: Task }[];
+    registrations: { unit_id: string; task: Task }[];
   }[],
   competition: Pick<Competition, "start_date"> | null | undefined,
 ) => {
@@ -106,14 +106,14 @@ export const coverage = (
   for (const judge of judges) {
     const isFifteen = ageOnStart(judge.birthdate, competition) === 15;
     const seen = new Set<string>();
-    for (const { jury_category_id, task } of judge.registrations) {
-      const category = result.get(jury_category_id);
+    for (const { unit_id, task } of judge.registrations) {
+      const category = result.get(unit_id);
       if (!category) {
         continue;
       }
       category[task][judge.is_trained ? "trained" : "untrained"] += 1;
-      if (isFifteen && !seen.has(jury_category_id)) {
-        seen.add(jury_category_id);
+      if (isFifteen && !seen.has(unit_id)) {
+        seen.add(unit_id);
         category.fifteen += 1;
       }
     }
@@ -121,7 +121,7 @@ export const coverage = (
   return result;
 };
 
-/** Judges a jury category needs per task. */
+/** Judges a jury unit needs per task. */
 export const neededFor = (
   category: {
     needed_technical: number;
@@ -136,21 +136,21 @@ export const neededFor = (
       ? category.needed_performance
       : category.needed_dismounts;
 
-/** At most this many 15-year-old judges per category (Jury-Konzept 4). */
+/** At most this many 15-year-old judges per jury unit (Jury-Konzept 4). */
 export const MAX_FIFTEEN = 3;
 
 /**
- * What's wrong with a jury category in the Juryplan: tasks with fewer judges
+ * What's wrong with a jury unit in the Juryplan: tasks with fewer judges
  * than needed, and more than three 15-year-old judges. More judges than
  * needed are fine.
  */
 export const planWarnings = (
   category: Parameters<typeof neededFor>[0] & { id: string },
-  assignments: { judge_id: string; jury_category_id: string; task: Task }[],
+  assignments: { judge_id: string; unit_id: string; task: Task }[],
   judges: { id: string; birthdate: string }[],
   competition: Pick<Competition, "start_date"> | null | undefined,
 ) => {
-  const own = assignments.filter((a) => a.jury_category_id === category.id);
+  const own = assignments.filter((a) => a.unit_id === category.id);
   const warnings: string[] = [];
   for (const task of TASKS) {
     const assigned = own.filter((a) => a.task === task).length;
@@ -170,7 +170,7 @@ export const planWarnings = (
   return warnings;
 };
 
-/** Why a judge's counted Einsätze differ from all their registered categories. */
+/** Why a judge's counted Einsätze differ from all their registered jury units. */
 export const deploymentNote = (judge: {
   is_trained: boolean;
   registered_deployments: number;
@@ -191,7 +191,7 @@ export const deploymentNote = (judge: {
 /**
  * What a judge's selection is worth while it's being edited: every ticked
  * jury category once, and what of it counts for the club. Dismount-only
- * categories do not count towards the club's obligation.
+ * units do not count towards the club's obligation.
  */
 export const countDeployments = (
   categories: { id: string; deployments: number }[],
@@ -228,3 +228,14 @@ export const countDeployments = (
  */
 export const obligationTone = (credited: number, required: number) =>
   credited <= 0 ? "none" : credited < required ? "below" : "met";
+
+/**
+ * What a jury unit is called: a heat's Vorlauf ("E EW Vorlauf") or a final
+ * ("Finale EW"; "KGU15 Finale" if its name doesn't say it).
+ */
+export const unitName = (unit: { kind: "heat" | "final"; name: string }) =>
+  unit.kind === "heat"
+    ? `${unit.name} Vorlauf`
+    : unit.name.includes("Finale")
+      ? unit.name
+      : `${unit.name} Finale`;
