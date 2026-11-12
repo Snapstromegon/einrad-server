@@ -538,16 +538,17 @@ judge_duration_minutes = 3
 # Heats (Vorlaufklassen): the categories of one discipline whose acts are
 # ranked together in their preliminary round (Vorlauf); their best fill a
 # final's slots. A heat's categories share one act type and, for singles,
-# gender; a category is in at most one heat, group categories in none (they
-# are their own final). A heat fills the slots of at most one final. Clubs
-# never pick a heat: it follows from the category.
+# gender; a category is in at most one heat, group categories too. A heat
+# fills the slots of at most one final. Clubs never pick a heat: it follows
+# from the category. A category without a heat only gives a warning.
 #
 # threshold: the fewest acts a heat needs for its Vorlauf (Konzept §1.5).
 #   Without: 6 if all its categories are U15 or younger (Junior Expert),
 #   otherwise 5. With fewer acts the admin UI suggests skipping the Vorlauf.
 # skip = true: the Vorlauf is skipped; the heat's acts start directly in its
 #   final, and its categories' blocks stay in the timeplan, marked
-#   "Vorlauf entfällt".
+#   "Vorlauf entfällt". Without it, a heat of group categories is skipped
+#   (they start in their final), others are not.
 
 [[heats]]
 name = "JE EM"
@@ -595,14 +596,37 @@ name = "E P 2"
 description = "Expert 2 Paar (U23 und älter)"
 categories = ["PU23", "PU25", "PU30", "PU50", "PU70", "P70+"]
 
+# Group heats and finals (one each per group category): groups start in
+# their final, so a group heat's Vorlauf is skipped by default (skip = true
+# without writing it); its one slot stays unused while it is skipped.
+[[heats]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+categories = ["KGU15"]
+
+[[heats]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+categories = ["KG15+"]
+
+[[heats]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+categories = ["GGU15"]
+
+[[heats]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+categories = ["GG15+"]
+
 # Finals: reserved slots for the best riders of the heats, planned before the
 # results are known. Each slot runs like an act with the final's durations;
 # slots lists them in start order as groups filled from a heat, e.g. 5 slots
 # from the heat "JE EM" become "1. Finalist (JE EM)" … "5. Finalist (JE EM)".
 # A [[timeplan]] entry with final = "<name>" plans a final (each final once).
 # act_type and single_male name the discipline, which every heat of the final
-# shares; only singles and pairs have finals. The final's categories are
-# those of its heats: once the heats are judged, admins place their acts in
+# shares. The final's categories are those of
+# its heats: once the heats are judged, admins place their acts in
 # the slots; the placement shows in the timeplan once it is published.
 
 [[finals]]
@@ -662,6 +686,42 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 2
 slots = [{ heat = "E P 1", count = 4 }, { heat = "E P 2", count = 4 }]
+
+[[finals]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KGU15", count = 1 }]
+
+[[finals]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KG15+", count = 1 }]
+
+[[finals]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GGU15", count = 1 }]
+
+[[finals]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GG15+", count = 1 }]
 
 # Timeplan in order. An entry runs a category (its duration comes from the
 # category and its acts), a final (from the final and its slots), or is a
@@ -809,13 +869,25 @@ final = "Finale 2 P"
 category = "KGU15"
 
 [[timeplan]]
+final = "KGU15"
+
+[[timeplan]]
 category = "KG15+"
+
+[[timeplan]]
+final = "KG15+"
 
 [[timeplan]]
 category = "GGU15"
 
 [[timeplan]]
+final = "GGU15"
+
+[[timeplan]]
 category = "GG15+"
+
+[[timeplan]]
+final = "GG15+"
 
 [[timeplan]]
 label = "Siegerehrung"

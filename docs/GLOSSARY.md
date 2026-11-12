@@ -169,7 +169,7 @@ The age part of a category, e.g. U13 or 70+: a minimum age and an age the riders
 _Avoid_: Category (for the age part only), birthday range (as what defines it)
 
 **Heat** (Vorlaufklasse):
-A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Group categories have no heat. It runs its preliminary round as its categories' blocks and fills the slots of at most one final; clubs never pick it, it follows from the category (ADR 0013, ADR 0014).
+A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Every category belongs to one, group categories too (a category without one only gives a warning). It runs its preliminary round as its categories' blocks and fills the slots of at most one final; clubs never pick it, it follows from the category (ADR 0013, ADR 0014).
 _Avoid_: Vorlauf (that is its preliminary round), Block, Vorlaufblock, round
 
 **Preliminary round** (Vorlauf):
@@ -177,11 +177,11 @@ A heat's first round, whose ranking fills the finalist slots. With fewer acts th
 _Avoid_: Heat, Vorlaufklasse, Qualifikation
 
 **Final** (Finale):
-The final round of singles or pairs, with reserved finalist slots for the best of its heats; group categories have no separate final, they are the final.
+The final round of any discipline, groups included, with reserved finalist slots for the best of its heats. A group category has its own heat and final; groups start in the final, as their heat's preliminary round is skipped by default (ADR 0015).
 _Avoid_: Finalrunde
 
 **Finalist slot** (Finalplatz):
-A reserved start in a final, named after the heat that fills it, e.g. "1. Finalist (JE EM)", filled with an act of that heat once the heats are ranked. A heat whose preliminary round is skipped leaves its slots unused.
+A reserved start in a final, named after the heat that fills it, e.g. "1. Finalist (JE EM)", filled with an act of that heat once the heats are ranked. A heat whose preliminary round is skipped leaves its slots unused; a group final has one such slot for its heat.
 
 **Direct act** (direkt im Finale startende Kür):
 An act of a heat whose preliminary round is skipped: it starts in the final as an act, with its own progress and its category's times, in the start order the organizer sets among the finalist slots.
@@ -338,7 +338,7 @@ An award for each rider of the first three places of a final, and for each group
 - A **Club mail** gives each selected **Club** its own mail, to its **Club contact** and **Club representative**; addresses the organizer types in get one each, with the data of the club they're assigned to.
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
 - A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
-- An **Act** belongs to one **Category** once it is complete and not withdrawn; a singles or pairs **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
+- An **Act** belongs to one **Category** once it is complete and not withdrawn; a **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
 - The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name, and its categories are theirs. A heat fills at most one final.
 - A **Heat** runs its **Preliminary round** as the **Blocks** of its categories; it has no block of its own. When the preliminary round is skipped, those blocks stay but run none of its acts, and its acts are **Direct acts** of its final.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.

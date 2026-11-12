@@ -1048,6 +1048,29 @@ categories = ["EWU17", "EWU19", "EWU21", "EWU23", "EWU25", "EWU30", "EWU50", "EW
 
 # A final (as in competition.example.toml): reserved slots for the best riders
 # of the heats, planned before the results are known.
+# Group heats and finals (one each per group category): groups start in
+# their final, so a group heat's Vorlauf is skipped by default (skip = true
+# without writing it); its one slot stays unused while it is skipped.
+[[heats]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+categories = ["KGU15"]
+
+[[heats]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+categories = ["KG15+"]
+
+[[heats]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+categories = ["GGU15"]
+
+[[heats]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+categories = ["GG15+"]
+
 [[finals]]
 name = "Finale EW"
 description = "Finale Einzel Weiblich"
@@ -1056,6 +1079,42 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 4
 slots = [{ heat = "JE EW", count = 3 }, { heat = "E EW", count = 3 }]
+
+[[finals]]
+name = "KGU15"
+description = "Kleingruppe Junior Expert (U15)"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KGU15", count = 1 }]
+
+[[finals]]
+name = "KG15+"
+description = "Kleingruppe Expert (15+)"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KG15+", count = 1 }]
+
+[[finals]]
+name = "GGU15"
+description = "Großgruppe Junior Expert (U15)"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GGU15", count = 1 }]
+
+[[finals]]
+name = "GG15+"
+description = "Großgruppe Expert (15+)"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GG15+", count = 1 }]
 
 # Timeplan entries can also carry their live state: started_at and ended_at.
 [[timeplan]]
@@ -1188,13 +1247,25 @@ final = "Finale EW"
 category = "KGU15"
 
 [[timeplan]]
+final = "KGU15"
+
+[[timeplan]]
 category = "KG15+"
+
+[[timeplan]]
+final = "KG15+"
 
 [[timeplan]]
 category = "GGU15"
 
 [[timeplan]]
+final = "GGU15"
+
+[[timeplan]]
 category = "GG15+"
+
+[[timeplan]]
+final = "GG15+"
 
 [[timeplan]]
 label = "Siegerehrung"

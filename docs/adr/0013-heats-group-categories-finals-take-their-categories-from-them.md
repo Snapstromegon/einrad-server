@@ -7,3 +7,5 @@ The migration builds the heats from the existing finals once. Each slot group be
 Competition files are not converted: a file whose finals still have slot `label`s or their own `categories` is rejected with a message that names the final and shows a short `[[heats]]` and `heat = "…"` example. Unlike the age classes (ADR 0012), turning a label into categories is a guess, and a guess that is silently wrong would only show on the event day, when acts are placed. The guessing therefore lives only in the migration, where it runs once on data the organizer reviews right afterwards. Older files have to be rewritten by hand.
 
 ADR 0014 builds on this: a heat fills at most one final, and its preliminary round (Vorlauf) can be skipped so its acts start directly in that final. In the UI a heat is now called "Vorlaufklasse"; "Vorlauf" means its preliminary round.
+
+ADR 0015 amends this: group categories get heats and finals too, so "group categories belong to none" and "only singles and pairs have finals" no longer hold.
