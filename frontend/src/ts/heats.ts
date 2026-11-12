@@ -50,3 +50,12 @@ export const skippedWithoutPlannedFinal = (
         heat.skip && !heat.finals.some((final) => plannedFinals.has(final)),
     )
     .map((heat) => heat.name);
+
+/**
+ * The categories that belong to no heat (GRP-1): only a hint, so a category
+ * can be created before its heat.
+ */
+export const categoriesWithoutHeat = (
+  categories: { name: string; heat?: string | null }[],
+): string[] =>
+  categories.filter((category) => !category.heat).map((c) => c.name);

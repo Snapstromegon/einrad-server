@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
+  categoriesWithoutHeat,
   heatsOnSeveralDays,
   skippedWithoutPlannedFinal,
 } from "../src/ts/heats.ts";
@@ -66,5 +67,19 @@ describe("skippedWithoutPlannedFinal (#344)", () => {
       ),
       [],
     );
+  });
+});
+
+describe("categoriesWithoutHeat (GRP-1)", () => {
+  test("names the categories that belong to no heat", () => {
+    assert.deepEqual(
+      categoriesWithoutHeat([
+        { name: "EMU11", heat: "JE EM" },
+        { name: "KG15+", heat: null },
+        { name: "GG15+" },
+      ]),
+      ["KG15+", "GG15+"],
+    );
+    assert.deepEqual(categoriesWithoutHeat([]), []);
   });
 });

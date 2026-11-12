@@ -10,6 +10,7 @@ import { type User, userContext } from "../../contexts/user";
 import { can } from "../../roles";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { categoriesWithoutHeat } from "../../heats";
 import { actTypeLabels } from "../../utils";
 
 type Heat = schemas.Heat;
@@ -41,9 +42,6 @@ const disciplineOf = (
     ? `${actTypeLabels.single} ${category.is_single_male ? "männlich" : "weiblich"}`
     : actTypeLabels[category.act_type];
 
-const isGroup = (category: Category) =>
-  category.act_type === "group_small" || category.act_type === "group_large";
-
 const emptyDraft = (): HeatDraft => ({
   name: "",
   description: "",
@@ -61,8 +59,8 @@ const parseThreshold = (text: string) => {
 
 /**
  * The heats (Vorlaufklassen): groups of categories of one discipline whose best
- * acts fill a final's slots. A category is in at most one heat, group
- * categories in none. Admins add, edit and delete them here; the finals
+ * acts fill a final's slots. A category is in at most one heat; group
+ * categories get one too, with their Vorlauf skipped. Admins add, edit and delete them here; the finals
  * below name them in their slot groups. Fires `heats-changed` after a
  * change, so the categories and finals reload.
  */
@@ -172,6 +170,7 @@ export default class CupAdminHeats extends LitElement {
             : nothing
         }
       </div>
+      ${this.renderWithoutHeat()}
       ${
         this.error
           ? html`<div class="error-banner" role="alert">
@@ -198,6 +197,16 @@ export default class CupAdminHeats extends LitElement {
                 </div>`,
             })
       }`;
+  }
+
+  /** The hint for categories without a heat (GRP-1). */
+  private renderWithoutHeat() {
+    const names = categoriesWithoutHeat(this.categories.value ?? []);
+    return names.length
+      ? html`<p class="chip warn" role="status">
+          Ohne Vorlaufklasse: ${names.join(", ")}
+        </p>`
+      : nothing;
   }
 
   private renderTable(heats: Heat[]) {
@@ -430,7 +439,7 @@ export default class CupAdminHeats extends LitElement {
   }
 
   /**
-   * Checkboxes for the single and pair categories. Once one is checked, only
+   * Checkboxes for the categories. Once one is checked, only
    * those of its discipline can join; categories of other heats show which
    * heat they're in.
    */
@@ -439,7 +448,7 @@ export default class CupAdminHeats extends LitElement {
     if (!all) {
       return html`<span class="muted small">Lade Kategorien …</span>`;
     }
-    const categories = all.filter((category) => !isGroup(category));
+    const categories = all;
     const first = all.find((c) => draft.categories.includes(c.name));
     return html`<div
       class="categories small"

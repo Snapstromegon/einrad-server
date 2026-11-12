@@ -55,10 +55,8 @@ interface Editing {
   draft: FinalDraft;
 }
 
-/** Only singles and pairs have finals; groups are their own final. */
-const actTypes = (Object.entries(actTypeLabels) as [ActType, string][]).filter(
-  ([value]) => value === "single" || value === "pair",
-);
+/** Every discipline has finals, groups too (#345). */
+const actTypes = Object.entries(actTypeLabels) as [ActType, string][];
 
 /** The columns of the table, for rows spanning all of them. */
 const COLUMNS = 12;
