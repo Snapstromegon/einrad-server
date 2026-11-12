@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
-import { heatsOnSeveralDays } from "../src/ts/heats.ts";
+import {
+  heatsOnSeveralDays,
+  skippedWithoutPlannedFinal,
+} from "../src/ts/heats.ts";
 
 const heats = [
   { name: "JE EM", categories: ["EMU11", "EMU13", "EMU15"] },
@@ -36,5 +39,32 @@ describe("heatsOnSeveralDays (HEAT-4)", () => {
     ]);
     assert.deepEqual(heatsOnSeveralDays(heats, days), []);
     assert.deepEqual(heatsOnSeveralDays(heats, new Map()), []);
+  });
+});
+
+describe("skippedWithoutPlannedFinal (#344)", () => {
+  const heats = [
+    { name: "JE EW", skip: true, finals: ["Finale EW"] },
+    { name: "E EW", skip: true, finals: ["Finale EW"] },
+    { name: "JE EM", skip: true, finals: ["Finale EM"] },
+    { name: "E EM", skip: false, finals: ["Finale EM"] },
+    { name: "Ohne Finale", skip: true, finals: [] },
+  ];
+
+  test("names the skipped heats whose final isn't in the timeplan", () => {
+    assert.deepEqual(
+      skippedWithoutPlannedFinal(heats, new Set(["Finale EW"])),
+      ["JE EM", "Ohne Finale"],
+    );
+  });
+
+  test("nothing to warn about when every final is planned", () => {
+    assert.deepEqual(
+      skippedWithoutPlannedFinal(
+        heats.filter((heat) => heat.finals.length),
+        new Set(["Finale EW", "Finale EM"]),
+      ),
+      [],
+    );
   });
 });

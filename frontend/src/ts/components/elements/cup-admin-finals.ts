@@ -368,6 +368,7 @@ export default class CupAdminFinals extends LitElement {
       <td>
         ${formatSlotGroups(final.slot_groups)}
         <span class="muted">(${slotCount(final)})</span>
+        ${this.renderSkipped(final)}
       </td>
       <td class="cats">
         ${
@@ -573,6 +574,26 @@ export default class CupAdminFinals extends LitElement {
   }
 
   /**
+   * The heats of a final whose Vorlauf is skipped: their slots go unused,
+   * their acts start directly in the final.
+   */
+  private renderSkipped(final: Final) {
+    const skipped = (this.heats.value ?? [])
+      .filter(
+        (heat) =>
+          heat.skip && final.slot_groups.some((g) => g.heat === heat.name),
+      )
+      .map((heat) => heat.name);
+    return skipped.length
+      ? html`<span
+          class="chip warn"
+          title="Der Vorlauf entfällt: ihre Finalplätze bleiben leer, ihre Küren starten direkt im Finale; die Reihenfolge im Zeitplan"
+          >Vorlauf entfällt: ${skipped.join(", ")}</span
+        >`
+      : nothing;
+  }
+
+  /**
    * The slot groups in start order: per group a heat of the final's
    * discipline and a count. Empty heats are marked; they fit any final.
    */
@@ -585,7 +606,13 @@ export default class CupAdminFinals extends LitElement {
     if (!heats) {
       return html`<span class="muted small">Lade Vorlaufklassen …</span>`;
     }
-    const fitting = heats.filter((heat) => fitsDiscipline(heat, draft));
+    // A heat fills at most one final: not those of another final.
+    const own = this.editing?.original?.name;
+    const fitting = heats.filter(
+      (heat) =>
+        fitsDiscipline(heat, draft) &&
+        heat.finals.every((name) => name === own),
+    );
     const rows = draft.slots.map(
       (slot, index) => html`<div class="slot-group">
           <input

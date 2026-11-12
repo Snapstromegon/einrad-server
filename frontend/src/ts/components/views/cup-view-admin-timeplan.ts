@@ -6,7 +6,7 @@ import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
 import { errorMessage, PollController, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
-import { heatsOnSeveralDays } from "../../heats";
+import { heatsOnSeveralDays, skippedWithoutPlannedFinal } from "../../heats";
 import {
   SYSTEM_STATUS_CHANGED,
   type SystemStatus,
@@ -33,6 +33,7 @@ import {
 type Act = schemas.Act;
 type Category = schemas.Category;
 type Final = schemas.Final;
+type Heat = schemas.Heat;
 type Entry = schemas.TimeplanListEntry;
 type TimeplanItem = schemas.TimeplanItem;
 type TimeplanSlot = schemas.TimeplanSlot;
@@ -106,6 +107,7 @@ interface Data {
   entries: Entry[];
   categories: Map<string, Category>;
   finals: Map<string, Final>;
+  heats: Heat[];
   acts: Map<string, Act>;
   actCounts: Map<string, number>;
   /** Acts no category matches; no block ever calls them. */
@@ -181,11 +183,18 @@ const slotInput = (slot: TimeplanSlot): SlotInput => {
       },
     };
   }
-  // A final's blocks are never re-planned (see `replannable`).
-  throw new Error("Die Finalplätze eines Finales stehen fest.");
+  return {
+    Finalist: {
+      heat: slot.Finalist.group_label,
+      number: slot.Finalist.number,
+    },
+  };
 };
 
-/** Whether acts and breaks of a block can be re-planned: not a final's. */
+/**
+ * Whether acts can move into a block: not a final's, which takes only the
+ * acts of its skipped heats (and keeps them).
+ */
 const replannable = (entry: Entry) =>
   entry.kind === "acts" && !entry.final_name;
 
@@ -432,11 +441,12 @@ export default class CupViewAdminTimeplan extends LitElement {
     // The next run aborts a hanging one through `signal`, e.g. the next poll
     // after the PollController gave up on it.
     task: async (_args, { signal }): Promise<Data> => {
-      const [entries, categories, finals, acts, prediction] = await Promise.all(
-        [
+      const [entries, categories, finals, heats, acts, prediction] =
+        await Promise.all([
           unwrap(client.listTimeplan({ signal })),
           unwrap(client.listCategories({ signal })),
           unwrap(client.listFinals({ signal })),
+          unwrap(client.listHeats({ signal })),
           unwrap(client.listActs({ signal })),
           // The prediction fails while the timeplan is incomplete; the list
           // is still shown then.
@@ -447,8 +457,7 @@ export default class CupViewAdminTimeplan extends LitElement {
               error: predictionErrorMessage(errorMessage(error)),
             }),
           ),
-        ],
-      );
+        ]);
       const list = entries;
       const allActs = acts;
       const actCounts = new Map<string, number>();
@@ -465,6 +474,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         entries: list,
         categories: new Map(categories.map((c) => [c.name, c])),
         finals: new Map(finals.map((f) => [f.name, f])),
+        heats,
         acts: new Map(allActs.map((act) => [act.id, act])),
         actCounts,
         uncategorized,
@@ -602,6 +612,12 @@ export default class CupViewAdminTimeplan extends LitElement {
       .map((f) => f.name);
     const running = data.entries.find((e) => entryStatus(e) === "started");
     const splitHeats = this.heatsOnSeveralDays(data);
+    const unplannedSkips = skippedWithoutPlannedFinal(
+      data.heats,
+      new Set(
+        data.entries.flatMap((e) => (e.final_name ? [e.final_name] : [])),
+      ),
+    );
     return html`<div class="kpis">
       <span class="kpi"><b>${data.entries.length}</b> Einträge</span>
       ${
@@ -670,6 +686,16 @@ export default class CupViewAdminTimeplan extends LitElement {
               ><b>${splitHeats.length}</b>
               ${splitHeats.length === 1 ? "Vorlaufklasse" : "Vorlaufklassen"} an mehreren
               Tagen</span
+            >`
+          : nothing
+      }
+      ${
+        unplannedSkips.length
+          ? html`<span
+              class="kpi warn"
+              title=${`Der Vorlauf entfällt, aber das Finale ist nicht im Zeitplan; die Küren starten deshalb weiter in ihren Kategorien:\n${unplannedSkips.join("\n")}`}
+              ><b>${unplannedSkips.length}</b> Vorlauf entfällt ohne Finale im
+              Zeitplan</span
             >`
           : nothing
       }
@@ -989,7 +1015,7 @@ export default class CupViewAdminTimeplan extends LitElement {
           entry.final_name
             ? open
               ? "Finalplätze verbergen"
-              : "Finalplätze zeigen"
+              : "Finalplätze zeigen und umsortieren"
             : open
               ? "Küren und Pausen verbergen"
               : "Küren und Pausen zeigen und umplanen"
@@ -1007,6 +1033,15 @@ export default class CupViewAdminTimeplan extends LitElement {
           : nothing
       }
       ${subtitle ? html`<span class="muted">${subtitle}</span>` : nothing}
+      ${
+        block?.preliminary_skipped
+          ? html`<span
+              class="chip warn"
+              title="Der Vorlauf dieser Kategorie entfällt: ihre Küren starten direkt im Finale. Der Block bleibt im Zeitplan, braucht aber keine Zeit und erscheint nicht auf Startliste und Info-Board."
+              >Vorlauf entfällt</span
+            >`
+          : nothing
+      }
       ${
         block?.manually_ordered
           ? html`<span
@@ -1154,13 +1189,12 @@ export default class CupViewAdminTimeplan extends LitElement {
         </td>
       </tr>`;
     }
-    if (block.final_name) {
-      return this.renderFinalSlots(data, block);
-    }
+    const final = !!block.final_name;
     const ended = item.status === "Ended";
     const locked = lockedCount(block);
     const editable = !ended && !this.busy;
-    const targets = this.moveTargets(data, entry.id);
+    // A final's starts stay in it.
+    const targets = final ? [] : this.moveTargets(data, entry.id);
     const draft =
       this.breakDraft?.blockId === entry.id ? this.breakDraft : null;
     const drop = this.dropTarget?.blockId === entry.id ? this.dropTarget : null;
@@ -1188,10 +1222,17 @@ export default class CupViewAdminTimeplan extends LitElement {
               ? html`<span class="muted small"
                   >Der Block ist beendet; seine Reihenfolge bleibt.</span
                 >`
-              : html`<span class="muted small"
-                  >Ziehen oder mit den Pfeilen umsortieren; Küren auch in andere
-                  Blöcke.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
-                >`
+              : final
+                ? html`<span class="muted small"
+                    >Finalplätze und Küren, deren Vorlauf entfällt, ziehen oder
+                    mit den Pfeilen umsortieren. Die Finalplätze selbst ändern
+                    sich unter
+                    <a href="/admin-categories">Kategorien → Finals</a>.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
+                  >`
+                : html`<span class="muted small"
+                    >Ziehen oder mit den Pfeilen umsortieren; Küren auch in
+                    andere Blöcke.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
+                  >`
           }
           <span class="spacer"></span>
           ${
@@ -1213,7 +1254,11 @@ export default class CupViewAdminTimeplan extends LitElement {
             block.manually_ordered && item.status === "Planned"
               ? html`<button
                   class="btn small"
-                  title="Zurück zur Startreihenfolge der Kategorie: Pausen werden gelöscht, Küren aus anderen Blöcken gehen zurück"
+                  title=${
+                    final
+                      ? "Zurück zur Reihenfolge der Finalplätze, danach die Küren, deren Vorlauf entfällt: Pausen werden gelöscht"
+                      : "Zurück zur Startreihenfolge der Kategorie: Pausen werden gelöscht, Küren aus anderen Blöcken gehen zurück"
+                  }
                   data-block=${entry.id}
                   ?disabled=${this.busy}
                   @click=${this.onResetOrder}
@@ -1234,8 +1279,11 @@ export default class CupViewAdminTimeplan extends LitElement {
           ${
             block.slots.length === 0
               ? html`<li class="empty-hint">
-                  Keine Küren: der Block wird übersprungen. Küren hierher ziehen
-                  oder bei einer Kür „in Block …“ wählen.
+                  ${
+                    block.preliminary_skipped
+                      ? "Vorlauf entfällt: die Küren starten direkt im Finale. Der Block wird übersprungen."
+                      : "Keine Küren: der Block wird übersprungen. Küren hierher ziehen oder bei einer Kür „in Block …“ wählen."
+                  }
                 </li>`
               : nothing
           }
@@ -1255,59 +1303,6 @@ export default class CupViewAdminTimeplan extends LitElement {
                 </li>`
               : nothing
           }
-        </ol>
-      </td>
-    </tr>`;
-  }
-
-  /**
-   * A final's reserved slots, with their acts once the placement is
-   * published: fixed here, changed in the final itself.
-   */
-  private renderFinalSlots(data: Data, block: ActsEntry) {
-    const rows = repeat(block.slots, slotKey, (slot) => {
-      if (!("Finalist" in slot)) {
-        return nothing;
-      }
-      const finalist = slot.Finalist;
-      const status =
-        finalist.status === "Started"
-          ? "läuft"
-          : finalist.status === "Ended"
-            ? "beendet"
-            : "";
-      return html`<li
-        class=${classMap({
-          act: true,
-          locked: true,
-          current: finalist.status === "Started",
-        })}
-      >
-        <span class="material-icon muted" aria-hidden="true">emoji_events</span>
-        <span
-          class="small"
-          title=${`Voraussichtlich ${formatTime(finalist.predicted_start)}, geplant ${formatTime(finalist.planned_start)}`}
-          >${formatTime(finalist.predicted_start)}</span
-        >
-        <span class="slot-who"
-          ><b>${finalist.label}</b>${this.renderPlacedAct(data, finalist)}${
-            status
-              ? html` <span class="muted small">· ${status}</span>`
-              : nothing
-          }</span
-        >
-      </li>`;
-    });
-    return html`<tr class="slots-row">
-      <td colspan="9">
-        <div class="slots-head">
-          <span class="muted small"
-            >Die Finalplätze von „${block.final_name}“ stehen fest; ändern lassen
-            sie sich unter <a href="/admin-categories">Kategorien → Finals</a>.</span
-          >
-        </div>
-        <ol class="slots">
-          ${rows}
         </ol>
       </td>
     </tr>`;
@@ -1339,7 +1334,7 @@ export default class CupViewAdminTimeplan extends LitElement {
           : "";
     return html`<li
       class=${classMap({
-        act: "Act" in slot,
+        act: !("Break" in slot),
         break: "Break" in slot,
         locked,
         current: item.status === "Started",
@@ -1406,7 +1401,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         <span class="muted">${formatDuration(slot.Break.duration_seconds)}</span>`;
     }
     if ("Finalist" in slot) {
-      return html`<b>${slot.Finalist.label}</b>`;
+      return html`<b>${slot.Finalist.label}</b>${this.renderPlacedAct(data, slot.Finalist)}`;
     }
     const act = data.acts.get(slot.Act.id);
     if (!act) {
@@ -1482,8 +1477,12 @@ export default class CupViewAdminTimeplan extends LitElement {
         vertical_align_bottom
       </button>
       ${
-        "Act" in slot
-          ? html`<select
+        "Finalist" in slot
+          ? nothing
+          : "Act" in slot
+            ? targets.length === 0 && entry.final_name
+              ? nothing
+              : html`<select
               class="inline"
               aria-label="In einen anderen Block verschieben"
               title="In einen anderen Block verschieben (ans Ende)"
@@ -1502,7 +1501,7 @@ export default class CupViewAdminTimeplan extends LitElement {
                   </option>`,
               )}
             </select>`
-          : html`<button
+            : html`<button
                 class="icon-btn primary"
                 title="Pause bearbeiten"
                 aria-label="Pause bearbeiten"
@@ -2378,7 +2377,13 @@ export default class CupViewAdminTimeplan extends LitElement {
     if (!dragging || !item || !block || !slot || item.status === "Ended") {
       return null;
     }
-    if ("Break" in slot && blockId !== dragging.blockId) {
+    // Only acts change blocks, and none into or out of a final's.
+    if (
+      blockId !== dragging.blockId &&
+      (!("Act" in slot) ||
+        !!block.final_name ||
+        !!blockOf(this.current?.predictions.get(dragging.blockId))?.final_name)
+    ) {
       return null;
     }
     return Math.max(index, lockedCount(block));
