@@ -45,6 +45,8 @@ describe("canOpen", () => {
     const musicCheck = ["check_songs"];
     assert.equal(can("/admin-acts-overview", musicCheck), true);
     assert.equal(can("/admin-categories", musicCheck), false);
+    assert.equal(can("/admin-structure", musicCheck), false);
+    assert.equal(can("/admin-structure", ["plan_competition"]), true);
     assert.equal(can("/admin", musicCheck), false);
   });
 
