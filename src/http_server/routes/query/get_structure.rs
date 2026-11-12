@@ -45,9 +45,9 @@ pub struct Discipline {
 pub struct FinalNode {
     name: String,
     description: Option<String>,
-    /// Its slots over all its slot groups; `None` when all its heats skip
-    /// their Vorlauf (e.g. groups): the acts start in the final, so the count
-    /// means nothing.
+    /// Its slots over the slot groups of heats that run their Vorlauf; `None`
+    /// when all its heats skip it (e.g. groups): their acts start in the
+    /// final, so the count means nothing.
     slots: Option<i64>,
     /// The acts of all its heats, without withdrawn ones.
     act_count: i64,
@@ -323,10 +323,12 @@ pub async fn get_structure(
             .filter(|f| HeatDiscipline::new(f.act_type, f.is_single_male) == discipline)
         {
             let groups = slot_groups.get(&row.name).map(Vec::as_slice).unwrap_or(&[]);
-            let all_skipped = !groups.is_empty()
-                && groups
-                    .iter()
-                    .all(|(name, _)| heats.iter().any(|h| &h.name == name && h.skip));
+            // A skipped heat's slots are unused while it is skipped.
+            let running: Vec<i64> = groups
+                .iter()
+                .filter(|(name, _)| heats.iter().any(|h| &h.name == name && !h.skip))
+                .map(|(_, n)| *n)
+                .collect();
             let feeding: Vec<HeatNode> = groups
                 .iter()
                 .filter_map(|(name, _)| heat_nodes.remove(name))
@@ -334,7 +336,7 @@ pub async fn get_structure(
             final_nodes.push(FinalNode {
                 name: row.name.clone(),
                 description: row.description.clone(),
-                slots: (!all_skipped).then(|| groups.iter().map(|(_, n)| n).sum()),
+                slots: (!running.is_empty()).then(|| running.iter().sum()),
                 act_count: feeding.iter().map(|h| h.act_count).sum(),
                 heats: feeding,
             });

@@ -372,3 +372,46 @@ async fn a_final_of_skipped_heats_has_no_slot_count() {
     assert_eq!(names(&heat["categories"]), ["KG15+"]);
     assert!(names(&groups["without_heat"]).contains(&"KGU15"));
 }
+
+#[tokio::test]
+async fn a_final_counts_only_the_slots_of_heats_that_run_their_vorlauf() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    for (name, category) in [("E EM 1", "EMU13"), ("E EM 2", "EMU19")] {
+        post_ok(
+            &app,
+            &admin,
+            "add_heat",
+            json!({ "name": name, "description": null, "categories": [category] }),
+        )
+        .await;
+    }
+    post_ok(
+        &app,
+        &admin,
+        "add_final",
+        json!({
+            "name": "Finale E EM",
+            "description": null,
+            "act_type": "single",
+            "is_single_male": true,
+            "einfahrzeit_seconds": 600,
+            "act_duration_seconds": 300,
+            "judge_duration_seconds": 180,
+            "slot_groups": [{ "heat": "E EM 1", "count": 4 }, { "heat": "E EM 2", "count": 4 }],
+        }),
+    )
+    .await;
+    post_ok(
+        &app,
+        &admin,
+        "set_heat_skip",
+        json!({ "name": "E EM 2", "skip": true }),
+    )
+    .await;
+
+    let tree = structure(&app, &admin).await;
+    let men = discipline(&tree, "single", true);
+    // The skipped heat's 4 slots are unused while it is skipped.
+    assert_eq!(named(&men["finals"], "Finale E EM")["slots"], 4);
+}
