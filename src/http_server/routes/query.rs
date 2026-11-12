@@ -9,6 +9,7 @@ mod get_competition_settings;
 mod get_photos;
 mod get_playback;
 mod get_startlist_csv;
+mod get_structure;
 mod get_system_status;
 mod list_acts;
 mod list_booking_log;
@@ -63,6 +64,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_timeplan::list_timeplan))
         .routes(routes!(startlist::startlist))
         .routes(routes!(get_startlist_csv::get_startlist_csv))
+        .routes(routes!(get_structure::get_structure))
         .routes(routes!(predict_timeplan::predict_timeplan))
         .routes(routes!(list_clubs::list_clubs))
         .routes(routes!(list_bookings::list_bookings))

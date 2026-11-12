@@ -108,6 +108,7 @@ const QUERIES: &[&str] = &[
     "get_photos",
     "get_playback",
     "get_startlist_csv",
+    "get_structure",
     "get_system_status",
     "list_acts",
     "list_booking_log",
