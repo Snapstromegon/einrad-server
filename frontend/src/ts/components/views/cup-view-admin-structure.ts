@@ -10,6 +10,7 @@ import {
   actHref,
   actTitle,
   disciplineLabel,
+  finalLabel,
   heatLabel,
   visibleActs,
 } from "../../structure";
@@ -17,6 +18,7 @@ import { actClubNames, participantName } from "../../utils";
 
 type Structure = schemas.Structure;
 type Discipline = schemas.Discipline;
+type FinalNode = schemas.FinalNode;
 type HeatNode = schemas.HeatNode;
 type CategoryNode = schemas.CategoryNode;
 type ActNode = schemas.ActNode;
@@ -25,8 +27,8 @@ type ActNode = schemas.ActNode;
 const countActs = (n: number) => `${n} ${n === 1 ? "Kür" : "Küren"}`;
 
 /**
- * The competition's structure as a tree (#346): discipline → heat
- * (Vorlaufklasse) → category → act. Read-only; the heats are edited on the
+ * The competition's structure as a tree (#346): discipline → final →
+ * heat (Vorlaufklasse) → category → act. Read-only; the heats are edited on the
  * categories page.
  */
 @customElement("cup-view-admin-structure")
@@ -169,10 +171,34 @@ export default class CupViewAdminStructure extends LitElement {
       </summary>
       <div class="body">
         ${repeat(
-          discipline.heats,
-          (h) => h.name,
-          (h) => this.renderHeat(h),
+          discipline.finals,
+          (f) => f.name,
+          (f) => this.renderFinal(f),
         )}
+        ${
+          discipline.heats_without_final.length
+            ? html`<details class="block warn" open>
+                <summary>
+                  <span class="material-icon">warning</span> Ohne Finale
+                  <span class="muted"
+                    >${countActs(
+                      discipline.heats_without_final.reduce(
+                        (sum, h) => sum + h.act_count,
+                        0,
+                      ),
+                    )}</span
+                  >
+                </summary>
+                <div class="body">
+                  ${repeat(
+                    discipline.heats_without_final,
+                    (h) => h.name,
+                    (h) => this.renderHeat(h),
+                  )}
+                </div>
+              </details>`
+            : nothing
+        }
         ${
           discipline.without_heat.length
             ? html`<details class="block warn" open>
@@ -209,12 +235,30 @@ export default class CupViewAdminStructure extends LitElement {
             : nothing
         }
         ${
-          !discipline.heats.length &&
+          !discipline.finals.length &&
+          !discipline.heats_without_final.length &&
           !discipline.without_heat.length &&
           !withoutActs.length
             ? html`<p class="muted none">Keine Kategorien.</p>`
             : nothing
         }
+      </div>
+    </details>`;
+  }
+
+  private renderFinal(final: FinalNode) {
+    return html`<details class="block" open>
+      <summary>
+        ${final.name}
+        <span class="muted heat-info">${finalLabel(final)}</span>
+        <span class="muted">${countActs(final.act_count)}</span>
+      </summary>
+      <div class="body">
+        ${repeat(
+          final.heats,
+          (h) => h.name,
+          (h) => this.renderHeat(h),
+        )}
       </div>
     </details>`;
   }

@@ -42,6 +42,18 @@ fn names(nodes: &Value) -> Vec<&str> {
         .collect()
 }
 
+/// The heat `name` inside the final `final_name` of a discipline.
+fn heat_in<'a>(discipline: &'a Value, final_name: &str, name: &str) -> &'a Value {
+    named(&named(&discipline["finals"], final_name)["heats"], name)
+}
+
+async fn post_ok(app: &TestApp, admin: &str, command: &str, body: Value) {
+    let response = app
+        .post(&format!("/api/command/{command}"), body, Some(admin))
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+}
+
 async fn set_act_order(app: &TestApp, admin: &str, act_id: Uuid, order: i64) {
     let response = app
         .post(
@@ -98,39 +110,100 @@ async fn only_admins_planning_the_competition_read_the_tree() {
 }
 
 #[tokio::test]
-async fn a_heat_shows_its_final_slots_skip_and_categories_in_order() {
+async fn a_final_shows_its_slots_and_its_heats_in_slot_group_order() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
     let tree = structure(&app, &admin).await;
     let women = discipline(&tree, "single", false);
 
-    let heats = &women["heats"];
-    assert_eq!(names(heats), ["JE EW", "E EW"]);
-    let je = named(heats, "JE EW");
-    // Fixture: the final takes 2 slots of JE EW and 1 of E EW.
-    assert_eq!(je["final_name"], "Finale EW");
+    // Fixture: the final takes 2 slots of JE EW, then 1 of E EW.
+    assert_eq!(names(&women["finals"]), ["Finale EW"]);
+    let final_node = named(&women["finals"], "Finale EW");
+    assert_eq!(final_node["slots"], 3);
+    assert_eq!(names(&final_node["heats"]), ["JE EW", "E EW"]);
+    let je = heat_in(women, "Finale EW", "JE EW");
     assert_eq!(je["slots"], 2);
     assert_eq!(je["skip"], false);
     assert_eq!(names(&je["categories"]), ["EWU11", "EWU13", "EWU15"]);
-    assert_eq!(named(heats, "E EW")["slots"], 1);
+    assert_eq!(heat_in(women, "Finale EW", "E EW")["slots"], 1);
+    assert_eq!(women["heats_without_final"].as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
-async fn a_heat_without_a_final_has_none() {
+async fn a_final_fed_by_two_heats_appears_once_with_all_its_acts() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
-    let response = app
-        .post(
-            "/api/command/add_heat",
-            json!({ "name": "Nur Männer", "description": null, "categories": ["EMU11"] }),
-            Some(&admin),
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let mut body = rider_body(club_id, "Max", true, false);
+    body["single_male"] = json!(true);
+    body["single_female"] = json!(false);
+    body["gender"] = json!("male");
+    let rider = app.add_rider(&owner, body).await;
+    let act = app.act_of(rider).await;
+    for (name, category) in [("E EM 1", "EMU13"), ("E EM 2", "EMU19")] {
+        post_ok(
+            &app,
+            &admin,
+            "add_heat",
+            json!({ "name": name, "description": null, "categories": [category] }),
         )
         .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+    post_ok(
+        &app,
+        &admin,
+        "add_final",
+        json!({
+            "name": "Finale E EM",
+            "description": null,
+            "act_type": "single",
+            "is_single_male": true,
+            "einfahrzeit_seconds": 600,
+            "act_duration_seconds": 300,
+            "judge_duration_seconds": 180,
+            "slot_groups": [{ "heat": "E EM 2", "count": 1 }, { "heat": "E EM 1", "count": 3 }],
+        }),
+    )
+    .await;
+
     let tree = structure(&app, &admin).await;
-    let heat = named(&discipline(&tree, "single", true)["heats"], "Nur Männer");
-    assert_eq!(heat["final_name"], Value::Null);
+    let men = discipline(&tree, "single", true);
+    assert_eq!(names(&men["finals"]), ["Finale E EM"]);
+    let final_node = named(&men["finals"], "Finale E EM");
+    assert_eq!(final_node["slots"], 4);
+    // In slot group order, not by name.
+    assert_eq!(names(&final_node["heats"]), ["E EM 2", "E EM 1"]);
+    assert_eq!(heat_in(men, "Finale E EM", "E EM 1")["slots"], 3);
+    assert_eq!(heat_in(men, "Finale E EM", "E EM 2")["slots"], 1);
+    // All acts of its heats: Max is in EMU13 of "E EM 1".
+    assert_eq!(final_node["act_count"], 1);
+    assert_eq!(heat_in(men, "Finale E EM", "E EM 1")["act_count"], 1);
+    assert_eq!(heat_in(men, "Finale E EM", "E EM 2")["act_count"], 0);
+    let category = named(
+        &heat_in(men, "Finale E EM", "E EM 1")["categories"],
+        "EMU13",
+    );
+    assert_eq!(category["acts"][0]["id"], act.to_string());
+    assert_eq!(men["heats_without_final"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn a_heat_no_final_takes_is_listed_apart() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    post_ok(
+        &app,
+        &admin,
+        "add_heat",
+        json!({ "name": "Nur Männer", "description": null, "categories": ["EMU11"] }),
+    )
+    .await;
+    let tree = structure(&app, &admin).await;
+    let men = discipline(&tree, "single", true);
+    assert_eq!(men["finals"].as_array().unwrap().len(), 0);
+    let heat = named(&men["heats_without_final"], "Nur Männer");
     assert_eq!(heat["slots"], Value::Null);
+    assert_eq!(names(&heat["categories"]), ["EMU11"]);
 }
 
 #[tokio::test]
@@ -144,7 +217,8 @@ async fn categories_without_a_heat_are_listed_apart() {
     assert!(!unassigned.contains(&"EWU13"), "{unassigned:?}");
     // No heat of men exists in the fixture: all their categories are there.
     let men = discipline(&tree, "single", true);
-    assert_eq!(men["heats"].as_array().unwrap().len(), 0);
+    assert_eq!(men["finals"].as_array().unwrap().len(), 0);
+    assert_eq!(men["heats_without_final"].as_array().unwrap().len(), 0);
     assert!(names(&men["without_heat"]).contains(&"EMU11"));
 }
 
@@ -163,7 +237,7 @@ async fn acts_come_in_timeplan_order_with_unplaced_ones_after_by_name() {
 
     let tree = structure(&app, &admin).await;
     let women = discipline(&tree, "single", false);
-    let category = named(&named(&women["heats"], "JE EW")["categories"], "EWU13");
+    let category = named(&heat_in(women, "Finale EW", "JE EW")["categories"], "EWU13");
     let riders: Vec<&str> = category["acts"]
         .as_array()
         .unwrap()
@@ -176,7 +250,7 @@ async fn acts_come_in_timeplan_order_with_unplaced_ones_after_by_name() {
     assert_eq!(first["participants"][0]["club_name"], "RSV");
     assert_eq!(first["withdrawn"], false);
     assert_eq!(category["act_count"], 4);
-    assert_eq!(named(&women["heats"], "JE EW")["act_count"], 4);
+    assert_eq!(heat_in(women, "Finale EW", "JE EW")["act_count"], 4);
     assert_eq!(women["act_count"], 4);
 }
 
@@ -223,7 +297,7 @@ async fn withdrawn_acts_are_marked_and_not_counted() {
         women["without_category"]["acts"].as_array().unwrap().len(),
         0
     );
-    let category = named(&named(&women["heats"], "JE EW")["categories"], "EWU13");
+    let category = named(&heat_in(women, "Finale EW", "JE EW")["categories"], "EWU13");
     let acts = category["acts"].as_array().unwrap();
     assert_eq!(acts.len(), 2);
     let withdrawn = acts.iter().find(|a| a["id"] == anna.to_string()).unwrap();
@@ -259,7 +333,7 @@ async fn a_pair_without_a_heat_sits_in_its_category_without_heat() {
 }
 
 #[tokio::test]
-async fn a_group_discipline_shows_its_skipped_heat_and_final() {
+async fn a_final_of_skipped_heats_has_no_slot_count() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
     for (command, body) in [
@@ -289,9 +363,12 @@ async fn a_group_discipline_shows_its_skipped_heat_and_final() {
 
     let tree = structure(&app, &admin).await;
     let groups = discipline(&tree, "group_small", false);
-    let heat = named(&groups["heats"], "Kleingruppe Expert");
+    // All its heats are skipped: the final's slot count means nothing.
+    let final_node = named(&groups["finals"], "Finale KG Expert");
+    assert_eq!(final_node["slots"], Value::Null);
+    assert_eq!(final_node["act_count"], 0);
+    let heat = heat_in(groups, "Finale KG Expert", "Kleingruppe Expert");
     assert_eq!(heat["skip"], true);
-    assert_eq!(heat["final_name"], "Finale KG Expert");
     assert_eq!(names(&heat["categories"]), ["KG15+"]);
     assert!(names(&groups["without_heat"]).contains(&"KGU15"));
 }

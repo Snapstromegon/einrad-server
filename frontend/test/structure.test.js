@@ -5,6 +5,7 @@ import {
   actHref,
   actTitle,
   disciplineLabel,
+  finalLabel,
   heatLabel,
   visibleActs,
 } from "../src/ts/structure.ts";
@@ -34,34 +35,27 @@ describe("disciplineLabel (TREE-2)", () => {
   });
 });
 
-describe("heatLabel (TREE-3)", () => {
-  test("shows the final and its slot count", () => {
-    assert.equal(
-      heatLabel({ skip: false, final_name: "Finale E EM", slots: 4 }),
-      "→ Finale E EM, 4 Plätze",
-    );
-    assert.equal(
-      heatLabel({ skip: false, final_name: "Finale", slots: 1 }),
-      "→ Finale, 1 Platz",
-    );
+describe("slot labels (TREE-3)", () => {
+  test("a heat shows its own slot count", () => {
+    assert.equal(heatLabel({ skip: false, slots: 4 }), "4 Plätze");
+    assert.equal(heatLabel({ skip: false, slots: 1 }), "1 Platz");
   });
 
-  test("a skipped heat shows its final and Vorlauf entfällt, not the slots", () => {
-    assert.equal(
-      heatLabel({ skip: true, final_name: "Finale KG", slots: 1 }),
-      "→ Finale KG · Vorlauf entfällt",
-    );
+  test("a skipped heat shows Vorlauf entfällt, not its slots", () => {
+    assert.equal(heatLabel({ skip: true, slots: 1 }), "Vorlauf entfällt");
   });
 
-  test("a heat without a final says so", () => {
-    assert.equal(
-      heatLabel({ skip: false, final_name: null, slots: null }),
-      "kein Finale",
-    );
-    assert.equal(
-      heatLabel({ skip: true, final_name: null, slots: null }),
-      "kein Finale · Vorlauf entfällt",
-    );
+  test("a heat without a final has nothing to show", () => {
+    assert.equal(heatLabel({ skip: false, slots: null }), "");
+  });
+
+  test("a final shows its total slot count", () => {
+    assert.equal(finalLabel({ slots: 4 }), "4 Plätze");
+    assert.equal(finalLabel({ slots: 1 }), "1 Platz");
+  });
+
+  test("a final of skipped heats says so like its heats", () => {
+    assert.equal(finalLabel({ slots: null }), "Vorlauf entfällt");
   });
 });
 

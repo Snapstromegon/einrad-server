@@ -28,8 +28,12 @@ pub struct Discipline {
     is_single_male: bool,
     /// Its acts, without withdrawn ones.
     act_count: i64,
-    /// Its heats (Vorlaufklassen), in the order of their first category.
-    heats: Vec<HeatNode>,
+    /// Its finals, in their order; each final once, with the heats that feed
+    /// it.
+    finals: Vec<FinalNode>,
+    /// Its heats (Vorlaufklassen) that no final takes acts from, in the order
+    /// of their first category.
+    heats_without_final: Vec<HeatNode>,
     /// Its categories that belong to no heat, in category order.
     without_heat: Vec<CategoryNode>,
     /// Its acts without a category: incomplete groups and groups with a
@@ -38,14 +42,26 @@ pub struct Discipline {
 }
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct FinalNode {
+    name: String,
+    description: Option<String>,
+    /// Its slots over all its slot groups; `None` when all its heats skip
+    /// their Vorlauf (e.g. groups): the acts start in the final, so the count
+    /// means nothing.
+    slots: Option<i64>,
+    /// The acts of all its heats, without withdrawn ones.
+    act_count: i64,
+    /// In slot group order.
+    heats: Vec<HeatNode>,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatNode {
     name: String,
     description: Option<String>,
     /// Whether its Vorlauf is skipped: its acts start directly in its final.
     skip: bool,
-    /// The final it feeds, if it feeds one.
-    final_name: Option<String>,
-    /// Its slots in that final.
+    /// Its own slots in its final; `None` for a heat without a final.
     slots: Option<i64>,
     /// Its acts, without withdrawn ones.
     act_count: i64,
@@ -133,10 +149,12 @@ fn count(acts: &[ActNode]) -> i64 {
     acts.iter().filter(|a| !a.withdrawn).count() as i64
 }
 
-/// The structure tree, admin-only: discipline, heat, category, act.
+/// The structure tree, admin-only: discipline, final, heat, category, act.
 ///
-/// Every category belongs to a heat in a finished plan; the others are in
-/// `without_heat` of their discipline. Acts without a category (incomplete
+/// A final appears once, with all the heats that feed it. Heats no final
+/// takes from are in `heats_without_final` of their discipline. Every
+/// category belongs to a heat in a finished plan; the others are in
+/// `without_heat`. Acts without a category (incomplete
 /// groups) are in `without_category`. Withdrawn acts stay in their category,
 /// marked. Heats without categories
 /// have no discipline and are left out. One consistent read.
@@ -180,20 +198,33 @@ pub async fn get_structure(
         sqlx::query!(r#"SELECT name as "name!", description, skip FROM heats ORDER BY name"#)
             .fetch_all(&mut *tx)
             .await?;
-    let mut finals: HashMap<String, (String, i64)> = HashMap::new();
+    let final_rows = sqlx::query!(
+        r#"
+        SELECT
+            name as "name!", description, act_type as "act_type: ActType", is_single_male
+        FROM finals
+        ORDER BY "order", name
+        "#
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    // Each final's slot groups in slot order: heat, slots.
+    let mut slot_groups: HashMap<String, Vec<(String, i64)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT heat as "heat!", final_name, COUNT(*) as "slots!: i64"
+        SELECT final_name as "final_name!", heat as "heat!", COUNT(*) as "slots!: i64"
         FROM final_slots
-        GROUP BY heat, final_name
-        ORDER BY final_name DESC
+        GROUP BY final_name, heat
+        ORDER BY final_name, MIN(position)
         "#
     )
     .fetch_all(&mut *tx)
     .await?
     {
-        // A heat feeds at most one final.
-        finals.insert(row.heat, (row.final_name, row.slots));
+        slot_groups
+            .entry(row.final_name)
+            .or_default()
+            .push((row.heat, row.slots));
     }
     let acts: Vec<ActRow> = sqlx::query!(
         r#"
@@ -258,7 +289,13 @@ pub async fn get_structure(
                 },
             );
         }
-        let mut heat_nodes = Vec::new();
+        // The slots of each heat in its final (a heat feeds at most one).
+        let slots_of: HashMap<&str, i64> = slot_groups
+            .values()
+            .flatten()
+            .map(|(heat, slots)| (heat.as_str(), *slots))
+            .collect();
+        let mut heat_nodes: HashMap<String, HeatNode> = HashMap::new();
         for heat in &heats {
             let members: Vec<CategoryNode> = categories
                 .iter()
@@ -268,27 +305,48 @@ pub async fn get_structure(
             if members.is_empty() {
                 continue;
             }
-            let (final_name, slots) = match finals.get(&heat.name) {
-                Some((name, slots)) => (Some(name.clone()), Some(*slots)),
-                None => (None, None),
-            };
-            heat_nodes.push(HeatNode {
-                name: heat.name.clone(),
-                description: heat.description.clone(),
-                skip: heat.skip,
-                final_name,
-                slots,
-                act_count: members.iter().map(|c| c.act_count).sum(),
-                categories: members,
+            heat_nodes.insert(
+                heat.name.clone(),
+                HeatNode {
+                    name: heat.name.clone(),
+                    description: heat.description.clone(),
+                    skip: heat.skip,
+                    slots: slots_of.get(heat.name.as_str()).copied(),
+                    act_count: members.iter().map(|c| c.act_count).sum(),
+                    categories: members,
+                },
+            );
+        }
+        let mut final_nodes = Vec::new();
+        for row in final_rows
+            .iter()
+            .filter(|f| HeatDiscipline::new(f.act_type, f.is_single_male) == discipline)
+        {
+            let groups = slot_groups.get(&row.name).map(Vec::as_slice).unwrap_or(&[]);
+            let all_skipped = !groups.is_empty()
+                && groups
+                    .iter()
+                    .all(|(name, _)| heats.iter().any(|h| &h.name == name && h.skip));
+            let feeding: Vec<HeatNode> = groups
+                .iter()
+                .filter_map(|(name, _)| heat_nodes.remove(name))
+                .collect();
+            final_nodes.push(FinalNode {
+                name: row.name.clone(),
+                description: row.description.clone(),
+                slots: (!all_skipped).then(|| groups.iter().map(|(_, n)| n).sum()),
+                act_count: feeding.iter().map(|h| h.act_count).sum(),
+                heats: feeding,
             });
         }
-        // By the order of their first category.
+        // The heats no final takes from, by the order of their first category.
         let position = |heat: &HeatNode| {
             categories
                 .iter()
                 .position(|c| c.name == heat.categories[0].name)
         };
-        heat_nodes.sort_by_key(position);
+        let mut heats_without_final: Vec<HeatNode> = heat_nodes.into_values().collect();
+        heats_without_final.sort_by_key(position);
         let without_heat: Vec<CategoryNode> = categories
             .iter()
             .filter_map(|c| nodes.remove(c.name.as_str()))
@@ -307,10 +365,12 @@ pub async fn get_structure(
         disciplines.push(Discipline {
             act_type,
             is_single_male: single_male,
-            act_count: heat_nodes.iter().map(|h| h.act_count).sum::<i64>()
+            act_count: final_nodes.iter().map(|f| f.act_count).sum::<i64>()
+                + heats_without_final.iter().map(|h| h.act_count).sum::<i64>()
                 + without_heat.iter().map(|c| c.act_count).sum::<i64>()
                 + count(&without_category),
-            heats: heat_nodes,
+            finals: final_nodes,
+            heats_without_final,
             without_heat,
             without_category: ActsNode {
                 act_count: count(&without_category),

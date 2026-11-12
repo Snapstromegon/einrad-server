@@ -18,25 +18,33 @@ export const disciplineLabel = (d: DisciplineKey): string => {
   }
 };
 
+/** "1 Platz", "4 Plätze" */
+const slotCount = (slots: number) =>
+  `${slots} ${slots === 1 ? "Platz" : "Plätze"}`;
+
 /** A heat as far as its label cares. */
-export interface HeatFinal {
+export interface HeatSlots {
   skip: boolean;
-  final_name?: string | null;
+  /** Its own slots in its final; `null` without a final. */
   slots?: number | null;
 }
 
 /**
- * TREE-3: the final a heat feeds and its slot count, e.g. "→ Finale E EM,
- * 4 Plätze". A skipped heat (#344) shows "Vorlauf entfällt" instead of the
- * slot count: its acts start directly in the final.
+ * TREE-3: a heat's own slot count, e.g. "4 Plätze". A skipped heat (#344)
+ * shows "Vorlauf entfällt" instead: its acts start directly in the final.
+ * A heat without a final has no slots, so nothing to show.
  */
-export const heatLabel = (heat: HeatFinal): string => {
-  const final = heat.final_name ? `→ ${heat.final_name}` : "kein Finale";
-  if (heat.skip) return `${final} · Vorlauf entfällt`;
-  if (!heat.final_name) return final;
-  const slots = heat.slots ?? 0;
-  return `${final}, ${slots} ${slots === 1 ? "Platz" : "Plätze"}`;
+export const heatLabel = (heat: HeatSlots): string => {
+  if (heat.skip) return "Vorlauf entfällt";
+  return heat.slots == null ? "" : slotCount(heat.slots);
 };
+
+/**
+ * A final's total slot count; `null` when all its heats are skipped, which
+ * the heats say as "Vorlauf entfällt", too.
+ */
+export const finalLabel = (final: { slots?: number | null }): string =>
+  final.slots == null ? "Vorlauf entfällt" : slotCount(final.slots);
 
 /** TREE-6: withdrawn acts are only there on request. */
 export const visibleActs = <T extends { withdrawn: boolean }>(
