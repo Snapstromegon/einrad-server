@@ -7,6 +7,7 @@ import { client, type schemas } from "../../apiClient";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 import {
+  actHref,
   actTitle,
   disciplineLabel,
   heatLabel,
@@ -251,14 +252,14 @@ export default class CupViewAdminStructure extends LitElement {
     </details>`;
   }
 
-  /** TREE-7: the acts link to the acts overview, where they are edited. */
+  /** TREE-7: the acts link to their row in the acts overview, where they are edited. */
   private renderActs(acts: ActNode[]) {
     return html`<ul class="acts">
       ${repeat(
         acts,
         (act) => act.id,
         (act) => html`<li class=${act.withdrawn ? "withdrawn" : ""}>
-          <a class="title" href="/admin-acts-overview">${actTitle(act)}</a>
+          <a class="title" href=${actHref(act)}>${actTitle(act)}</a>
           <span class="muted">${actClubNames(act).join(", ")}</span>
           <span class="riders"
             >${act.participants.map(participantName).join(" & ")}</span

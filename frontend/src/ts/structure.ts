@@ -59,3 +59,15 @@ export const actTitle = (act: ActTitle): string =>
   act.name.trim() ||
   act.group_name?.trim() ||
   act.participants.map((p) => `${p.firstname} ${p.lastname}`).join(", ");
+
+const ACT_ANCHOR = "#act-";
+
+/** TREE-7: where an act is edited: its row in the acts overview. */
+export const actHref = (act: { id: string }): string =>
+  `/admin-acts-overview${ACT_ANCHOR}${act.id}`;
+
+/** The act id a location hash names (`#act-<id>`), or `null`. */
+export const actAnchor = (hash: string): string | null =>
+  hash.startsWith(ACT_ANCHOR) && hash.length > ACT_ANCHOR.length
+    ? hash.slice(ACT_ANCHOR.length)
+    : null;

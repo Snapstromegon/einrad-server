@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
+  actAnchor,
+  actHref,
   actTitle,
   disciplineLabel,
   heatLabel,
@@ -114,5 +116,23 @@ describe("actTitle (TREE-7)", () => {
       actTitle({ name: "", group_name: null, participants: riders }),
       "Max Müller, Eva Muster",
     );
+  });
+});
+
+describe("act anchors (TREE-7)", () => {
+  const id = "0b9f6a52-4c1e-4d5b-9a53-0c2f3f6a7b11";
+
+  test("the tree links to the act in the acts overview", () => {
+    assert.equal(actHref({ id }), `/admin-acts-overview#act-${id}`);
+  });
+
+  test("the acts overview reads the act id from the hash", () => {
+    assert.equal(actAnchor(`#act-${id}`), id);
+  });
+
+  test("other hashes name no act", () => {
+    assert.equal(actAnchor(""), null);
+    assert.equal(actAnchor("#top"), null);
+    assert.equal(actAnchor("#act-"), null);
   });
 });

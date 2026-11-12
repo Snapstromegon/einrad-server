@@ -8,6 +8,7 @@ import { type User, userContext } from "../../contexts/user";
 import { can } from "../../roles";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { actAnchor } from "../../structure";
 import {
   actClubNames,
   actMatchesSearch,
@@ -122,6 +123,10 @@ export default class CupViewAdminActsOverview extends LitElement {
         header {
           position: static;
         }
+      }
+
+      tr.target > td {
+        background: var(--color-primary-soft);
       }
 
       .player {
@@ -371,6 +376,30 @@ export default class CupViewAdminActsOverview extends LitElement {
 
   override updated() {
     this.observeHeader();
+    this.scrollToAnchoredAct();
+  }
+
+  /** Whether the act the location hash (`#act-<id>`) names is still to show. */
+  private anchorPending = actAnchor(location.hash) !== null;
+
+  /** The row of that act, marked by `rowClass`. */
+  @query("tr.target") private targetRow?: HTMLElement | null;
+
+  /**
+   * Scrolls to the anchored act once its row is rendered, e.g. from the
+   * structure tree; only once, so the page stays free to scroll afterwards.
+   */
+  private scrollToAnchoredAct() {
+    const row = this.targetRow;
+    if (!this.anchorPending || !row) return;
+    this.anchorPending = false;
+    row.scrollIntoView({ block: "center" });
+  }
+
+  /** The row's tone, and `target` for the act the location hash names. */
+  private rowClass(act: Act) {
+    const target = act.id === actAnchor(location.hash) ? "target" : "";
+    return `${this.isIncomplete(act) ? "warn" : ""} ${target}`.trim();
   }
 
   /** The header only exists once loaded: observe it when it appears. */
@@ -1023,7 +1052,9 @@ export default class CupViewAdminActsOverview extends LitElement {
               (act) => act.id,
               (act) => {
                 const i = acts.indexOf(act);
-                return html`<tr class=${this.isIncomplete(act) ? "warn" : ""}>
+                return html`<tr
+                  class=${this.rowClass(act)}
+                >
                   <td class="move">
                     <button
                       class="icon-btn"
@@ -1118,7 +1149,9 @@ export default class CupViewAdminActsOverview extends LitElement {
               (act) => act.id,
               (act) => {
                 const reason = this.uncategorizedReason(act);
-                return html`<tr class=${this.isIncomplete(act) ? "warn" : ""}>
+                return html`<tr
+                  class=${this.rowClass(act)}
+                >
                   <td>
                     <span class="chip" title=${actTypeLabels[act.act_type]}
                       >${actTypeShort[act.act_type]}</span
