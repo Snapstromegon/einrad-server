@@ -77,6 +77,7 @@ mod set_competition_logo;
 mod set_fee_waived;
 mod set_final_placement;
 mod set_final_published;
+mod set_heat_skip;
 mod set_image_source;
 mod set_jury_category_order;
 mod set_jury_deployments_override;
@@ -115,6 +116,7 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(delete_heat::delete_heat))
         .routes(routes!(set_final_placement::set_final_placement))
         .routes(routes!(set_final_published::set_final_published))
+        .routes(routes!(set_heat_skip::set_heat_skip))
         .routes(routes!(edit_category::edit_category))
         .routes(routes!(delete_category::delete_category))
         .routes(routes!(move_category_up::move_category_up))

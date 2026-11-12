@@ -25,8 +25,9 @@ pub struct ResetBlockOrderBody {
 ///
 /// Deletes the block's stored order and its breaks. Acts that came from
 /// other blocks go back to their home blocks, unless one of those has ended;
-/// acts of its category that sit in other blocks stay there. Blocks that have
-/// started keep their order.
+/// acts of its category that sit in other blocks stay there. A final's block
+/// gets its slots' order back, followed by the acts of its skipped heats.
+/// Blocks that have started keep their order.
 #[utoipa::path(
     post,
     tags=["command", "timeplan"],
@@ -58,11 +59,6 @@ pub async fn reset_block_order(
     if block.started_at.is_some() {
         return Err(HttpError::ErrorMessages(
             "Gestartete Blöcke behalten ihre Reihenfolge.".to_string(),
-        ));
-    }
-    if block.final_name.is_some() {
-        return Err(HttpError::ErrorMessages(
-            "Ein Finale hat feste Finalplätze; die ändern sich im Finale selbst.".to_string(),
         ));
     }
     // Acts from other blocks go back to theirs, which mustn't be over.

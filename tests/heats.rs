@@ -383,6 +383,10 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": ["Finale EW"],
+                "threshold": 6,
+                "skip": false,
+                "act_count": 0,
+                "skip_suggested": true,
             }),
             json!({
                 "name": "E EW",
@@ -391,6 +395,10 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": ["Finale EW"],
+                "threshold": 5,
+                "skip": false,
+                "act_count": 0,
+                "skip_suggested": true,
             }),
         ]
     );

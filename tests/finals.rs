@@ -356,7 +356,7 @@ async fn a_final_runs_in_one_block_with_its_slots() {
         .await;
     rejected(&response, "nicht beides");
 
-    // Its slots are fixed: no re-planning by hand.
+    // Its slots can be re-ordered (#344), but never leave it.
     let response = app
         .post(
             "/api/command/set_block_order",
@@ -364,7 +364,8 @@ async fn a_final_runs_in_one_block_with_its_slots() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "feste Finalplätze");
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(finalists(&predicted_items(&app).await[0]).len(), 3);
     let response = app
         .post(
             "/api/command/reset_block_order",
@@ -372,7 +373,7 @@ async fn a_final_runs_in_one_block_with_its_slots() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "feste Finalplätze");
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
     // Editing the block keeps the final (and doesn't count as a second one).
     let mut entry = final_entry(FINAL, Some(START));

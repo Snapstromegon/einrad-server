@@ -142,6 +142,10 @@ pub enum TimeplanEntry {
         warmup_seconds: i64,
         /// The order was edited by hand (`set_block_order`).
         manually_ordered: bool,
+        /// A block of a category whose heat's Vorlauf is skipped ("Vorlauf
+        /// entfällt"): its acts start directly in the final, so it runs none
+        /// of them and takes no time.
+        preliminary_skipped: bool,
         slots: Vec<TimeplanSlot>,
     },
     Custom {
@@ -509,6 +513,7 @@ pub fn predict_from(
                     einfahrzeit_seconds: entry.einfahrzeit_seconds,
                     warmup_seconds: entry.warmup_seconds,
                     manually_ordered: entry.manually_ordered,
+                    preliminary_skipped: entry.preliminary_skipped,
                     slots,
                 }
             }

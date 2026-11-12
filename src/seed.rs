@@ -7,7 +7,7 @@
 //! [`apply`] and [`preview`].
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -232,15 +232,18 @@ pub struct ResolvedHeat {
     pub categories: Vec<String>,
     /// The discipline its categories share; `None` without categories.
     pub discipline: Option<Discipline>,
+    /// The file's, or the default for its categories.
+    pub threshold: i64,
+    pub skip: bool,
 }
 
 /// Checks the heats of the config (HEAT-1: one act type and gender, no group
 /// categories, a category in at most one heat), naming the offender.
 pub fn resolve_heats(
     heats: &[HeatConfig],
-    categories: &[CategoryConfig],
+    configs: &[CategoryConfig],
 ) -> Result<Vec<ResolvedHeat>, String> {
-    let mut known: Vec<heats::CategoryInfo> = categories
+    let mut known: Vec<heats::CategoryInfo> = configs
         .iter()
         .map(|category| heats::CategoryInfo {
             name: category.name.trim().to_string(),
@@ -264,6 +267,18 @@ pub fn resolve_heats(
         for category in known.iter_mut().filter(|c| categories.contains(&c.name)) {
             category.heat = Some(name.clone());
         }
+        let threshold = match config.threshold {
+            Some(threshold) if threshold < 0 => {
+                return Err(format!("Heat {name}: the threshold can't be negative."));
+            }
+            Some(threshold) => threshold,
+            None => heats::default_threshold(categories.iter().map(|name| {
+                configs
+                    .iter()
+                    .find(|category| category.name.trim() == name)
+                    .and_then(|category| category.under_age)
+            })),
+        };
         resolved.push(ResolvedHeat {
             name,
             description: config
@@ -273,6 +288,8 @@ pub fn resolve_heats(
                 .filter(|d| !d.is_empty()),
             categories,
             discipline,
+            threshold,
+            skip: config.skip,
         });
     }
     Ok(resolved)
@@ -286,6 +303,8 @@ pub fn resolve_finals(
     heats: &[ResolvedHeat],
 ) -> Result<Vec<ResolvedFinal>, String> {
     let mut names = HashSet::new();
+    // The final each heat fills, to fill at most one.
+    let mut final_of: HashMap<String, String> = HashMap::new();
     finals
         .iter()
         .map(|config| {
@@ -318,6 +337,15 @@ pub fn resolve_finals(
                 if heat.discipline.is_some_and(|d| d != discipline) {
                     return Err(format!(
                         "Final {name}: the heat {} has another act type or gender than the final.",
+                        heat.name
+                    ));
+                }
+                let first = final_of
+                    .entry(heat.name.clone())
+                    .or_insert_with(|| name.to_string());
+                if first != name {
+                    return Err(format!(
+                        "Final {name}: the heat {} already fills slots of final {first}; a heat fills at most one final.",
                         heat.name
                     ));
                 }
@@ -1102,7 +1130,7 @@ impl Snapshot {
             )
             .await?,
             heats: rows(
-                r#"SELECT json_array(name, description,
+                r#"SELECT json_array(name, description, threshold, skip,
                     (SELECT json_group_array(name)
                         FROM (SELECT name FROM categories WHERE heat = heats.name ORDER BY name)))
                 FROM heats ORDER BY name"#,
@@ -1350,9 +1378,11 @@ async fn write(
             );
         }
         sqlx::query!(
-            "INSERT INTO heats (name, description) VALUES (?, ?)",
+            "INSERT INTO heats (name, description, threshold, skip) VALUES (?, ?, ?, ?)",
             heat.name,
-            heat.description
+            heat.description,
+            heat.threshold,
+            heat.skip
         )
         .execute(&mut *conn)
         .await
@@ -2474,6 +2504,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn heats_take_their_threshold_and_skip_from_the_file() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let file = with_heats(
+            r#"
+            [[heats]]
+            name = "Junior"
+            categories = ["U15"]
+
+            [[heats]]
+            name = "Expert"
+            categories = ["15+"]
+
+            [[heats]]
+            name = "Paare"
+            categories = ["PU15"]
+            threshold = 3
+            skip = true
+            "#,
+        );
+        seed_file(&db, &file).await.unwrap();
+        let heats: Vec<(String, i64, bool)> =
+            sqlx::query_as("SELECT name, threshold, skip FROM heats ORDER BY name")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        // Without a threshold: 6 for U15 and younger, otherwise 5.
+        assert_eq!(
+            heats,
+            [
+                ("Expert".to_string(), 5, false),
+                ("Junior".to_string(), 6, false),
+                ("Paare".to_string(), 3, true),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn the_import_checks_heats_and_names_the_offender() {
         let heat = |name: &str, categories: &str| {
             format!("[[heats]]\nname = \"{name}\"\ncategories = [{categories}]\n")
@@ -2494,6 +2561,14 @@ mod tests {
             (heat("A", "\"U15\", \"M15\""), "M15"),
             // A category belongs to at most one heat.
             (heat("A", "\"U15\"") + &heat("B", "\"U15\""), "U15"),
+            (heat("A", "\"U15\"") + "threshold = -1\n", "Heat A"),
+            // A heat fills the slots of at most one final.
+            (
+                heat("A", "\"U15\"")
+                    + &single_final("A")
+                    + &single_final("A").replace("\"Finale\"", "\"Finale 2\""),
+                "Final Finale 2",
+            ),
             // A slot group names a heat of the file, of the final's discipline.
             (single_final("Fehlt"), "Fehlt"),
             (heat("A", "\"PU15\"") + &single_final("A"), "Final Finale"),

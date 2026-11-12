@@ -178,10 +178,12 @@ pub async fn replace_slots(
     Ok(())
 }
 
-/// Checks that the heats of a final's slot groups exist and share its
-/// discipline (an empty heat fits any). The message is German.
+/// Checks that the heats of the final `final_name`'s slot groups exist,
+/// share its discipline (an empty heat fits any) and fill no other final.
+/// The message is German.
 pub async fn check_heats(
     conn: &mut SqliteConnection,
+    final_name: &str,
     act_type: ActType,
     is_single_male: bool,
     groups: &[SlotGroup],
@@ -204,6 +206,20 @@ pub async fn check_heats(
         if heat.is_some_and(|heat| heat != discipline) {
             return Err(format!(
                 "Die Vorlaufklasse „{}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale.",
+                group.heat
+            ));
+        }
+        let other = sqlx::query_scalar!(
+            "SELECT final_name FROM final_slots WHERE heat = ? AND final_name != ? LIMIT 1",
+            group.heat,
+            final_name
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?;
+        if let Some(other) = other {
+            return Err(format!(
+                "Die Vorlaufklasse „{}“ füllt schon Finalplätze im Finale „{other}“; eine Vorlaufklasse füllt höchstens ein Finale.",
                 group.heat
             ));
         }

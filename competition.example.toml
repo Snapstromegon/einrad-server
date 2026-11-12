@@ -535,16 +535,25 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 5
 judge_duration_minutes = 3
 
-# Heats (Vorläufe): the categories of one discipline whose acts are ranked
-# together; their best fill a final's slots. A heat's categories share one
-# act type and, for singles, gender; a category is in at most one heat, group
-# categories in none (they are their own final). Clubs never pick a heat: it
-# follows from the category.
+# Heats (Vorlaufklassen): the categories of one discipline whose acts are
+# ranked together in their preliminary round (Vorlauf); their best fill a
+# final's slots. A heat's categories share one act type and, for singles,
+# gender; a category is in at most one heat, group categories in none (they
+# are their own final). A heat fills the slots of at most one final. Clubs
+# never pick a heat: it follows from the category.
+#
+# threshold: the fewest acts a heat needs for its Vorlauf (Konzept §1.5).
+#   Without: 6 if all its categories are U15 or younger (Junior Expert),
+#   otherwise 5. With fewer acts the admin UI suggests skipping the Vorlauf.
+# skip = true: the Vorlauf is skipped; the heat's acts start directly in its
+#   final, and its categories' blocks stay in the timeplan, marked
+#   "Vorlauf entfällt".
 
 [[heats]]
 name = "JE EM"
 description = "Junior Expert Einzel Männlich (U11–U15)"
 categories = ["EMU11", "EMU13", "EMU15"]
+threshold = 6
 
 [[heats]]
 name = "E EM 1"

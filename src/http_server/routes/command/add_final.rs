@@ -80,6 +80,7 @@ pub async fn add_final(
     .await?;
     finals::check_heats(
         &mut tx,
+        &name,
         fields.act_type,
         fields.is_single_male,
         &fields.slot_groups,

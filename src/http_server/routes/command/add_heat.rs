@@ -21,6 +21,10 @@ pub struct AddHeatBody {
     /// All of one act type and gender, none in another heat, no group
     /// categories. May be empty.
     categories: Vec<String>,
+    /// The fewest acts it needs for its Vorlauf. Without: 6 if all its
+    /// categories are U15 or younger (Junior Expert), otherwise 5.
+    #[serde(default)]
+    threshold: Option<i64>,
 }
 
 /// Add a heat: a group of categories of one discipline whose best acts fill
@@ -46,6 +50,11 @@ pub async fn add_heat(
     let name = heats::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
     let description = normalize_description(body.description);
     let categories = heats::normalize_categories(&body.categories);
+    let threshold = body
+        .threshold
+        .map(heats::check_threshold)
+        .transpose()
+        .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
@@ -64,11 +73,17 @@ pub async fn add_heat(
         .await
         .map_err(HttpError::ErrorMessages)?;
 
+    let threshold = match threshold {
+        Some(threshold) => threshold,
+        None => heats::default_threshold_of(&mut tx, &categories).await?,
+    };
+
     info!("Adding heat {name:?}");
     sqlx::query!(
-        "INSERT INTO heats (name, description) VALUES (?, ?)",
+        "INSERT INTO heats (name, description, threshold) VALUES (?, ?, ?)",
         name,
-        description
+        description,
+        threshold
     )
     .execute(&mut *tx)
     .await?;

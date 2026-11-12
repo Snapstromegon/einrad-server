@@ -75,6 +75,7 @@ const COMMANDS: &[&str] = &[
     "set_final_placement",
     "set_fee_waived",
     "set_final_published",
+    "set_heat_skip",
     "set_photo_hidden",
     "set_song_checked",
     "set_user_roles",

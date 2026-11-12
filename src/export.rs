@@ -129,7 +129,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let mut heats = Vec::new();
     for row in sqlx::query!(
         r#"
-        SELECT name as "name!", description
+        SELECT name as "name!", description, threshold, skip
         FROM heats
         ORDER BY
             (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
@@ -150,6 +150,8 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             name: row.name,
             description: row.description,
             categories,
+            threshold: Some(row.threshold),
+            skip: row.skip,
         });
     }
 

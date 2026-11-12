@@ -21,6 +21,16 @@
 //! placement is published, each slot carries its placed act, whose song
 //! plays in it; the act's own progress (in its heat) stays untouched.
 //!
+//! A heat whose Vorlauf is skipped (`heats.skip`, #344) starts directly in
+//! its final, if that is planned: its acts run there as acts (*direct
+//! acts*, with their own progress and their category's durations), its
+//! finalist slots go unused, and its categories' blocks run none of its
+//! acts ("Vorlauf entfällt"), so they take no time unless other acts or
+//! breaks sit in them. A final's block runs its stored slots (direct acts,
+//! finalist slots by heat and number, breaks), then its other finalist
+//! slots, then its other direct acts in category order. Running the Vorlauf
+//! again puts everything back where it was.
+//!
 //! A start block is *empty* when it has no acts (or finalist slots) at the
 //! moment of reading. Empty blocks are skipped: they take no time, and
 //! "Weiter" never stops on them. A skipped block is marked as started and
@@ -350,6 +360,9 @@ pub struct Entry {
     pub slots: Vec<Slot>,
     /// Start blocks: whether the order was edited by hand (stored slots).
     pub manually_ordered: bool,
+    /// Category blocks of a heat whose Vorlauf is skipped (see the module
+    /// docs): they run none of its acts.
+    pub preliminary_skipped: bool,
     /// The configured warm-up: the override or the home category's (or
     /// final's).
     pub einfahrzeit_seconds: i64,
@@ -384,6 +397,8 @@ pub struct Timeplan {
     pub acts: HashMap<Uuid, ActSlot>,
     /// Which block each act sits in.
     pub block_of_act: HashMap<Uuid, i64>,
+    /// The acts of skipped heats, with the final they start in directly.
+    pub direct_acts: HashMap<Uuid, String>,
 }
 
 /// The home block of each category, from `(id, category, started)` of the
@@ -437,6 +452,8 @@ impl Timeplan {
         let stranded: Vec<String> = acts
             .into_iter()
             .filter(|act| act.started_at.is_none())
+            // A direct act's home is its final's block, not its category's.
+            .filter(|act| !self.direct_acts.contains_key(&act.id))
             .filter(|act| {
                 self.home_block(&act.category, without)
                     .is_some_and(|home| home.ended_at.is_some())
@@ -482,11 +499,13 @@ pub async fn load(db: &mut SqliteConnection) -> sqlx::Result<Timeplan> {
 /// effective warm-ups, as `audience` may see it.
 pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Result<Timeplan> {
     let public = audience == Audience::Public;
+    let mut category_order: HashMap<String, i64> = HashMap::new();
     let categories: HashMap<String, CategoryInfo> = sqlx::query!(
         r#"
         SELECT
             name as "name!",
             description,
+            "order",
             einfahrzeit_seconds,
             act_duration_seconds,
             judge_duration_seconds
@@ -497,6 +516,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     .await?
     .into_iter()
     .map(|row| {
+        category_order.insert(row.name.clone(), row.order.unwrap_or(i64::MAX));
         (
             row.name.clone(),
             CategoryInfo {
@@ -570,49 +590,6 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         .map(|act| (act.id, act.clone()))
         .collect();
 
-    let mut finalists: HashMap<String, Vec<Slot>> = HashMap::new();
-    for row in sqlx::query!(
-        r#"
-        SELECT
-            final_slots.id as "id!: Uuid",
-            final_name,
-            heat as "heat!",
-            number,
-            act_id as "act_id: Uuid",
-            finals.placement_published,
-            started_at as "started_at: OffsetDateTime",
-            ended_at as "ended_at: OffsetDateTime",
-            music_started_at as "music_started_at: OffsetDateTime"
-        FROM final_slots
-        JOIN finals ON finals.name = final_slots.final_name
-        ORDER BY final_name, position
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    {
-        // A withdrawn act has no category at the moment: the slot shows as
-        // open.
-        let act = row
-            .act_id
-            .filter(|_| row.placement_published)
-            .and_then(|id| acts.get(&id))
-            .cloned();
-        finalists
-            .entry(row.final_name.clone())
-            .or_default()
-            .push(Slot::Finalist(FinalistSlot {
-                id: row.id,
-                final_name: row.final_name,
-                group_label: row.heat,
-                number: row.number,
-                act,
-                started_at: row.started_at,
-                ended_at: row.ended_at,
-                music_started_at: row.music_started_at,
-            }));
-    }
-
     let rows = sqlx::query!(
         r#"
         SELECT
@@ -637,14 +614,109 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     .fetch_all(&mut *db)
     .await?;
 
+    // Skipped heats whose final is planned: their acts start directly in
+    // it, by category. A heat fills at most one final; should old data have
+    // more, the first in final order counts.
+    let planned_finals: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.kind == EntryKind::Acts)
+        .filter_map(|row| row.final_name.as_deref())
+        .collect();
+    let mut direct_final: HashMap<String, String> = HashMap::new();
+    let mut skipped_heats: HashSet<String> = HashSet::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT
+            heats.name as "heat!",
+            categories.name as "category?",
+            (
+                SELECT final_slots.final_name
+                FROM final_slots JOIN finals ON finals.name = final_slots.final_name
+                WHERE final_slots.heat = heats.name
+                ORDER BY finals."order", finals.name
+                LIMIT 1
+            ) as "final_name?: String"
+        FROM heats LEFT JOIN categories ON categories.heat = heats.name
+        WHERE heats.skip
+        "#
+    )
+    .fetch_all(&mut *db)
+    .await?
+    {
+        let Some(final_name) = row
+            .final_name
+            .filter(|name| planned_finals.contains(name.as_str()))
+        else {
+            continue;
+        };
+        skipped_heats.insert(row.heat);
+        if let Some(category) = row.category {
+            direct_final.insert(category, final_name);
+        }
+    }
+    let direct_acts: HashMap<Uuid, String> = acts_in_order
+        .iter()
+        .filter_map(|act| Some((act.id, direct_final.get(&act.category)?.clone())))
+        .collect();
+
+    // The finalist slots of each final, without those of skipped heats.
+    let mut finalists: HashMap<String, Vec<FinalistSlot>> = HashMap::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT
+            final_slots.id as "id!: Uuid",
+            final_name,
+            heat as "heat!",
+            number,
+            act_id as "act_id: Uuid",
+            finals.placement_published,
+            started_at as "started_at: OffsetDateTime",
+            ended_at as "ended_at: OffsetDateTime",
+            music_started_at as "music_started_at: OffsetDateTime"
+        FROM final_slots
+        JOIN finals ON finals.name = final_slots.final_name
+        ORDER BY final_name, position
+        "#
+    )
+    .fetch_all(&mut *db)
+    .await?
+    {
+        // A withdrawn act has no category at the moment: the slot shows as
+        // open.
+        if skipped_heats.contains(&row.heat) {
+            continue;
+        }
+        let act = row
+            .act_id
+            .filter(|_| row.placement_published)
+            .and_then(|id| acts.get(&id))
+            .cloned();
+        finalists
+            .entry(row.final_name.clone())
+            .or_default()
+            .push(FinalistSlot {
+                id: row.id,
+                final_name: row.final_name,
+                group_label: row.heat,
+                number: row.number,
+                act,
+                started_at: row.started_at,
+                ended_at: row.ended_at,
+                music_started_at: row.music_started_at,
+            });
+    }
+
     let mut stored: HashMap<i64, Vec<Slot>> = HashMap::new();
     // Acts in a block's slots, also those hidden at the moment: they never
     // show up in their home block on top.
     let mut placed: HashSet<Uuid> = HashSet::new();
-    let act_blocks: HashSet<i64> = rows
+    // The direct acts and finalist slots a final's block stores.
+    let mut placed_in_final: HashSet<Uuid> = HashSet::new();
+    // The start blocks, with the final running in them.
+    let act_blocks: HashMap<i64, Option<&str>> = rows
         .iter()
         .filter(|row| row.kind == EntryKind::Acts)
-        .map(|row| row.id)
+        .map(|row| (row.id, row.final_name.as_deref()))
         .collect();
     for row in sqlx::query!(
         r#"
@@ -655,7 +727,9 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             label,
             duration_seconds,
             started_at as "started_at: OffsetDateTime",
-            ended_at as "ended_at: OffsetDateTime"
+            ended_at as "ended_at: OffsetDateTime",
+            heat,
+            number
         FROM timeplan_slots
         ORDER BY timeplan_id, position, id
         "#
@@ -663,21 +737,48 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     .fetch_all(&mut *db)
     .await?
     {
-        if !act_blocks.contains(&row.timeplan_id) {
+        let Some(&final_name) = act_blocks.get(&row.timeplan_id) else {
             continue;
-        }
+        };
         let slots = stored.entry(row.timeplan_id).or_default();
-        match row.act_id {
-            Some(act_id) => {
-                placed.insert(act_id);
-                if let Some(act) = acts.get(&act_id) {
+        match (row.act_id, row.heat, row.number) {
+            // In a final's block: only its direct acts. Elsewhere: no
+            // direct act, it runs in its final.
+            (Some(act_id), _, _) => match (final_name, direct_acts.get(&act_id)) {
+                (Some(name), Some(direct)) if name == direct => {
+                    placed_in_final.insert(act_id);
                     slots.push(Slot::Act(ActSlot {
                         stored: true,
-                        ..act.clone()
+                        ..acts[&act_id].clone()
                     }));
                 }
+                (None, None) => {
+                    placed.insert(act_id);
+                    if let Some(act) = acts.get(&act_id) {
+                        slots.push(Slot::Act(ActSlot {
+                            stored: true,
+                            ..act.clone()
+                        }));
+                    }
+                }
+                _ => {}
+            },
+            // A final's slot, by heat and number; gone or unused ones are
+            // left out.
+            (None, Some(heat), Some(number)) => {
+                let finalist = final_name
+                    .and_then(|name| finalists.get(name))
+                    .and_then(|slots| {
+                        slots
+                            .iter()
+                            .find(|slot| slot.group_label == heat && slot.number == number)
+                    })
+                    .filter(|slot| placed_in_final.insert(slot.id));
+                if let Some(finalist) = finalist {
+                    slots.push(Slot::Finalist(finalist.clone()));
+                }
             }
-            None => slots.push(Slot::Break(BreakSlot {
+            _ => slots.push(Slot::Break(BreakSlot {
                 id: row.id,
                 label: row.label.unwrap_or_default(),
                 duration_seconds: row.duration_seconds.unwrap_or(0),
@@ -699,19 +800,42 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         let manually_ordered = stored.contains_key(&row.id);
         let mut slots = stored.remove(&row.id).unwrap_or_default();
         let mut einfahrzeit_seconds = 0;
+        let mut preliminary_skipped = false;
         if row.kind == EntryKind::Acts {
-            // A final's block holds its reserved slots (`set_block_order`
-            // refuses final blocks, so there are no stored slots).
+            // A final's block holds its stored slots, then its other
+            // finalist slots, then the other acts of its skipped heats, by
+            // category.
             if let Some(final_name) = row.final_name.as_deref() {
-                slots = finalists.remove(final_name).unwrap_or_default();
+                slots.extend(
+                    finalists
+                        .remove(final_name)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|slot| !placed_in_final.contains(&slot.id))
+                        .map(Slot::Finalist),
+                );
+                let mut direct: Vec<&ActSlot> = acts_in_order
+                    .iter()
+                    .filter(|act| {
+                        direct_acts.get(&act.id).map(String::as_str) == Some(final_name)
+                            && !placed_in_final.contains(&act.id)
+                    })
+                    .collect();
+                direct.sort_by_key(|act| category_order.get(&act.category));
+                slots.extend(direct.into_iter().cloned().map(Slot::Act));
                 einfahrzeit_seconds = finals.get(final_name).map_or(0, |f| f.einfahrzeit_seconds);
             }
             if let Some(home) = row.category.as_deref() {
+                preliminary_skipped = direct_final.contains_key(home);
                 if homes.get(home) == Some(&row.id) {
                     slots.extend(
                         acts_in_order
                             .iter()
-                            .filter(|act| act.category == home && !placed.contains(&act.id))
+                            .filter(|act| {
+                                act.category == home
+                                    && !placed.contains(&act.id)
+                                    && !direct_acts.contains_key(&act.id)
+                            })
                             .cloned()
                             .map(Slot::Act),
                     );
@@ -739,6 +863,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             ended_at: row.ended_at,
             slots,
             manually_ordered,
+            preliminary_skipped,
             einfahrzeit_seconds,
             warmup_seconds: 0,
         });
@@ -787,6 +912,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         finals,
         acts,
         block_of_act,
+        direct_acts,
     })
 }
 

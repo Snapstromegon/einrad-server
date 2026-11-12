@@ -148,6 +148,85 @@ pub fn check(
     Ok(first.map(|category| category.discipline))
 }
 
+/// The fewest acts a Junior Expert heat (U15 and younger) needs for its
+/// Vorlauf (Konzept §1.5).
+pub const JUNIOR_EXPERT_THRESHOLD: i64 = 6;
+/// The fewest acts any other heat needs for its Vorlauf (Konzept §1.5).
+pub const EXPERT_THRESHOLD: i64 = 5;
+/// The oldest `under_age` of a Junior Expert category: U15.
+const JUNIOR_EXPERT_UNDER_AGE: f64 = 15.0;
+
+/// The threshold a heat gets when it is created without one, from the
+/// `under_age` of its categories: [`JUNIOR_EXPERT_THRESHOLD`] if all are
+/// U15 or younger, otherwise (also without categories)
+/// [`EXPERT_THRESHOLD`]. It is stored and the organizer can change it.
+pub fn default_threshold(under_ages: impl IntoIterator<Item = Option<f64>>) -> i64 {
+    let mut under_ages = under_ages.into_iter().peekable();
+    let junior = under_ages.peek().is_some()
+        && under_ages.all(|age| age.is_some_and(|age| age <= JUNIOR_EXPERT_UNDER_AGE));
+    if junior {
+        JUNIOR_EXPERT_THRESHOLD
+    } else {
+        EXPERT_THRESHOLD
+    }
+}
+
+/// Checks a threshold sent by the admin UI. The message is German.
+pub fn check_threshold(threshold: i64) -> Result<i64, String> {
+    if threshold < 0 {
+        Err("Die Mindestzahl an Küren kann nicht negativ sein.".to_string())
+    } else {
+        Ok(threshold)
+    }
+}
+
+/// The threshold for a new heat of `categories` without one (see
+/// [`default_threshold`]).
+pub async fn default_threshold_of(
+    conn: &mut SqliteConnection,
+    categories: &[String],
+) -> sqlx::Result<i64> {
+    let mut under_ages = Vec::with_capacity(categories.len());
+    for category in categories {
+        under_ages.push(
+            sqlx::query_scalar!("SELECT under_age FROM categories WHERE name = ?", category)
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten(),
+        );
+    }
+    Ok(default_threshold(under_ages))
+}
+
+/// Whether an act of the heat, or its final (a slot or its block), has
+/// started: then its Vorlauf can no longer be skipped or restored (Q5).
+pub async fn has_started(conn: &mut SqliteConnection, heat: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT
+            EXISTS (
+                SELECT 1 FROM acts
+                JOIN view_act ON view_act.id = acts.id
+                JOIN categories ON categories.name = view_act.category
+                WHERE categories.heat = ?1 AND acts.started_at IS NOT NULL
+            )
+            OR EXISTS (
+                SELECT 1 FROM final_slots
+                WHERE final_name IN (SELECT final_name FROM final_slots WHERE heat = ?1)
+                    AND started_at IS NOT NULL
+            )
+            OR EXISTS (
+                SELECT 1 FROM timeplan
+                WHERE final_name IN (SELECT final_name FROM final_slots WHERE heat = ?1)
+                    AND started_at IS NOT NULL
+            ) as "started!: bool"
+        "#,
+        heat
+    )
+    .fetch_one(conn)
+    .await
+}
+
 /// Trims a heat's name; fails with a German message if it's empty.
 pub fn normalize_name(name: &str) -> Result<String, String> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -322,6 +401,17 @@ mod tests {
         );
         // Its own categories are fine.
         assert!(check("E EM 1", &names(&["EMU17", "EMU19"]), &known).is_ok());
+    }
+
+    #[test]
+    fn junior_expert_heats_need_6_acts_for_a_vorlauf_others_5() {
+        // U11–U15: Junior Expert.
+        assert_eq!(default_threshold([Some(11.0), Some(13.0), Some(15.0)]), 6);
+        // U17 and older, or without an upper age: Expert.
+        assert_eq!(default_threshold([Some(15.0), Some(17.0)]), 5);
+        assert_eq!(default_threshold([Some(13.0), None]), 5);
+        // An empty heat gets the Expert default.
+        assert_eq!(default_threshold([]), 5);
     }
 
     #[test]

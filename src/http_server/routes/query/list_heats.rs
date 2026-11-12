@@ -21,8 +21,17 @@ pub struct Heat {
     act_type: Option<ActType>,
     /// Whether its categories are singles male; `None` without categories.
     is_single_male: Option<bool>,
-    /// The finals whose slots it fills, by name.
+    /// The finals whose slots it fills, by name; at most one.
     finals: Vec<String>,
+    /// The fewest acts it needs for its Vorlauf.
+    threshold: i64,
+    /// Whether its Vorlauf is skipped: its acts start directly in its final.
+    skip: bool,
+    /// Its acts at the moment, without withdrawn ones.
+    act_count: i64,
+    /// Whether the tool suggests skipping its Vorlauf: it has fewer acts than
+    /// its threshold. The organizer decides.
+    skip_suggested: bool,
 }
 
 /// List the heats: groups of categories of one discipline whose best acts
@@ -76,7 +85,15 @@ pub async fn list_heats(
     }
     let rows = sqlx::query!(
         r#"
-        SELECT name as "name!", description
+        SELECT
+            name as "name!",
+            description,
+            threshold,
+            skip,
+            (
+                SELECT COUNT(*) FROM view_act
+                WHERE category IN (SELECT name FROM categories WHERE heat = heats.name)
+            ) as "act_count!: i64"
         FROM heats
         ORDER BY
             (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
@@ -100,6 +117,10 @@ pub async fn list_heats(
                     is_single_male: discipline.map(|d| d.single_male),
                     name: row.name,
                     description: row.description,
+                    threshold: row.threshold,
+                    skip: row.skip,
+                    act_count: row.act_count,
+                    skip_suggested: row.act_count < row.threshold,
                 }
             })
             .collect(),

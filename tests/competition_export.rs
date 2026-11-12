@@ -63,6 +63,15 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
             .await;
         assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     }
+    // A heat whose Vorlauf is skipped.
+    let response = app
+        .post(
+            "/api/command/set_heat_skip",
+            json!({ "name": "E EW", "skip": true }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
     let file = export(&app, &admin).await;
     assert!(!file.contains("RSV Exportverein"), "{file}");
@@ -84,6 +93,9 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
         "{file}"
     );
     assert!(file.contains("heat = \"E EW\""), "{file}");
+    // With their thresholds, and whether the Vorlauf is skipped.
+    assert!(file.contains("threshold = 6"), "{file}");
+    assert!(file.contains("threshold = 5\nskip = true"), "{file}");
     assert!(!file.contains("label = \"U"), "{file}");
     CompetitionFile::parse(&file).unwrap();
 

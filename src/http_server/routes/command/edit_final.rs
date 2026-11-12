@@ -118,6 +118,7 @@ pub async fn edit_final(
 
     finals::check_heats(
         &mut tx,
+        &new_name,
         fields.act_type,
         fields.is_single_male,
         &fields.slot_groups,

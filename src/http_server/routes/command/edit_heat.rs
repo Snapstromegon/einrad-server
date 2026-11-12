@@ -22,9 +22,12 @@ pub struct EditHeatBody {
     description: Option<String>,
     /// See `AddHeatBody::categories`; the ones left out leave the heat.
     categories: Vec<String>,
+    /// The fewest acts it needs for its Vorlauf; without, it stays.
+    #[serde(default)]
+    threshold: Option<i64>,
 }
 
-/// Edit a heat: its name, description and categories.
+/// Edit a heat: its name, description, categories and threshold.
 ///
 /// A rename carries over to the finals' slots. The categories keep the
 /// discipline of the finals the heat fills. Acts already placed in a final
@@ -51,6 +54,11 @@ pub async fn edit_heat(
     let new_name = heats::normalize_name(&body.new_name).map_err(HttpError::ErrorMessages)?;
     let description = normalize_description(body.description);
     let categories = heats::normalize_categories(&body.categories);
+    let threshold = body
+        .threshold
+        .map(heats::check_threshold)
+        .transpose()
+        .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
@@ -84,9 +92,10 @@ pub async fn edit_heat(
     }
     // The categories and slots follow a rename by their foreign keys.
     sqlx::query!(
-        "UPDATE heats SET name = ?, description = ? WHERE name = ?",
+        "UPDATE heats SET name = ?, description = ?, threshold = coalesce(?, threshold) WHERE name = ?",
         new_name,
         description,
+        threshold,
         body.name
     )
     .execute(&mut *tx)
