@@ -218,15 +218,17 @@ async fn withdrawn_acts_are_marked_and_not_counted() {
 
     let tree = structure(&app, &admin).await;
     let women = discipline(&tree, "single", false);
-    // A withdrawn act has no category: it sits in "Ohne Kategorie" of its
-    // discipline, marked, and doesn't count.
-    let without = &women["without_category"];
-    assert_eq!(without["act_count"], 0);
-    assert_eq!(without["acts"].as_array().unwrap().len(), 1);
-    assert_eq!(without["acts"][0]["id"], anna.to_string());
-    assert_eq!(without["acts"][0]["withdrawn"], true);
-    assert_eq!(women["act_count"], 1);
+    // A withdrawn act keeps its category, marked, and doesn't count.
+    assert_eq!(
+        women["without_category"]["acts"].as_array().unwrap().len(),
+        0
+    );
     let category = named(&named(&women["heats"], "JE EW")["categories"], "EWU13");
+    let acts = category["acts"].as_array().unwrap();
+    assert_eq!(acts.len(), 2);
+    let withdrawn = acts.iter().find(|a| a["id"] == anna.to_string()).unwrap();
+    assert_eq!(withdrawn["withdrawn"], true);
+    assert_eq!(women["act_count"], 1);
     assert_eq!(category["act_count"], 1);
 }
 

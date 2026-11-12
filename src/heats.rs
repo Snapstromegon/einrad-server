@@ -199,6 +199,7 @@ pub async fn has_started(conn: &mut SqliteConnection, heat: &str) -> sqlx::Resul
                 JOIN view_act ON view_act.id = acts.id
                 JOIN categories ON categories.name = view_act.category
                 WHERE categories.heat = ?1 AND acts.started_at IS NOT NULL
+                    AND view_act.withdrawn_at IS NULL
             )
             OR EXISTS (
                 SELECT 1 FROM final_slots

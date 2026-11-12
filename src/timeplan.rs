@@ -568,7 +568,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             ended_at as "ended_at: OffsetDateTime",
             music_started_at as "music_started_at: OffsetDateTime"
         FROM view_act
-        WHERE category IS NOT NULL
+        WHERE category IS NOT NULL AND withdrawn_at IS NULL
         ORDER BY "order"
         "#
     )

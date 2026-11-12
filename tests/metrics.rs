@@ -125,3 +125,33 @@ async fn metrics_show_the_live_timeplan() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn a_withdrawn_act_counts_in_no_category() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
+    app.add_single_act(&cookie, club_id, "Anna").await;
+    let berta = app.add_single_act(&cookie, club_id, "Berta").await;
+    let admin = app.create_admin().await;
+    app.post(
+        "/api/command/set_act_withdrawn",
+        json!({ "act_id": berta, "withdrawn": true }),
+        Some(&admin),
+    )
+    .await;
+
+    let body = scrape(&app).await;
+
+    assert!(
+        has_line(
+            &body,
+            r#"einrad_server_acts{act_type="single",state="withdrawn"} 1"#
+        ),
+        "{body}"
+    );
+    assert!(
+        has_line(&body, r#"einrad_server_acts_by_category{category="EWU13"} 1"#),
+        "{body}"
+    );
+}

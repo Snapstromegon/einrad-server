@@ -32,8 +32,8 @@ pub struct Discipline {
     heats: Vec<HeatNode>,
     /// Its categories that belong to no heat, in category order.
     without_heat: Vec<CategoryNode>,
-    /// Its acts without a category: incomplete groups, groups with a type
-    /// conflict and withdrawn acts.
+    /// Its acts without a category: incomplete groups and groups with a
+    /// type conflict.
     without_category: ActsNode,
 }
 
@@ -56,9 +56,11 @@ pub struct HeatNode {
 pub struct CategoryNode {
     name: String,
     description: Option<String>,
-    /// Its acts, without withdrawn ones; they are all in `acts`.
+    /// Its acts, without withdrawn ones.
     act_count: i64,
-    /// In timeplan start order, acts not yet placed after the others by name.
+    /// Including withdrawn ones, which keep the category their riders' ages
+    /// give them; in timeplan start order, acts not yet placed after the
+    /// others by name.
     acts: Vec<ActNode>,
 }
 
@@ -135,7 +137,8 @@ fn count(acts: &[ActNode]) -> i64 {
 ///
 /// Every category belongs to a heat in a finished plan; the others are in
 /// `without_heat` of their discipline. Acts without a category (incomplete
-/// groups, withdrawn acts) are in `without_category`. Heats without categories
+/// groups) are in `without_category`. Withdrawn acts stay in their category,
+/// marked. Heats without categories
 /// have no discipline and are left out. One consistent read.
 #[utoipa::path(
     get,

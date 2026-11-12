@@ -93,7 +93,7 @@ pub async fn list_heats(
             skip,
             (
                 SELECT COUNT(*) FROM view_act
-                WHERE category IN (SELECT name FROM categories WHERE heat = heats.name)
+                WHERE withdrawn_at IS NULL AND category IN (SELECT name FROM categories WHERE heat = heats.name)
             ) as "act_count!: i64"
         FROM heats
         ORDER BY

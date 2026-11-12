@@ -49,7 +49,7 @@ pub async fn list_groups(
             view_act.id as "id!: Uuid",
             view_act.group_name as "group_name!",
             view_act.act_type as "act_type!: ActType",
-            view_act.category,
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
             view_act.owner_club_id as "owner_club_id: Uuid",
             owner.name as "owner_club_name?",
             view_act.regular_count as "regular_count!: i64",
