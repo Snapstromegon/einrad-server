@@ -77,7 +77,7 @@ pub async fn edit_heat(
         .await?;
         if taken {
             return Err(HttpError::ErrorMessages(format!(
-                "Einen Vorlauf „{new_name}“ gibt es schon."
+                "Eine Vorlaufklasse „{new_name}“ gibt es schon."
             )));
         }
         info!("Renaming heat {:?} to {new_name:?}", body.name);

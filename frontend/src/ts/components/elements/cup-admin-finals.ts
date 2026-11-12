@@ -251,7 +251,7 @@ export default class CupAdminFinals extends LitElement {
     return html`<div class="toolbar">
         <h2>Finals</h2>
         <span class="muted small"
-          >Reservierte Plätze für die Besten der Vorläufe, im Zeitplan wie
+          >Reservierte Plätze für die Besten der Vorlaufklassen, im Zeitplan wie
           Kategorien eingeplant.</span
         >
         <span class="spacer"></span>
@@ -305,12 +305,12 @@ export default class CupAdminFinals extends LitElement {
           <th>Beschreibung</th>
           <th>Disziplin</th>
           <th
-            title="Die Finalplätze in Startreihenfolge, je aus einem Vorlauf, z. B. 4 × E EM 1, 4 × E EM 2"
+            title="Die Finalplätze in Startreihenfolge, je aus einer Vorlaufklasse, z. B. 4 × E EM 1, 4 × E EM 2"
           >
             Finalplätze
           </th>
           <th
-            title="Die Kategorien seiner Vorläufe, aus denen die Finalplätze besetzt werden"
+            title="Die Kategorien seiner Vorlaufklassen, aus denen die Finalplätze besetzt werden"
           >
             Kategorien
           </th>
@@ -583,7 +583,7 @@ export default class CupAdminFinals extends LitElement {
   ) {
     const heats = this.heats.value;
     if (!heats) {
-      return html`<span class="muted small">Lade Vorläufe …</span>`;
+      return html`<span class="muted small">Lade Vorlaufklassen …</span>`;
     }
     const fitting = heats.filter((heat) => fitsDiscipline(heat, draft));
     const rows = draft.slots.map(
@@ -607,13 +607,13 @@ export default class CupAdminFinals extends LitElement {
           ×
           <select
             class=${classMap({ inline: true, invalid: invalid && !slot.heat })}
-            aria-label="Vorlauf"
+            aria-label="Vorlaufklasse"
             data-index=${index}
             data-part="heat"
             ?disabled=${locked}
             @change=${this.onSlotGroupInput}
           >
-            <option value="" ?selected=${!slot.heat}>— Vorlauf —</option>
+            <option value="" ?selected=${!slot.heat}>— Vorlaufklasse —</option>
             ${repeat(
               // The heat chosen before stays, even of another discipline.
               heats.filter(
@@ -648,7 +648,7 @@ export default class CupAdminFinals extends LitElement {
       title=${
         locked
           ? "Das Finale hat begonnen; seine Plätze bleiben."
-          : "Anzahl Plätze je Vorlauf, in Startreihenfolge"
+          : "Anzahl Plätze je Vorlaufklasse, in Startreihenfolge"
       }
     >
       ${rows}
@@ -671,7 +671,7 @@ export default class CupAdminFinals extends LitElement {
       .flatMap((heat) => heat.categories);
     return categories.length
       ? html`<span class="muted small">${categories.join(", ")}</span>`
-      : html`<span class="muted small">aus den Vorläufen</span>`;
+      : html`<span class="muted small">aus den Vorlaufklassen</span>`;
   }
 
   /** The placement of a final's slots, below its row. */
@@ -695,8 +695,8 @@ export default class CupAdminFinals extends LitElement {
         ${
           !final.categories.length
             ? html`<p class="muted">
-                Die Vorläufe des Finales haben noch keine Kategorien. Bitte
-                zuerst unter „Vorläufe“ die Kategorien zuordnen, aus denen die
+                Die Vorlaufklassen des Finales haben noch keine Kategorien. Bitte
+                zuerst unter „Vorlaufklassen“ die Kategorien zuordnen, aus denen die
                 Finalplätze besetzt werden.
               </p>`
             : acts
@@ -795,7 +795,7 @@ export default class CupAdminFinals extends LitElement {
     const current = acts.find((act) => act.id === value);
     if (value && !listed.has(value)) {
       groups.push({
-        label: "Nicht mehr im Vorlauf",
+        label: "Nicht mehr in der Vorlaufklasse",
         acts: current ? [current] : [],
       });
     }
@@ -1056,7 +1056,7 @@ export default class CupAdminFinals extends LitElement {
     const messages = [
       problems.name && "Bitte einen Namen eingeben.",
       problems.slots &&
-        "Bitte für jede Gruppe von Finalplätzen einen Vorlauf und eine Anzahl ab 1 wählen.",
+        "Bitte für jede Gruppe von Finalplätzen eine Vorlaufklasse und eine Anzahl ab 1 wählen.",
       (problems.einfahrzeit ||
         problems.act_duration ||
         problems.judge_duration) &&

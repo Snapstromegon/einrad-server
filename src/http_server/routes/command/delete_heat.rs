@@ -47,7 +47,7 @@ pub async fn delete_heat(
     if !finals.is_empty() {
         let names: Vec<String> = finals.iter().map(|(name, _)| format!("„{name}“")).collect();
         return Err(HttpError::ErrorMessages(format!(
-            "Der Vorlauf füllt Finalplätze in {} {}; bitte ihn dort zuerst durch einen anderen ersetzen.",
+            "Die Vorlaufklasse füllt Finalplätze in {} {}; bitte sie dort zuerst durch einen anderen ersetzen.",
             if names.len() == 1 {
                 "dem Finale"
             } else {

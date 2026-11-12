@@ -107,7 +107,7 @@ pub fn finalist_label(number: i64, heat: &str) -> String {
 /// [`MAX_SLOTS`] in all. The message is German, for the admin UI.
 pub fn normalize_slot_groups(groups: &[SlotGroup]) -> Result<Vec<SlotGroup>, String> {
     if groups.iter().any(|group| group.heat.trim().is_empty()) {
-        return Err("Jede Gruppe von Finalplätzen braucht einen Vorlauf.".to_string());
+        return Err("Jede Gruppe von Finalplätzen braucht eine Vorlaufklasse.".to_string());
     }
     if groups.iter().any(|group| group.count < 1) {
         return Err("Jede Gruppe von Finalplätzen braucht mindestens einen Platz.".to_string());
@@ -196,14 +196,14 @@ pub async fn check_heats(
         .await
         .map_err(|e| e.to_string())?;
         if !exists {
-            return Err(format!("Den Vorlauf „{}“ gibt es nicht.", group.heat));
+            return Err(format!("Die Vorlaufklasse „{}“ gibt es nicht.", group.heat));
         }
         let heat = crate::heats::discipline(&mut *conn, &group.heat)
             .await
             .map_err(|e| e.to_string())?;
         if heat.is_some_and(|heat| heat != discipline) {
             return Err(format!(
-                "Der Vorlauf „{}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale.",
+                "Die Vorlaufklasse „{}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale.",
                 group.heat
             ));
         }

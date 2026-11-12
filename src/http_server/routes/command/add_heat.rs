@@ -57,7 +57,7 @@ pub async fn add_heat(
     .await?;
     if taken {
         return Err(HttpError::ErrorMessages(format!(
-            "Einen Vorlauf „{name}“ gibt es schon."
+            "Eine Vorlaufklasse „{name}“ gibt es schon."
         )));
     }
     heats::check_categories(&mut tx, &name, &categories)

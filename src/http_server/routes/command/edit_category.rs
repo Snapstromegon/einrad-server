@@ -144,7 +144,7 @@ async fn check_heat(
         != Discipline::new(body.act_type, body.is_single_male)
     {
         return Err(HttpError::ErrorMessages(format!(
-            "{} gehört zum Vorlauf „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
+            "{} gehört zur Vorlaufklasse „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
             body.name, row.heat
         )));
     }

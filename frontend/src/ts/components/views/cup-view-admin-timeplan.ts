@@ -661,14 +661,14 @@ export default class CupViewAdminTimeplan extends LitElement {
         splitHeats.length
           ? html`<span
               class="kpi warn"
-              title=${`Die Kategorien eines Vorlaufs sollten am selben Tag laufen, damit seine Küren zusammen gewertet werden:\n${splitHeats
+              title=${`Die Kategorien einer Vorlaufklasse sollten am selben Tag laufen, damit ihre Küren zusammen gewertet werden:\n${splitHeats
                 .map(
                   (heat) =>
                     `${heat.name}: ${heat.days.map((day) => formatDay(day)).join(", ")}`,
                 )
                 .join("\n")}`}
               ><b>${splitHeats.length}</b>
-              ${splitHeats.length === 1 ? "Vorlauf" : "Vorläufe"} an mehreren
+              ${splitHeats.length === 1 ? "Vorlaufklasse" : "Vorlaufklassen"} an mehreren
               Tagen</span
             >`
           : nothing

@@ -49,7 +49,7 @@ const emptyDraft = (): HeatDraft => ({
 });
 
 /**
- * The heats (Vorläufe): groups of categories of one discipline whose best
+ * The heats (Vorlaufklassen): groups of categories of one discipline whose best
  * acts fill a final's slots. A category is in at most one heat, group
  * categories in none. Admins add, edit and delete them here; the finals
  * below name them in their slot groups. Fires `heats-changed` after a
@@ -132,7 +132,7 @@ export default class CupAdminHeats extends LitElement {
   override render() {
     const heats = this.heats.value;
     return html`<div class="toolbar">
-        <h2>Vorläufe</h2>
+        <h2>Vorlaufklassen</h2>
         <span class="muted small"
           >Kategorien einer Disziplin, deren Beste die Finalplätze füllen.</span
         >
@@ -145,7 +145,7 @@ export default class CupAdminHeats extends LitElement {
                 ?disabled=${!heats || this.busy || this.editing !== null}
                 @click=${this.startNew}
               >
-                <span class="material-icon">add</span> Neuer Vorlauf
+                <span class="material-icon">add</span> Neue Vorlaufklasse
               </button>`
             : nothing
         }
@@ -169,10 +169,10 @@ export default class CupAdminHeats extends LitElement {
         heats
           ? this.renderTable(heats)
           : this.heats.render({
-              pending: () => html`<p class="empty">Lade Vorläufe …</p>`,
+              pending: () => html`<p class="empty">Lade Vorlaufklassen …</p>`,
               error: (error) =>
                 html`<div class="error-banner" role="alert">
-                  Vorläufe konnten nicht geladen werden: ${errorMessage(error)}
+                  Vorlaufklassen konnten nicht geladen werden: ${errorMessage(error)}
                 </div>`,
             })
       }`;
@@ -188,7 +188,7 @@ export default class CupAdminHeats extends LitElement {
           <th title="Die Kategorien, deren Küren zusammen gewertet werden">
             Kategorien
           </th>
-          <th title="Die Finals, deren Plätze dieser Vorlauf füllt">Finals</th>
+          <th title="Die Finals, deren Plätze diese Vorlaufklasse füllt">Finals</th>
           <th class="actions" aria-label="Aktionen"></th>
         </tr>
       </thead>
@@ -209,7 +209,7 @@ export default class CupAdminHeats extends LitElement {
         ${
           heats.length === 0 && !this.editing
             ? html`<tr>
-              <td colspan=${COLUMNS} class="empty">Noch keine Vorläufe.</td>
+              <td colspan=${COLUMNS} class="empty">Noch keine Vorlaufklassen.</td>
             </tr>`
             : nothing
         }
@@ -368,7 +368,7 @@ export default class CupAdminHeats extends LitElement {
           return html`<label
             title=${
               other
-                ? `Gehört zum Vorlauf „${other}“`
+                ? `Gehört zur Vorlaufklasse „${other}“`
                 : otherDiscipline
                   ? "Andere Disziplin als die gewählten Kategorien"
                   : (category.description ?? category.name)
@@ -499,7 +499,7 @@ export default class CupAdminHeats extends LitElement {
 
   private async onDelete(e: Event) {
     const heat = this.heatByName((e.currentTarget as HTMLElement).dataset.name);
-    if (!heat || this.busy || !confirm(`Vorlauf „${heat.name}“ löschen?`)) {
+    if (!heat || this.busy || !confirm(`Vorlaufklasse „${heat.name}“ löschen?`)) {
       return;
     }
     await this.command(

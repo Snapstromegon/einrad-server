@@ -695,7 +695,7 @@ async fn placed_acts_show_once_the_placement_is_published() {
             json!([{ "slot_id": slots[2], "act_id": carla }]),
         )
         .await,
-        "nicht zum Vorlauf „E EW“",
+        "nicht zur Vorlaufklasse „E EW“",
     );
     // Acts placed before stay when their category leaves the heat.
     let response = app

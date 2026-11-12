@@ -1,4 +1,4 @@
-//! Heats (Vorläufe, #338): a named group of categories of one discipline
+//! Heats (Vorlaufklassen, #338): a named group of categories of one discipline
 //! whose acts are ranked together to fill a final's finalist slots.
 //!
 //! HEAT-1: all categories of a heat share one act type and, for singles,
@@ -64,13 +64,13 @@ impl Problem {
         match self {
             Problem::Unknown(category) => format!("Die Kategorie {category} gibt es nicht."),
             Problem::Group(category) => format!(
-                "{category} ist eine Gruppenkategorie; Gruppen sind ihr eigenes Finale und gehören zu keinem Vorlauf."
+                "{category} ist eine Gruppenkategorie; Gruppen sind ihr eigenes Finale und gehören zu keiner Vorlaufklasse."
             ),
             Problem::OtherDiscipline { category, first } => format!(
-                "{category} hat einen anderen Typ oder ein anderes Geschlecht als {first}; alle Kategorien eines Vorlaufs teilen beides."
+                "{category} hat einen anderen Typ oder ein anderes Geschlecht als {first}; alle Kategorien einer Vorlaufklasse teilen beides."
             ),
             Problem::InOtherHeat { category, heat } => {
-                format!("{category} gehört schon zum Vorlauf „{heat}“.")
+                format!("{category} gehört schon zur Vorlaufklasse „{heat}“.")
             }
         }
     }
@@ -152,7 +152,7 @@ pub fn check(
 pub fn normalize_name(name: &str) -> Result<String, String> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
     if name.is_empty() {
-        Err("Ein Vorlauf braucht einen Namen.".to_string())
+        Err("Eine Vorlaufklasse braucht einen Namen.".to_string())
     } else {
         Ok(name)
     }
@@ -268,7 +268,7 @@ pub async fn check_categories(
     let finals = finals_of(conn, heat).await.map_err(|e| e.to_string())?;
     if let Some((name, _)) = finals.iter().find(|(_, d)| *d != discipline) {
         return Err(format!(
-            "Der Vorlauf füllt Finalplätze im Finale „{name}“; seine Kategorien brauchen dessen Typ und Geschlecht."
+            "Die Vorlaufklasse füllt Finalplätze im Finale „{name}“; ihre Kategorien brauchen dessen Typ und Geschlecht."
         ));
     }
     Ok(())

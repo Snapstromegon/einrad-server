@@ -137,7 +137,7 @@ pub async fn set_final_placement(
                 }
                 Some(Some(category)) if heats.get(&category) != Some(&slot.heat) => {
                     return Err(HttpError::ErrorMessages(format!(
-                        "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zum Vorlauf „{}“ gehört.",
+                        "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zur Vorlaufklasse „{}“ gehört.",
                         slot.heat
                     )));
                 }
