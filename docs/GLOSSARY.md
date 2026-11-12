@@ -11,7 +11,7 @@ The one event this tool runs, with its dates, deadlines, fees and rules.
 _Avoid_: Event, Cup, Meisterschaft (as a term in the tool)
 
 **Competition file**:
-The file that imports a competition with its categories, finals, timeplan and jury categories; applied only when the database has no competition yet, or on purpose as a replace (`--replace-competition` or the import in the admin UI). The database stays the source of the competition (ADR 0005).
+The file that imports a competition with its categories, heats, finals and timeplan; applied only when the database has no competition yet, or on purpose as a replace (`--replace-competition` or the import in the admin UI). The database stays the source of the competition (ADR 0005).
 _Avoid_: Config (for the competition)
 
 **Branding**:
@@ -48,7 +48,7 @@ _Avoid_: Setup password, invite code
 The server running without a competition, until an admin imports a competition file or creates a competition from scratch in the admin UI; everyone else sees "noch nicht eröffnet".
 
 **Remap file**:
-The list of judge registrations a replace dropped because their jury category has no namesake in the new competition file, with an empty jury category to fill in.
+The list of judge registrations a replace dropped because their jury unit has no namesake heat or final in the new competition file, with an empty jury unit to fill in. The migration to jury units (ADR 0016) leaves the registrations it could not map on the same kind of list, in the admin judges view.
 
 **Determining day** (Stichtag):
 The day ages are counted on for categories: 1 June of the season, for every act type.
@@ -294,15 +294,15 @@ An untrained judge who only counts dismounts and doesn't count towards the jury 
 _Avoid_: Hospitation, helper
 
 **Task** (Aufgabe):
-What a judge does in a jury category: Technik (T), Performance (P) or Abstiege (A).
+What a judge does in a jury unit: Technik (T), Performance (P) or Abstiege (A).
 _Avoid_: Role, Rolle (for this meaning)
 
-**Jury category** (Jury-Kategorie):
-A unit judges register for and are assigned to, e.g. one heat or one final, worth a number of jury deployments.
-_Avoid_: Category (without "Jury-"), Wertungsklasse
+**Jury unit** (Jury-Einheit):
+What judges register for and are assigned to: the Vorlauf of one heat, or one final. It lives on the heat or final itself (ADR 0016) and has its own settings: whether judges can register for it, its jury deployments and the judges it needs per task. Its day is derived from the timeplan. A skipped Vorlauf takes no registrations; registrations it already had keep counting and are flagged for the jury lead to move.
+_Avoid_: Jury category (gone), Category (without "Jury-"), Wertungsklasse
 
 **Jury deployment** (Juryeinsatz):
-One unit of jury work; a heat counts 2, a final 1.
+One unit of jury work; the Vorlauf of a heat counts 2 by default, a final 1, and the jury lead can change both per jury unit.
 _Avoid_: Einsatz (alone), shift
 
 **Jury obligation** (Pflicht-Juryeinsätze):
@@ -310,10 +310,10 @@ The jury deployments a club must provide: 4 for every started two of its acts.
 _Avoid_: Quota
 
 **Credited deployments** (angerechnete Einsätze):
-The deployments a club's trained judges registered for as technical or performance judges, each category once and at most their maximum; dismount-only registrations do not count, unless the organizer credits a different number.
+The deployments a club's trained judges registered for as technical or performance judges, each jury unit once and at most their maximum; dismount-only registrations do not count, unless the organizer credits a different number.
 
 **Jury plan** (Juryplan):
-Which judge judges which jury category in which task; published to the clubs after the judge registration deadline.
+Which judge judges which jury unit in which task; published to the clubs after the judge registration deadline.
 _Avoid_: Jury schedule, Einteilung
 
 **Objection** (Einspruch):
@@ -342,7 +342,7 @@ An award for each rider of the first three places of a final, and for each group
 - The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name, and its categories are theirs. A heat fills at most one final.
 - A **Heat** runs its **Preliminary round** as the **Blocks** of its categories; it has no block of its own. When the preliminary round is skipped, those blocks stay but run none of its acts, and its acts are **Direct acts** of its final.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
-- A **Judge** registers for **Jury categories** for **Tasks**; the **Jury plan** assigns each judge at most one task per jury category.
+- A **Judge** registers for **Jury units** (the Vorlauf of a **Heat**, or a **Final**) for **Tasks**; the **Jury plan** assigns each judge at most one task per jury unit.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
 - A club's **Credited deployments** below its **Jury obligation** cost a **Jury fee** per missing **Jury deployment**.
 - A **Fee waiver** applies to a **Club**, a **Rider** or an **Act**; it lowers the **Amount due** but never the **Jury obligation**, except for a withdrawn act.

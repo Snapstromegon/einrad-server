@@ -1,0 +1,19 @@
+# Juries on heats and finals
+
+Jury categories are gone (#347, amends ADR 0013 on the deferred HEAT-5). Before, they were free names ("Einzel W – Expert 1 Vorlauf") with deployments and a day, unrelated to the heats and finals of #338, so the jury plan could not follow a skipped Vorlauf (ADR 0014) and every competition file listed them twice. Judges now register for, and the jury plan assigns them to, a **jury unit**: the Vorlauf of a heat, or a final.
+
+Source: Jury-Konzept 15.09.2025 — "Die Jury bleibt jeweils für die Vorlaufklassen gleich, damit diese Küren alle miteinander verglichen werden können", and a Vorlauf counts as 2 Wertungseinsätze. A final is one run, fed by several heats, with one jury.
+
+**One unit each, on the heat and on the final.** The Vorlauf unit lives on the heat, the final unit on the final; there is no separate jury-unit table. Both carry `jury_registrable`, `jury_deployments` (default 2 for a heat, 1 for a final) and the needed technical, performance and dismount judges (5, 5, 3), built into the binary. A registration or assignment references exactly one of them (`heat_id` or `final_id`, a CHECK enforces one).
+
+**UUIDs.** Heats and finals get a UUID (`id`), which registrations and assignments reference, so renaming either keeps the jury. Everything else (final slots, categories, the timeplan) still references them by name; the migration to ids there was not needed for this. A replace from a competition file recreates heats and finals, so it re-links registrations by kind and name and puts the others on the remap file as before (`jury_unit = "heat: E EW"` or `"final: Finale EW"`). Deleting a heat or final is refused while judges are registered or assigned to its unit.
+
+**Registrable.** A unit takes registrations when `jury_registrable` and, for a heat, not skipped. Group heats are skipped by default, so only their final is offered. A skipped Vorlauf and a switched-off unit never take a new registration, but a judge's existing one stays when the club edits the judge.
+
+**A heat skipped after judges registered keeps counting.** The club registered in good faith and pays nothing for the organizer's decision, so the credited deployments stay. The registration is flagged, derived from `skip` and never stored (un-skipping clears it), and the jury lead moves it with a dropdown in the admin judges view; a registration the judge already has at the target merges.
+
+**The day is derived** from the timeplan: a heat's from its categories' first block, a final's from its block, `null` while it is not planned. The order of units follows the timeplan as well (first block, units not in it last). Neither is stored any more.
+
+**Competition file.** `[[jury_categories]]` is rejected with a message and a short example, like the slot labels of ADR 0013; the jury fields go on `[[heats]]` and `[[finals]]` (`jury_registrable`, `jury_deployments`, `jury_needed_technical`, `jury_needed_performance`, `jury_needed_dismounts`) and the export writes the ones that differ from the defaults.
+
+**Migration.** A jury category maps to a unit only where the match is unambiguous: its exact name is a heat's or a final's, or its name without " Vorlauf" is a heat's, and not more than one candidate fits. Its deployments and needed judges move to the unit; its day is dropped. Registrations of other categories go on a remap list in the database (`judge_registration_unmapped`), shown in the admin judges view for the jury lead to move to a unit or drop; they count for nothing until then. Assignments of unmapped categories are dropped, the jury lead plans those again. There is no fuzzy matching: a wrong guess would show only on the event day.

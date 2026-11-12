@@ -41,8 +41,12 @@ still contains competition sections is rejected.
 - `[competition.jury]`: the clubs' jury obligation (minimum age of judges,
   Einsätze per two Küren, fee per missing Einsatz, optional judge deadline).
   The defaults are the Jury-Konzept Einrad Freestyle's rules.
-- `[[jury_categories]]`: what judges register for and get assigned to (e.g.
-  one heat block, 2 Einsätze, or a final, 1 Einsatz).
+- Jury units: judges register for, and the jury plan assigns them to, the
+  Vorlauf of every heat and every final (ADR 0016), so there is nothing extra
+  to define. A heat counts 2 Einsätze, a final 1; `jury_deployments`,
+  `jury_needed_technical`, `jury_needed_performance`, `jury_needed_dismounts`
+  and `jury_registrable` on a `[[heats]]` or `[[finals]]` entry override that.
+  `[[jury_categories]]` is gone: a file with it is rejected with an example.
 
 The database is the source of the competition ([ADR 0005](docs/adr/0005-the-database-is-the-source-of-the-competition.md)),
 the competition file only an import:
@@ -53,15 +57,15 @@ the competition file only an import:
 - The competition's id never changes once created; a file with another id is
   ignored with a warning.
 - `--replace-competition` / `REPLACE_COMPETITION` replaces the competition
-  (except its id), categories, finals, timeplan and jury categories in one
+  (except its id), categories, heats, finals and timeplan in one
   transaction; an invalid file changes nothing. Club data is kept: clubs,
   riders, acts with music, pair requests, judges, bookings, fee waivers, users
   and roles. Timeplan slots and progress (also the acts' started and ended
   times), finals placements and the jury plan with its publication are dropped,
-  with a warning listing them. Judge registrations are matched to the new jury
-  categories by name; the others are written to
+  with a warning listing them. Judge registrations are matched to the new heats
+  and finals by name; the others are written to
   `data_path/remap/jury-registrations-<timestamp>.toml`, with an empty
-  `jury_category` to fill in. A file that doesn't change anything replaces
+  `jury_unit` (`heat: <name>` or `final: <name>`) to fill in. A file that doesn't change anything replaces
   nothing, so leaving the flag set doesn't drop the planning on every start.
 - "Wettkampf bearbeiten" in the admin UI ("Wettkampf", Admin only) changes the
   competition while the server runs, also while the registration is open:
@@ -78,12 +82,13 @@ the competition file only an import:
   save a test instance's settings: the settings with the id, the features it
   sets, the photos with their password (share the file only in trusted
   channels), the categories with their ages (so the file carries over to the
-  next season), the finals, the timeplan and the jury categories. Nothing clubs entered, no bookings, fee
+  next season), the heats and finals (with their jury settings that differ
+  from the defaults) and the timeplan. Nothing clubs entered, no bookings, fee
   waivers, users, act order, progress, placements or jury plan.
 - A filled-in remap file is applied on the admin judges screen ("Jury",
-  "Remap-Datei anwenden"): entries with an existing `jury_category` register
-  their judge for it and the task again; entries whose judge or jury category
-  isn't found are listed.
+  "Remap-Datei anwenden"): entries with an existing `jury_unit` (`heat: <name>`
+  or `final: <name>`) register their judge for it and the task again; entries
+  whose judge or jury unit isn't found are listed.
 - **Setup mode:** without a competition in the database and without a
   competition file, the server starts anyway if there is an admin (`[admin]`
   / `ADMIN`, or one in the database). Admins see the import, everyone else a
@@ -98,7 +103,7 @@ where they went. A change in the database applies on the next request, without
 a restart.
 
 - `jury_registration` (unset: on in debug builds, off in release builds): clubs
-  register judges for the jury categories, admins see the jury obligation and
+  register judges for the heats' Vorlaufs and the finals, admins see the jury obligation and
   plan the jury. Off, the judge endpoints answer 404 and the UI shows nothing
   about judges.
 - `moderation_input` (unset: on): clubs can add an extra text for moderation
@@ -129,7 +134,7 @@ never open another club's registration: that stays with the club contact.
 | Role | Can |
 |---|---|
 | Admin | Everything, including granting roles |
-| Juryleitung | Jury categories, judges, the jury plan, finals placements, the medals, the moderation screen |
+| Juryleitung | Jury units, judges, the jury plan, finals placements, the medals, the moderation screen |
 | Kasse | Payments, with the clubs, their contacts and riders |
 | Check-in | The check-in desk with birthdates and club balances, the medals |
 | Musiksteuerung | The music control, players, award ceremonies, the moderation screen and checking riders in at the start |
