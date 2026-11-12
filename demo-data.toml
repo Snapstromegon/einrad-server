@@ -1034,8 +1034,20 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 5
 judge_duration_minutes = 3
 
-# A final (as in config.example.toml): reserved slots for the best riders of
-# the heats, planned before the results are known.
+# Heats (as in competition.example.toml): the categories whose best acts
+# fill a final's slots.
+[[heats]]
+name = "JE EW"
+description = "Junior Expert Einzel Weiblich (U11–U15)"
+categories = ["EWU11", "EWU13", "EWU15"]
+
+[[heats]]
+name = "E EW"
+description = "Expert Einzel Weiblich (U17 und älter)"
+categories = ["EWU17", "EWU19", "EWU21", "EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
+
+# A final (as in competition.example.toml): reserved slots for the best riders
+# of the heats, planned before the results are known.
 [[finals]]
 name = "Finale EW"
 description = "Finale Einzel Weiblich"
@@ -1043,8 +1055,7 @@ act_type = "single"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 4
-slots = [{ label = "U11–U15", count = 3 }, { label = "U17+", count = 3 }]
-categories = ["EWU11", "EWU13", "EWU15", "EWU17", "EWU19", "EWU21", "EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
+slots = [{ heat = "JE EW", count = 3 }, { heat = "E EW", count = 3 }]
 
 # Timeplan entries can also carry their live state: started_at and ended_at.
 [[timeplan]]

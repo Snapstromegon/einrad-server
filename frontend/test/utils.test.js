@@ -28,7 +28,6 @@ import {
   formatDuration,
   formatMoney,
   formatSlotGroups,
-  parseSlotGroups,
   formatTime,
   getRiderPrice,
   groupSizeWarning,
@@ -646,22 +645,12 @@ describe("act types and groups", () => {
     assert.equal(isGroupActType(undefined), false);
   });
 
-  test("slot groups are formatted and parsed as admins type them", () => {
+  test("slot groups are formatted by their heats", () => {
     const groups = [
-      { count: 4, label: "U17–U21" },
-      { count: 4, label: "U23+" },
+      { count: 4, heat: "E EM 1" },
+      { count: 4, heat: "E EM 2" },
     ];
-    assert.equal(formatSlotGroups(groups), "4 × U17–U21, 4 × U23+");
-    assert.deepEqual(parseSlotGroups("4 × U17–U21, 4 × U23+"), groups);
-    assert.deepEqual(parseSlotGroups(" 4x U17–U21 ,4 * U23+ ,"), groups);
-    assert.deepEqual(parseSlotGroups("3 Xtreme"), [
-      { count: 3, label: "Xtreme" },
-    ]);
-    assert.deepEqual(parseSlotGroups("5"), [{ count: 5, label: "" }]);
-    assert.equal(formatSlotGroups([{ count: 5, label: "" }]), "5");
-    for (const text of ["", " , ", "U23+", "0 × U23+", "4 × U17, Rest"]) {
-      assert.equal(parseSlotGroups(text), null, text);
-    }
+    assert.equal(formatSlotGroups(groups), "4 × E EM 1, 4 × E EM 2");
   });
 
   test("groupSizeWarning flags groups outside their type's size range", () => {

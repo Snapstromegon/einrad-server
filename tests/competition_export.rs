@@ -77,6 +77,14 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
     assert!(file.contains("under_age = 11.0"), "{file}");
     assert!(file.contains("min_age = 70.0"), "{file}");
     assert!(!file.contains("birthday"), "{file}");
+    // Heats with their categories; finals name them in their slot groups.
+    assert!(file.contains("[[heats]]\nname = \"JE EW\""), "{file}");
+    assert!(
+        file.contains("categories = [\"EWU11\", \"EWU13\", \"EWU15\"]"),
+        "{file}"
+    );
+    assert!(file.contains("heat = \"E EW\""), "{file}");
+    assert!(!file.contains("label = \"U"), "{file}");
     CompetitionFile::parse(&file).unwrap();
 
     let fresh = TestApp::without_competition(common::in_memory_migrated().await).await;

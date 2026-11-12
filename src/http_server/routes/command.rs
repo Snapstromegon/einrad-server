@@ -4,6 +4,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 mod add_category;
 mod add_club_judge;
 mod add_final;
+mod add_heat;
 mod add_jury_category;
 mod add_rider;
 mod add_sponsor;
@@ -19,6 +20,7 @@ mod delete_category;
 mod delete_club_group;
 mod delete_club_judge;
 mod delete_final;
+mod delete_heat;
 mod delete_jury_category;
 mod delete_rider;
 mod delete_timeplan_entry;
@@ -29,6 +31,7 @@ mod edit_club_act;
 mod edit_club_judge;
 mod edit_competition;
 mod edit_final;
+mod edit_heat;
 mod edit_jury_category;
 mod edit_rider;
 mod edit_timeplan_entry;
@@ -107,6 +110,9 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(add_final::add_final))
         .routes(routes!(edit_final::edit_final))
         .routes(routes!(delete_final::delete_final))
+        .routes(routes!(add_heat::add_heat))
+        .routes(routes!(edit_heat::edit_heat))
+        .routes(routes!(delete_heat::delete_heat))
         .routes(routes!(set_final_placement::set_final_placement))
         .routes(routes!(set_final_published::set_final_published))
         .routes(routes!(edit_category::edit_category))

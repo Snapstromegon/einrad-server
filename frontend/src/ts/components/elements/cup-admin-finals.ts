@@ -17,12 +17,17 @@ import {
   formatDuration,
   formatSlotGroups,
   parseDuration,
-  parseSlotGroups,
 } from "../../utils";
 
 type Final = schemas.Final;
-type Category = schemas.Category;
+type Heat = schemas.Heat;
 type Act = schemas.Act;
+
+/** A slot group as typed: its heat and the count as text. */
+interface SlotGroupDraft {
+  heat: string;
+  count: string;
+}
 
 /** The row being edited, with the values as typed. */
 interface FinalDraft {
@@ -30,14 +35,12 @@ interface FinalDraft {
   description: string;
   act_type: ActType;
   is_single_male: boolean;
-  /** "5 × U11–U15, 4 × U23+" */
-  slots: string;
+  /** The slot groups in start order, e.g. 5 × "JE EM". */
+  slots: SlotGroupDraft[];
   /** Durations as "m:ss" or plain seconds. */
   einfahrzeit: string;
   act_duration: string;
   judge_duration: string;
-  /** The categories whose acts can be placed in the slots. */
-  categories: string[];
 }
 
 /** The placement of a final being edited: the act per slot id, "" if open. */
@@ -52,7 +55,10 @@ interface Editing {
   draft: FinalDraft;
 }
 
-const actTypes = Object.entries(actTypeLabels) as [ActType, string][];
+/** Only singles and pairs have finals; groups are their own final. */
+const actTypes = (Object.entries(actTypeLabels) as [ActType, string][]).filter(
+  ([value]) => value === "single" || value === "pair",
+);
 
 /** The columns of the table, for rows spanning all of them. */
 const COLUMNS = 12;
@@ -70,14 +76,27 @@ const discipline = (final: Pick<Final, "act_type" | "is_single_male">) =>
 const slotCount = (final: Final) =>
   final.slot_groups.reduce((sum, group) => sum + group.count, 0);
 
-/** Whether a category's acts compete in a final's discipline. */
-const sameDiscipline = (
-  category: Pick<Category, "act_type" | "is_single_male">,
+/** Whether a heat fits a final's discipline; an empty heat fits any. */
+const fitsDiscipline = (
+  heat: Heat,
   final: Pick<FinalDraft, "act_type" | "is_single_male">,
 ) =>
-  category.act_type === final.act_type &&
-  (final.act_type !== "single" ||
-    category.is_single_male === final.is_single_male);
+  !heat.act_type ||
+  (heat.act_type === final.act_type &&
+    (final.act_type !== "single" ||
+      heat.is_single_male === final.is_single_male));
+
+/** The slot groups of a draft, `null` if one has no heat or count. */
+const parseSlotDrafts = (slots: SlotGroupDraft[]) => {
+  const groups = slots.map((slot) => ({
+    heat: slot.heat,
+    count: Number(slot.count),
+  }));
+  return groups.length &&
+    groups.every((g) => g.heat && Number.isInteger(g.count) && g.count >= 1)
+    ? groups
+    : null;
+};
 
 const placedCount = (final: Final) =>
   final.slots.filter((slot) => slot.act_id).length;
@@ -99,21 +118,22 @@ const emptyDraft = (): FinalDraft => ({
   description: "",
   act_type: "single",
   is_single_male: false,
-  slots: "",
+  slots: [{ heat: "", count: "4" }],
   einfahrzeit: "10:00",
   act_duration: "3:00",
   judge_duration: "4:00",
-  categories: [],
 });
 
 /**
  * The finals: reserved slots for the best riders of the heats ("1. Finalist
- * (U11–U15)"), planned before the results are known. Admins add, edit and
- * delete them here; the timeplan plans them like categories.
+ * (JE EM)"), planned before the results are known. Admins add, edit and
+ * delete them here; each slot group names the heat it is filled from, and the
+ * final's categories are those of its heats. The timeplan plans them like
+ * categories.
  *
- * Once the heats are judged, admins place acts of a final's categories in its
- * slots ("Platzierung"). The placement stays internal until it is published;
- * then the timeplan shows the acts and the music control plays their songs.
+ * Once the heats are judged, admins place acts of a slot's heat in it
+ * ("Platzierung"). The placement stays internal until it is published; then
+ * the timeplan shows the acts and the music control plays their songs.
  */
 @customElement("cup-admin-finals")
 export default class CupAdminFinals extends LitElement {
@@ -131,8 +151,20 @@ export default class CupAdminFinals extends LitElement {
         width: 10em;
       }
 
-      input.slots {
-        width: 14em;
+      .slot-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .slot-group {
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+      }
+
+      input.count {
+        width: 3.5em;
       }
 
       input.dur {
@@ -157,17 +189,6 @@ export default class CupAdminFinals extends LitElement {
         white-space: normal;
         min-width: 6em;
         max-width: 16em;
-      }
-
-      .categories {
-        display: flex;
-        flex-direction: column;
-        max-height: 9em;
-        overflow-y: auto;
-      }
-
-      .categories label {
-        white-space: nowrap;
       }
 
       tr.placing > td {
@@ -206,11 +227,17 @@ export default class CupAdminFinals extends LitElement {
       await unwrap(client.listFinals({ signal })),
   });
 
-  private categories = new Task(this, {
+  private heats = new Task(this, {
     args: () => [],
     task: async (_args, { signal }) =>
-      await unwrap(client.listCategories({ signal })),
+      await unwrap(client.listHeats({ signal })),
   });
+
+  /** Loads everything again, e.g. after a heat changed. */
+  reload() {
+    void this.finals.run();
+    void this.heats.run();
+  }
 
   /** The acts, loaded once a placement is opened. */
   private acts = new Task(this, {
@@ -278,11 +305,13 @@ export default class CupAdminFinals extends LitElement {
           <th>Beschreibung</th>
           <th>Disziplin</th>
           <th
-            title="Die Finalplätze in Startreihenfolge, z. B. 5 × U11–U15, 4 × U23+"
+            title="Die Finalplätze in Startreihenfolge, je aus einem Vorlauf, z. B. 4 × E EM 1, 4 × E EM 2"
           >
             Finalplätze
           </th>
-          <th title="Aus diesen Kategorien werden die Finalplätze besetzt">
+          <th
+            title="Die Kategorien seiner Vorläufe, aus denen die Finalplätze besetzt werden"
+          >
             Kategorien
           </th>
           <th class="num" title="Einfahrzeit (m:ss)">Einfahren</th>
@@ -514,24 +543,8 @@ export default class CupAdminFinals extends LitElement {
           männlich
         </label>
       </td>
-      <td>
-        <input
-          class=${classMap({ inline: true, slots: true, invalid: problems.slots })}
-          type="text"
-          placeholder="5 × U11–U15, 4 × U23+"
-          title=${
-            slotsLocked
-              ? "Das Finale hat begonnen; seine Plätze bleiben."
-              : "Anzahl × Herkunft, durch Kommas getrennt, in Startreihenfolge"
-          }
-          aria-label="Finalplätze"
-          data-field="slots"
-          ?disabled=${slotsLocked}
-          .value=${draft.slots}
-          @input=${this.onDraftInput}
-        />
-      </td>
-      <td>${this.renderCategoryPicker(draft)}</td>
+      <td>${this.renderSlotGroups(draft, slotsLocked, problems.slots)}</td>
+      <td class="cats">${this.renderDraftCategories(draft)}</td>
       ${durations}
       <td></td>
       <td></td>
@@ -560,44 +573,105 @@ export default class CupAdminFinals extends LitElement {
   }
 
   /**
-   * Checkboxes for the categories of the final's discipline, and those
-   * chosen before from another one.
+   * The slot groups in start order: per group a heat of the final's
+   * discipline and a count. Empty heats are marked; they fit any final.
    */
-  private renderCategoryPicker(draft: FinalDraft) {
-    const categories = (this.categories.value ?? []).filter(
-      (category) =>
-        sameDiscipline(category, draft) ||
-        draft.categories.includes(category.name),
-    );
-    if (!categories.length) {
-      return html`<span class="muted small"
-        >${
-          this.categories.value
-            ? "Keine Kategorien dieser Disziplin"
-            : "Lade Kategorien …"
-        }</span
-      >`;
+  private renderSlotGroups(
+    draft: FinalDraft,
+    locked: boolean,
+    invalid: boolean,
+  ) {
+    const heats = this.heats.value;
+    if (!heats) {
+      return html`<span class="muted small">Lade Vorläufe …</span>`;
     }
+    const fitting = heats.filter((heat) => fitsDiscipline(heat, draft));
+    const rows = draft.slots.map(
+      (slot, index) => html`<div class="slot-group">
+          <input
+            class=${classMap({
+              inline: true,
+              num: true,
+              count: true,
+              invalid: invalid && !(Number(slot.count) >= 1),
+            })}
+            type="number"
+            min="1"
+            aria-label="Anzahl Plätze"
+            data-index=${index}
+            data-part="count"
+            ?disabled=${locked}
+            .value=${slot.count}
+            @input=${this.onSlotGroupInput}
+          />
+          ×
+          <select
+            class=${classMap({ inline: true, invalid: invalid && !slot.heat })}
+            aria-label="Vorlauf"
+            data-index=${index}
+            data-part="heat"
+            ?disabled=${locked}
+            @change=${this.onSlotGroupInput}
+          >
+            <option value="" ?selected=${!slot.heat}>— Vorlauf —</option>
+            ${repeat(
+              // The heat chosen before stays, even of another discipline.
+              heats.filter(
+                (heat) => fitting.includes(heat) || heat.name === slot.heat,
+              ),
+              (heat) => heat.name,
+              (heat) =>
+                html`<option
+                  value=${heat.name}
+                  ?selected=${heat.name === slot.heat}
+                >
+                  ${heat.name}${heat.categories.length ? "" : " (ohne Kategorien)"}
+                </option>`,
+            )}
+          </select>
+          <button
+            class="icon-btn"
+            title="Gruppe entfernen"
+            aria-label="Gruppe entfernen"
+            data-index=${index}
+            ?disabled=${locked || draft.slots.length < 2}
+            @click=${this.onRemoveSlotGroup}
+          >
+            remove
+          </button>
+        </div>`,
+    );
     return html`<div
-      class="categories small"
+      class="slot-groups"
       role="group"
-      aria-label="Kategorien"
+      aria-label="Finalplätze"
+      title=${
+        locked
+          ? "Das Finale hat begonnen; seine Plätze bleiben."
+          : "Anzahl Plätze je Vorlauf, in Startreihenfolge"
+      }
     >
-      ${repeat(
-        categories,
-        (category) => category.name,
-        (category) =>
-          html`<label title=${category.description ?? category.name}
-            ><input
-              type="checkbox"
-              data-category=${category.name}
-              .checked=${draft.categories.includes(category.name)}
-              @change=${this.onCategoryToggle}
-            />
-            ${category.name}</label
-          >`,
-      )}
+      ${rows}
+      <button
+        class="btn small"
+        ?disabled=${locked}
+        @click=${this.onAddSlotGroup}
+      >
+        <span class="material-icon">add</span> Gruppe
+      </button>
     </div>`;
+  }
+
+  /** The categories the draft's heats give the final, read-only. */
+  private renderDraftCategories(draft: FinalDraft) {
+    const heats = this.heats.value ?? [];
+    const names = new Set(draft.slots.map((slot) => slot.heat));
+    const categories = heats
+      .filter((heat) => names.has(heat.name))
+      .flatMap((heat) => heat.categories);
+    return categories.length
+      ? html`<span class="muted small">${categories.join(", ")}</span>`
+      : html`<span class="muted small">aus den Vorläufen</span>`;
   }
 
   /** The placement of a final's slots, below its row. */
@@ -621,8 +695,8 @@ export default class CupAdminFinals extends LitElement {
         ${
           !final.categories.length
             ? html`<p class="muted">
-                Dem Finale sind noch keine Kategorien zugeordnet. Bitte zuerst
-                über „Bearbeiten“ die Kategorien wählen, aus denen die
+                Die Vorläufe des Finales haben noch keine Kategorien. Bitte
+                zuerst unter „Vorläufe“ die Kategorien zuordnen, aus denen die
                 Finalplätze besetzt werden.
               </p>`
             : acts
@@ -692,9 +766,9 @@ export default class CupAdminFinals extends LitElement {
   }
 
   /**
-   * The act for one slot: the acts of the final's categories, by category.
+   * The act for one slot: the acts of its heat's categories, by category.
    * An act chosen for another slot can't be chosen twice; the act placed
-   * before stays choosable even if its category left the final.
+   * before stays choosable even if its category left the heat.
    */
   private renderSlotSelect(
     final: Final,
@@ -709,7 +783,9 @@ export default class CupAdminFinals extends LitElement {
         .filter(([id, act]) => id !== slotId && act)
         .map(([, act]) => act),
     );
-    const groups = final.categories.map((category) => ({
+    // The slot's group label is its heat.
+    const heat = this.heats.value?.find((h) => h.name === slot?.group_label);
+    const groups = (heat?.categories ?? []).map((category) => ({
       label: category,
       acts: acts
         .filter((act) => act.category === category && !act.withdrawn)
@@ -719,7 +795,7 @@ export default class CupAdminFinals extends LitElement {
     const current = acts.find((act) => act.id === value);
     if (value && !listed.has(value)) {
       groups.push({
-        label: "Nicht mehr in den Kategorien",
+        label: "Nicht mehr im Vorlauf",
         acts: current ? [current] : [],
       });
     }
@@ -760,7 +836,7 @@ export default class CupAdminFinals extends LitElement {
       !value.trim() || parseDuration(value) === null;
     return {
       name: !draft.name.trim(),
-      slots: parseSlotGroups(draft.slots) === null,
+      slots: parseSlotDrafts(draft.slots) === null,
       einfahrzeit: duration(draft.einfahrzeit),
       act_duration: duration(draft.act_duration),
       judge_duration: duration(draft.judge_duration),
@@ -795,30 +871,58 @@ export default class CupAdminFinals extends LitElement {
         description: final.description ?? "",
         act_type: final.act_type,
         is_single_male: final.is_single_male,
-        slots: formatSlotGroups(final.slot_groups),
+        slots: final.slot_groups.map((group) => ({
+          heat: group.heat,
+          count: String(group.count),
+        })),
         einfahrzeit: formatDuration(final.einfahrzeit_seconds),
         act_duration: formatDuration(final.act_duration_seconds),
         judge_duration: formatDuration(final.judge_duration_seconds),
-        categories: [...final.categories],
       },
     };
   }
 
-  private onCategoryToggle(e: Event) {
+  /** Changes a slot group's heat or count. */
+  private onSlotGroupInput(e: Event) {
     if (!this.editing) {
       return;
     }
-    const target = e.currentTarget as HTMLInputElement;
-    const name = target.dataset.category ?? "";
-    const others = this.editing.draft.categories.filter((c) => c !== name);
-    // In category order, as the checkboxes list them.
-    const order = (this.categories.value ?? []).map((c) => c.name);
-    const categories = target.checked
-      ? [...others, name].sort((a, b) => order.indexOf(a) - order.indexOf(b))
-      : others;
+    const target = e.currentTarget as HTMLInputElement | HTMLSelectElement;
+    const index = Number(target.dataset.index);
+    const part = target.dataset.part as keyof SlotGroupDraft;
+    const slots = this.editing.draft.slots.map((slot, i) =>
+      i === index ? { ...slot, [part]: target.value } : slot,
+    );
     this.editing = {
       ...this.editing,
-      draft: { ...this.editing.draft, categories },
+      draft: { ...this.editing.draft, slots },
+    };
+  }
+
+  private onAddSlotGroup() {
+    if (!this.editing) {
+      return;
+    }
+    this.editing = {
+      ...this.editing,
+      draft: {
+        ...this.editing.draft,
+        slots: [...this.editing.draft.slots, { heat: "", count: "4" }],
+      },
+    };
+  }
+
+  private onRemoveSlotGroup(e: Event) {
+    if (!this.editing) {
+      return;
+    }
+    const index = Number((e.currentTarget as HTMLElement).dataset.index);
+    this.editing = {
+      ...this.editing,
+      draft: {
+        ...this.editing.draft,
+        slots: this.editing.draft.slots.filter((_, i) => i !== index),
+      },
     };
   }
 
@@ -952,13 +1056,13 @@ export default class CupAdminFinals extends LitElement {
     const messages = [
       problems.name && "Bitte einen Namen eingeben.",
       problems.slots &&
-        "Bitte die Finalplätze als Anzahl × Herkunft eingeben, z. B. 5 × U11–U15, 4 × U23+.",
+        "Bitte für jede Gruppe von Finalplätzen einen Vorlauf und eine Anzahl ab 1 wählen.",
       (problems.einfahrzeit ||
         problems.act_duration ||
         problems.judge_duration) &&
         "Bitte die Zeiten als m:ss (z. B. 3:00) oder in Sekunden eingeben.",
     ].filter(Boolean);
-    const slotGroups = parseSlotGroups(draft.slots);
+    const slotGroups = parseSlotDrafts(draft.slots);
     if (messages.length || !slotGroups) {
       this.error = messages.join("\n");
       return;
@@ -971,7 +1075,6 @@ export default class CupAdminFinals extends LitElement {
       act_duration_seconds: parseDuration(draft.act_duration) ?? 0,
       judge_duration_seconds: parseDuration(draft.judge_duration) ?? 0,
       slot_groups: slotGroups,
-      categories: draft.categories,
     };
     await this.command("Speichern fehlgeschlagen", async () => {
       if (original) {

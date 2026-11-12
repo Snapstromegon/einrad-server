@@ -162,8 +162,8 @@ impl ConfigFile {
     }
 }
 
-/// The competition file: the competition with its categories, finals,
-/// timeplan and jury categories. It's only an import; the database is the
+/// The competition file: the competition with its categories, heats,
+/// finals, timeplan and jury categories. It's only an import; the database is the
 /// source of the competition (see `crate::seed::apply`). The export writes
 /// one (see `crate::export`).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -172,6 +172,8 @@ pub struct CompetitionFile {
     pub competition: CompetitionConfig,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<CategoryConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub heats: Vec<HeatConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub finals: Vec<FinalConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -189,7 +191,9 @@ struct CompetitionFileInput {
     #[serde(default)]
     categories: Vec<CategoryInput>,
     #[serde(default)]
-    finals: Vec<FinalConfig>,
+    heats: Vec<HeatConfig>,
+    #[serde(default)]
+    finals: Vec<FinalInput>,
     #[serde(default)]
     timeplan: Vec<TimeplanEntryConfig>,
     #[serde(default)]
@@ -260,6 +264,78 @@ impl CategoryInput {
     }
 }
 
+/// A final as read: the fields of a [`FinalConfig`], and the slot labels and
+/// categories older files give instead of heats, only to reject them with a
+/// message on what to write instead (#338).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FinalInput {
+    name: String,
+    description: Option<String>,
+    act_type: ActType,
+    #[serde(default)]
+    single_male: bool,
+    #[serde(default)]
+    einfahrzeit_minutes: f64,
+    #[serde(default)]
+    act_duration_minutes: f64,
+    #[serde(default)]
+    judge_duration_minutes: f64,
+    slots: Vec<SlotGroupInput>,
+    /// The categories of older files.
+    categories: Option<Vec<String>>,
+}
+
+/// A slot group as read: its heat, or the label of older files.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SlotGroupInput {
+    heat: Option<String>,
+    label: Option<String>,
+    count: i64,
+}
+
+impl FinalInput {
+    /// The final; fails naming it if it still has slot labels or its own
+    /// categories, or a slot group without a heat.
+    fn into_config(self) -> Result<FinalConfig, String> {
+        let name = &self.name;
+        let old = self.categories.is_some() || self.slots.iter().any(|s| s.label.is_some());
+        if old || self.slots.iter().any(|s| s.heat.is_none()) {
+            return Err(format!(
+                "Final {name}: every slot group names the heat it is filled from, and a \
+                 final's categories are those of its heats; slot labels and a final's own \
+                 categories are gone (#338). Define the heats and name them in the slots, \
+                 e.g.:\n\n\
+                 [[heats]]\n\
+                 name = \"E EM 1\"\n\
+                 categories = [\"EMU17\", \"EMU19\", \"EMU21\"]\n\n\
+                 [[finals]]\n\
+                 name = \"{name}\"\n\
+                 …\n\
+                 slots = [{{ heat = \"E EM 1\", count = 4 }}]"
+            ));
+        }
+        Ok(FinalConfig {
+            slots: self
+                .slots
+                .into_iter()
+                .map(|slot| crate::finals::SlotGroup {
+                    heat: slot.heat.unwrap_or_default(),
+                    count: slot.count,
+                })
+                .collect(),
+            name: self.name,
+            description: self.description,
+            act_type: self.act_type,
+            single_male: self.single_male,
+            einfahrzeit_minutes: self.einfahrzeit_minutes,
+            act_duration_minutes: self.act_duration_minutes,
+            judge_duration_minutes: self.judge_duration_minutes,
+        })
+    }
+}
+
 impl TryFrom<CompetitionFileInput> for CompetitionFile {
     type Error = String;
 
@@ -272,7 +348,12 @@ impl TryFrom<CompetitionFileInput> for CompetitionFile {
                 .map(|category| category.into_config(determining_day))
                 .collect::<Result<_, _>>()?,
             competition: input.competition,
-            finals: input.finals,
+            heats: input.heats,
+            finals: input
+                .finals
+                .into_iter()
+                .map(FinalInput::into_config)
+                .collect::<Result<_, _>>()?,
             timeplan: input.timeplan,
             jury_categories: input.jury_categories,
         })
@@ -712,8 +793,24 @@ pub struct CategoryConfig {
     pub judge_duration_minutes: f64,
 }
 
+/// A heat: a named group of categories of one discipline whose best acts
+/// fill a final's slots (see `crate::heats`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeatConfig {
+    /// Unique; a final's `slots` refer to it.
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// All of one act type and gender; a category is in at most one heat,
+    /// group categories in none.
+    #[serde(default)]
+    pub categories: Vec<String>,
+}
+
 /// A final: reserved slots for the best riders of the heats, e.g. 5 slots
-/// "U11–U15", planned before the results are known (see `crate::finals`).
+/// from the heat "JE EM", planned before the results are known (see
+/// `crate::finals`).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FinalConfig {
@@ -730,11 +827,9 @@ pub struct FinalConfig {
     pub act_duration_minutes: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub judge_duration_minutes: f64,
-    /// The slots in start order, as groups like `{ label = "U11–U15", count = 5 }`.
+    /// The slots in start order, as groups like `{ heat = "JE EM", count = 5 }`.
+    /// Its categories are those of the heats.
     pub slots: Vec<crate::finals::SlotGroup>,
-    /// The categories whose acts can be placed in the slots.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub categories: Vec<String>,
 }
 
 /// What judges register for and get assigned to, e.g. one heat block (see
@@ -1547,7 +1642,9 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
             .iter()
             .map(|c| c.name.clone())
             .collect::<Vec<_>>();
-        let finals = crate::seed::resolve_finals(&file.finals).unwrap();
+        let heats = crate::seed::resolve_heats(&file.heats, &file.categories).unwrap();
+        assert!(heats.iter().all(|heat| !heat.categories.is_empty()));
+        let finals = crate::seed::resolve_finals(&file.finals, &heats).unwrap();
         let final_names = finals.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
         crate::seed::validate_timeplan(&file.timeplan, &category_names, &final_names).unwrap();
         let warnings = crate::seed::unscheduled_category_warnings(&file.timeplan, &category_names);

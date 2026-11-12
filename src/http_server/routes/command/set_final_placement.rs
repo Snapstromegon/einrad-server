@@ -36,7 +36,8 @@ pub struct SetFinalPlacementBody {
 
 /// Place acts in the slots of a final.
 ///
-/// The acts come from the final's categories, each at most once per final.
+/// A slot takes the acts of its heat's categories, each at most once per
+/// final.
 /// A slot that has started keeps its act. Once the placement is published,
 /// changes show in the timeplan right away.
 #[utoipa::path(
@@ -77,7 +78,7 @@ pub async fn set_final_placement(
         r#"
         SELECT
             id as "id!: Uuid",
-            group_label,
+            heat as "heat!",
             number,
             act_id as "act_id: Uuid",
             started_at IS NOT NULL as "started!: bool"
@@ -88,13 +89,14 @@ pub async fn set_final_placement(
     )
     .fetch_all(&mut *tx)
     .await?;
-    let categories: HashSet<String> = sqlx::query_scalar!(
-        "SELECT category FROM final_categories WHERE final_name = ?",
-        body.name
+    // The heat of each category.
+    let heats: HashMap<String, String> = sqlx::query!(
+        r#"SELECT name as "name!", heat as "heat!" FROM categories WHERE heat IS NOT NULL"#
     )
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .map(|row| (row.name, row.heat))
     .collect();
 
     // The placement after the change, to check it as a whole.
@@ -110,7 +112,7 @@ pub async fn set_final_placement(
         if slot.act_id == change.act_id {
             continue;
         }
-        let label = crate::finals::finalist_label(slot.number, &slot.group_label);
+        let label = crate::finals::finalist_label(slot.number, &slot.heat);
         if slot.started {
             return Err(HttpError::ErrorMessages(format!(
                 "„{label}“ hat schon begonnen, die Kür bleibt."
@@ -133,9 +135,10 @@ pub async fn set_final_placement(
                         "Die Kür für „{label}“ ist zurückgezogen oder unvollständig."
                     )));
                 }
-                Some(Some(category)) if !categories.contains(&category) => {
+                Some(Some(category)) if heats.get(&category) != Some(&slot.heat) => {
                     return Err(HttpError::ErrorMessages(format!(
-                        "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zu diesem Finale gehört."
+                        "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zum Vorlauf „{}“ gehört.",
+                        slot.heat
                     )));
                 }
                 Some(Some(_)) => {}

@@ -20,10 +20,11 @@ use crate::{
     colors,
     competition::{Competition, upsert_competition},
     config::{
-        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, Settings,
-        SponsorConfig, TimeplanEntryConfig,
+        Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
+        Settings, SponsorConfig, TimeplanEntryConfig,
     },
     finals::{self, SlotGroup},
+    heats::{self, Discipline},
     images::{self, Image, ImageUrl, Slot},
     jury::JudgeTask,
     logo::{Logo, SvgLogo},
@@ -221,11 +222,69 @@ pub struct ResolvedFinal {
     pub act_duration_seconds: i64,
     pub judge_duration_seconds: i64,
     pub slots: Vec<SlotGroup>,
-    pub categories: Vec<String>,
 }
 
-/// Checks the finals of the config and converts their durations.
-pub fn resolve_finals(finals: &[FinalConfig]) -> Result<Vec<ResolvedFinal>, String> {
+/// A heat from the config, checked against HEAT-1.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedHeat {
+    pub name: String,
+    pub description: Option<String>,
+    pub categories: Vec<String>,
+    /// The discipline its categories share; `None` without categories.
+    pub discipline: Option<Discipline>,
+}
+
+/// Checks the heats of the config (HEAT-1: one act type and gender, no group
+/// categories, a category in at most one heat), naming the offender.
+pub fn resolve_heats(
+    heats: &[HeatConfig],
+    categories: &[CategoryConfig],
+) -> Result<Vec<ResolvedHeat>, String> {
+    let mut known: Vec<heats::CategoryInfo> = categories
+        .iter()
+        .map(|category| heats::CategoryInfo {
+            name: category.name.trim().to_string(),
+            discipline: Discipline::new(category.act_type, category.single_male),
+            heat: None,
+        })
+        .collect();
+    let mut names = HashSet::new();
+    let mut resolved = Vec::with_capacity(heats.len());
+    for config in heats {
+        let name = config.name.split_whitespace().collect::<Vec<_>>().join(" ");
+        if name.is_empty() {
+            return Err("A heat has an empty name.".to_string());
+        }
+        if !names.insert(name.clone()) {
+            return Err(format!("Heat {name} is defined more than once."));
+        }
+        let categories = heats::normalize_categories(&config.categories);
+        let discipline = heats::check(&name, &categories, &known)
+            .map_err(|problem| format!("Heat {name}: {}.", problem.english()))?;
+        for category in known.iter_mut().filter(|c| categories.contains(&c.name)) {
+            category.heat = Some(name.clone());
+        }
+        resolved.push(ResolvedHeat {
+            name,
+            description: config
+                .description
+                .as_ref()
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty()),
+            categories,
+            discipline,
+        });
+    }
+    Ok(resolved)
+}
+
+/// Checks the finals of the config against its heats and converts their
+/// durations. Only singles and pairs have finals; every slot group names a
+/// heat of the file of the final's discipline (an empty heat fits any).
+pub fn resolve_finals(
+    finals: &[FinalConfig],
+    heats: &[ResolvedHeat],
+) -> Result<Vec<ResolvedFinal>, String> {
     let mut names = HashSet::new();
     finals
         .iter()
@@ -237,12 +296,32 @@ pub fn resolve_finals(finals: &[FinalConfig]) -> Result<Vec<ResolvedFinal>, Stri
             if !names.insert(name.to_string()) {
                 return Err(format!("Final {name} is defined more than once."));
             }
+            if !matches!(config.act_type, ActType::Single | ActType::Pair) {
+                return Err(format!(
+                    "Final {name}: only singles and pairs have finals; group categories are their own final."
+                ));
+            }
             let slots = finals::normalize_slot_groups(&config.slots).map_err(|_| {
                 format!(
-                    "Final {name}: slots need at least one slot, each group a count of at least 1, at most {} in all.",
+                    "Final {name}: slots need at least one slot, each group a heat and a count of at least 1, at most {} in all.",
                     finals::MAX_SLOTS
                 )
             })?;
+            let discipline = Discipline::new(config.act_type, config.single_male);
+            for group in &slots {
+                let Some(heat) = heats.iter().find(|heat| heat.name == group.heat) else {
+                    return Err(format!(
+                        "Final {name}: the slots name the heat {}, which the file doesn't define.",
+                        group.heat
+                    ));
+                };
+                if heat.discipline.is_some_and(|d| d != discipline) {
+                    return Err(format!(
+                        "Final {name}: the heat {} has another act type or gender than the final.",
+                        heat.name
+                    ));
+                }
+            }
             Ok(ResolvedFinal {
                 name: name.to_string(),
                 description: config.description.clone(),
@@ -264,7 +343,6 @@ pub fn resolve_finals(finals: &[FinalConfig]) -> Result<Vec<ResolvedFinal>, Stri
                     name,
                 )?,
                 slots,
-                categories: finals::normalize_categories(&config.categories),
             })
         })
         .collect()
@@ -599,6 +677,7 @@ pub enum Part {
     Images,
     Colors,
     Categories,
+    Heats,
     Finals,
     Timeplan,
     JuryCategories,
@@ -612,6 +691,7 @@ impl Part {
             Part::Images => "the logo, break image and sponsors",
             Part::Colors => "the colors",
             Part::Categories => "the categories",
+            Part::Heats => "the heats",
             Part::Finals => "the finals",
             Part::Timeplan => "the timeplan",
             Part::JuryCategories => "the jury categories",
@@ -979,6 +1059,7 @@ struct Snapshot {
     images: Vec<String>,
     colors: Vec<String>,
     categories: Vec<String>,
+    heats: Vec<String>,
     finals: Vec<String>,
     timeplan: Vec<String>,
     jury_categories: Vec<String>,
@@ -1020,15 +1101,19 @@ impl Snapshot {
                 FROM categories ORDER BY "order", name"#,
             )
             .await?,
+            heats: rows(
+                r#"SELECT json_array(name, description,
+                    (SELECT json_group_array(name)
+                        FROM (SELECT name FROM categories WHERE heat = heats.name ORDER BY name)))
+                FROM heats ORDER BY name"#,
+            )
+            .await?,
             finals: rows(
                 r#"SELECT json_array(name, description, act_type, is_single_male, "order",
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
-                    (SELECT json_group_array(json_array(group_label, number))
-                        FROM (SELECT group_label, number FROM final_slots
-                            WHERE final_name = finals.name ORDER BY position)),
-                    (SELECT json_group_array(category)
-                        FROM (SELECT category FROM final_categories
-                            WHERE final_name = finals.name ORDER BY category)))
+                    (SELECT json_group_array(json_array(heat, number))
+                        FROM (SELECT heat, number FROM final_slots
+                            WHERE final_name = finals.name ORDER BY position)))
                 FROM finals ORDER BY "order", name"#,
             )
             .await?,
@@ -1054,6 +1139,7 @@ impl Snapshot {
             (self.images != other.images, Part::Images),
             (self.colors != other.colors, Part::Colors),
             (self.categories != other.categories, Part::Categories),
+            (self.heats != other.heats, Part::Heats),
             (self.finals != other.finals, Part::Finals),
             (self.timeplan != other.timeplan, Part::Timeplan),
             (
@@ -1170,10 +1256,10 @@ async fn write(
         "jury_categories",
         "timeplan_slots",
         "timeplan",
-        "final_categories",
         "final_slots",
         "finals",
         "categories",
+        "heats",
     ] {
         sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}")))
             .execute(&mut *conn)
@@ -1255,8 +1341,32 @@ async fn write(
         );
     }
 
+    let heats = resolve_heats(&file.heats, categories)?;
+    for heat in &heats {
+        if heat.categories.is_empty() {
+            warn!(
+                "Heat {} has no categories; its finalist slots stay empty until an admin assigns them.",
+                heat.name
+            );
+        }
+        sqlx::query!(
+            "INSERT INTO heats (name, description) VALUES (?, ?)",
+            heat.name,
+            heat.description
+        )
+        .execute(&mut *conn)
+        .await
+        .map_err(db_error)?;
+        heats::set_categories(conn, &heat.name, &heat.categories)
+            .await
+            .map_err(db_error)?;
+    }
+    if !heats.is_empty() {
+        info!("Seeded {} heats from the competition file", heats.len());
+    }
+
     if !finals.is_empty() {
-        let resolved = resolve_finals(finals)?;
+        let resolved = resolve_finals(finals, &heats)?;
         for (order, item) in (1_i64..).zip(&resolved) {
             sqlx::query!(
                 r#"
@@ -1278,18 +1388,6 @@ async fn write(
             .await
             .map_err(db_error)?;
             finals::replace_slots(conn, &item.name, &item.slots)
-                .await
-                .map_err(db_error)?;
-            if finals::check_categories(conn, &item.categories)
-                .await
-                .is_err()
-            {
-                return Err(format!(
-                    "Final {}: categories must name categories of the config.",
-                    item.name
-                ));
-            }
-            finals::set_categories(conn, &item.name, &item.categories)
                 .await
                 .map_err(db_error)?;
         }
@@ -2020,11 +2118,14 @@ mod tests {
         [[timeplan]]
         final = "Finale"
 
+        [[heats]]
+        name = "Vorlauf"
+        categories = ["U15"]
+
         [[finals]]
         name = "Finale"
         act_type = "single"
-        slots = [{{ label = "U15", count = 2 }}]
-        categories = ["U15"]
+        slots = [{{ heat = "Vorlauf", count = 2 }}]
 
         [[jury_categories]]
         name = "Block A"
@@ -2290,6 +2391,136 @@ mod tests {
         assert_eq!(count(&db, "competition").await, 0);
         assert_eq!(count(&db, "categories").await, 0);
         assert_eq!(count(&db, "timeplan").await, 0);
+    }
+
+    /// The competition with heats and finals appended.
+    fn with_heats(heats_and_finals: &str) -> String {
+        format!(
+            r#"{COMPETITION}
+        [[categories]]
+        name = "PU15"
+        act_type = "pair"
+        under_age = 15
+
+        [[categories]]
+        name = "M15"
+        act_type = "single"
+        single_male = true
+        under_age = 15
+
+        [[categories]]
+        name = "KG"
+        act_type = "group_small"
+
+        {heats_and_finals}
+        "#
+        )
+    }
+
+    #[tokio::test]
+    async fn heats_are_seeded_with_their_categories() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let file = with_heats(
+            r#"
+            [[heats]]
+            name = "Junior"
+            description = "Junior Expert"
+            categories = ["U15"]
+
+            [[heats]]
+            name = "Expert"
+            categories = ["15+"]
+
+            [[finals]]
+            name = "Finale"
+            act_type = "single"
+            slots = [{ heat = "Junior", count = 2 }, { heat = "Expert", count = 1 }]
+            "#,
+        );
+        seed_file(&db, &file).await.unwrap();
+        let heats: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT name, description FROM heats ORDER BY name")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            heats,
+            [
+                ("Expert".to_string(), None),
+                ("Junior".to_string(), Some("Junior Expert".to_string())),
+            ]
+        );
+        let linked: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT name, heat FROM categories ORDER BY \"order\"")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            linked,
+            [
+                ("U15".to_string(), Some("Junior".to_string())),
+                ("15+".to_string(), Some("Expert".to_string())),
+                ("PU15".to_string(), None),
+                ("M15".to_string(), None),
+                ("KG".to_string(), None),
+            ]
+        );
+        let slots: Vec<String> =
+            sqlx::query_scalar("SELECT heat FROM final_slots ORDER BY position")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(slots, ["Junior", "Junior", "Expert"]);
+    }
+
+    #[tokio::test]
+    async fn the_import_checks_heats_and_names_the_offender() {
+        let heat = |name: &str, categories: &str| {
+            format!("[[heats]]\nname = \"{name}\"\ncategories = [{categories}]\n")
+        };
+        let single_final = |heat: &str| {
+            format!(
+                "[[finals]]\nname = \"Finale\"\nact_type = \"single\"\nslots = [{{ heat = \"{heat}\", count = 1 }}]\n"
+            )
+        };
+        for (file, message) in [
+            (heat(" ", "\"U15\""), "empty name"),
+            (heat("A", "\"U15\"") + &heat("A", "\"15+\""), "Heat A"),
+            (heat("A", "\"U99\""), "U99"),
+            // Group categories are their own final.
+            (heat("A", "\"KG\""), "KG"),
+            // One act type and gender.
+            (heat("A", "\"U15\", \"PU15\""), "PU15"),
+            (heat("A", "\"U15\", \"M15\""), "M15"),
+            // A category belongs to at most one heat.
+            (heat("A", "\"U15\"") + &heat("B", "\"U15\""), "U15"),
+            // A slot group names a heat of the file, of the final's discipline.
+            (single_final("Fehlt"), "Fehlt"),
+            (heat("A", "\"PU15\"") + &single_final("A"), "Final Finale"),
+            (
+                heat("A", "\"KG\"").replace("\"KG\"", "")
+                    + "[[finals]]\nname = \"Gruppe\"\nact_type = \"group_small\"\nslots = [{ heat = \"A\", count = 1 }]\n",
+                "Final Gruppe",
+            ),
+        ] {
+            let db = crate::reloadable_sqlite::in_memory_migrated().await;
+            let err = seed_file(&db, &with_heats(&file)).await.unwrap_err();
+            assert!(err.contains(message), "{message}: {err}");
+            assert_eq!(count(&db, "competition").await, 0);
+        }
+    }
+
+    #[test]
+    fn old_finals_with_labels_or_categories_are_rejected() {
+        for finals in [
+            "[[finals]]\nname = \"E EM\"\nact_type = \"single\"\nslots = [{ label = \"U17–U21\", count = 4 }]\n",
+            "[[finals]]\nname = \"E EM\"\nact_type = \"single\"\ncategories = [\"U15\"]\nslots = [{ heat = \"A\", count = 4 }]\n",
+        ] {
+            let err = CompetitionFile::parse(&format!("{COMPETITION}\n{finals}")).unwrap_err();
+            assert!(err.contains("Final E EM"), "{err}");
+            assert!(err.contains("[[heats]]"), "{err}");
+            assert!(err.contains("heat = "), "{err}");
+        }
     }
 
     #[tokio::test]

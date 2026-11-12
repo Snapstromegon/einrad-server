@@ -12,6 +12,7 @@ pub mod fees;
 pub mod finals;
 pub mod gender;
 pub mod groups;
+pub mod heats;
 pub mod http_server;
 pub mod image_fetch;
 pub mod images;

@@ -26,8 +26,8 @@ pub struct EditFinalBody {
 ///
 /// Every field is overwritten. Its slots are only created anew when the slot
 /// groups change, which isn't possible once the final has started; a slot
-/// with the same group label and number keeps its placed act. Placed acts
-/// stay when their category is taken off the final.
+/// with the same heat and number keeps its placed act. Every heat shares the
+/// final's discipline.
 #[utoipa::path(
     post,
     tags=["command", "final"],
@@ -52,8 +52,8 @@ pub async fn edit_final(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    let labels = sqlx::query_scalar!(
-        "SELECT group_label FROM final_slots WHERE final_name = ? ORDER BY position",
+    let heats = sqlx::query_scalar!(
+        r#"SELECT heat as "heat!" FROM final_slots WHERE final_name = ? ORDER BY position"#,
         body.name
     )
     .fetch_all(&mut *tx)
@@ -116,7 +116,15 @@ pub async fn edit_final(
     .execute(&mut *tx)
     .await?;
 
-    if finals::group_slots(labels.iter().map(String::as_str)) != fields.slot_groups {
+    finals::check_heats(
+        &mut tx,
+        fields.act_type,
+        fields.is_single_male,
+        &fields.slot_groups,
+    )
+    .await
+    .map_err(HttpError::ErrorMessages)?;
+    if finals::group_slots(heats.iter().map(String::as_str)) != fields.slot_groups {
         if finals::has_started(&mut tx, &new_name).await? {
             return Err(HttpError::ErrorMessages(
                 "Das Finale hat schon begonnen, seine Finalplätze bleiben, wie sie sind."
@@ -126,11 +134,6 @@ pub async fn edit_final(
         info!("Replacing the slots of final {new_name:?}");
         finals::replace_slots(&mut tx, &new_name, &fields.slot_groups).await?;
     }
-
-    finals::check_categories(&mut tx, &fields.categories)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    finals::set_categories(&mut tx, &new_name, &fields.categories).await?;
 
     tx.commit().await?;
     Ok(Json(EditFinalResponse {}))

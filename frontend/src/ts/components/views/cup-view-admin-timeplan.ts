@@ -6,6 +6,7 @@ import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
 import { errorMessage, PollController, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
+import { heatsOnSeveralDays } from "../../heats";
 import {
   SYSTEM_STATUS_CHANGED,
   type SystemStatus,
@@ -600,6 +601,7 @@ export default class CupViewAdminTimeplan extends LitElement {
       .filter((f) => f.timeplan_id === null || f.timeplan_id === undefined)
       .map((f) => f.name);
     const running = data.entries.find((e) => entryStatus(e) === "started");
+    const splitHeats = this.heatsOnSeveralDays(data);
     return html`<div class="kpis">
       <span class="kpi"><b>${data.entries.length}</b> Einträge</span>
       ${
@@ -652,6 +654,22 @@ export default class CupViewAdminTimeplan extends LitElement {
               ><b>${missing.length}</b>
               ${missing.length === 1 ? "Kategorie" : "Kategorien"} nicht im
               Zeitplan</span
+            >`
+          : nothing
+      }
+      ${
+        splitHeats.length
+          ? html`<span
+              class="kpi warn"
+              title=${`Die Kategorien eines Vorlaufs sollten am selben Tag laufen, damit seine Küren zusammen gewertet werden:\n${splitHeats
+                .map(
+                  (heat) =>
+                    `${heat.name}: ${heat.days.map((day) => formatDay(day)).join(", ")}`,
+                )
+                .join("\n")}`}
+              ><b>${splitHeats.length}</b>
+              ${splitHeats.length === 1 ? "Vorlauf" : "Vorläufe"} an mehreren
+              Tagen</span
             >`
           : nothing
       }
@@ -852,6 +870,38 @@ export default class CupViewAdminTimeplan extends LitElement {
         </tr>
       </tfoot>
     </table>`;
+  }
+
+  /**
+   * The heats whose categories' blocks land on different days (HEAT-4), by
+   * the planned start (or the earliest start, without a prediction).
+   */
+  private heatsOnSeveralDays(data: Data) {
+    const heats = new Map<string, string[]>();
+    for (const category of data.categories.values()) {
+      if (category.heat) {
+        heats.set(category.heat, [
+          ...(heats.get(category.heat) ?? []),
+          category.name,
+        ]);
+      }
+    }
+    const days = new Map<string, string[]>();
+    for (const entry of data.entries) {
+      const start =
+        data.predictions.get(entry.id)?.planned_start ??
+        entry.earliest_start_time;
+      if (entry.category && start) {
+        days.set(entry.category, [
+          ...(days.get(entry.category) ?? []),
+          dayKey(start),
+        ]);
+      }
+    }
+    return heatsOnSeveralDays(
+      [...heats].map(([name, categories]) => ({ name, categories })),
+      days,
+    );
   }
 
   /**

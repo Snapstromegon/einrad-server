@@ -442,6 +442,16 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 5
 judge_duration_minutes = 3
 
+# Heats: the categories whose best acts fill a final's slots.
+[[heats]]
+name = "JE EW"
+description = "Junior Expert Einzel Weiblich (U11–U15)"
+categories = ["EWU11", "EWU13", "EWU15"]
+
+[[heats]]
+name = "E EW"
+categories = ["EWU17"]
+
 # A final, not planned: tests add its timeplan entry.
 [[finals]]
 name = "Finale EW"
@@ -450,8 +460,7 @@ act_type = "single"
 einfahrzeit_minutes = 5
 act_duration_minutes = 3
 judge_duration_minutes = 2
-slots = [{ label = "U11–U15", count = 2 }, { label = "U17+", count = 1 }]
-categories = ["EWU11", "EWU13", "EWU15", "EWU17"]
+slots = [{ heat = "JE EW", count = 2 }, { heat = "E EW", count = 1 }]
 
 [[timeplan]]
 category = "EMU11"
