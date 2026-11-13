@@ -102,11 +102,11 @@ no features: a `config.toml` that still has `[features]` is rejected with
 where they went. A change in the database applies on the next request, without
 a restart.
 
-- `jury_registration` (unset: on in debug builds, off in release builds): clubs
+- `jury_registration` (unset: on): clubs
   register judges for the heats' Vorlaufs and the finals, admins see the jury obligation and
   plan the jury. Off, the judge endpoints answer 404 and the UI shows nothing
   about judges.
-- `moderation_input` (unset: on): clubs can add an extra text for moderation
+- `moderation_input` (unset: off): clubs can add an extra text for moderation
   when they register acts.
 
 The database migrations only create the schema and don't insert any data.

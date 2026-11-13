@@ -180,6 +180,8 @@ async fn edit_club_act_sets_name_and_description() {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let single = app.add_single_act(&cookie, club_id, "Anna").await;
+    // The moderation input is off by default.
+    common::set_moderation_input(&app.db, Some(true)).await;
 
     let response = app
         .post(
@@ -201,6 +203,8 @@ async fn disabled_moderation_input_hides_and_preserves_act_description() {
     let app = TestApp::new(db).await;
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let single = app.add_single_act(&cookie, club_id, "Anna").await;
+    // The moderation input is off by default.
+    common::set_moderation_input(&app.db, Some(true)).await;
 
     let response = app
         .post(

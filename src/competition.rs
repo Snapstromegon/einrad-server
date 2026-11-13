@@ -92,11 +92,11 @@ impl Features {
     }
 
     /// Fills in what's unset with each feature's build default: the jury
-    /// registration is on in debug builds only, the moderation input is on.
+    /// registration is on, the moderation input is off.
     pub fn resolve(&self) -> ResolvedFeatures {
         ResolvedFeatures {
-            jury_registration: self.jury_registration.unwrap_or(cfg!(debug_assertions)),
-            moderation_input: self.moderation_input.unwrap_or(true),
+            jury_registration: self.jury_registration.unwrap_or(true),
+            moderation_input: self.moderation_input.unwrap_or(false),
         }
     }
 
@@ -467,8 +467,8 @@ mod tests {
         assert!(on.resolve().moderation_input);
         assert!(!off.resolve().jury_registration);
         assert!(!off.resolve().moderation_input);
-        assert_eq!(unset.resolve().jury_registration, cfg!(debug_assertions));
-        assert!(unset.resolve().moderation_input);
+        assert!(unset.resolve().jury_registration);
+        assert!(!unset.resolve().moderation_input);
         assert_eq!(Features::of(None), unset.resolve());
     }
 }

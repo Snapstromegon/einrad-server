@@ -98,11 +98,11 @@ reference = "Startgeld"
 # registration_end = 2027-04-30T23:59:59+02:00  # default: registration_end
 
 # Optional: features that are still being refined, on (true) or off (false).
-# Unset ones follow the build default: jury registration is on in debug builds
-# and off in release builds, moderation input is on.
+# Unset ones follow the build default: jury registration is on, moderation
+# input is off.
 [competition.features]
 # Clubs register judges, admins plan the jury.
-# jury_registration = true
+# jury_registration = false
 # Clubs can add an extra text for moderation when they register acts.
 # moderation_input = true
 

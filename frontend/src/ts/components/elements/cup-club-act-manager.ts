@@ -119,7 +119,7 @@ export default class CupClubActManager extends LitElement {
     return (
       this.systemStatus?.moderation_input ??
       this.systemStatus?.competition?.features?.moderation_input ??
-      true
+      false
     );
   }
 
