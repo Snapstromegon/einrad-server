@@ -25,6 +25,7 @@ import {
   buildTree,
   groupCount,
   groupDeployments,
+  selectedDeployments,
   initiallyOpen,
   leavesOf,
   taskState,
@@ -425,6 +426,16 @@ export default class CupClubStepJury extends LitElement {
 
       table.grid td.count {
         color: var(--color-text-muted);
+      }
+
+      table.grid td.count .selected {
+        color: var(--color-primary-strong);
+        font-weight: 700;
+      }
+
+      table.grid td.count .selected.zero {
+        color: inherit;
+        font-weight: inherit;
       }
 
       table.grid tfoot td {
@@ -1206,6 +1217,7 @@ export default class CupClubStepJury extends LitElement {
     const ticked = this.draft.registrations;
     const count = groupCount(units, ticked);
     const deployments = groupDeployments(units);
+    const selected = selectedDeployments(units, ticked);
     const finals = units.filter((u) => u.kind === "final").length;
     const heats = units.length - finals;
     const what =
@@ -1266,8 +1278,13 @@ export default class CupClubStepJury extends LitElement {
           }
           <small>${what}</small>
         </td>
-        <td class="count">
-          ${deployments}<span class="unit">
+        <td
+          class="count"
+          title="${selected} von ${deployments} ${deployments === 1 ? "Einsatz" : "Einsätzen"} gewählt"
+        >
+          <span class="selected ${selected ? "" : "zero"}">${selected}</span
+          ><span class="of">/${deployments}</span
+          ><span class="unit">
             ${deployments === 1 ? "Einsatz" : "Einsätze"}</span
           >
         </td>

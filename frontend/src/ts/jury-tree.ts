@@ -164,6 +164,15 @@ export const toggleGroup = (
 export const groupDeployments = (units: readonly TreeUnit[]) =>
   units.reduce((sum, unit) => sum + unit.deployments, 0);
 
+/** The deployments of the units with anything ticked, summed. */
+export const selectedDeployments = (
+  units: readonly TreeUnit[],
+  ticked: ReadonlySet<string>,
+) =>
+  units
+    .filter((u) => hasAny(u, ticked))
+    .reduce((sum, unit) => sum + unit.deployments, 0);
+
 /** How many of the units have anything ticked ("x von y"). */
 export const groupCount = (
   units: readonly TreeUnit[],

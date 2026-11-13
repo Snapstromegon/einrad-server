@@ -4,6 +4,7 @@ import {
   buildTree,
   groupCount,
   groupDeployments,
+  selectedDeployments,
   initiallyOpen,
   leavesOf,
   taskState,
@@ -180,6 +181,13 @@ describe("group summary", () => {
 
   test("sums the deployments of its units", () => {
     assert.equal(groupDeployments(leaves), 2 + 2 + 1 + 2 + 1);
+  });
+
+  test("sums the deployments of the units with anything ticked", () => {
+    assert.equal(selectedDeployments(leaves, new Set()), 0);
+    // h1 (a Vorlauf, 2) twice ticked counts once; f2 (a final, 1).
+    const ticked = new Set(["h1:technical", "h1:dismounts", "f2:performance"]);
+    assert.equal(selectedDeployments(leaves, ticked), 2 + 1);
   });
 
   test("counts the units with anything ticked", () => {
