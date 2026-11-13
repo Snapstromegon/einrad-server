@@ -6,7 +6,10 @@ import {
   groupDeployments,
   selectedDeployments,
   initiallyOpen,
+  groupSummary,
   leavesOf,
+  shortFinalLabel,
+  shortUnitName,
   taskState,
   toggleGroup,
 } from "../src/ts/jury-tree.ts";
@@ -256,5 +259,78 @@ describe("initiallyOpen", () => {
       initiallyOpen(buildTree(closed.slice(0, 1), ticked), ticked, true).size,
       0,
     );
+  });
+});
+
+describe("shortFinalLabel", () => {
+  test("drops a leading Finale and the discipline word", () => {
+    assert.equal(
+      shortFinalLabel(
+        "Finale Expert Einzel Weiblich (U17 und älter)",
+        "Einzel",
+      ),
+      "Expert Weiblich (U17 und älter)",
+    );
+    assert.equal(
+      shortFinalLabel("Finale Kleingruppe Expert (15+)", "Kleingruppe"),
+      "Expert (15+)",
+    );
+  });
+
+  test("strips whole words only", () => {
+    assert.equal(
+      shortFinalLabel("Finale Einzelkür Expert", "Einzel"),
+      "Einzelkür Expert",
+    );
+    assert.equal(shortFinalLabel("Finale Expert", "Einzel"), "Expert");
+  });
+
+  test("keeps the name when nothing would be left", () => {
+    assert.equal(shortFinalLabel("Finale", "Einzel"), "Finale");
+    assert.equal(shortFinalLabel("Finale Einzel", "Einzel"), "Finale Einzel");
+  });
+
+  test("leaves a name without Finale or the discipline alone", () => {
+    assert.equal(
+      shortFinalLabel("KGU15 Meisterschaft", "Kleingruppe"),
+      "KGU15 Meisterschaft",
+    );
+    assert.equal(shortFinalLabel("Finale Expert", "Ohne Disziplin"), "Expert");
+  });
+});
+
+describe("shortUnitName", () => {
+  test("a heat reads Vorlauf and its name without the discipline word", () => {
+    assert.equal(
+      shortUnitName(
+        heat("h", "f", "single", {
+          name: "Expert 1 Einzel Weiblich (U17–U21)",
+        }),
+        "Einzel",
+      ),
+      "Vorlauf Expert 1 Weiblich (U17–U21)",
+    );
+  });
+
+  test("a final reads Finale", () => {
+    assert.equal(shortUnitName(final("f"), "Einzel"), "Finale");
+  });
+});
+
+describe("groupSummary", () => {
+  test("a final group counts its Vorläufe and its Finale", () => {
+    assert.equal(groupSummary("final", 2, 1, false), "2 Vorläufe + Finale");
+    assert.equal(groupSummary("final", 1, 1, false), "1 Vorlauf + Finale");
+    assert.equal(groupSummary("final", 0, 1, false), "Finale");
+  });
+
+  test("abbreviates Vorlauf to VL", () => {
+    assert.equal(groupSummary("final", 2, 1, true), "2 VL + Finale");
+    assert.equal(groupSummary("final", 1, 1, true), "1 VL + Finale");
+  });
+
+  test("a discipline counts its Einträge", () => {
+    assert.equal(groupSummary("discipline", 3, 2, false), "5 Einträge");
+    assert.equal(groupSummary("discipline", 1, 0, true), "1 Eintrag");
   });
 });

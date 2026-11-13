@@ -27,9 +27,12 @@ import {
   buildTree,
   groupCount,
   groupDeployments,
+  groupSummary,
   selectedDeployments,
   initiallyOpen,
   leavesOf,
+  shortFinalLabel,
+  shortUnitName,
   taskState,
   toggleGroup,
   type TreeGroup,
@@ -535,6 +538,7 @@ export default class CupClubStepJury extends LitElement {
       }
 
       .legend,
+      table.grid .short,
       table.grid .unit {
         display: none;
       }
@@ -657,6 +661,15 @@ export default class CupClubStepJury extends LitElement {
 
         table.grid td.category small {
           font-weight: normal;
+        }
+
+        /* Shorter names: the discipline above says the rest. */
+        table.grid .full {
+          display: none;
+        }
+
+        table.grid .short {
+          display: inline;
         }
 
         table.grid td.count {
@@ -1276,6 +1289,7 @@ export default class CupClubStepJury extends LitElement {
     group: TreeGroup<JuryUnit>,
     depth: number,
     endsDiscipline: boolean,
+    discipline: string = group.label,
   ): unknown {
     const units = leavesOf(group);
     const isOpen = this.open.has(group.id);
@@ -1285,15 +1299,6 @@ export default class CupClubStepJury extends LitElement {
     const selected = selectedDeployments(units, ticked);
     const finals = units.filter((u) => u.kind === "final").length;
     const heats = units.length - finals;
-    const what =
-      group.level === "final"
-        ? [
-            heats > 0 ? `${heats} ${heats === 1 ? "Vorlauf" : "Vorläufe"}` : "",
-            finals > 0 ? "Finale" : "",
-          ]
-            .filter(Boolean)
-            .join(" + ")
-        : `${units.length} ${units.length === 1 ? "Eintrag" : "Einträge"}`;
     const isFinal = group.level === "final";
     const rowClass = [
       "group",
@@ -1324,7 +1329,14 @@ export default class CupClubStepJury extends LitElement {
             <i class="material-icon" aria-hidden="true"
               >${isOpen ? "expand_more" : "chevron_right"}</i
             >
-            <span>${group.label}</span>
+            ${
+              isFinal
+                ? html`<span class="full">${group.label}</span
+                    ><span class="short" title=${group.label}
+                      >${shortFinalLabel(group.label, discipline)}</span
+                    >`
+                : html`<span>${group.label}</span>`
+            }
           </button>
           ${
             count.ticked
@@ -1333,7 +1345,13 @@ export default class CupClubStepJury extends LitElement {
                 </span>`
               : nothing
           }
-          <small>${what}</small>
+          <small>
+            <span class="full"
+              >${groupSummary(group.level, heats, finals, false)}</span
+            ><span class="short"
+              >${groupSummary(group.level, heats, finals, true)}</span
+            >
+          </small>
         </td>
         <td
           class="count"
@@ -1356,11 +1374,12 @@ export default class CupClubStepJury extends LitElement {
                 const last =
                   index === group.children.length - 1 && endsDiscipline;
                 return child.type === "group"
-                  ? this.renderGroup(child, depth + 1, last)
+                  ? this.renderGroup(child, depth + 1, last, discipline)
                   : this.renderGridRow(child.unit, depth + 1, {
                       inCard: isFinal,
                       cardEnd: isFinal && index === group.children.length - 1,
                       disciplineEnd: last,
+                      discipline,
                     });
               },
             )
@@ -1371,7 +1390,12 @@ export default class CupClubStepJury extends LitElement {
   private renderGridRow(
     category: JuryUnit,
     depth: number,
-    where: { inCard: boolean; cardEnd: boolean; disciplineEnd: boolean },
+    where: {
+      inCard: boolean;
+      cardEnd: boolean;
+      disciplineEnd: boolean;
+      discipline: string;
+    },
   ) {
     const registrations = this.draft.registrations;
     const wertet = this.renderSwitch({
@@ -1397,7 +1421,10 @@ export default class CupClubStepJury extends LitElement {
     ].join(" ");
     return html`<tr class=${rowClass} style="--depth: ${depth}">
       <td class="category">
-        ${unitName(category)}
+        <span class="full">${unitName(category)}</span
+        ><span class="short" title=${unitName(category)}
+          >${shortUnitName(category, where.discipline)}</span
+        >
         ${
           closedReason(category)
             ? html`<small>${closedReason(category)}</small>`

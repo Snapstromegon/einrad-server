@@ -219,3 +219,52 @@ export const initiallyOpen = (
   tree.forEach(visit);
   return open;
 };
+
+/** The name without a whole word (case-insensitive); null if nothing is left. */
+const dropWord = (name: string, word: string) => {
+  const rest = name
+    .split(/\s+/)
+    .filter((w) => w && w.toLowerCase() !== word.toLowerCase());
+  return rest.length > 0 ? rest.join(" ") : null;
+};
+
+/**
+ * A final group's label for narrow screens: without the leading "Finale" and
+ * the discipline word the discipline group above says already ("Finale Expert
+ * Einzel Weiblich" → "Expert Weiblich"). Whole words only; the name itself if
+ * nothing would be left.
+ */
+export const shortFinalLabel = (name: string, discipline: string) =>
+  dropWord(name.replace(/^Finale\s+/, ""), discipline) ?? name;
+
+/**
+ * A unit's name for narrow screens: a heat is "Vorlauf" and its name without
+ * the discipline word, a final just "Finale".
+ */
+export const shortUnitName = (
+  unit: { kind: "heat" | "final"; name: string },
+  discipline: string,
+) =>
+  unit.kind === "final"
+    ? "Finale"
+    : `Vorlauf ${dropWord(unit.name, discipline) ?? unit.name}`;
+
+/**
+ * The subline of a group: "2 Vorläufe + Finale" for a final ("2 VL + Finale"
+ * abbreviated), "3 Einträge" for a discipline.
+ */
+export const groupSummary = (
+  level: TreeGroup["level"],
+  heats: number,
+  finals: number,
+  abbreviate: boolean,
+) => {
+  if (level === "discipline") {
+    const total = heats + finals;
+    return `${total} ${total === 1 ? "Eintrag" : "Einträge"}`;
+  }
+  const heatWord = abbreviate ? "VL" : heats === 1 ? "Vorlauf" : "Vorläufe";
+  return [heats > 0 ? `${heats} ${heatWord}` : "", finals > 0 ? "Finale" : ""]
+    .filter(Boolean)
+    .join(" + ");
+};
