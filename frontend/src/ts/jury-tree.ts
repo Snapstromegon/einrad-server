@@ -268,3 +268,13 @@ export const groupSummary = (
     .filter(Boolean)
     .join(" + ");
 };
+
+/**
+ * A final group that holds only its final (no Vorlauf shown): the UI shows it
+ * as one row at the final level, without expanding.
+ */
+export const isSingleFinal = (group: TreeGroup) =>
+  group.level === "final" &&
+  group.children.length === 1 &&
+  group.children[0].type === "unit" &&
+  group.children[0].unit.kind === "final";

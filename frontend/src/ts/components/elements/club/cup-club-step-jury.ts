@@ -28,6 +28,7 @@ import {
   groupCount,
   groupDeployments,
   groupSummary,
+  isSingleFinal,
   selectedDeployments,
   initiallyOpen,
   leavesOf,
@@ -407,6 +408,13 @@ export default class CupClubStepJury extends LitElement {
         font-weight: 700;
         text-align: left;
         cursor: pointer;
+      }
+
+      /* A final without a Vorlauf has nothing to open: its name lines up. */
+      table.grid span.toggle.plain {
+        display: inline-block;
+        padding: 0.25rem 0.25rem 0.25rem 1.2rem;
+        font-weight: 700;
       }
 
       table.grid button.toggle:focus-visible {
@@ -1292,7 +1300,9 @@ export default class CupClubStepJury extends LitElement {
     discipline: string = group.label,
   ): unknown {
     const units = leavesOf(group);
-    const isOpen = this.open.has(group.id);
+    // A final with only its final is one row: nothing to open.
+    const single = isSingleFinal(group);
+    const isOpen = !single && this.open.has(group.id);
     const ticked = this.draft.registrations;
     const count = groupCount(units, ticked);
     const deployments = groupDeployments(units);
@@ -1300,6 +1310,12 @@ export default class CupClubStepJury extends LitElement {
     const finals = units.filter((u) => u.kind === "final").length;
     const heats = units.length - finals;
     const isFinal = group.level === "final";
+    const label = isFinal
+      ? html`<span class="full">${group.label}</span
+          ><span class="short" title=${group.label}
+            >${shortFinalLabel(group.label, discipline)}</span
+          >`
+      : html`<span>${group.label}</span>`;
     const rowClass = [
       "group",
       group.level,
@@ -1319,27 +1335,24 @@ export default class CupClubStepJury extends LitElement {
     });
     return html`<tr class=${rowClass} style="--depth: ${depth}">
         <td class="category">
-          <button
-            type="button"
-            class="toggle"
-            aria-expanded=${isOpen ? "true" : "false"}
-            data-group=${group.id}
-            @click=${this.onGroupToggle}
-          >
-            <i class="material-icon" aria-hidden="true"
-              >${isOpen ? "expand_more" : "chevron_right"}</i
-            >
-            ${
-              isFinal
-                ? html`<span class="full">${group.label}</span
-                    ><span class="short" title=${group.label}
-                      >${shortFinalLabel(group.label, discipline)}</span
-                    >`
-                : html`<span>${group.label}</span>`
-            }
-          </button>
+${
+  single
+    ? html`<span class="toggle plain">${label}</span>`
+    : html`<button
+                  type="button"
+                  class="toggle"
+                  aria-expanded=${isOpen ? "true" : "false"}
+                  data-group=${group.id}
+                  @click=${this.onGroupToggle}
+                >
+                  <i class="material-icon" aria-hidden="true"
+                    >${isOpen ? "expand_more" : "chevron_right"}</i
+                  >
+                  ${label}
+                </button>`
+}
           ${
-            count.ticked
+            count.ticked && !single
               ? html`<span class="badge" title="Einträge mit Auswahl">
                   ${count.ticked} von ${count.total}
                 </span>`

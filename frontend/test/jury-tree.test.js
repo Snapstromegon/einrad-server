@@ -7,6 +7,7 @@ import {
   selectedDeployments,
   initiallyOpen,
   groupSummary,
+  isSingleFinal,
   leavesOf,
   shortFinalLabel,
   shortUnitName,
@@ -332,5 +333,36 @@ describe("groupSummary", () => {
   test("a discipline counts its Einträge", () => {
     assert.equal(groupSummary("discipline", 3, 2, false), "5 Einträge");
     assert.equal(groupSummary("discipline", 1, 0, true), "1 Eintrag");
+  });
+});
+
+describe("isSingleFinal", () => {
+  const groupOf = (list) => buildTree(list, new Set())[0].children[0];
+
+  test("a final without a Vorlauf shown is one row", () => {
+    assert.equal(isSingleFinal(groupOf([final("f1")])), true);
+  });
+
+  test("a final with a Vorlauf is a group", () => {
+    assert.equal(
+      isSingleFinal(groupOf([heat("h1", "f1"), final("f1")])),
+      false,
+    );
+  });
+
+  test("a final whose Vorläufe take no registrations anymore is one row", () => {
+    assert.equal(
+      isSingleFinal(
+        groupOf([
+          heat("h1", "f1", "single", { registrable: false }),
+          final("f1"),
+        ]),
+      ),
+      true,
+    );
+  });
+
+  test("a discipline is no single final", () => {
+    assert.equal(isSingleFinal(buildTree([final("f1")], new Set())[0]), false);
   });
 });
