@@ -251,13 +251,28 @@ pub async fn check_heats(
     Ok(())
 }
 
-/// Whether a slot of the final has started.
+/// Whether the final has started: a slot, its timeplan block, or one of its
+/// direct acts (an act of a skipped heat that fills it). A final that runs
+/// only direct acts (group finals, skipped heats) has no started slot.
 pub async fn has_started(conn: &mut SqliteConnection, final_id: Uuid) -> sqlx::Result<bool> {
     sqlx::query_scalar!(
         r#"
-        SELECT EXISTS (
-            SELECT 1 FROM final_slots WHERE final_id = ? AND started_at IS NOT NULL
-        ) as "started!: bool"
+        SELECT
+            EXISTS (
+                SELECT 1 FROM final_slots WHERE final_id = ?1 AND started_at IS NOT NULL
+            )
+            OR EXISTS (
+                SELECT 1 FROM timeplan WHERE final_id = ?1 AND started_at IS NOT NULL
+            )
+            OR EXISTS (
+                SELECT 1 FROM acts
+                JOIN view_act ON view_act.id = acts.id
+                JOIN categories ON categories.name = view_act.category
+                JOIN heats ON heats.id = categories.heat_id
+                WHERE heats.skip AND acts.started_at IS NOT NULL
+                    AND view_act.withdrawn_at IS NULL
+                    AND heats.id IN (SELECT heat_id FROM final_slots WHERE final_id = ?1)
+            ) as "started!: bool"
         "#,
         final_id
     )

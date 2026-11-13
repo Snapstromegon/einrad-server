@@ -47,7 +47,7 @@ pub async fn delete_final(
     let mut tx = begin_write(&db).await?;
 
     if finals::has_started(&mut tx, body.id).await? {
-        return Err(HttpError::ErrorMessages(
+        return Err(HttpError::Conflict(
             "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
         ));
     }

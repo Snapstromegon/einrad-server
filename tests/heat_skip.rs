@@ -755,3 +755,63 @@ async fn a_direct_act_runs_like_an_act_in_the_final() {
     // Started: the skip stays.
     rejected(&set_skip(&app, &admin, "JE EW", false).await, "begonnen");
 }
+
+/// Edits the slot groups of the final and tries to delete it.
+async fn change_and_delete_final(app: &TestApp, admin: &str) -> (TestResponse, TestResponse) {
+    let mut body = final_body(app, FINAL, &["JE EW", "E EW"]).await;
+    body["slot_groups"] = json!([
+        { "heat_id": app.heat_id("JE EW").await, "count": 3 },
+        { "heat_id": app.heat_id("E EW").await, "count": 1 },
+    ]);
+    let edited = app.post("/api/command/edit_final", body, Some(admin)).await;
+    let deleted = app
+        .post(
+            "/api/command/delete_final",
+            json!({ "id": app.final_id(FINAL).await }),
+            Some(admin),
+        )
+        .await;
+    (edited, deleted)
+}
+
+#[tokio::test]
+async fn a_final_with_only_direct_acts_is_started_with_its_block() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    app.add_single_act(&owner, club_id, "Anna").await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[block(&app, None, Some(FINAL), Some(START)).await],
+    )
+    .await;
+    ok(&set_skip(&app, &admin, "JE EW", true).await);
+    sqlx::query("UPDATE timeplan SET started_at = datetime('now')")
+        .execute(&app.db)
+        .await
+        .unwrap();
+
+    let (edited, deleted) = change_and_delete_final(&app, &admin).await;
+    rejected(&edited, "schon begonnen");
+    assert_eq!(deleted.status, StatusCode::CONFLICT, "{:?}", deleted.body);
+    assert!(deleted.body.to_string().contains("schon begonnen"));
+}
+
+#[tokio::test]
+async fn a_final_is_started_when_a_direct_act_started() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let anna = app.add_single_act(&owner, club_id, "Anna").await;
+    ok(&set_skip(&app, &admin, "JE EW", true).await);
+    sqlx::query("UPDATE acts SET started_at = datetime('now') WHERE id = ?")
+        .bind(anna)
+        .execute(&app.db)
+        .await
+        .unwrap();
+
+    let (edited, deleted) = change_and_delete_final(&app, &admin).await;
+    rejected(&edited, "schon begonnen");
+    assert_eq!(deleted.status, StatusCode::CONFLICT, "{:?}", deleted.body);
+}
