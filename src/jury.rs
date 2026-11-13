@@ -11,6 +11,7 @@ use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
+    act_type::ActType,
     competition::{Competition, Features, JuryRules},
     groups::ensure_club_access,
     http_server::{
@@ -121,6 +122,13 @@ pub struct JuryUnit {
     pub needed_technical: i64,
     pub needed_performance: i64,
     pub needed_dismounts: i64,
+    /// The discipline: the act type of a heat's categories (the first one's
+    /// if they differ, else the final it feeds) or of a final. `None` for a
+    /// heat without categories that feeds no final.
+    pub act_type: Option<ActType>,
+    /// The final a heat feeds (one at most); `None` for a final and for a
+    /// heat that feeds none.
+    pub final_id: Option<Uuid>,
     /// The day it runs, derived from the timeplan; `None` while it isn't
     /// planned in it.
     #[serde(with = "iso_date::option")]
@@ -265,8 +273,20 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     )
     .fetch_all(&mut *conn)
     .await?;
-    let categories =
-        sqlx::query!(r#"SELECT name as "name!", heat_id as "heat_id: Uuid" FROM categories"#)
+    let categories = sqlx::query!(
+        r#"SELECT name as "name!", heat_id as "heat_id: Uuid", act_type as "act_type!: ActType"
+            FROM categories ORDER BY "order", name"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let feeds = sqlx::query!(
+        r#"SELECT heat_id as "heat_id!: Uuid", MIN(final_id) as "final_id!: Uuid"
+        FROM final_slots WHERE heat_id IS NOT NULL GROUP BY heat_id"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let final_types =
+        sqlx::query!(r#"SELECT id as "id!: Uuid", act_type as "act_type!: ActType" FROM finals"#)
             .fetch_all(&mut *conn)
             .await?;
     drop(conn);
@@ -308,7 +328,25 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                     _ => false,
                 }),
             };
+            let final_id = match row.kind {
+                JuryUnitKind::Heat => feeds
+                    .iter()
+                    .find(|f| f.heat_id == row.id)
+                    .map(|f| f.final_id),
+                JuryUnitKind::Final => None,
+            };
+            let own_type = |id: Uuid| final_types.iter().find(|f| f.id == id).map(|f| f.act_type);
+            let act_type = match row.kind {
+                JuryUnitKind::Heat => categories
+                    .iter()
+                    .find(|c| c.heat_id == Some(row.id))
+                    .map(|c| c.act_type)
+                    .or_else(|| final_id.and_then(own_type)),
+                JuryUnitKind::Final => own_type(row.id),
+            };
             let unit = JuryUnit {
+                act_type,
+                final_id,
                 id: row.id,
                 kind: row.kind,
                 name: row.name,

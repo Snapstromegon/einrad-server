@@ -178,6 +178,40 @@ async fn every_heat_and_final_is_a_jury_unit_in_timeplan_order() {
 }
 
 #[tokio::test]
+async fn units_say_their_discipline_and_the_final_a_heat_feeds() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, _) = app.create_club_owner("Owner", "RSV").await;
+    // A heat that feeds no final, one that has no categories yet.
+    sqlx::query("INSERT INTO heats (id, name, code) VALUES (x'aa000000000000000000000000000001', 'Paare', 'PA'), (x'aa000000000000000000000000000002', 'Leer', 'LE')")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE categories SET heat_id = x'aa000000000000000000000000000001' WHERE name = 'PU11'",
+    )
+    .execute(&app.db)
+    .await
+    .unwrap();
+    let units = jury_units(&app, &owner).await;
+    let final_id = units.iter().find(|u| u["kind"] == "final").unwrap()["id"].clone();
+    let summary: Vec<Value> = units
+        .iter()
+        .map(|u| json!([u["name"], u["act_type"], u["final_id"]]))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            json!(["JE EW", "single", final_id]),
+            json!(["E EW", "single", final_id]),
+            json!(["Paare", "pair", null]),
+            json!(["Leer", null, null]),
+            json!(["Finale EW", "single", null]),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn the_day_of_a_unit_follows_the_timeplan() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;

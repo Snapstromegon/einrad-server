@@ -21,6 +21,16 @@ import {
   taskNames,
   unitName,
 } from "../../../jury";
+import {
+  buildTree,
+  groupCount,
+  groupDeployments,
+  initiallyOpen,
+  leavesOf,
+  taskState,
+  toggleGroup,
+  type TreeGroup,
+} from "../../../jury-tree";
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
 import {
@@ -353,8 +363,12 @@ export default class CupClubStepJury extends LitElement {
         border-top: 1px solid var(--color-border);
       }
 
-      table.grid tbody tr:nth-child(even) {
+      table.grid tbody tr.group {
         background: var(--color-surface-2);
+      }
+
+      table.grid tbody tr.group.discipline {
+        background: var(--color-highlight);
       }
 
       table.grid tbody tr:hover {
@@ -362,7 +376,43 @@ export default class CupClubStepJury extends LitElement {
       }
 
       table.grid td.category {
-        padding: 0.5rem 0.75rem;
+        padding: 0.5rem 0.75rem 0.5rem
+          calc(0.75rem + var(--depth, 0) * 1.25rem);
+      }
+
+      /* A group's name is a button that opens and closes it. */
+      table.grid button.toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        padding: 0.25rem 0.25rem 0.25rem 0;
+        border: none;
+        background: none;
+        color: inherit;
+        font: inherit;
+        font-weight: 700;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      table.grid button.toggle:focus-visible {
+        outline: 2px solid var(--color-primary-strong);
+        outline-offset: 2px;
+      }
+
+      table.grid .badge {
+        margin-left: 0.35rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 99px;
+        background: var(--color-highlight);
+        color: var(--color-primary-strong);
+        font-size: 0.75rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      table.grid tr.group.discipline .badge {
+        background: var(--color-surface);
       }
 
       table.grid th.count,
@@ -441,6 +491,15 @@ export default class CupClubStepJury extends LitElement {
         color: var(--color-on-primary-strong);
       }
 
+      /* Some, not all: a ring with a dash. */
+      table.grid td.task input:indeterminate + .chk {
+        border-color: var(--color-primary-strong);
+      }
+
+      table.grid td.task input:indeterminate + .chk .material-icon {
+        color: var(--color-primary-strong);
+      }
+
       table.grid td.task input:focus-visible + .chk {
         outline: 2px solid var(--color-primary-strong);
         outline-offset: 2px;
@@ -493,9 +552,20 @@ export default class CupClubStepJury extends LitElement {
           background: var(--color-surface);
         }
 
-        table.grid > tbody > tr:nth-child(even),
+        table.grid > tbody > tr {
+          margin-left: calc(var(--depth, 0) * 0.75rem);
+        }
+
         table.grid > tbody > tr:hover {
           background: var(--color-surface);
+        }
+
+        table.grid > tbody > tr.group {
+          background: var(--color-surface-2);
+        }
+
+        table.grid > tbody > tr.group.discipline {
+          background: var(--color-highlight);
         }
 
         table.grid > tbody > tr > td {
@@ -540,6 +610,10 @@ export default class CupClubStepJury extends LitElement {
           color: var(--color-primary-strong);
           font-size: 0.85rem;
           font-weight: 600;
+        }
+
+        table.grid td.task:has(input:indeterminate) label {
+          border-color: var(--color-primary-strong);
         }
 
         table.grid td.task:has(input:checked) label {
@@ -624,6 +698,8 @@ export default class CupClubStepJury extends LitElement {
   /** Id of the judge being edited, `NEW` for the add form, or null. */
   @state() private editing: string | null = null;
   @state() private draft: Draft = emptyDraft();
+  /** Ids of the groups of the judge tree that are open. */
+  @state() private open = new Set<string>();
   @state() private saving = false;
   @state() private error: string | null = null;
 
@@ -1083,15 +1159,13 @@ export default class CupClubStepJury extends LitElement {
     </section>`;
   }
 
-  /** Jury units × tasks; untrained people only count dismounts. */
+  /**
+   * Jury units × tasks as a tree, Disziplin > Finale > units; untrained
+   * people only count dismounts.
+   */
   private renderGrid() {
-    // What takes no registrations is only shown while the judge has it.
-    const units = this.units.filter(
-      (unit) =>
-        unit.registrable ||
-        TASKS.some((task) => this.draft.registrations.has(key(unit.id, task))),
-    );
-    if (units.length === 0) {
+    const tree = buildTree(this.units, this.draft.registrations);
+    if (tree.length === 0) {
       return html`<p class="muted">Noch keine Vorläufe oder Finals angelegt.</p>`;
     }
     const headers = TASKS.map(
@@ -1114,9 +1188,9 @@ export default class CupClubStepJury extends LitElement {
         </thead>
         <tbody>
           ${repeat(
-            units,
-            (unit) => unit.id,
-            (unit) => this.renderGridRow(unit),
+            tree,
+            (group) => group.id,
+            (group) => this.renderGroup(group, 0),
           )}
         </tbody>
         ${this.renderGridTotal()}
@@ -1124,7 +1198,91 @@ export default class CupClubStepJury extends LitElement {
     </div>`;
   }
 
-  private renderGridRow(category: JuryUnit) {
+  /** A group's row, and below it its children while it is open. */
+  private renderGroup(group: TreeGroup<JuryUnit>, depth: number): unknown {
+    const units = leavesOf(group);
+    const isOpen = this.open.has(group.id);
+    const ticked = this.draft.registrations;
+    const count = groupCount(units, ticked);
+    const deployments = groupDeployments(units);
+    const finals = units.filter((u) => u.kind === "final").length;
+    const heats = units.length - finals;
+    const what =
+      group.level === "final"
+        ? [
+            heats > 0 ? `${heats} ${heats === 1 ? "Vorlauf" : "Vorläufe"}` : "",
+            finals > 0 ? "Finale" : "",
+          ]
+            .filter(Boolean)
+            .join(" + ")
+        : `${units.length} ${units.length === 1 ? "Eintrag" : "Einträge"}`;
+    const cells = TASKS.map((task) => {
+      const state = taskState(units, ticked, task);
+      const off = !this.draft.is_trained && task !== "dismounts";
+      return html`<td
+        class="task ${off ? "off" : ""}"
+        title=${off ? "Nur für geschulte JurorInnen" : taskNames[task]}
+      >
+        <label>
+          <input
+            type="checkbox"
+            aria-label="${group.label}: ${taskNames[task]} für alle"
+            data-group=${group.id}
+            data-task=${task}
+            .checked=${state === "all"}
+            .indeterminate=${state === "mixed"}
+            ?disabled=${off}
+            @change=${this.onGroupChange}
+          />
+          <span class="chk" aria-hidden="true"
+            ><i class="material-icon">${state === "mixed" ? "remove" : "check"}</i></span
+          >
+          <span class="long" aria-hidden="true">${taskNames[task]}</span>
+          <span class="short" aria-hidden="true">${taskLabels[task]}</span>
+        </label>
+      </td>`;
+    });
+    return html`<tr class="group ${group.level}" style="--depth: ${depth}">
+        <td class="category">
+          <button
+            type="button"
+            class="toggle"
+            aria-expanded=${isOpen ? "true" : "false"}
+            data-group=${group.id}
+            @click=${this.onGroupToggle}
+          >
+            <i class="material-icon" aria-hidden="true"
+              >${isOpen ? "expand_more" : "chevron_right"}</i
+            >
+            <span>${group.label}</span>
+          </button>
+          <span class="badge" title="Einträge mit Auswahl">
+            ${count.ticked} von ${count.total}
+          </span>
+          <small>${what}</small>
+        </td>
+        <td class="count">
+          ${deployments}<span class="unit">
+            ${deployments === 1 ? "Einsatz" : "Einsätze"}</span
+          >
+        </td>
+        ${cells}
+      </tr>
+      ${
+        isOpen
+          ? repeat(
+              group.children,
+              (child) => (child.type === "group" ? child.id : child.unit.id),
+              (child) =>
+                child.type === "group"
+                  ? this.renderGroup(child, depth + 1)
+                  : this.renderGridRow(child.unit, depth + 1),
+            )
+          : nothing
+      }`;
+  }
+
+  private renderGridRow(category: JuryUnit, depth: number) {
     const cells = TASKS.map((task) => {
       const ticked = this.draft.registrations.has(key(category.id, task));
       // A unit without registrations only keeps what the judge already has.
@@ -1158,7 +1316,7 @@ export default class CupClubStepJury extends LitElement {
         </label>
       </td>`;
     });
-    return html`<tr>
+    return html`<tr class="unit-row" style="--depth: ${depth}">
       <td class="category">
         ${unitName(category)}
         ${
@@ -1234,21 +1392,78 @@ export default class CupClubStepJury extends LitElement {
     this.draft = { ...this.draft, registrations };
   }
 
+  /** A group's task box: ticks the task everywhere below, or removes it. */
+  private onGroupChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const group = this.findGroup(input.dataset.group!);
+    if (!group) {
+      return;
+    }
+    const task = input.dataset.task as JudgeTask;
+    const units = leavesOf(group);
+    // Mixed counts as "not all": the click ticks the rest.
+    const on = taskState(units, this.draft.registrations, task) !== "all";
+    this.draft = {
+      ...this.draft,
+      registrations: toggleGroup(units, this.draft.registrations, task, on),
+    };
+  }
+
+  private onGroupToggle(e: Event) {
+    const id = (e.currentTarget as HTMLElement).dataset.group!;
+    const open = new Set(this.open);
+    if (!open.delete(id)) {
+      open.add(id);
+    }
+    this.open = open;
+  }
+
+  private findGroup(id: string) {
+    const find = (
+      groups: TreeGroup<JuryUnit>[],
+    ): TreeGroup<JuryUnit> | undefined => {
+      for (const group of groups) {
+        if (group.id === id) {
+          return group;
+        }
+        const inner = find(
+          group.children.filter(
+            (c): c is TreeGroup<JuryUnit> => c.type === "group",
+          ),
+        );
+        if (inner) {
+          return inner;
+        }
+      }
+      return undefined;
+    };
+    return find(buildTree(this.units, this.draft.registrations));
+  }
+
+  /** Opens the form with the groups open that are partly ticked. */
+  private openForm(editing: string, draft: Draft) {
+    this.draft = draft;
+    this.open = initiallyOpen(
+      buildTree(this.units, draft.registrations),
+      draft.registrations,
+      draft.is_trained,
+    );
+    this.editing = editing;
+  }
+
   private judgeOf(e: Event) {
     const id = (e.currentTarget as HTMLElement).dataset.id;
     return this.judges.find((judge) => judge.id === id);
   }
 
   private startAdd() {
-    this.draft = emptyDraft();
-    this.editing = NEW;
+    this.openForm(NEW, emptyDraft());
   }
 
   private onEditClick(e: Event) {
     const judge = this.judgeOf(e);
     if (judge) {
-      this.draft = draftOf(judge);
-      this.editing = judge.id;
+      this.openForm(judge.id, draftOf(judge));
     }
   }
 
