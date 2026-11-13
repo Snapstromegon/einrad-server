@@ -190,7 +190,7 @@ export const deploymentNote = (judge: {
 
 /**
  * What a judge's selection is worth while it's being edited: every ticked
- * jury category once, and what of it counts for the club. Dismount-only
+ * jury unit once, and what of it counts for the club. Dismount-only
  * units do not count towards the club's obligation.
  */
 export const countDeployments = (
@@ -228,6 +228,21 @@ export const countDeployments = (
  */
 export const obligationTone = (credited: number, required: number) =>
   credited <= 0 ? "none" : credited < required ? "below" : "met";
+
+/**
+ * Why a unit takes no registrations: "Vorlauf entfällt" for a skipped Vorlauf,
+ * otherwise "Anmeldung geschlossen" (a final or Vorlauf the jury lead
+ * switched off); null while it does take them.
+ */
+export const closedReason = (unit: {
+  registrable: boolean;
+  skipped: boolean;
+}) =>
+  unit.registrable
+    ? null
+    : unit.skipped
+      ? "Vorlauf entfällt"
+      : "Anmeldung geschlossen";
 
 /**
  * What a jury unit is called: a heat's Vorlauf ("E EW Vorlauf") or a final

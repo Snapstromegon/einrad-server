@@ -12,6 +12,7 @@ import {
 import {
   ageOnStart,
   coverage,
+  closedReason,
   deploymentNote,
   judgeRegistrationEnd,
   neededFor,
@@ -353,7 +354,7 @@ export default class CupViewAdminJudges extends LitElement {
     return html`<tr>
       <td>
         <b>${unitName(unit)}</b>
-        ${unit.skipped ? html`<br /><small class="text-warn">Vorlauf entfällt</small>` : nothing}
+        ${closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
         ${warningLines}
       </td>
       ${cells}
@@ -528,6 +529,7 @@ export default class CupViewAdminJudges extends LitElement {
       return [...tasks].map(([id, labels]) => ({
         id,
         flagged: judge.registrations.some((r) => r.unit_id === id && r.flagged),
+        reason: byId.get(id) ? closedReason(byId.get(id)!) : null,
         text: `${byId.get(id) ? unitName(byId.get(id)!) : "?"}: ${labels.join("/")}`,
       }));
     };
@@ -544,10 +546,10 @@ export default class CupViewAdminJudges extends LitElement {
       const age = ageOnStart(judge.birthdate, this.systemStatus?.competition);
       const chips = [
         ...describe(judge).map(
-          ({ id, flagged, text }) =>
+          ({ id, flagged, reason, text }) =>
             html`<span
               class="chip ${flagged ? "warn" : ""}"
-              title=${flagged ? "Vorlauf entfällt: der Einsatz zählt weiter, bitte neu zuteilen" : ""}
+              title=${flagged ? `${reason ?? "Anmeldung geschlossen"}: der Einsatz zählt weiter, bitte neu zuteilen` : ""}
               >${text}${flagged ? html` ${this.renderMovePicker(units, judge, id)}` : nothing}</span
             >`,
         ),
@@ -850,8 +852,8 @@ export default class CupViewAdminJudges extends LitElement {
       <td>
         <b>${unitName(unit)}</b>
         ${
-          unit.skipped
-            ? html`<br /><small class="text-warn">Vorlauf entfällt</small>`
+          closedReason(unit)
+            ? html`<br /><small class="text-warn">${closedReason(unit)}</small>`
             : nothing
         }
       </td>
@@ -863,7 +865,7 @@ export default class CupViewAdminJudges extends LitElement {
           unit.registrable
             ? "offen"
             : html`<span class="muted"
-                >${unit.skipped ? "Vorlauf entfällt" : "geschlossen"}</span
+                >${closedReason(unit)}</span
               >`
         }
       </td>

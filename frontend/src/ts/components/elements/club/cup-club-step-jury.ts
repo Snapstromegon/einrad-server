@@ -13,6 +13,7 @@ import {
 import {
   ageOnStart,
   countDeployments,
+  closedReason,
   deploymentNote,
   obligationTone,
   TASKS,
@@ -904,11 +905,15 @@ export default class CupClubStepJury extends LitElement {
   private renderJudge(judge: ClubJudge) {
     const units = new Map(this.units.map((c) => [c.id, c]));
     const byCategory = new Map<string, JudgeTask[]>();
-    const flagged = new Set<string>();
+    const flagged = new Map<string, string>();
     for (const r of judge.registrations) {
       byCategory.set(r.unit_id, [...(byCategory.get(r.unit_id) ?? []), r.task]);
       if (r.flagged) {
-        flagged.add(r.unit_id);
+        const unit = units.get(r.unit_id);
+        flagged.set(
+          r.unit_id,
+          (unit && closedReason(unit)) ?? "Anmeldung geschlossen",
+        );
       }
     }
     return html`<tr>
@@ -949,11 +954,11 @@ export default class CupClubStepJury extends LitElement {
                       class="chip"
                       title=${
                         flagged.has(id)
-                          ? "Vorlauf entfällt: die Juryleitung teilt neu zu. Der Einsatz zählt weiter."
+                          ? `${flagged.get(id)}: die Juryleitung teilt neu zu. Der Einsatz zählt weiter.`
                           : ""
                       }
                       >${units.get(id) ? unitName(units.get(id)!) : "?"}${
-                        flagged.has(id) ? " (entfällt)" : ""
+                        flagged.has(id) ? ` (${flagged.get(id)})` : ""
                       }:
                       ${tasks.map((r) => taskLabels[r]).join("/")}</span
                     >`,
@@ -1157,8 +1162,8 @@ export default class CupClubStepJury extends LitElement {
       <td class="category">
         ${unitName(category)}
         ${
-          category.skipped
-            ? html`<small>Vorlauf entfällt</small>`
+          closedReason(category)
+            ? html`<small>${closedReason(category)}</small>`
             : category.day
               ? html`<small>${formatDate(category.day)}</small>`
               : nothing

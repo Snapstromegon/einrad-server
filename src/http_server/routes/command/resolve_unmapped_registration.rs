@@ -64,11 +64,10 @@ pub async fn resolve_unmapped_registration(
     .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
     info!("Resolving unmapped registration {}", body.id);
     if let Some(unit) = body.unit {
-        if jury::unit_is_registrable(&mut transaction, unit.kind, unit.id)
-            .await?
-            .is_none()
-        {
-            return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
+        match jury::unit_is_registrable(&mut transaction, unit.kind, unit.id).await? {
+            None => return Err(HttpError::StatusCode(StatusCode::NOT_FOUND)),
+            Some(false) => return Err(jury::not_registrable()),
+            Some(true) => {}
         }
         let (heat_id, final_id) = jury::unit_columns(unit.kind, unit.id);
         sqlx::query!(

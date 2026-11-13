@@ -271,7 +271,10 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     // are no days.
     let blocks = match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
         Ok(plan) => plan.items,
-        Err(_) => vec![],
+        Err(e) => {
+            tracing::warn!("No days for the jury units, the timeplan can't be predicted: {e:?}");
+            vec![]
+        }
     };
     let first_block = |matches: &dyn Fn(&TimeplanEntry) -> bool| {
         blocks
@@ -345,6 +348,14 @@ pub async fn unit_is_registrable(
     )
     .fetch_optional(conn)
     .await
+}
+
+/// The refusal for a unit that takes no registrations (D6, German message).
+pub fn not_registrable() -> HttpError {
+    HttpError::ErrorMessages(
+        "Für diesen Vorlauf oder dieses Finale kann niemand mehr gemeldet werden. Bitte einen anderen wählen."
+            .to_string(),
+    )
 }
 
 /// Refuses (German message) to delete the heat or final `name` while judges
@@ -617,11 +628,12 @@ pub async fn save_judge(
             ));
         }
     }
-    let existing: std::collections::HashSet<(JuryUnitKind, Uuid)> = sqlx::query!(
+    let existing: std::collections::HashSet<(JuryUnitKind, Uuid, JudgeTask)> = sqlx::query!(
         r#"
         SELECT
             CASE WHEN heat_id IS NULL THEN 'final' ELSE 'heat' END as "kind!: JuryUnitKind",
-            unit_id as "unit_id!: Uuid"
+            unit_id as "unit_id!: Uuid",
+            task as "task!: JudgeTask"
         FROM judge_registration WHERE judge_id = ?
         "#,
         judge_id
@@ -629,7 +641,7 @@ pub async fn save_judge(
     .fetch_all(&mut *conn)
     .await?
     .into_iter()
-    .map(|row| (row.kind, row.unit_id))
+    .map(|row| (row.kind, row.unit_id, row.task))
     .collect();
     sqlx::query!(
         "DELETE FROM judge_registration WHERE judge_id = ?",
@@ -656,11 +668,15 @@ pub async fn save_judge(
                         .to_string(),
                 ));
             }
-            Some(false) if !existing.contains(&(registration.unit_kind, registration.unit_id)) => {
-                return Err(HttpError::ErrorMessages(
-                    "Für eine gewählte Vorlaufklasse oder ein gewähltes Finale kann niemand mehr gemeldet werden. Bitte neu laden."
-                        .to_string(),
-                ));
+            // Only what the judge already has there may stay, per task.
+            Some(false)
+                if !existing.contains(&(
+                    registration.unit_kind,
+                    registration.unit_id,
+                    registration.task,
+                )) =>
+            {
+                return Err(not_registrable());
             }
             Some(_) => {}
         }

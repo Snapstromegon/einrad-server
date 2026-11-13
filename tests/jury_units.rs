@@ -501,17 +501,51 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
         )
         .await;
     rejected(&refused, "JurorInnen gemeldet");
-    // The heat feeds the final, so it can't go either; an empty one can: a
-    // heat nobody registered for, here the other one after its final slot
-    // is gone.
-    let refused = app
+    // A heat that feeds no final: the jury refuses, with its own message.
+    let added_heat = app
         .post(
-            "/api/command/delete_heat",
-            json!({ "name": "Expert EW" }),
+            "/api/command/add_heat",
+            json!({ "name": "Solo", "description": null, "categories": [] }),
             Some(&admin),
         )
         .await;
-    assert!(!refused.status.is_success());
+    assert_eq!(added_heat.status, StatusCode::OK, "{:?}", added_heat.body);
+    let solo = unit(&app, &admin, "Solo").await;
+    let second = add_judge(
+        &app,
+        &owner,
+        judge_body(club_id, "Berta", &[(&solo, "technical")]),
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.body);
+    let refused = app
+        .post(
+            "/api/command/delete_heat",
+            json!({ "name": "Solo" }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(
+        refused.status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "{:?}",
+        refused.body
+    );
+    rejected(&refused, "JurorInnen gemeldet");
+    app.post(
+        "/api/command/delete_club_judge",
+        json!({ "judge_id": second.body["judge_id"] }),
+        Some(&admin),
+    )
+    .await;
+    let deleted = app
+        .post(
+            "/api/command/delete_heat",
+            json!({ "name": "Solo" }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::OK, "{:?}", deleted.body);
 
     // Without registrations the final can be deleted.
     app.post(
@@ -598,4 +632,156 @@ async fn unmapped_registrations_are_resolved_by_the_jury_lead() {
     assert_eq!(anna["registered_deployments"], 2);
     let gone = resolve(&unmapped[1]["id"], Value::Null).await;
     assert_eq!(gone.status, StatusCode::NOT_FOUND);
+}
+
+async fn club_of(app: &TestApp, cookie: &str) -> Value {
+    let response = app.get("/api/query/get_club", Some(cookie)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body
+}
+
+async fn skip_heat(app: &TestApp, admin: &str, name: &str) {
+    let skipped = app
+        .post(
+            "/api/command/set_heat_skip",
+            json!({ "name": name, "skip": true }),
+            Some(admin),
+        )
+        .await;
+    assert_eq!(skipped.status, StatusCode::OK, "{:?}", skipped.body);
+}
+
+#[tokio::test]
+async fn a_flagged_registration_may_stay_but_gets_no_new_task() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let heat = unit(&app, &admin, "JE EW").await;
+    let added = add_judge(
+        &app,
+        &owner,
+        judge_body(club_id, "Anna", &[(&heat, "technical")]),
+    )
+    .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+    skip_heat(&app, &admin, "JE EW").await;
+
+    // Another task on the skipped Vorlauf is a new registration.
+    for task in ["performance", "dismounts"] {
+        let mut edit = judge_body(club_id, "Anna", &[(&heat, "technical"), (&heat, task)]);
+        edit.as_object_mut().unwrap().remove("club_id");
+        edit["judge_id"] = added.body["judge_id"].clone();
+        let response = app
+            .post("/api/command/edit_club_judge", edit, Some(&owner))
+            .await;
+        rejected(&response, "kann niemand mehr gemeldet werden");
+    }
+    let anna = judges(&app, &owner, club_id).await[0].clone();
+    assert_eq!(anna["registrations"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_jury_lead_cannot_move_registrations_to_a_unit_that_takes_none() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let from = unit(&app, &admin, "E EW").await;
+    let skipped = unit(&app, &admin, "JE EW").await;
+    let added = add_judge(
+        &app,
+        &owner,
+        judge_body(club_id, "Anna", &[(&from, "technical")]),
+    )
+    .await;
+    let judge_id = added.body["judge_id"].clone();
+    skip_heat(&app, &admin, "JE EW").await;
+    // Also a unit switched off.
+    let final_unit = unit(&app, &admin, "Finale EW").await;
+    app.post(
+        "/api/command/edit_jury_unit",
+        json!({
+            "kind": "final", "id": final_unit["id"], "registrable": false, "deployments": 1,
+            "needed_technical": 5, "needed_performance": 5, "needed_dismounts": 3,
+        }),
+        Some(&admin),
+    )
+    .await;
+
+    for target in [&skipped, &final_unit] {
+        let moved = app
+            .post(
+                "/api/command/move_judge_registrations",
+                json!({
+                    "judge_id": judge_id,
+                    "from_kind": "heat", "from_id": from["id"],
+                    "to_kind": target["kind"], "to_id": target["id"],
+                }),
+                Some(&admin),
+            )
+            .await;
+        rejected(&moved, "kann niemand mehr gemeldet werden");
+    }
+    let anna = judges(&app, &owner, club_id).await[0].clone();
+    assert_eq!(anna["registrations"][0]["unit_id"], from["id"]);
+
+    // The same for an unmapped registration.
+    sqlx::query(
+        "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES (?, 'Alt', 'technical')",
+    )
+    .bind(Uuid::parse_str(judge_id.as_str().unwrap()).unwrap())
+    .execute(&app.db)
+    .await
+    .unwrap();
+    let anna = judges(&app, &owner, club_id).await[0].clone();
+    let resolved = app
+        .post(
+            "/api/command/resolve_unmapped_registration",
+            json!({
+                "id": anna["unmapped_registrations"][0]["id"],
+                "unit": { "kind": "heat", "id": skipped["id"] },
+            }),
+            Some(&admin),
+        )
+        .await;
+    rejected(&resolved, "kann niemand mehr gemeldet werden");
+    let anna = judges(&app, &owner, club_id).await[0].clone();
+    assert_eq!(anna["unmapped_registrations"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn skipping_a_heat_leaves_the_clubs_obligation_and_fee_unchanged() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    for i in 0..3 {
+        app.add_rider(
+            &owner,
+            common::rider_body(club_id, &format!("Fahrerin{i}"), true, false),
+        )
+        .await;
+    }
+    let heat = unit(&app, &admin, "JE EW").await;
+    let other = unit(&app, &admin, "E EW").await;
+    let added = add_judge(
+        &app,
+        &owner,
+        judge_body(
+            club_id,
+            "Anna",
+            &[(&heat, "technical"), (&other, "performance")],
+        ),
+    )
+    .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+    let before = club_of(&app, &owner).await;
+    assert_eq!(before["jury"]["registered"], 4);
+    assert_eq!(before["jury"]["missing"], 4);
+
+    skip_heat(&app, &admin, "JE EW").await;
+    let after = club_of(&app, &owner).await;
+    assert_eq!(after["jury"], before["jury"]);
+    assert_eq!(after["amount_due"], before["amount_due"]);
 }

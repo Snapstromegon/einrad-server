@@ -48,11 +48,10 @@ pub async fn move_judge_registrations(
 ) -> Result<Json<MoveJudgeRegistrationsResponse>, HttpError> {
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
-    if jury::unit_is_registrable(&mut transaction, body.to_kind, body.to_id)
-        .await?
-        .is_none()
-    {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
+    match jury::unit_is_registrable(&mut transaction, body.to_kind, body.to_id).await? {
+        None => return Err(HttpError::StatusCode(StatusCode::NOT_FOUND)),
+        Some(false) if body.from_id != body.to_id => return Err(jury::not_registrable()),
+        Some(_) => {}
     }
     let (to_heat, to_final) = jury::unit_columns(body.to_kind, body.to_id);
     info!(

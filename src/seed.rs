@@ -1,5 +1,5 @@
 //! Applies the competition file: the competition, categories, finals,
-//! timeplan and jury categories.
+//! timeplan; judge registrations follow heats and finals.
 //!
 //! The database is the source of the competition (ADR 0005), the file only
 //! an import: it's applied when the database has no competition yet, or on

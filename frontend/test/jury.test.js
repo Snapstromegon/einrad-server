@@ -7,6 +7,7 @@ import {
   deploymentNote,
   obligationTone,
   planWarnings,
+  closedReason,
   unitName,
   isJudgeRegistrationOpen,
   judgeRegistrationEnd,
@@ -206,6 +207,19 @@ describe("jury", () => {
     assert.equal(obligationTone(15, 28), "below");
     assert.equal(obligationTone(28, 28), "met");
     assert.equal(obligationTone(30, 28), "met");
+  });
+
+  test("closedReason names why a unit takes no registrations", () => {
+    assert.equal(closedReason({ registrable: true, skipped: false }), null);
+    assert.equal(
+      closedReason({ registrable: false, skipped: true }),
+      "Vorlauf entfällt",
+    );
+    // A final, or a Vorlauf the jury lead switched off, is not "entfällt".
+    assert.equal(
+      closedReason({ registrable: false, skipped: false }),
+      "Anmeldung geschlossen",
+    );
   });
 
   test("unitName tells a heat's Vorlauf from a final", () => {
