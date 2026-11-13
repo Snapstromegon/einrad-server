@@ -186,18 +186,20 @@ pub async fn set_registration_status(db: &SqlitePool, status: &StatusOptions) {
 }
 
 impl TestApp {
-    /// The id of the heat `name`: the admin API addresses heats by it.
+    /// The id of the heat with the code `name`: the admin API addresses
+    /// heats by it.
     pub async fn heat_id(&self, name: &str) -> Uuid {
-        sqlx::query_scalar("SELECT id FROM heats WHERE name = ?")
+        sqlx::query_scalar("SELECT id FROM heats WHERE code = ?")
             .bind(name)
             .fetch_one(&self.db)
             .await
             .unwrap_or_else(|e| panic!("no heat {name}: {e}"))
     }
 
-    /// The id of the final `name`: the admin API addresses finals by it.
+    /// The id of the final with the code `name`: the admin API addresses
+    /// finals by it.
     pub async fn final_id(&self, name: &str) -> Uuid {
-        sqlx::query_scalar("SELECT id FROM finals WHERE name = ?")
+        sqlx::query_scalar("SELECT id FROM finals WHERE code = ?")
             .bind(name)
             .fetch_one(&self.db)
             .await

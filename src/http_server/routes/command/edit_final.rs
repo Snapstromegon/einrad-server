@@ -19,6 +19,9 @@ pub struct EditFinalBody {
     /// The final to edit.
     id: Uuid,
     new_name: String,
+    /// The new short code; without, it stays.
+    #[serde(default)]
+    new_code: Option<String>,
     #[serde(flatten)]
     fields: FinalFields,
 }
@@ -63,18 +66,24 @@ pub async fn edit_final(
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     };
 
-    if new_name != name {
-        let taken = sqlx::query_scalar!(
-            r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "taken!: bool""#,
-            new_name
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        if taken {
-            return Err(HttpError::ErrorMessages(format!(
-                "Ein Finale „{new_name}“ gibt es schon."
-            )));
+    // Without a new code the final keeps its own.
+    let new_code = match body.new_code.as_deref() {
+        Some(code) if !code.trim().is_empty() => {
+            crate::heats::normalize_code(Some(code), &new_name)
         }
+        _ => {
+            sqlx::query_scalar!(
+                r#"SELECT code as "code!" FROM finals WHERE id = ?"#,
+                body.id
+            )
+            .fetch_one(&mut *tx)
+            .await?
+        }
+    };
+    finals::check_free(&mut tx, Some(body.id), &new_name, &new_code)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
+    if new_name != name {
         info!("Renaming final {name:?} to {new_name:?}");
     }
 
@@ -83,6 +92,7 @@ pub async fn edit_final(
         UPDATE finals
         SET
             name = ?,
+            code = ?,
             description = ?,
             act_type = ?,
             is_single_male = ?,
@@ -92,6 +102,7 @@ pub async fn edit_final(
         WHERE id = ?
         "#,
         new_name,
+        new_code,
         fields.description,
         fields.act_type,
         fields.is_single_male,

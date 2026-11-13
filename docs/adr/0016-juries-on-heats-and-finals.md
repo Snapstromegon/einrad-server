@@ -1,5 +1,7 @@
 # Juries on heats and finals
 
+See ADR 0017: heats and finals now have a readable name and a short code; where this ADR says "name" for the label that judges and files use, read the readable name for judges and the code for files.
+
 Jury categories are gone (#347, amends ADR 0013 on the deferred HEAT-5). Before, they were free names ("Einzel W – Expert 1 Vorlauf") with deployments and a day, unrelated to the heats and finals of #338, so the jury plan could not follow a skipped Vorlauf (ADR 0014) and every competition file listed them twice. Judges now register for, and the jury plan assigns them to, a **jury unit**: the Vorlauf of a heat, or a final.
 
 Source: Jury-Konzept 15.09.2025 — "Die Jury bleibt jeweils für die Vorlaufklassen gleich, damit diese Küren alle miteinander verglichen werden können", and a Vorlauf counts as 2 Wertungseinsätze. A final is one run, fed by several heats, with one jury.

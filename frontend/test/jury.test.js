@@ -223,8 +223,17 @@ describe("jury", () => {
   });
 
   test("unitName tells a heat's Vorlauf from a final", () => {
-    assert.equal(unitName({ kind: "heat", name: "E EW" }), "E EW Vorlauf");
-    assert.equal(unitName({ kind: "final", name: "Finale EW" }), "Finale EW");
+    assert.equal(
+      unitName({
+        kind: "heat",
+        name: "Einzel männlich – Expert 1 (U17–U21)",
+      }),
+      "Einzel männlich – Expert 1 (U17–U21) · Vorlauf",
+    );
+    assert.equal(
+      unitName({ kind: "final", name: "Finale Einzel männlich Expert" }),
+      "Finale Einzel männlich Expert",
+    );
     assert.equal(unitName({ kind: "final", name: "KGU15" }), "KGU15 Finale");
   });
 });

@@ -18,6 +18,44 @@ export const disciplineLabel = (d: DisciplineKey): string => {
   }
 };
 
+/** The levels of the tree, top down. */
+export type NodeLevel = "discipline" | "final" | "heat" | "category" | "act";
+
+/** TREE-8: what each level is called, shown as a badge on its nodes. */
+export const levelLabel: Record<NodeLevel, string> = {
+  discipline: "Disziplin",
+  final: "Finale",
+  heat: "Vorlaufklasse",
+  category: "Kategorie",
+  act: "Kür",
+};
+
+const levelDescription: Record<NodeLevel, string> = {
+  discipline: "Einzel weiblich, Einzel männlich, Paar, Kleingruppe, Großgruppe",
+  final: "reservierte Plätze für die Besten der Vorlaufklassen",
+  heat: "Kategorien, deren Küren zusammen im Vorlauf gewertet werden",
+  category: "Altersklasse der Küren, mit ihren Küren",
+  act: "eine angemeldete Kür, mit Verein und Fahrenden",
+};
+
+/** TREE-8: the legend at the top of the tree, from the top level down. */
+export const levelLegend = (
+  ["discipline", "final", "heat", "category", "act"] as const
+).map((level) => ({
+  level,
+  label: levelLabel[level],
+  description: levelDescription[level],
+}));
+
+/**
+ * TREE-8: the code of a heat or final to show small next to its readable
+ * name; `null` where it only repeats the name.
+ */
+export const secondaryCode = (node: {
+  name: string;
+  code?: string | null;
+}): string | null => (node.code && node.code !== node.name ? node.code : null);
+
 /** "1 Platz", "4 Plätze" */
 const slotCount = (slots: number) =>
   `${slots} ${slots === 1 ? "Platz" : "Plätze"}`;

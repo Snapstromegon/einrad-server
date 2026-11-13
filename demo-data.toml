@@ -246,10 +246,10 @@ firstname = "Petra"
 lastname = "Wagner"
 birthdate = 1975-03-14
 registrations = [
-  { unit = "heat: JE EW", task = "technical" },
-  { unit = "heat: E EW 1", task = "technical" },
-  { unit = "final: KGU15", task = "performance" },
-  { unit = "final: E EW", task = "technical" },
+  { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "technical" },
+  { unit = "heat: Expert 1 Einzel Weiblich (U17–U21)", task = "technical" },
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "performance" },
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "technical" },
 ]
 
 [[clubs.judges]]
@@ -258,9 +258,9 @@ lastname = "Fischer"
 birthdate = 1969-11-02
 note = "Nur am Samstag"
 registrations = [
-  { unit = "heat: JE EW", task = "performance" },
-  { unit = "heat: E EW 2", task = "performance" },
-  { unit = "final: KG15+", task = "technical" },
+  { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "performance" },
+  { unit = "heat: Expert 2 Einzel Weiblich (U23 und älter)", task = "performance" },
+  { unit = "final: Finale Kleingruppe Expert (15+)", task = "technical" },
 ]
 
 [[clubs.judges]]
@@ -269,8 +269,8 @@ lastname = "Wagner"
 birthdate = 2011-04-20
 max_deployments = 2
 registrations = [
-  { unit = "heat: JE EW", task = "dismounts" },
-  { unit = "final: KGU15", task = "dismounts" },
+  { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "dismounts" },
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "dismounts" },
 ]
 
 # 20 starts, 300 € due: paid partially. Half of the riders checked in.
@@ -366,8 +366,8 @@ lastname = "Hoffmann"
 birthdate = 1988-08-08
 max_deployments = 2
 registrations = [
-  { unit = "heat: E EW 2", task = "technical" },
-  { unit = "final: E EW", task = "performance" },
+  { unit = "heat: Expert 2 Einzel Weiblich (U23 und älter)", task = "technical" },
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "performance" },
 ]
 
 [[clubs.judges]]
@@ -376,7 +376,7 @@ lastname = "Hoffmann"
 birthdate = 2013-01-15
 trained = false
 registrations = [
-  { unit = "heat: JE EW", task = "dismounts" },
+  { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "dismounts" },
 ]
 
 # 13 starts, 195 € due: nothing paid. Nobody checked in yet.
@@ -1039,88 +1039,88 @@ judge_duration_minutes = 3
 # heat, every heat fills the slots of one final. The heat "JE P" has few acts,
 # so its Vorlauf is skipped (skip = true) and its acts start in the final.
 [[heats]]
-name = "JE EM"
-description = "Junior Expert Einzel Männlich (U11–U15)"
+name = "Junior Expert Einzel Männlich (U11–U15)"
+code = "JE EM"
 categories = ["EMU11", "EMU13", "EMU15"]
 
 [[heats]]
-name = "E EM 1"
-description = "Expert 1 Einzel Männlich (U17–U21)"
+name = "Expert 1 Einzel Männlich (U17–U21)"
+code = "E EM 1"
 categories = ["EMU17", "EMU19", "EMU21"]
 
 [[heats]]
-name = "E EM 2"
-description = "Expert 2 Einzel Männlich (U23 und älter)"
+name = "Expert 2 Einzel Männlich (U23 und älter)"
+code = "E EM 2"
 categories = ["EMU23", "EMU25", "EMU30", "EMU50", "EMU70", "EM70+"]
 
 [[heats]]
-name = "JE EW"
-description = "Junior Expert Einzel Weiblich (U11–U15)"
+name = "Junior Expert Einzel Weiblich (U11–U15)"
+code = "JE EW"
 categories = ["EWU11", "EWU13", "EWU15"]
 
 [[heats]]
-name = "E EW 1"
-description = "Expert 1 Einzel Weiblich (U17–U21)"
+name = "Expert 1 Einzel Weiblich (U17–U21)"
+code = "E EW 1"
 categories = ["EWU17", "EWU19", "EWU21"]
 
 [[heats]]
-name = "E EW 2"
-description = "Expert 2 Einzel Weiblich (U23 und älter)"
+name = "Expert 2 Einzel Weiblich (U23 und älter)"
+code = "E EW 2"
 categories = ["EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
 
 [[heats]]
-name = "JE P"
-description = "Junior Expert Paar (U11–U15)"
+name = "Junior Expert Paar (U11–U15)"
+code = "JE P"
 categories = ["PU11", "PU13", "PU15"]
 # Only a few acts: the Vorlauf is skipped and they start directly in the final.
 skip = true
 
 [[heats]]
-name = "E P 1"
-description = "Expert 1 Paar (U17–U21)"
+name = "Expert 1 Paar (U17–U21)"
+code = "E P 1"
 categories = ["PU17", "PU19", "PU21"]
 
 [[heats]]
-name = "E P 2"
-description = "Expert 2 Paar (U23 und älter)"
+name = "Expert 2 Paar (U23 und älter)"
+code = "E P 2"
 categories = ["PU23", "PU25", "PU30", "PU50", "PU70", "P70+"]
 
 # Group heats and finals (one each per group category): groups start in
 # their final, so a group heat's Vorlauf is skipped by default (skip = true
 # without writing it); its one slot stays unused while it is skipped.
 [[heats]]
-name = "KGU15"
-description = "Kleingruppe Junior Expert (U15)"
+name = "Kleingruppe Junior Expert (U15)"
+code = "KGU15"
 categories = ["KGU15"]
 
 [[heats]]
-name = "KG15+"
-description = "Kleingruppe Expert (15+)"
+name = "Kleingruppe Expert (15+)"
+code = "KG15+"
 categories = ["KG15+"]
 
 [[heats]]
-name = "GGU15"
-description = "Großgruppe Junior Expert (U15)"
+name = "Großgruppe Junior Expert (U15)"
+code = "GGU15"
 categories = ["GGU15"]
 
 [[heats]]
-name = "GG15+"
-description = "Großgruppe Expert (15+)"
+name = "Großgruppe Expert (15+)"
+code = "GG15+"
 categories = ["GG15+"]
 
 # Finals: reserved slots for the best riders of the heats, planned before the
 # results are known. Each slot runs like an act with the final's durations;
 # slots lists them in start order as groups filled from a heat, e.g. 5 slots
 # from the heat "JE EM" become "1. Finalist (JE EM)" … "5. Finalist (JE EM)".
-# A [[timeplan]] entry with final = "<name>" plans a final (each final once).
+# A [[timeplan]] entry with final = "<code>" plans a final (each final once).
 # act_type and single_male name the discipline, which every heat of the final
 # shares. The final's categories are those of
 # its heats: once the heats are judged, admins place their acts in
 # the slots; the placement shows in the timeplan once it is published.
 
 [[finals]]
-name = "JE EM"
-description = "Junior Expert Einzel Männlich (U11–U15)"
+name = "Finale Junior Expert Einzel Männlich (U11–U15)"
+code = "JE EM"
 act_type = "single"
 single_male = true
 einfahrzeit_minutes = 10
@@ -1129,8 +1129,8 @@ judge_duration_minutes = 4
 slots = [{ heat = "JE EM", count = 5 }]
 
 [[finals]]
-name = "E EM"
-description = "Expert Einzel Männlich (U17 und älter)"
+name = "Finale Expert Einzel Männlich (U17 und älter)"
+code = "E EM"
 act_type = "single"
 single_male = true
 einfahrzeit_minutes = 10
@@ -1139,8 +1139,8 @@ judge_duration_minutes = 6
 slots = [{ heat = "E EM 1", count = 4 }, { heat = "E EM 2", count = 4 }]
 
 [[finals]]
-name = "JE EW"
-description = "Junior Expert Einzel Weiblich (U11–U15)"
+name = "Finale Junior Expert Einzel Weiblich (U11–U15)"
+code = "JE EW"
 act_type = "single"
 single_male = false
 einfahrzeit_minutes = 10
@@ -1149,8 +1149,8 @@ judge_duration_minutes = 4
 slots = [{ heat = "JE EW", count = 5 }]
 
 [[finals]]
-name = "E EW"
-description = "Expert Einzel Weiblich (U17 und älter)"
+name = "Finale Expert Einzel Weiblich (U17 und älter)"
+code = "E EW"
 act_type = "single"
 single_male = false
 einfahrzeit_minutes = 10
@@ -1159,8 +1159,8 @@ judge_duration_minutes = 6
 slots = [{ heat = "E EW 1", count = 4 }, { heat = "E EW 2", count = 4 }]
 
 [[finals]]
-name = "JE P"
-description = "Junior Expert Paar (U11–U15)"
+name = "Finale Junior Expert Paar (U11–U15)"
+code = "JE P"
 act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
@@ -1168,8 +1168,8 @@ judge_duration_minutes = 2
 slots = [{ heat = "JE P", count = 5 }]
 
 [[finals]]
-name = "E P"
-description = "Expert Paar (U17 und älter)"
+name = "Finale Expert Paar (U17 und älter)"
+code = "E P"
 act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
@@ -1177,8 +1177,8 @@ judge_duration_minutes = 2
 slots = [{ heat = "E P 1", count = 4 }, { heat = "E P 2", count = 4 }]
 
 [[finals]]
-name = "KGU15"
-description = "Kleingruppe Junior Expert (U15)"
+name = "Finale Kleingruppe Junior Expert (U15)"
+code = "KGU15"
 act_type = "group_small"
 einfahrzeit_minutes = 10
 act_duration_minutes = 5
@@ -1186,8 +1186,8 @@ judge_duration_minutes = 3
 slots = [{ heat = "KGU15", count = 1 }]
 
 [[finals]]
-name = "KG15+"
-description = "Kleingruppe Expert (15+)"
+name = "Finale Kleingruppe Expert (15+)"
+code = "KG15+"
 act_type = "group_small"
 einfahrzeit_minutes = 10
 act_duration_minutes = 5
@@ -1195,8 +1195,8 @@ judge_duration_minutes = 3
 slots = [{ heat = "KG15+", count = 1 }]
 
 [[finals]]
-name = "GGU15"
-description = "Großgruppe Junior Expert (U15)"
+name = "Finale Großgruppe Junior Expert (U15)"
+code = "GGU15"
 act_type = "group_large"
 einfahrzeit_minutes = 10
 act_duration_minutes = 5
@@ -1204,8 +1204,8 @@ judge_duration_minutes = 3
 slots = [{ heat = "GGU15", count = 1 }]
 
 [[finals]]
-name = "GG15+"
-description = "Großgruppe Expert (15+)"
+name = "Finale Großgruppe Expert (15+)"
+code = "GG15+"
 act_type = "group_large"
 einfahrzeit_minutes = 10
 act_duration_minutes = 5

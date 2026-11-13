@@ -253,7 +253,9 @@ async fn the_down_migration_writes_the_names_back() {
             "SELECT name || ' ' || heat FROM categories WHERE heat IS NOT NULL ORDER BY name"
         )
         .await,
-        ["EMU17 Einzel Expert", "EMU19 Einzel Expert", "KG1 KG"]
+        // Back to names, which are the codes (ADR 0017): the rename of the
+        // readable name is not what the old references used.
+        ["EMU17 E EM", "EMU19 E EM", "KG1 KG"]
     );
     assert_eq!(
         texts(
@@ -261,7 +263,7 @@ async fn the_down_migration_writes_the_names_back() {
             "SELECT final_name || ' ' || heat || ' ' || number FROM final_slots ORDER BY position"
         )
         .await,
-        ["Finale EM Einzel Expert 1", "Finale EM Einzel Expert 2"]
+        ["Finale EM E EM 1", "Finale EM E EM 2"]
     );
     assert_eq!(
         texts(&db, "SELECT final_name FROM timeplan").await,
@@ -269,7 +271,7 @@ async fn the_down_migration_writes_the_names_back() {
     );
     assert_eq!(
         texts(&db, "SELECT heat || ' ' || number FROM timeplan_slots").await,
-        ["Einzel Expert 2"]
+        ["E EM 2"]
     );
     // And up again.
     migrator.run(&db).await.unwrap();
@@ -420,13 +422,13 @@ async fn renaming_a_heat_and_a_final_keeps_every_reference() {
     assert_eq!(heat["categories"], json!(["EWU17"]));
     assert_eq!(
         heat["finals"],
-        json!([{ "id": final_id, "name": "Finale Expert" }])
+        json!([{ "id": final_id, "name": "Finale Expert", "code": "Finale EW" }])
     );
     let final_ = named(&app, "list_finals", "Finale Expert").await;
     assert_eq!(final_["id"], final_id);
     assert_eq!(final_["slot_groups"][1]["heat_id"], heat_id);
     assert_eq!(final_["slot_groups"][1]["heat"], "Expert EW");
-    assert_eq!(final_["slots"][2]["label"], "1. Finalist (Expert EW)");
+    assert_eq!(final_["slots"][2]["label"], "1. Finalist (E EW)");
     let categories = get(&app, "/api/query/list_categories", None).await;
     let ewu17 = categories
         .as_array()
@@ -457,7 +459,7 @@ async fn renaming_a_heat_and_a_final_keeps_every_reference() {
         .unwrap()
         .clone();
     assert_eq!(slots[0]["Finalist"]["heat_id"], heat_id);
-    assert_eq!(slots[0]["Finalist"]["group_label"], "Expert EW");
+    assert_eq!(slots[0]["Finalist"]["group_label"], "E EW");
     // The registrations.
     assert_eq!(jury_unit(&app, &admin, "Expert EW").await["id"], heat_id);
     assert_eq!(
@@ -473,7 +475,8 @@ async fn renaming_a_heat_and_a_final_keeps_every_reference() {
     .unwrap();
     assert_eq!(registrations, ["Expert EW", "Finale Expert"]);
 
-    // The export writes the new names, and no ids.
+    // The export writes the new names, the codes the references use, and
+    // no ids.
     let file = get(&app, "/api/query/export_competition", Some(&admin))
         .await
         .as_str()
@@ -481,9 +484,9 @@ async fn renaming_a_heat_and_a_final_keeps_every_reference() {
         .to_string();
     assert!(file.contains("name = \"Expert EW\""), "{file}");
     assert!(file.contains("name = \"Finale Expert\""), "{file}");
-    assert!(file.contains("heat = \"Expert EW\""), "{file}");
-    assert!(file.contains("final = \"Finale Expert\""), "{file}");
-    assert!(!file.contains("\"E EW\""), "{file}");
+    assert!(file.contains("code = \"E EW\""), "{file}");
+    assert!(file.contains("heat = \"E EW\""), "{file}");
+    assert!(file.contains("final = \"Finale EW\""), "{file}");
 }
 
 /// The competition file names heats and finals; the import resolves the

@@ -226,6 +226,13 @@ pub async fn name_of(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result
         .await
 }
 
+/// The short code of a heat, or `None` if there is none with that id.
+pub async fn code_of(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, heat_id)
+        .fetch_optional(conn)
+        .await
+}
+
 /// Trims a heat's name; fails with a German message if it's empty.
 pub fn normalize_name(name: &str) -> Result<String, String> {
     let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -234,6 +241,51 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
     } else {
         Ok(name)
     }
+}
+
+/// Checks that no other heat (not `except`) has the name or the code. The
+/// message is German.
+pub async fn check_free(
+    conn: &mut SqliteConnection,
+    except: Option<Uuid>,
+    name: &str,
+    code: &str,
+) -> Result<(), String> {
+    let name_taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?1 AND id IS NOT ?2) as "taken!: bool""#,
+        name,
+        except
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    if name_taken {
+        return Err(format!("Eine Vorlaufklasse „{name}“ gibt es schon."));
+    }
+    let code_taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE code = ?1 AND id IS NOT ?2) as "taken!: bool""#,
+        code,
+        except
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    if code_taken {
+        return Err(format!(
+            "Eine Vorlaufklasse mit dem Kürzel „{code}“ gibt es schon."
+        ));
+    }
+    Ok(())
+}
+
+/// The short code of a heat or final, trimmed: the one given, or else the
+/// name. The code is what files refer to and what labels use where space is
+/// tight (ADR 0017).
+pub fn normalize_code(code: Option<&str>, name: &str) -> String {
+    let collapse = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(collapse(code.unwrap_or_default()))
+        .filter(|code| !code.is_empty())
+        .unwrap_or_else(|| collapse(name))
 }
 
 /// Trims the category names of a heat and drops empty and repeated ones,
@@ -436,6 +488,16 @@ mod tests {
         assert_eq!(default_threshold([Some(13.0), None]), 5);
         // An empty heat gets the Expert default.
         assert_eq!(default_threshold([]), 5);
+    }
+
+    #[test]
+    fn the_code_defaults_to_the_name() {
+        assert_eq!(normalize_code(Some(" E  EM 1 "), "Einzel"), "E EM 1");
+        assert_eq!(
+            normalize_code(Some("  "), " Einzel  männlich "),
+            "Einzel männlich"
+        );
+        assert_eq!(normalize_code(None, "Einzel"), "Einzel");
     }
 
     #[test]

@@ -46,8 +46,10 @@ pub struct SlotGroupInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct SlotGroupInfo {
     pub heat_id: Uuid,
-    /// The heat's name.
+    /// The heat's readable name.
     pub heat: String,
+    /// The heat's short code.
+    pub heat_code: String,
     pub count: i64,
 }
 
@@ -103,15 +105,48 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
     }
 }
 
-/// The name of a reserved slot, after its heat.
+/// Checks that no other final (not `except`) has the name or the code. The
+/// message is German.
+pub async fn check_free(
+    conn: &mut SqliteConnection,
+    except: Option<Uuid>,
+    name: &str,
+    code: &str,
+) -> Result<(), String> {
+    let name_taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?1 AND id IS NOT ?2) as "taken!: bool""#,
+        name,
+        except
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    if name_taken {
+        return Err(format!("Ein Finale „{name}“ gibt es schon."));
+    }
+    let code_taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE code = ?1 AND id IS NOT ?2) as "taken!: bool""#,
+        code,
+        except
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| e.to_string())?;
+    if code_taken {
+        return Err(format!("Ein Finale mit dem Kürzel „{code}“ gibt es schon."));
+    }
+    Ok(())
+}
+
+/// The name of a reserved slot, after its heat's code.
 ///
 /// ```
 /// use einrad_server::finals::finalist_label;
 ///
 /// assert_eq!(finalist_label(3, "E EM 1"), "3. Finalist (E EM 1)");
 /// ```
-pub fn finalist_label(number: i64, heat: &str) -> String {
-    format!("{number}. Finalist ({heat})")
+pub fn finalist_label(number: i64, heat_code: &str) -> String {
+    format!("{number}. Finalist ({heat_code})")
 }
 
 /// Trims the heat names and checks the slot groups of a final: at least one
@@ -336,18 +371,19 @@ pub fn group_slot_ids(heats: impl IntoIterator<Item = Uuid>) -> Vec<SlotGroupInp
     groups
 }
 
-/// The slot groups of slots in order, by heat id and name: consecutive
-/// slots of the same heat form a group.
+/// The slot groups of slots in order, by heat id, name and code:
+/// consecutive slots of the same heat form a group.
 pub fn group_slot_infos<'a>(
-    heats: impl IntoIterator<Item = (Uuid, &'a str)>,
+    heats: impl IntoIterator<Item = (Uuid, &'a str, &'a str)>,
 ) -> Vec<SlotGroupInfo> {
     let mut groups: Vec<SlotGroupInfo> = vec![];
-    for (id, name) in heats {
+    for (id, name, code) in heats {
         match groups.last_mut() {
             Some(group) if group.heat_id == id => group.count += 1,
             _ => groups.push(SlotGroupInfo {
                 heat_id: id,
                 heat: name.to_string(),
+                heat_code: code.to_string(),
                 count: 1,
             }),
         }

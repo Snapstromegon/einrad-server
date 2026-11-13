@@ -379,13 +379,14 @@ fn names(values: &[Value]) -> Vec<String> {
 #[tokio::test]
 async fn heats_are_seeded_with_their_categories_and_finals() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
-    let final_ = json!([{ "id": app.final_id("Finale EW").await, "name": "Finale EW" }]);
+    let final_ = json!([{ "id": app.final_id("Finale EW").await, "name": "Finale EW", "code": "Finale EW" }]);
     assert_eq!(
         list_heats(&app).await,
         [
             json!({
                 "id": app.heat_id("JE EW").await,
                 "name": "JE EW",
+                "code": "JE EW",
                 "description": "Junior Expert Einzel Weiblich (U11–U15)",
                 "categories": ["EWU11", "EWU13", "EWU15"],
                 "act_type": "single",
@@ -399,6 +400,7 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
             json!({
                 "id": app.heat_id("E EW").await,
                 "name": "E EW",
+                "code": "E EW",
                 "description": null,
                 "categories": ["EWU17"],
                 "act_type": "single",
@@ -490,7 +492,7 @@ async fn admins_add_edit_and_delete_heats() {
     let response = app
         .post(
             "/api/command/delete_heat",
-            json!({ "id": app.heat_id("Expert 1 EM").await }),
+            json!({ "id": app.heat_id("E EM 1").await }),
             Some(&admin),
         )
         .await;
@@ -512,6 +514,92 @@ async fn admins_add_edit_and_delete_heats() {
         )
         .await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_heat_has_a_readable_name_and_a_unique_code() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let add = |name: &str, code: Value| json!({ "name": name, "code": code, "description": null, "categories": [] });
+
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            add("Einzel männlich – Expert 1 (U17–U21)", json!(" E  EM 1 ")),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    // Without a code, the name is the code.
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            add("Kürklasse", Value::Null),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let heats = list_heats(&app).await;
+    let by_code = |code: &str| heats.iter().find(|h| h["code"] == code).unwrap().clone();
+    assert_eq!(
+        by_code("E EM 1")["name"],
+        "Einzel männlich – Expert 1 (U17–U21)"
+    );
+    assert_eq!(by_code("Kürklasse")["name"], "Kürklasse");
+
+    // Both are unique.
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            add("Anderer Name", json!("E EM 1")),
+            Some(&admin),
+        )
+        .await;
+    rejected(&response, "Kürzel „E EM 1“");
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            add("Kürklasse", json!("K")),
+            Some(&admin),
+        )
+        .await;
+    rejected(&response, "„Kürklasse“ gibt es schon");
+
+    // Edited: the code changes only if given.
+    let id = app.heat_id("E EM 1").await;
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({ "id": id, "new_name": "Neuer Name", "description": null, "categories": [] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let heat = list_heats(&app)
+        .await
+        .into_iter()
+        .find(|h| h["id"] == json!(id))
+        .unwrap();
+    assert_eq!(
+        (heat["name"].as_str(), heat["code"].as_str()),
+        (Some("Neuer Name"), Some("E EM 1"))
+    );
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({ "id": id, "new_name": "Neuer Name", "new_code": "EM1", "description": null, "categories": [] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({ "id": id, "new_name": "Neuer Name", "new_code": "E EW", "description": null, "categories": [] }),
+            Some(&admin),
+        )
+        .await;
+    rejected(&response, "Kürzel „E EW“");
 }
 
 #[tokio::test]
@@ -580,11 +668,11 @@ async fn a_heat_in_a_final_is_renamed_with_it_but_not_deleted() {
     assert_eq!(
         final_["slot_groups"],
         json!([
-            { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "count": 2 },
-            { "heat_id": app.heat_id("Expert EW").await, "heat": "Expert EW", "count": 1 },
+            { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "heat_code": "JE EW", "count": 2 },
+            { "heat_id": app.heat_id("E EW").await, "heat": "Expert EW", "heat_code": "E EW", "count": 1 },
         ])
     );
-    assert_eq!(final_["slots"][2]["label"], "1. Finalist (Expert EW)");
+    assert_eq!(final_["slots"][2]["label"], "1. Finalist (E EW)");
     assert_eq!(
         final_["categories"],
         json!(["EWU11", "EWU13", "EWU15", "EWU17", "EWU19"])

@@ -182,11 +182,11 @@ pub async fn set_block_order(
                     _ => None,
                 });
                 let open = heat.is_some();
-                // For the message: the heat's name, also if the slot isn't
+                // For the message: the heat's code, also if the slot isn't
                 // open.
                 let heat_name = match heat {
-                    Some(name) => name.to_string(),
-                    None => crate::heats::name_of(&mut tx, *heat_id)
+                    Some(code) => code.to_string(),
+                    None => crate::heats::code_of(&mut tx, *heat_id)
                         .await?
                         .unwrap_or_default(),
                 };

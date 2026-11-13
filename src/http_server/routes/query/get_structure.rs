@@ -44,7 +44,10 @@ pub struct Discipline {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct FinalNode {
     id: Uuid,
+    /// The readable name.
     name: String,
+    /// The short code.
+    code: String,
     description: Option<String>,
     /// Its slots over the slot groups of heats that run their Vorlauf; `None`
     /// when all its heats skip it (e.g. groups): their acts start in the
@@ -59,7 +62,10 @@ pub struct FinalNode {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatNode {
     id: Uuid,
+    /// The readable name.
     name: String,
+    /// The short code.
+    code: String,
     description: Option<String>,
     /// Whether its Vorlauf is skipped: its acts start directly in its final.
     skip: bool,
@@ -197,15 +203,15 @@ pub async fn get_structure(
     // The heats in the order of their first category; those without one have
     // no discipline.
     let heats = sqlx::query!(
-        r#"SELECT id as "id!: Uuid", name as "name!", description, skip FROM heats ORDER BY name"#
+        r#"SELECT id as "id!: Uuid", name as "name!", code as "code!", description, skip FROM heats ORDER BY name"#
     )
     .fetch_all(&mut *tx)
     .await?;
     let final_rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid", name as "name!", description, act_type as "act_type: ActType",
-            is_single_male
+            id as "id!: Uuid", name as "name!", code as "code!", description,
+            act_type as "act_type: ActType", is_single_male
         FROM finals
         ORDER BY "order", name
         "#
@@ -314,6 +320,7 @@ pub async fn get_structure(
                 HeatNode {
                     id: heat.id,
                     name: heat.name.clone(),
+                    code: heat.code.clone(),
                     description: heat.description.clone(),
                     skip: heat.skip,
                     slots: slots_of.get(&heat.id).copied(),
@@ -341,6 +348,7 @@ pub async fn get_structure(
             final_nodes.push(FinalNode {
                 id: row.id,
                 name: row.name.clone(),
+                code: row.code.clone(),
                 description: row.description.clone(),
                 slots: (!running.is_empty()).then(|| running.iter().sum()),
                 act_count: feeding.iter().map(|h| h.act_count).sum(),

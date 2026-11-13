@@ -160,6 +160,7 @@ async fn finals_are_seeded_with_their_slots() {
         [json!({
             "id": app.final_id(FINAL).await,
             "name": FINAL,
+            "code": FINAL,
             "description": "Finale Einzel Weiblich",
             "act_type": "single",
             "is_single_male": false,
@@ -168,8 +169,8 @@ async fn finals_are_seeded_with_their_slots() {
             "act_duration_seconds": 180,
             "judge_duration_seconds": 120,
             "slot_groups": [
-                { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "count": 2 },
-                { "heat_id": app.heat_id("E EW").await, "heat": "E EW", "count": 1 },
+                { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "heat_code": "JE EW", "count": 2 },
+                { "heat_id": app.heat_id("E EW").await, "heat": "E EW", "heat_code": "E EW", "count": 1 },
             ],
             // From its heats.
             "categories": ["EWU11", "EWU13", "EWU15", "EWU17"],
@@ -223,7 +224,7 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
     let block = &items[1]["timeplan_entry"]["Acts"];
     assert_eq!(block["final_name"], FINAL);
     assert_eq!(block["home_category"], Value::Null);
-    assert_eq!(block["description"], "Finale Einzel Weiblich");
+    assert_eq!(block["description"], FINAL);
     assert_eq!(block["categories"], json!([]));
     assert_eq!(block["einfahrzeit_seconds"], 300);
     assert_eq!(block["warmup_seconds"], 300);
@@ -239,7 +240,7 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
     assert_eq!(texts(&slots, "group_label"), ["JE EW", "JE EW", "E EW"]);
     for slot in &slots {
         assert_eq!(slot["final_name"], FINAL);
-        assert_eq!(slot["final_description"], "Finale Einzel Weiblich");
+        assert_eq!(slot["final_description"], FINAL);
         assert_eq!(slot["act_duration_seconds"], 180);
         assert_eq!(slot["judge_duration_seconds"], 120);
         assert_eq!(slot["status"], "Planned");
@@ -263,11 +264,7 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
     let response = app.get("/api/query/get_startlist_csv", None).await;
     assert_eq!(response.status, StatusCode::OK);
     let csv = response.body.as_str().unwrap();
-    for label in [
-        "Finale Einzel Weiblich",
-        "1. Finalist (JE EW)",
-        "1. Finalist (E EW)",
-    ] {
+    for label in [FINAL, "1. Finalist (JE EW)", "1. Finalist (E EW)"] {
         assert!(
             csv.lines()
                 .any(|line| line.starts_with("# ") && line.ends_with(label)),
@@ -400,6 +397,90 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     assert_eq!(finalists(&item).len(), 3);
 }
 
+#[tokio::test]
+async fn a_final_has_a_readable_name_and_a_unique_code() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    add_heat(&app, &admin, "E EM 1", &["EMU17"]).await;
+    add_heat(&app, &admin, "E EM 2", &["EMU23"]).await;
+    let groups = json!([{ "heat_id": app.heat_id("E EM 1").await, "count": 2 }]);
+    let other_groups = json!([{ "heat_id": app.heat_id("E EM 2").await, "count": 2 }]);
+    let with_code = |name: &str, code: Value| {
+        // The first final takes the first heat, later ones the other.
+        let groups = if name == "Finale Einzel männlich Expert" {
+            &groups
+        } else {
+            &other_groups
+        };
+        let mut body = final_body(name, groups.clone());
+        body["code"] = code;
+        body
+    };
+
+    let response = app
+        .post(
+            "/api/command/add_final",
+            with_code("Finale Einzel männlich Expert", json!(" E  EM ")),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let finals = list_finals(&app).await;
+    assert_eq!(finals[1]["name"], "Finale Einzel männlich Expert");
+    assert_eq!(finals[1]["code"], "E EM");
+
+    // Both are unique; without a code the name is the code.
+    let response = app
+        .post(
+            "/api/command/add_final",
+            with_code("Anderes Finale", json!("E EM")),
+            Some(&admin),
+        )
+        .await;
+    rejected(&response, "Kürzel „E EM“");
+    let response = app
+        .post(
+            "/api/command/add_final",
+            with_code(FINAL, json!("X")),
+            Some(&admin),
+        )
+        .await;
+    rejected(&response, "gibt es schon");
+    let response = app
+        .post(
+            "/api/command/add_final",
+            with_code("Finale Paar", Value::Null),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(list_finals(&app).await[2]["code"], "Finale Paar");
+
+    // Edited: the code stays unless given, and stays unique.
+    let id = app.final_id("E EM").await;
+    let mut body = final_body(
+        "Neuer Name",
+        json!([{ "heat_id": app.heat_id("E EM 1").await, "count": 2 }]),
+    );
+    body["id"] = json!(id);
+    body["new_name"] = json!("Neuer Name");
+    let response = app
+        .post("/api/command/edit_final", body.clone(), Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let finals = list_finals(&app).await;
+    assert_eq!(
+        (finals[1]["name"].as_str(), finals[1]["code"].as_str()),
+        (Some("Neuer Name"), Some("E EM"))
+    );
+    body["new_code"] = json!(FINAL);
+    let response = app
+        .post("/api/command/edit_final", body, Some(&admin))
+        .await;
+    rejected(&response, &format!("Kürzel „{FINAL}“"));
+}
+
 /// Adds a heat through the admin API.
 async fn add_heat(app: &TestApp, admin: &str, name: &str, categories: &[&str]) {
     let response = app
@@ -484,8 +565,8 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(
         finals[1]["slot_groups"],
         json!([
-            { "heat_id": em1, "heat": "E EM 1", "count": 2 },
-            { "heat_id": em2, "heat": "E EM 2", "count": 1 },
+            { "heat_id": em1, "heat": "E EM 1", "heat_code": "E EM 1", "count": 2 },
+            { "heat_id": em2, "heat": "E EM 2", "heat_code": "E EM 2", "count": 1 },
         ])
     );
     assert_eq!(
@@ -514,7 +595,7 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(finals[1]["is_single_male"], false);
     assert_eq!(
         finals[1]["slot_groups"],
-        json!([{ "heat_id": ep2, "heat": "E P 2", "count": 4 }])
+        json!([{ "heat_id": ep2, "heat": "E P 2", "heat_code": "E P 2", "count": 4 }])
     );
     assert_eq!(list_timeplan(&app).await[0]["final_name"], "Finale Paar");
     let item = predicted_items(&app).await.remove(0);

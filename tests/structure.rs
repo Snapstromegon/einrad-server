@@ -191,6 +191,44 @@ async fn a_final_fed_by_two_heats_appears_once_with_all_its_acts() {
 }
 
 #[tokio::test]
+async fn final_and_heat_nodes_carry_their_readable_name_and_code() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    post_ok(
+        &app,
+        &admin,
+        "add_heat",
+        json!({
+            "name": "Einzel männlich – Expert 1", "code": "E EM 1",
+            "description": null, "categories": ["EMU13"],
+        }),
+    )
+    .await;
+    post_ok(
+        &app,
+        &admin,
+        "add_final",
+        json!({
+            "name": "Finale Einzel männlich Expert", "code": "E EM",
+            "description": null, "act_type": "single", "is_single_male": true,
+            "einfahrzeit_seconds": 600, "act_duration_seconds": 300,
+            "judge_duration_seconds": 180,
+            "slot_groups": [{ "heat_id": app.heat_id("E EM 1").await, "count": 2 }],
+        }),
+    )
+    .await;
+
+    let tree = structure(&app, &admin).await;
+    let final_node = named(
+        &discipline(&tree, "single", true)["finals"],
+        "Finale Einzel männlich Expert",
+    );
+    assert_eq!(final_node["code"], "E EM");
+    let heat = named(&final_node["heats"], "Einzel männlich – Expert 1");
+    assert_eq!(heat["code"], "E EM 1");
+}
+
+#[tokio::test]
 async fn a_heat_no_final_takes_is_listed_apart() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;

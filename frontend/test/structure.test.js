@@ -7,6 +7,9 @@ import {
   disciplineLabel,
   finalLabel,
   heatLabel,
+  levelLabel,
+  levelLegend,
+  secondaryCode,
   visibleActs,
 } from "../src/ts/structure.ts";
 
@@ -128,5 +131,40 @@ describe("act anchors (TREE-7)", () => {
     assert.equal(actAnchor(""), null);
     assert.equal(actAnchor("#top"), null);
     assert.equal(actAnchor("#act-"), null);
+  });
+});
+
+describe("level labels (TREE-8)", () => {
+  test("every level of the tree is named", () => {
+    assert.equal(levelLabel.discipline, "Disziplin");
+    assert.equal(levelLabel.final, "Finale");
+    assert.equal(levelLabel.heat, "Vorlaufklasse");
+    assert.equal(levelLabel.category, "Kategorie");
+    assert.equal(levelLabel.act, "Kür");
+  });
+
+  test("the legend lists the levels from the top down, each explained", () => {
+    assert.deepEqual(
+      levelLegend.map((entry) => entry.level),
+      ["discipline", "final", "heat", "category", "act"],
+    );
+    for (const entry of levelLegend) {
+      assert.equal(entry.label, levelLabel[entry.level]);
+      assert.ok(entry.description.length > 10, entry.level);
+    }
+  });
+});
+
+describe("secondaryCode (TREE-8)", () => {
+  test("shows the code next to a readable name", () => {
+    assert.equal(
+      secondaryCode({ name: "Einzel männlich – Expert 1", code: "E EM 1" }),
+      "E EM 1",
+    );
+  });
+
+  test("shows nothing where the code is the name", () => {
+    assert.equal(secondaryCode({ name: "E EM 1", code: "E EM 1" }), null);
+    assert.equal(secondaryCode({ name: "E EM 1", code: "" }), null);
   });
 });

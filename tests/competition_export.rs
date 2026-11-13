@@ -112,6 +112,74 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
 }
 
 #[tokio::test]
+async fn an_export_writes_name_and_code_and_refers_to_the_code() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let heat = app.heat_id("JE EW").await;
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": heat, "new_name": "Einzel weiblich – Junior Expert (U11–U15)",
+                "description": null, "categories": ["EWU11", "EWU13", "EWU15"],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let slot_groups = json!([
+        { "heat_id": heat, "count": 2 },
+        { "heat_id": app.heat_id("E EW").await, "count": 1 },
+    ]);
+    let response = app
+        .post(
+            "/api/command/edit_final",
+            json!({
+                "id": app.final_id("Finale EW").await, "new_name": "Finale Einzel weiblich",
+                "description": null, "act_type": "single", "is_single_male": false,
+                "einfahrzeit_seconds": 300, "act_duration_seconds": 180,
+                "judge_duration_seconds": 120, "slot_groups": slot_groups,
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    // Planned, unless the fixture's timeplan has it already.
+    if app.get("/api/query/list_finals", None).await.body[0]["timeplan_id"].is_null() {
+        let response = app
+            .post(
+                "/api/command/add_timeplan_entry",
+                json!({ "final_id": app.final_id("Finale EW").await }),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+
+    let file = export(&app, &admin).await;
+    assert!(
+        file.contains(
+            "[[heats]]\nname = \"Einzel weiblich – Junior Expert (U11–U15)\"\ncode = \"JE EW\""
+        ),
+        "{file}"
+    );
+    assert!(
+        file.contains("[[finals]]\nname = \"Finale Einzel weiblich\"\ncode = \"Finale EW\""),
+        "{file}"
+    );
+    // References use the code.
+    assert!(file.contains("heat = \"JE EW\""), "{file}");
+    assert!(file.contains("final = \"Finale EW\""), "{file}");
+    CompetitionFile::parse(&file).unwrap();
+
+    let fresh = TestApp::without_competition(common::in_memory_migrated().await).await;
+    let fresh_admin = fresh.create_admin().await;
+    import(&fresh, &fresh_admin, &file).await;
+    assert_eq!(export(&fresh, &fresh_admin).await, file);
+}
+
+#[tokio::test]
 async fn only_admins_export() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;

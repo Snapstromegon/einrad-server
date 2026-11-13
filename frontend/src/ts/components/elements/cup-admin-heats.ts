@@ -18,7 +18,10 @@ type Category = schemas.Category;
 
 /** The row being edited, with the values as typed. */
 interface HeatDraft {
+  /** The readable name. */
   name: string;
+  /** The short code; empty means the name (a new heat) or stays (an edit). */
+  code: string;
   description: string;
   categories: string[];
   /** As typed; empty for a new heat means the default (6 or 5). */
@@ -32,7 +35,7 @@ interface Editing {
 }
 
 /** The columns of the table, for rows spanning all of them. */
-const COLUMNS = 7;
+const COLUMNS = 8;
 
 /** "Einzelkür männlich", "Paarkür", … */
 const disciplineOf = (
@@ -44,6 +47,7 @@ const disciplineOf = (
 
 const emptyDraft = (): HeatDraft => ({
   name: "",
+  code: "",
   description: "",
   categories: [],
   threshold: "",
@@ -77,7 +81,11 @@ export default class CupAdminHeats extends LitElement {
       }
 
       input.name {
-        width: 9em;
+        width: 16em;
+      }
+
+      input.code {
+        width: 6em;
       }
 
       .dense td.desc {
@@ -213,7 +221,12 @@ export default class CupAdminHeats extends LitElement {
     return html`<table class="dense">
       <thead>
         <tr>
-          <th>Name</th>
+          <th title="Der lesbare Name, wie ihn Jury, Struktur und Editoren zeigen">
+            Name
+          </th>
+          <th title="Das Kürzel für enge Stellen, z. B. „1. Finalist (E EM 1)“, und der Verweis in Wettkampfdateien">
+            Kürzel
+          </th>
           <th>Beschreibung</th>
           <th>Disziplin</th>
           <th title="Die Kategorien, deren Küren zusammen gewertet werden">
@@ -257,6 +270,7 @@ export default class CupAdminHeats extends LitElement {
     const locked = this.busy || this.editing !== null;
     return html`<tr>
       <td><b>${heat.name}</b></td>
+      <td><code>${heat.code}</code></td>
       <td class="desc">${heat.description ?? ""}</td>
       <td>
         ${
@@ -373,11 +387,23 @@ export default class CupAdminHeats extends LitElement {
         <input
           class=${classMap({ inline: true, name: true, invalid: !draft.name.trim() })}
           type="text"
-          placeholder="z. B. E EM 1"
+          placeholder="z. B. Einzel männlich – Expert 1 (U17–U21)"
           aria-label="Name"
           required
           data-field="name"
           .value=${draft.name}
+          @input=${this.onDraftInput}
+        />
+      </td>
+      <td>
+        <input
+          class="inline code"
+          type="text"
+          placeholder=${heat ? heat.code : "z. B. E EM 1"}
+          title="Das Kürzel; leer: bei einer neuen Vorlaufklasse der Name, beim Bearbeiten bleibt es"
+          aria-label="Kürzel"
+          data-field="code"
+          .value=${draft.code}
           @input=${this.onDraftInput}
         />
       </td>
@@ -516,6 +542,7 @@ export default class CupAdminHeats extends LitElement {
       original: heat,
       draft: {
         name: heat.name,
+        code: heat.code,
         description: heat.description ?? "",
         categories: [...heat.categories],
         threshold: String(heat.threshold),
@@ -551,7 +578,11 @@ export default class CupAdminHeats extends LitElement {
       return;
     }
     const target = e.currentTarget as HTMLInputElement;
-    const field = target.dataset.field as "name" | "description" | "threshold";
+    const field = target.dataset.field as
+      | "name"
+      | "code"
+      | "description"
+      | "threshold";
     this.editing = {
       ...this.editing,
       draft: { ...this.editing.draft, [field]: target.value },
@@ -600,12 +631,19 @@ export default class CupAdminHeats extends LitElement {
               ...fields,
               id: original.id,
               new_name: draft.name.trim(),
+              new_code: draft.code.trim() || null,
             },
           }),
         );
       } else {
         await unwrap(
-          client.addHeat({ body: { ...fields, name: draft.name.trim() } }),
+          client.addHeat({
+            body: {
+              ...fields,
+              name: draft.name.trim(),
+              code: draft.code.trim() || null,
+            },
+          }),
         );
       }
       this.editing = null;

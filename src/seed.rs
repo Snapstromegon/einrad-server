@@ -214,7 +214,10 @@ pub fn resolve_categories(
 /// A final from the config with its durations in seconds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedFinal {
+    /// The readable name.
     pub name: String,
+    /// The short code, which the timeplan refers to.
+    pub code: String,
     pub description: Option<String>,
     pub act_type: ActType,
     pub single_male: bool,
@@ -228,7 +231,10 @@ pub struct ResolvedFinal {
 /// A heat from the config, checked against HEAT-1.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedHeat {
+    /// The readable name.
     pub name: String,
+    /// The short code, which slots and categories refer to.
+    pub code: String,
     pub description: Option<String>,
     pub categories: Vec<String>,
     /// The discipline its categories share; `None` without categories.
@@ -254,24 +260,32 @@ pub fn resolve_heats(
         })
         .collect();
     let mut names = HashSet::new();
+    let mut codes = HashSet::new();
     let mut resolved = Vec::with_capacity(heats.len());
     for config in heats {
         let name = config.name.split_whitespace().collect::<Vec<_>>().join(" ");
         if name.is_empty() {
             return Err("A heat has an empty name.".to_string());
         }
+        // Files refer to a heat by its code, so that names the offender.
+        let code = heats::normalize_code(config.code.as_deref(), &name);
+        if !codes.insert(code.clone()) {
+            return Err(format!("Heat {code} is defined more than once."));
+        }
         if !names.insert(name.clone()) {
-            return Err(format!("Heat {name} is defined more than once."));
+            return Err(format!(
+                "Heat {code}: the name {name} is used by another heat."
+            ));
         }
         let categories = heats::normalize_categories(&config.categories);
-        let discipline = heats::check(&name, &categories, &known)
-            .map_err(|problem| format!("Heat {name}: {}.", problem.english()))?;
+        let discipline = heats::check(&code, &categories, &known)
+            .map_err(|problem| format!("Heat {code}: {}.", problem.english()))?;
         for category in known.iter_mut().filter(|c| categories.contains(&c.name)) {
-            category.heat = Some(name.clone());
+            category.heat = Some(code.clone());
         }
         let threshold = match config.threshold {
             Some(threshold) if threshold < 0 => {
-                return Err(format!("Heat {name}: the threshold can't be negative."));
+                return Err(format!("Heat {code}: the threshold can't be negative."));
             }
             Some(threshold) => threshold,
             None => heats::default_threshold(categories.iter().map(|name| {
@@ -289,9 +303,10 @@ pub fn resolve_heats(
             config.jury_needed_performance,
             config.jury_needed_dismounts,
         )
-        .map_err(|e| format!("Heat {name}: {e}."))?;
+        .map_err(|e| format!("Heat {code}: {e}."))?;
         resolved.push(ResolvedHeat {
             name,
+            code,
             description: config
                 .description
                 .as_ref()
@@ -333,6 +348,7 @@ pub fn resolve_finals(
     heats: &[ResolvedHeat],
 ) -> Result<Vec<ResolvedFinal>, String> {
     let mut names = HashSet::new();
+    let mut codes = HashSet::new();
     // The final each heat fills, to fill at most one.
     let mut final_of: HashMap<String, String> = HashMap::new();
     finals
@@ -342,58 +358,65 @@ pub fn resolve_finals(
             if name.is_empty() {
                 return Err("A final has an empty name.".to_string());
             }
-            if !names.insert(name.to_string()) {
-                return Err(format!("Final {name} is defined more than once."));
+            // Files refer to a final by its code, so that names the offender.
+            let code = heats::normalize_code(config.code.as_deref(), name);
+            let name = name.to_string();
+            if !codes.insert(code.clone()) {
+                return Err(format!("Final {code} is defined more than once."));
+            }
+            if !names.insert(name.clone()) {
+                return Err(format!("Final {code}: the name {name} is used by another final."));
             }
             let slots = finals::normalize_slot_groups(&config.slots).map_err(|_| {
                 format!(
-                    "Final {name}: slots need at least one slot, each group a heat and a count of at least 1, at most {} in all.",
+                    "Final {code}: slots need at least one slot, each group a heat and a count of at least 1, at most {} in all.",
                     finals::MAX_SLOTS
                 )
             })?;
             let discipline = Discipline::new(config.act_type, config.single_male);
             for group in &slots {
-                let Some(heat) = heats.iter().find(|heat| heat.name == group.heat) else {
+                let Some(heat) = heats.iter().find(|heat| heat.code == group.heat) else {
                     return Err(format!(
-                        "Final {name}: the slots name the heat {}, which the file doesn't define.",
+                        "Final {code}: the slots name the heat {}, which the file doesn't define.",
                         group.heat
                     ));
                 };
                 if heat.discipline.is_some_and(|d| d != discipline) {
                     return Err(format!(
-                        "Final {name}: the heat {} has another act type or gender than the final.",
-                        heat.name
+                        "Final {code}: the heat {} has another act type or gender than the final.",
+                        heat.code
                     ));
                 }
                 let first = final_of
-                    .entry(heat.name.clone())
-                    .or_insert_with(|| name.to_string());
-                if first != name {
+                    .entry(heat.code.clone())
+                    .or_insert_with(|| code.clone());
+                if *first != code {
                     return Err(format!(
-                        "Final {name}: the heat {} already fills slots of final {first}; a heat fills at most one final.",
-                        heat.name
+                        "Final {code}: the heat {} already fills slots of final {first}; a heat fills at most one final.",
+                        heat.code
                     ));
                 }
             }
             Ok(ResolvedFinal {
-                name: name.to_string(),
+                name: name.clone(),
+                code: code.clone(),
                 description: config.description.clone(),
                 act_type: config.act_type,
                 single_male: config.single_male,
                 einfahrzeit_seconds: minutes_to_seconds(
                     config.einfahrzeit_minutes,
                     "einfahrzeit_minutes",
-                    name,
+                    &code,
                 )?,
                 act_duration_seconds: minutes_to_seconds(
                     config.act_duration_minutes,
                     "act_duration_minutes",
-                    name,
+                    &code,
                 )?,
                 judge_duration_seconds: minutes_to_seconds(
                     config.judge_duration_minutes,
                     "judge_duration_minutes",
-                    name,
+                    &code,
                 )?,
                 slots,
                 jury: UnitSettings::resolve(
@@ -404,7 +427,7 @@ pub fn resolve_finals(
                     config.jury_needed_performance,
                     config.jury_needed_dismounts,
                 )
-                .map_err(|e| format!("Final {name}: {e}."))?,
+                .map_err(|e| format!("Final {code}: {e}."))?,
             })
         })
         .collect()
@@ -1163,29 +1186,29 @@ impl Snapshot {
             )
             .await?,
             heats: rows(
-                r#"SELECT json_array(name, description, threshold, skip,
+                r#"SELECT json_array(name, code, description, threshold, skip,
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(name)
                         FROM (SELECT name FROM categories WHERE heat_id = heats.id ORDER BY name)))
-                FROM heats ORDER BY name"#,
+                FROM heats ORDER BY code"#,
             )
             .await?,
             finals: rows(
-                r#"SELECT json_array(name, description, act_type, is_single_male, "order",
+                r#"SELECT json_array(name, code, description, act_type, is_single_male, "order",
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(json_array(heat, number))
-                        FROM (SELECT heats.name AS heat, number FROM final_slots
+                        FROM (SELECT heats.code AS heat, number FROM final_slots
                             JOIN heats ON heats.id = final_slots.heat_id
                             WHERE final_slots.final_id = finals.id ORDER BY position)))
-                FROM finals ORDER BY "order", name"#,
+                FROM finals ORDER BY "order", code"#,
             )
             .await?,
             timeplan: rows(
                 r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
-                    (SELECT name FROM finals WHERE finals.id = timeplan.final_id),
+                    (SELECT code FROM finals WHERE finals.id = timeplan.final_id),
                     kind, show_photos, internal, einfahrzeit_seconds)
                 FROM timeplan ORDER BY position, id"#,
             )
@@ -1409,16 +1432,17 @@ async fn write(
             );
         }
         let heat_id = Uuid::new_v4();
-        heat_ids.insert(heat.name.clone(), heat_id);
+        heat_ids.insert(heat.code.clone(), heat_id);
         sqlx::query!(
             r#"
             INSERT INTO heats (
-                id, name, description, threshold, skip, jury_registrable, jury_deployments,
+                id, name, code, description, threshold, skip, jury_registrable, jury_deployments,
                 jury_needed_technical, jury_needed_performance, jury_needed_dismounts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             heat_id,
             heat.name,
+            heat.code,
             heat.description,
             heat.threshold,
             heat.skip,
@@ -1455,14 +1479,15 @@ async fn write(
             sqlx::query!(
                 r#"
                 INSERT INTO finals (
-                    id, name, description, act_type, is_single_male, "order",
+                    id, name, code, description, act_type, is_single_male, "order",
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 final_id,
                 item.name,
+                item.code,
                 item.description,
                 item.act_type,
                 item.single_male,
@@ -1502,7 +1527,7 @@ async fn write(
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(db_error)?;
-        let final_names: Vec<String> = sqlx::query_scalar!(r#"SELECT name as "name!" FROM finals"#)
+        let final_names: Vec<String> = sqlx::query_scalar!(r#"SELECT code as "code!" FROM finals"#)
             .fetch_all(&mut *conn)
             .await
             .map_err(db_error)?;
@@ -1520,7 +1545,7 @@ async fn write(
             // `validate_timeplan` checked that the final exists.
             let final_id = match &entry.final_name {
                 Some(name) => sqlx::query_scalar!(
-                    r#"SELECT id as "id: Uuid" FROM finals WHERE name = ?"#,
+                    r#"SELECT id as "id: Uuid" FROM finals WHERE code = ?"#,
                     name
                 )
                 .fetch_one(&mut *conn)
@@ -2573,6 +2598,93 @@ mod tests {
         assert_eq!(slots, ["Junior", "Junior", "Expert"]);
     }
 
+    const NAMED_HEATS: &str = r#"
+        [[heats]]
+        name = "Einzel – Junior (U15)"
+        code = "J"
+        categories = ["U15"]
+
+        [[heats]]
+        name = "Einzel – Expert (15+)"
+        categories = ["15+"]
+
+        [[finals]]
+        name = "Finale Einzel"
+        code = "FE"
+        act_type = "single"
+        slots = [{ heat = "J", count = 2 }, { heat = "Einzel – Expert (15+)", count = 1 }]
+
+        [[timeplan]]
+        final = "FE"
+    "#;
+
+    #[tokio::test]
+    async fn heats_and_finals_take_name_and_code_and_files_refer_to_the_code() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        seed_file(&db, &with_heats(NAMED_HEATS)).await.unwrap();
+
+        let heats: Vec<(String, String)> =
+            sqlx::query_as("SELECT code, name FROM heats ORDER BY code")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            heats,
+            [
+                // Without a code, the name is the code.
+                (
+                    "Einzel – Expert (15+)".to_string(),
+                    "Einzel – Expert (15+)".to_string()
+                ),
+                ("J".to_string(), "Einzel – Junior (U15)".to_string()),
+            ]
+        );
+        let finals: Vec<(String, String)> = sqlx::query_as("SELECT code, name FROM finals")
+            .fetch_all(&db)
+            .await
+            .unwrap();
+        assert_eq!(finals, [("FE".to_string(), "Finale Einzel".to_string())]);
+        let planned: Vec<String> = sqlx::query_scalar(
+            "SELECT finals.name FROM timeplan JOIN finals ON finals.id = timeplan.final_id",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(planned, ["Finale Einzel"]);
+    }
+
+    #[tokio::test]
+    async fn references_name_the_code_not_the_readable_name() {
+        for (from, to, message) in [
+            (
+                "heat = \"J\"",
+                "heat = \"Einzel – Junior (U15)\"",
+                "Einzel – Junior (U15)",
+            ),
+            (
+                "final = \"FE\"",
+                "final = \"Finale Einzel\"",
+                "Finale Einzel",
+            ),
+        ] {
+            let db = crate::reloadable_sqlite::in_memory_migrated().await;
+            let file = with_heats(&NAMED_HEATS.replace(from, to));
+            let err = seed_file(&db, &file).await.unwrap_err();
+            assert!(err.contains(message), "{err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn codes_must_be_unique() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let file = with_heats(&NAMED_HEATS.replace(
+            "name = \"Einzel – Expert (15+)\"",
+            "name = \"Einzel – Expert (15+)\"\ncode = \"J\"",
+        ));
+        let err = seed_file(&db, &file).await.unwrap_err();
+        assert!(err.contains("Heat J"), "{err}");
+    }
+
     #[tokio::test]
     async fn heats_take_their_threshold_and_skip_from_the_file() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
@@ -2665,6 +2777,7 @@ mod tests {
     fn categories_without_a_heat_give_a_warning() {
         let heat = |name: &str, categories: &[&str]| HeatConfig {
             name: name.to_string(),
+            code: None,
             description: None,
             categories: categories.iter().map(|c| c.to_string()).collect(),
             threshold: None,

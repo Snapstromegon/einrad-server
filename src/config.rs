@@ -269,6 +269,7 @@ impl CategoryInput {
 #[serde(deny_unknown_fields)]
 struct FinalInput {
     name: String,
+    code: Option<String>,
     description: Option<String>,
     act_type: ActType,
     #[serde(default)]
@@ -340,6 +341,7 @@ impl FinalInput {
                 })
                 .collect(),
             name: self.name,
+            code: self.code,
             description: self.description,
             act_type: self.act_type,
             single_male: self.single_male,
@@ -834,8 +836,12 @@ pub struct CategoryConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeatConfig {
-    /// Unique; a final's `slots` refer to it.
+    /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
     pub name: String,
+    /// The short code, unique; a final's `slots` and the categories' heat
+    /// lists refer to it. Without: the name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// All of one act type and gender; a category is in at most one heat,
@@ -875,8 +881,12 @@ pub struct HeatConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FinalConfig {
-    /// Unique; `[[timeplan]] final = …` refers to it.
+    /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
     pub name: String,
+    /// The short code, unique; `[[timeplan]] final = …` refers to it.
+    /// Without: the name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub act_type: ActType,
@@ -920,7 +930,7 @@ pub struct TimeplanEntryConfig {
     /// Name of the category this entry runs. Leave empty for custom entries.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-    /// Name of the final this entry runs, instead of a category.
+    /// Code of the final this entry runs, instead of a category.
     #[serde(rename = "final", skip_serializing_if = "Option::is_none")]
     pub final_name: Option<String>,
     /// Label of a custom entry, e.g. "Mittagspause", or of a start block
@@ -1682,7 +1692,7 @@ music_upload_end = 2027-01-20T23:59:59+01:00";
         let heats = crate::seed::resolve_heats(&file.heats, &file.categories).unwrap();
         assert!(heats.iter().all(|heat| !heat.categories.is_empty()));
         let finals = crate::seed::resolve_finals(&file.finals, &heats).unwrap();
-        let final_names = finals.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+        let final_names = finals.iter().map(|f| f.code.clone()).collect::<Vec<_>>();
         crate::seed::validate_timeplan(&file.timeplan, &category_names, &final_names).unwrap();
         let warnings = crate::seed::unscheduled_category_warnings(&file.timeplan, &category_names);
         assert!(warnings.is_empty(), "{warnings:?}");

@@ -14,13 +14,19 @@ use crate::{
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatFinal {
     id: Uuid,
+    /// The readable name.
     name: String,
+    /// The short code.
+    code: String,
 }
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Heat {
     id: Uuid,
+    /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
     name: String,
+    /// The short code, unique, e.g. "E EM 1".
+    code: String,
     description: Option<String>,
     /// Its categories, in category order. Empty until the admin assigns
     /// them.
@@ -82,7 +88,7 @@ pub async fn list_heats(
     let mut finals: HashMap<Uuid, Vec<HeatFinal>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT DISTINCT final_slots.heat_id as "heat_id!: Uuid", finals.id as "final_id!: Uuid", finals.name as "final_name!"
+        SELECT DISTINCT final_slots.heat_id as "heat_id!: Uuid", finals.id as "final_id!: Uuid", finals.name as "final_name!", finals.code as "final_code!"
         FROM final_slots
         JOIN finals ON finals.id = final_slots.final_id
         ORDER BY finals.name
@@ -94,6 +100,7 @@ pub async fn list_heats(
         finals.entry(row.heat_id).or_default().push(HeatFinal {
             id: row.final_id,
             name: row.final_name,
+            code: row.final_code,
         });
     }
     let rows = sqlx::query!(
@@ -101,6 +108,7 @@ pub async fn list_heats(
         SELECT
             id as "id!: Uuid",
             name as "name!",
+            code as "code!",
             description,
             threshold,
             skip,
@@ -131,6 +139,7 @@ pub async fn list_heats(
                     act_type: discipline.map(|d| d.act_type),
                     is_single_male: discipline.map(|d| d.single_male),
                     name: row.name,
+                    code: row.code,
                     description: row.description,
                     threshold: row.threshold,
                     skip: row.skip,

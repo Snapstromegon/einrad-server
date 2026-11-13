@@ -12,7 +12,11 @@ import {
   disciplineLabel,
   finalLabel,
   heatLabel,
+  levelLabel,
+  levelLegend,
+  secondaryCode,
   visibleActs,
+  type NodeLevel,
 } from "../../structure";
 import { actClubNames, participantName } from "../../utils";
 
@@ -25,6 +29,20 @@ type ActNode = schemas.ActNode;
 
 /** "1 Kür", "3 Küren" */
 const countActs = (n: number) => `${n} ${n === 1 ? "Kür" : "Küren"}`;
+
+/** The badge that says which level a node is. */
+const levelBadge = (level: NodeLevel) =>
+  html`<span class=${level === "act" ? "chip muted level" : "chip info level"}
+    >${levelLabel[level]}</span
+  >`;
+
+/** The code of a heat or final, small next to its readable name. */
+const codeOf = (node: { name: string; code?: string | null }) => {
+  const code = secondaryCode(node);
+  return code
+    ? html`<span class="muted code" title="Kürzel">${code}</span>`
+    : nothing;
+};
 
 /**
  * The competition's structure as a tree (#346): discipline → final →
@@ -57,6 +75,31 @@ export default class CupViewAdminStructure extends LitElement {
 
       .heat-info {
         font-weight: 400;
+      }
+
+      .level {
+        font-weight: 600;
+      }
+
+      .code {
+        font-weight: 400;
+        font-size: 0.85em;
+      }
+
+      ul.legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 1.25rem;
+        list-style: none;
+        margin: 0 0 0.75rem;
+        padding: 0;
+        font-size: 0.9em;
+      }
+
+      ul.legend li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.4em;
       }
 
       ul.acts {
@@ -142,6 +185,15 @@ export default class CupViewAdminStructure extends LitElement {
           Neu laden
         </button>
       </div>
+      <ul class="legend" aria-label="Ebenen des Baums">
+        ${repeat(
+          levelLegend,
+          (entry) => entry.level,
+          (entry) =>
+            html`<li>${levelBadge(entry.level)}
+              <span class="muted">${entry.description}</span></li>`,
+        )}
+      </ul>
       ${this.data.render({
         pending: () => html`<p class="empty">Lade Struktur …</p>`,
         error: (error) =>
@@ -166,7 +218,7 @@ export default class CupViewAdminStructure extends LitElement {
     const withoutActs = visibleActs(without.acts, this.showWithdrawn);
     return html`<details class="block" open>
       <summary>
-        ${disciplineLabel(discipline)}
+        ${levelBadge("discipline")} ${disciplineLabel(discipline)}
         <span class="muted">${countActs(discipline.act_count)}</span>
       </summary>
       <div class="body">
@@ -249,7 +301,7 @@ export default class CupViewAdminStructure extends LitElement {
   private renderFinal(final: FinalNode) {
     return html`<details class="block" open>
       <summary>
-        ${final.name}
+        ${levelBadge("final")} ${final.name} ${codeOf(final)}
         <span class="muted heat-info">${finalLabel(final)}</span>
         <span class="muted">${countActs(final.act_count)}</span>
       </summary>
@@ -266,7 +318,7 @@ export default class CupViewAdminStructure extends LitElement {
   private renderHeat(heat: HeatNode) {
     return html`<details class="block" open>
       <summary>
-        ${heat.name}
+        ${levelBadge("heat")} ${heat.name} ${codeOf(heat)}
         <span class="muted heat-info">${heatLabel(heat)}</span>
         <span class="muted">${countActs(heat.act_count)}</span>
       </summary>
@@ -284,7 +336,7 @@ export default class CupViewAdminStructure extends LitElement {
     const acts = visibleActs(category.acts, this.showWithdrawn);
     return html`<details class="block">
       <summary>
-        ${category.name}
+        ${levelBadge("category")} ${category.name}
         ${
           category.description
             ? html`<span class="muted">${category.description}</span>`
@@ -303,6 +355,7 @@ export default class CupViewAdminStructure extends LitElement {
         acts,
         (act) => act.id,
         (act) => html`<li class=${act.withdrawn ? "withdrawn" : ""}>
+          ${levelBadge("act")}
           <a class="title" href=${actHref(act)}>${actTitle(act)}</a>
           <span class="muted">${actClubNames(act).join(", ")}</span>
           <span class="riders"

@@ -73,7 +73,7 @@ pub async fn set_final_placement(
         SELECT
             final_slots.id as "id!: Uuid",
             final_slots.heat_id as "heat_id!: Uuid",
-            heats.name as "heat!",
+            heats.code as "heat!",
             number,
             act_id as "act_id: Uuid",
             final_slots.started_at IS NOT NULL as "started!: bool"

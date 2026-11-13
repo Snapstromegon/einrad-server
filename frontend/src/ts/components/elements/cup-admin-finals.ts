@@ -31,7 +31,10 @@ interface SlotGroupDraft {
 
 /** The row being edited, with the values as typed. */
 interface FinalDraft {
+  /** The readable name. */
   name: string;
+  /** The short code; empty means the name (a new final) or stays (an edit). */
+  code: string;
   description: string;
   act_type: ActType;
   is_single_male: boolean;
@@ -60,7 +63,7 @@ interface Editing {
 const actTypes = Object.entries(actTypeLabels) as [ActType, string][];
 
 /** The columns of the table, for rows spanning all of them. */
-const COLUMNS = 12;
+const COLUMNS = 13;
 
 /** The saved placement of a final, as a draft: the act per slot id. */
 const placementOf = (final: Final): Record<string, string> =>
@@ -114,6 +117,7 @@ const blockSeconds = (final: Final) =>
 
 const emptyDraft = (): FinalDraft => ({
   name: "",
+  code: "",
   description: "",
   act_type: "single",
   is_single_male: false,
@@ -147,7 +151,11 @@ export default class CupAdminFinals extends LitElement {
       }
 
       input.name {
-        width: 10em;
+        width: 16em;
+      }
+
+      input.code {
+        width: 6em;
       }
 
       .slot-groups {
@@ -300,7 +308,12 @@ export default class CupAdminFinals extends LitElement {
     return html`<table class="dense">
       <thead>
         <tr>
-          <th>Name</th>
+          <th title="Der lesbare Name, wie ihn Jury, Struktur und Zeitplan zeigen">
+            Name
+          </th>
+          <th title="Das Kürzel für enge Stellen und der Verweis in Wettkampfdateien">
+            Kürzel
+          </th>
           <th>Beschreibung</th>
           <th>Disziplin</th>
           <th
@@ -362,6 +375,7 @@ export default class CupAdminFinals extends LitElement {
       final.timeplan_id !== null && final.timeplan_id !== undefined;
     return html`<tr>
       <td><b>${final.name}</b></td>
+      <td><code>${final.code}</code></td>
       <td class="desc">${final.description ?? ""}</td>
       <td>${discipline(final)}</td>
       <td>
@@ -494,11 +508,23 @@ export default class CupAdminFinals extends LitElement {
         <input
           class=${classMap({ inline: true, name: true, invalid: problems.name })}
           type="text"
-          placeholder="z. B. Finale 1 EM"
+          placeholder="z. B. Finale Einzel männlich Expert"
           aria-label="Name"
           required
           data-field="name"
           .value=${draft.name}
+          @input=${this.onDraftInput}
+        />
+      </td>
+      <td>
+        <input
+          class="inline code"
+          type="text"
+          placeholder=${final ? final.code : "z. B. E EM"}
+          title="Das Kürzel; leer: bei einem neuen Finale der Name, beim Bearbeiten bleibt es"
+          aria-label="Kürzel"
+          data-field="code"
+          .value=${draft.code}
           @input=${this.onDraftInput}
         />
       </td>
@@ -890,6 +916,7 @@ export default class CupAdminFinals extends LitElement {
       original: final,
       draft: {
         name: final.name,
+        code: final.code,
         description: final.description ?? "",
         act_type: final.act_type,
         is_single_male: final.is_single_male,
@@ -1102,13 +1129,18 @@ export default class CupAdminFinals extends LitElement {
               ...fields,
               id: original.id,
               new_name: draft.name.trim(),
+              new_code: draft.code.trim() || null,
             },
           }),
         );
       } else {
         await unwrap(
           client.addFinal({
-            body: { ...fields, name: draft.name.trim() },
+            body: {
+              ...fields,
+              name: draft.name.trim(),
+              code: draft.code.trim() || null,
+            },
           }),
         );
       }

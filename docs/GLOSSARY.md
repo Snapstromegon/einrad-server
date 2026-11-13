@@ -169,7 +169,7 @@ The age part of a category, e.g. U13 or 70+: a minimum age and an age the riders
 _Avoid_: Category (for the age part only), birthday range (as what defines it)
 
 **Heat** (Vorlaufklasse):
-A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Every category belongs to one, group categories too (a category without one only gives a warning). It runs its preliminary round as its categories' blocks and fills the slots of at most one final; clubs never pick it, it follows from the category (ADR 0013, ADR 0014).
+A named group of categories of one discipline whose acts are ranked together to fill finalist slots, e.g. Junior Expert (U11–U15), Expert 1 (U17–U21) and Expert 2 (U23 and older) of Einzel männlich. Every category belongs to one, group categories too (a category without one only gives a warning). It runs its preliminary round as its categories' blocks and fills the slots of at most one final; clubs never pick it, it follows from the category (ADR 0013, ADR 0014). It has a readable **name** ("Einzel männlich – Expert 1 (U17–U21)"), which people read everywhere (jury registration, structure tree, editors), and a short **code** ("E EM 1") for tight spaces and for references in competition files; both are unique (ADR 0017). The description is an optional extra.
 _Avoid_: Vorlauf (that is its preliminary round), Block, Vorlaufblock, round
 
 **Preliminary round** (Vorlauf):
@@ -177,11 +177,11 @@ A heat's first round, whose ranking fills the finalist slots. With fewer acts th
 _Avoid_: Heat, Vorlaufklasse, Qualifikation
 
 **Final** (Finale):
-The final round of any discipline, groups included, with reserved finalist slots for the best of its heats. A group category has its own heat and final; groups start in the final, as their heat's preliminary round is skipped by default (ADR 0015).
+The final round of any discipline, groups included, with reserved finalist slots for the best of its heats. A group category has its own heat and final; groups start in the final, as their heat's preliminary round is skipped by default (ADR 0015). Like a heat it has a readable **name** ("Finale Einzel männlich Expert") and a short **code** ("E EM"), both unique (ADR 0017).
 _Avoid_: Finalrunde
 
 **Finalist slot** (Finalplatz):
-A reserved start in a final, named after the heat that fills it, e.g. "1. Finalist (JE EM)", filled with an act of that heat once the heats are ranked. A heat whose preliminary round is skipped leaves its slots unused; a group final has one such slot for its heat.
+A reserved start in a final, named after the **code** of the heat that fills it, e.g. "1. Finalist (JE EM)", filled with an act of that heat once the heats are ranked. A heat whose preliminary round is skipped leaves its slots unused; a group final has one such slot for its heat.
 
 **Direct act** (direkt im Finale startende Kür):
 An act of a heat whose preliminary round is skipped: it starts in the final as an act, with its own progress and its category's times, in the start order the organizer sets among the finalist slots.

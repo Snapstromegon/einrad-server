@@ -800,3 +800,30 @@ async fn skipping_a_heat_leaves_the_clubs_obligation_and_fee_unchanged() {
     assert_eq!(after["jury"], before["jury"]);
     assert_eq!(after["amount_due"], before["amount_due"]);
 }
+
+#[tokio::test]
+async fn jury_units_show_the_readable_name_and_carry_the_code() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": app.heat_id("JE EW").await,
+                "new_name": "Einzel weiblich – Junior Expert (U11–U15)",
+                "description": null,
+                "categories": ["EWU11", "EWU13", "EWU15"],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+
+    let heat = unit(&app, &admin, "Einzel weiblich – Junior Expert (U11–U15)").await;
+    assert_eq!(heat["kind"], "heat");
+    assert_eq!(heat["code"], "JE EW");
+    // A final without a rename: the name is its code.
+    let final_unit = unit(&app, &admin, "Finale EW").await;
+    assert_eq!(final_unit["code"], "Finale EW");
+}

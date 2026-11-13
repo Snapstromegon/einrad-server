@@ -245,12 +245,14 @@ export const closedReason = (unit: {
       : "Anmeldung geschlossen";
 
 /**
- * What a jury unit is called: a heat's Vorlauf ("E EW Vorlauf") or a final
- * ("Finale EW"; "KGU15 Finale" if its name doesn't say it).
+ * What a jury unit is called, by the readable name of its heat or final: a
+ * heat's Vorlauf ("Einzel männlich – Expert 1 (U17–U21) · Vorlauf") or a
+ * final ("Finale Einzel männlich Expert"; "KGU15 Finale" if its name doesn't
+ * say it).
  */
 export const unitName = (unit: { kind: "heat" | "final"; name: string }) =>
   unit.kind === "heat"
-    ? `${unit.name} Vorlauf`
+    ? `${unit.name} · Vorlauf`
     : unit.name.includes("Finale")
       ? unit.name
       : `${unit.name} Finale`;

@@ -15,7 +15,10 @@ use crate::{
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Final {
     id: Uuid,
+    /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
     name: String,
+    /// The short code, unique, e.g. "E EM".
+    code: String,
     description: Option<String>,
     act_type: ActType,
     is_single_male: bool,
@@ -44,7 +47,7 @@ pub struct FinalSlot {
     label: String,
     /// The heat whose acts fill the slot, by id.
     heat_id: Uuid,
-    /// The heat's name.
+    /// The heat's short code, as the label has it.
     group_label: String,
     /// Counts within the group.
     number: i64,
@@ -73,6 +76,8 @@ pub async fn list_finals(
     // One read transaction, so the finals and their slots match.
     let mut tx = db.begin().await?;
     let mut slots: HashMap<Uuid, Vec<FinalSlot>> = HashMap::new();
+    // The heat of each slot, by id, name and code, for the slot groups.
+    let mut slot_heats: HashMap<Uuid, Vec<(Uuid, String, String)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
@@ -80,6 +85,7 @@ pub async fn list_finals(
             final_slots.final_id as "final_id!: Uuid",
             final_slots.heat_id as "heat_id!: Uuid",
             heats.name as "heat!",
+            heats.code as "heat_code!",
             number,
             act_id as "act_id: Uuid",
             final_slots.started_at IS NOT NULL as "started!: bool",
@@ -93,11 +99,16 @@ pub async fn list_finals(
     .fetch_all(&mut *tx)
     .await?
     {
+        slot_heats.entry(row.final_id).or_default().push((
+            row.heat_id,
+            row.heat.clone(),
+            row.heat_code.clone(),
+        ));
         slots.entry(row.final_id).or_default().push(FinalSlot {
             id: row.id,
-            label: finals::finalist_label(row.number, &row.heat),
+            label: finals::finalist_label(row.number, &row.heat_code),
             heat_id: row.heat_id,
-            group_label: row.heat,
+            group_label: row.heat_code,
             number: row.number,
             act_id: row
                 .act_id
@@ -127,6 +138,7 @@ pub async fn list_finals(
         SELECT
             id as "id!: Uuid",
             name as "name!",
+            code as "code!",
             description,
             act_type as "act_type: ActType",
             is_single_male,
@@ -150,9 +162,11 @@ pub async fn list_finals(
                 let slots = slots.remove(&row.id).unwrap_or_default();
                 Final {
                     slot_groups: finals::group_slot_infos(
-                        slots
+                        slot_heats
+                            .remove(&row.id)
+                            .unwrap_or_default()
                             .iter()
-                            .map(|slot| (slot.heat_id, slot.group_label.as_str())),
+                            .map(|(id, name, code)| (*id, name.as_str(), code.as_str())),
                     ),
                     started: slots.iter().any(|slot| slot.started),
                     slots,
@@ -160,6 +174,7 @@ pub async fn list_finals(
                     id: row.id,
                     placement_published: row.placement_published,
                     name: row.name,
+                    code: row.code,
                     description: row.description,
                     act_type: row.act_type,
                     is_single_male: row.is_single_male,

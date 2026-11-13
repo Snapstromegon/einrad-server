@@ -20,6 +20,9 @@ pub struct EditHeatBody {
     /// The heat to edit.
     id: Uuid,
     new_name: String,
+    /// The new short code; without, it stays.
+    #[serde(default)]
+    new_code: Option<String>,
     description: Option<String>,
     /// See `AddHeatBody::categories`; the ones left out leave the heat.
     categories: Vec<String>,
@@ -67,28 +70,30 @@ pub async fn edit_heat(
     let Some(name) = heats::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     };
+    // Without a new code the heat keeps its own.
+    let new_code = match body.new_code.as_deref() {
+        Some(code) if !code.trim().is_empty() => heats::normalize_code(Some(code), &new_name),
+        _ => {
+            sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, body.id)
+                .fetch_one(&mut *tx)
+                .await?
+        }
+    };
     heats::check_categories(&mut tx, body.id, &categories)
         .await
         .map_err(HttpError::ErrorMessages)?;
     heats::set_categories(&mut tx, body.id, &categories).await?;
 
+    heats::check_free(&mut tx, Some(body.id), &new_name, &new_code)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
     if new_name != name {
-        let taken = sqlx::query_scalar!(
-            r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?) as "taken!: bool""#,
-            new_name
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        if taken {
-            return Err(HttpError::ErrorMessages(format!(
-                "Eine Vorlaufklasse „{new_name}“ gibt es schon."
-            )));
-        }
         info!("Renaming heat {name:?} to {new_name:?}");
     }
     sqlx::query!(
-        "UPDATE heats SET name = ?, description = ?, threshold = coalesce(?, threshold) WHERE id = ?",
+        "UPDATE heats SET name = ?, code = ?, description = ?, threshold = coalesce(?, threshold) WHERE id = ?",
         new_name,
+        new_code,
         description,
         threshold,
         body.id

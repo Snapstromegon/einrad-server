@@ -505,9 +505,9 @@ export const describeGroup = (
 /** A run of a final's reserved slots filled from one heat, e.g. 5 × "JE EM". */
 export type SlotGroup = schemas.SlotGroupInfo;
 
-/** Slot groups as admins read them: "5 × JE EM, 4 × E EM 1". */
+/** Slot groups as admins read them, by the heats' codes: "5 × JE EM, 4 × E EM 1". */
 export const formatSlotGroups = (groups: SlotGroup[]) =>
-  groups.map((group) => `${group.count} × ${group.heat}`).join(", ");
+  groups.map((group) => `${group.count} × ${group.heat_code}`).join(", ");
 
 /**
  * The song file to play: the loudness-normalized copy once it is ready,

@@ -16,8 +16,12 @@ pub struct AddHeatResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddHeatBody {
-    /// Unique, e.g. "E EM 1".
+    /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
     name: String,
+    /// The short code, unique, for tight spaces and references in files,
+    /// e.g. "E EM 1". Without: the name.
+    #[serde(default)]
+    code: Option<String>,
     description: Option<String>,
     /// All of one act type and gender, none in another heat, group
     /// categories included. May be empty. A heat of groups starts with its
@@ -50,6 +54,7 @@ pub async fn add_heat(
     Json(body): Json<AddHeatBody>,
 ) -> Result<Json<AddHeatResponse>, HttpError> {
     let name = heats::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
+    let code = heats::normalize_code(body.code.as_deref(), &name);
     let description = normalize_description(body.description);
     let categories = heats::normalize_categories(&body.categories);
     let threshold = body
@@ -60,17 +65,9 @@ pub async fn add_heat(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    let taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?) as "taken!: bool""#,
-        name
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if taken {
-        return Err(HttpError::ErrorMessages(format!(
-            "Eine Vorlaufklasse „{name}“ gibt es schon."
-        )));
-    }
+    heats::check_free(&mut tx, None, &name, &code)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
     let threshold = match threshold {
         Some(threshold) => threshold,
         None => heats::default_threshold_of(&mut tx, &categories).await?,
@@ -79,9 +76,10 @@ pub async fn add_heat(
     info!("Adding heat {name:?}");
     let id = Uuid::new_v4();
     sqlx::query!(
-        "INSERT INTO heats (id, name, description, threshold) VALUES (?, ?, ?, ?)",
+        "INSERT INTO heats (id, name, code, description, threshold) VALUES (?, ?, ?, ?, ?)",
         id,
         name,
+        code,
         description,
         threshold
     )

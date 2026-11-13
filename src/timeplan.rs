@@ -265,7 +265,7 @@ pub struct FinalistSlot {
     pub final_id: Uuid,
     pub final_name: String,
     pub heat_id: Uuid,
-    /// The heat's name.
+    /// The heat's short code.
     pub group_label: String,
     /// Counts within the group.
     pub number: i64,
@@ -539,7 +539,6 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         SELECT
             id as "id!: Uuid",
             name as "name!",
-            description,
             einfahrzeit_seconds,
             act_duration_seconds,
             judge_duration_seconds
@@ -553,10 +552,8 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         (
             row.id,
             CategoryInfo {
-                description: row
-                    .description
-                    .filter(|d| !d.trim().is_empty())
-                    .unwrap_or_else(|| row.name.clone()),
+                // A final shows its readable name.
+                description: row.name,
                 einfahrzeit_seconds: row.einfahrzeit_seconds,
                 act_duration_seconds: row.act_duration_seconds,
                 judge_duration_seconds: row.judge_duration_seconds,
@@ -672,7 +669,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             final_slots.final_id as "final_id!: Uuid",
             finals.name as "final_name!",
             final_slots.heat_id as "heat_id!: Uuid",
-            heats.name as "heat!",
+            heats.code as "heat!",
             number,
             act_id as "act_id: Uuid",
             finals.placement_published,

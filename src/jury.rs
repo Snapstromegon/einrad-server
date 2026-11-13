@@ -101,8 +101,11 @@ pub struct JuryUnit {
     /// The heat's or the final's id.
     pub id: Uuid,
     pub kind: JuryUnitKind,
-    /// The heat's or the final's name; renaming it keeps the registrations.
+    /// The heat's or the final's readable name; renaming it keeps the
+    /// registrations. Judges and the jury lead read this one.
     pub name: String,
+    /// The heat's or the final's short code.
+    pub code: String,
     pub description: Option<String>,
     /// Judges can register for it: its setting, and never for a skipped
     /// Vorlauf.
@@ -248,6 +251,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
             id as "id!: Uuid",
             kind as "kind!: JuryUnitKind",
             name as "name!",
+            code as "code!",
             description,
             registrable as "registrable!: bool",
             registrable_setting as "registrable_setting!: bool",
@@ -308,6 +312,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                 id: row.id,
                 kind: row.kind,
                 name: row.name,
+                code: row.code,
                 description: row.description.filter(|d| !d.trim().is_empty()),
                 registrable: row.registrable,
                 registrable_setting: row.registrable_setting,
