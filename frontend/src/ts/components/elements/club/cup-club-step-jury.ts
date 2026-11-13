@@ -786,6 +786,40 @@ export default class CupClubStepJury extends LitElement {
         }
       }
 
+      /*
+       * Very narrow phones: a group row is two lines, the name over the
+       * subline, count and switch.
+       */
+      @media (max-width: 359px) {
+        table.grid > tbody > tr.group > td.category {
+          display: contents;
+        }
+
+        table.grid tr.group .toggle {
+          grid-column: 1 / -1;
+          justify-self: start;
+        }
+
+        table.grid tr.group td.category small {
+          grid-column: 1;
+          align-self: center;
+          white-space: nowrap;
+        }
+
+        table.grid tr.group td.count {
+          grid-column: 2;
+        }
+
+        table.grid tr.group td.wertet {
+          grid-column: 3;
+        }
+
+        /* The card rows' gutter was the cell's padding. */
+        table.grid tr.group.final td.category > * {
+          margin-left: 0.4rem;
+        }
+      }
+
       .registrations {
         display: flex;
         flex-wrap: wrap;
