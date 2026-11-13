@@ -338,7 +338,7 @@ An award for each rider of the first three places of a final, and for each group
 - A **Club mail** gives each selected **Club** its own mail, to its **Club contact** and **Club representative**; addresses the organizer types in get one each, with the data of the club they're assigned to.
 - An **Act** has one or more **Starts**, one per **Rider**; a group's **Replacement riders** have starts too.
 - A **Rider** is in at most one **Pair**, or has at most one **Pair request** instead; a pair request is one **Start**.
-- An **Act** belongs to one **Category** once it is complete and not withdrawn; a **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
+- An **Act** belongs to one **Category** once it is complete; a withdrawn act keeps its category but starts nowhere (the startlist and timeplan leave it out); a **Category** belongs to at most one **Heat**, all of whose categories share its discipline.
 - The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name, and its categories are theirs. A heat fills at most one final.
 - A **Heat** runs its **Preliminary round** as the **Blocks** of its categories; it has no block of its own. When the preliminary round is skipped, those blocks stay but run none of its acts, and its acts are **Direct acts** of its final.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
