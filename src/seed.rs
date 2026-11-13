@@ -2760,7 +2760,7 @@ mod tests {
             .unwrap();
         assert!(!skip);
         // The export gives the default back as no skip key.
-        let export = crate::export::export(&mut *db.acquire().await.unwrap())
+        let export = crate::export::export(&mut db.acquire().await.unwrap())
             .await
             .unwrap()
             .unwrap();
