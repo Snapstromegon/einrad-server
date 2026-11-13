@@ -106,8 +106,13 @@ async fn the_migration_stops_at_a_birthday_bound_off_the_determining_day() {
     )
     .await;
 
+    // One connection for the failing migration and the check after it: sqlx
+    // rolls the failed migration back only when its connection is used next,
+    // and until then its schema lock fails every other connection with
+    // "database schema is locked" (the in-memory database is a shared cache).
+    let mut conn = db.acquire().await.unwrap();
     let error = sqlx::migrate!("./migrations")
-        .run(&db)
+        .run(&mut *conn)
         .await
         .unwrap_err()
         .to_string();
@@ -116,7 +121,7 @@ async fn the_migration_stops_at_a_birthday_bound_off_the_determining_day() {
     // Nothing changed.
     let from: String =
         sqlx::query_scalar("SELECT from_birthday FROM categories WHERE name = 'Krumm'")
-            .fetch_one(&db)
+            .fetch_one(&mut *conn)
             .await
             .unwrap();
     assert_eq!(from, "2014-05-15T00:00:00Z");
