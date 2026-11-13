@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals::{self, FinalFields},
@@ -16,7 +17,7 @@ pub struct EditFinalResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditFinalBody {
     /// The final to edit.
-    name: String,
+    id: Uuid,
     new_name: String,
     #[serde(flatten)]
     fields: FinalFields,
@@ -53,22 +54,16 @@ pub async fn edit_final(
     let mut tx = begin_write(&db).await?;
 
     let heats = sqlx::query_scalar!(
-        r#"SELECT heat as "heat!" FROM final_slots WHERE final_name = ? ORDER BY position"#,
-        body.name
+        r#"SELECT heat_id as "heat_id!: Uuid" FROM final_slots WHERE final_id = ? ORDER BY position"#,
+        body.id
     )
     .fetch_all(&mut *tx)
     .await?;
-    let exists = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "exists!: bool""#,
-        body.name
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if !exists {
+    let Some(name) = finals::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
+    };
 
-    if new_name != body.name {
+    if new_name != name {
         let taken = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "taken!: bool""#,
             new_name
@@ -80,17 +75,9 @@ pub async fn edit_final(
                 "Ein Finale „{new_name}“ gibt es schon."
             )));
         }
-        info!("Renaming final {:?} to {new_name:?}", body.name);
-        sqlx::query!(
-            "UPDATE timeplan SET final_name = ? WHERE final_name = ?",
-            new_name,
-            body.name
-        )
-        .execute(&mut *tx)
-        .await?;
+        info!("Renaming final {name:?} to {new_name:?}");
     }
 
-    // The slots follow a rename by their foreign key.
     sqlx::query!(
         r#"
         UPDATE finals
@@ -102,7 +89,7 @@ pub async fn edit_final(
             einfahrzeit_seconds = ?,
             act_duration_seconds = ?,
             judge_duration_seconds = ?
-        WHERE name = ?
+        WHERE id = ?
         "#,
         new_name,
         fields.description,
@@ -111,29 +98,29 @@ pub async fn edit_final(
         fields.einfahrzeit_seconds,
         fields.act_duration_seconds,
         fields.judge_duration_seconds,
-        body.name,
+        body.id,
     )
     .execute(&mut *tx)
     .await?;
 
     finals::check_heats(
         &mut tx,
-        &new_name,
+        body.id,
         fields.act_type,
         fields.is_single_male,
         &fields.slot_groups,
     )
     .await
     .map_err(HttpError::ErrorMessages)?;
-    if finals::group_slots(heats.iter().map(String::as_str)) != fields.slot_groups {
-        if finals::has_started(&mut tx, &new_name).await? {
+    if finals::group_slot_ids(heats) != fields.slot_groups {
+        if finals::has_started(&mut tx, body.id).await? {
             return Err(HttpError::ErrorMessages(
                 "Das Finale hat schon begonnen, seine Finalplätze bleiben, wie sie sind."
                     .to_string(),
             ));
         }
         info!("Replacing the slots of final {new_name:?}");
-        finals::replace_slots(&mut tx, &new_name, &fields.slot_groups).await?;
+        finals::replace_slots(&mut tx, body.id, &fields.slot_groups).await?;
     }
 
     tx.commit().await?;

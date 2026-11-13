@@ -503,7 +503,7 @@ export const describeGroup = (
 };
 
 /** A run of a final's reserved slots filled from one heat, e.g. 5 × "JE EM". */
-export type SlotGroup = schemas.SlotGroup;
+export type SlotGroup = schemas.SlotGroupInfo;
 
 /** Slot groups as admins read them: "5 × JE EM, 4 × E EM 1". */
 export const formatSlotGroups = (groups: SlotGroup[]) =>

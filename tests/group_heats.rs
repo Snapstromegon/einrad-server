@@ -6,6 +6,7 @@ mod common;
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 fn ok(response: &TestResponse) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
@@ -37,7 +38,7 @@ fn heat_body(name: &str, categories: &[&str]) -> Value {
     json!({ "name": name, "description": null, "categories": categories })
 }
 
-fn final_body(name: &str, act_type: &str, heat: &str) -> Value {
+fn final_body(name: &str, act_type: &str, heat_id: Uuid) -> Value {
     json!({
         "name": name,
         "description": null,
@@ -46,7 +47,7 @@ fn final_body(name: &str, act_type: &str, heat: &str) -> Value {
         "einfahrzeit_seconds": 600,
         "act_duration_seconds": 300,
         "judge_duration_seconds": 180,
-        "slot_groups": [{ "heat": heat, "count": 1 }],
+        "slot_groups": [{ "heat_id": heat_id, "count": 1 }],
     })
 }
 
@@ -80,7 +81,7 @@ async fn group_categories_form_heats_with_the_vorlauf_skipped() {
     ok(&app
         .post(
             "/api/command/set_heat_skip",
-            json!({ "name": "Kleingruppe Expert", "skip": false }),
+            json!({ "id": app.heat_id("Kleingruppe Expert").await, "skip": false }),
             Some(&admin),
         )
         .await);
@@ -112,7 +113,11 @@ async fn a_group_final_is_filled_from_group_heats() {
     ok(&app
         .post(
             "/api/command/add_final",
-            final_body("Finale KG Expert", "group_small", "Kleingruppe Expert"),
+            final_body(
+                "Finale KG Expert",
+                "group_small",
+                app.heat_id("Kleingruppe Expert").await,
+            ),
             Some(&admin),
         )
         .await);
@@ -120,7 +125,11 @@ async fn a_group_final_is_filled_from_group_heats() {
     rejected(
         &app.post(
             "/api/command/add_final",
-            final_body("Finale GG", "group_large", "Kleingruppe Expert"),
+            final_body(
+                "Finale GG",
+                "group_large",
+                app.heat_id("Kleingruppe Expert").await,
+            ),
             Some(&admin),
         )
         .await,
@@ -197,7 +206,8 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT name || '>' || heat FROM categories WHERE heat IS NOT NULL ORDER BY name"
+            "SELECT categories.name || '>' || heats.name FROM categories \
+             JOIN heats ON heats.id = categories.heat_id ORDER BY categories.name"
         )
         .await,
         ["GG>GG 2", "KG>KG 3"]
@@ -218,7 +228,9 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT final_name || ':' || heat || ':' || number FROM final_slots ORDER BY final_name"
+            "SELECT finals.name || ':' || heats.name || ':' || number FROM final_slots \
+             JOIN finals ON finals.id = final_id JOIN heats ON heats.id = heat_id \
+             ORDER BY finals.name"
         )
         .await,
         ["GG 2:GG 2:1", "KG 3:KG 3:1"]
@@ -228,7 +240,8 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT COALESCE(category, final_name, label) FROM timeplan ORDER BY position"
+            "SELECT COALESCE(category, (SELECT name FROM finals WHERE id = final_id), label) \
+             FROM timeplan ORDER BY position"
         )
         .await,
         ["EMU17", "KG", "KG 3", "Pause", "GG", "GG 2"]
@@ -236,7 +249,8 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT earliest_start_time FROM timeplan WHERE final_name = 'KG 3'"
+            "SELECT earliest_start_time FROM timeplan \
+             WHERE final_id = (SELECT id FROM finals WHERE name = 'KG 3')"
         )
         .await,
         ["2027-06-05T10:00:00Z"]
@@ -244,8 +258,9 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT timeplan.final_name FROM timeplan_slots \
-             JOIN timeplan ON timeplan.id = timeplan_id"
+            "SELECT finals.name FROM timeplan_slots \
+             JOIN timeplan ON timeplan.id = timeplan_id \
+             JOIN finals ON finals.id = timeplan.final_id"
         )
         .await,
         ["KG 3"]

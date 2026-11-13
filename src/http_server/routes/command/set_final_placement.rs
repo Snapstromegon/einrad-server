@@ -29,7 +29,7 @@ pub struct FinalSlotPlacement {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFinalPlacementBody {
     /// The final.
-    name: String,
+    id: Uuid,
     /// The slots to change; the others keep their acts.
     slots: Vec<FinalSlotPlacement>,
 }
@@ -64,39 +64,35 @@ pub async fn set_final_placement(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    let exists = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "exists!: bool""#,
-        body.name
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if !exists {
+    let Some(final_name) = crate::finals::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
+    };
 
     let slots = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
-            heat as "heat!",
+            final_slots.id as "id!: Uuid",
+            final_slots.heat_id as "heat_id!: Uuid",
+            heats.name as "heat!",
             number,
             act_id as "act_id: Uuid",
-            started_at IS NOT NULL as "started!: bool"
+            final_slots.started_at IS NOT NULL as "started!: bool"
         FROM final_slots
-        WHERE final_name = ?
+        JOIN heats ON heats.id = final_slots.heat_id
+        WHERE final_id = ?
         "#,
-        body.name
+        body.id
     )
     .fetch_all(&mut *tx)
     .await?;
     // The heat of each category.
-    let heats: HashMap<String, String> = sqlx::query!(
-        r#"SELECT name as "name!", heat as "heat!" FROM categories WHERE heat IS NOT NULL"#
+    let heats: HashMap<String, Uuid> = sqlx::query!(
+        r#"SELECT name as "name!", heat_id as "heat_id!: Uuid" FROM categories WHERE heat_id IS NOT NULL"#
     )
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
-    .map(|row| (row.name, row.heat))
+    .map(|row| (row.name, row.heat_id))
     .collect();
 
     // The placement after the change, to check it as a whole.
@@ -138,7 +134,7 @@ pub async fn set_final_placement(
                         "Die Kür für „{label}“ ist zurückgezogen oder unvollständig."
                     )));
                 }
-                Some(Some(category)) if heats.get(&category) != Some(&slot.heat) => {
+                Some(Some(category)) if heats.get(&category) != Some(&slot.heat_id) => {
                     return Err(HttpError::ErrorMessages(format!(
                         "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zur Vorlaufklasse „{}“ gehört.",
                         slot.heat
@@ -164,7 +160,7 @@ pub async fn set_final_placement(
     info!(
         "Placing acts in {} slots of final {:?}",
         changed.len(),
-        body.name
+        final_name
     );
     // Empty the changed slots first, so acts can swap slots without
     // clashing in the unique index.

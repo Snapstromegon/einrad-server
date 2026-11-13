@@ -231,9 +231,9 @@ export default class CupAdminHeats extends LitElement {
       <tbody>
         ${repeat(
           heats,
-          (heat) => heat.name,
+          (heat) => heat.id,
           (heat) =>
-            this.editing?.original?.name === heat.name
+            this.editing?.original?.id === heat.id
               ? this.renderEditRow(this.editing.draft, heat)
               : this.renderRow(heat),
         )}
@@ -282,7 +282,7 @@ export default class CupAdminHeats extends LitElement {
       <td>
         ${
           heat.finals.length
-            ? heat.finals.join(", ")
+            ? heat.finals.map((f) => f.name).join(", ")
             : html`<span class="muted">keins</span>`
         }
       </td>
@@ -294,7 +294,7 @@ export default class CupAdminHeats extends LitElement {
                   class="icon-btn primary"
                   title=${this.editing ? "Erst speichern oder abbrechen" : "Bearbeiten"}
                   aria-label="Bearbeiten"
-                  data-name=${heat.name}
+                  data-id=${heat.id}
                   ?disabled=${locked}
                   @click=${this.onEdit}
                 >
@@ -308,7 +308,7 @@ export default class CupAdminHeats extends LitElement {
                       : "Löschen"
                   }
                   aria-label="Löschen"
-                  data-name=${heat.name}
+                  data-id=${heat.id}
                   ?disabled=${locked || heat.finals.length > 0}
                   @click=${this.onDelete}
                 >
@@ -357,7 +357,7 @@ export default class CupAdminHeats extends LitElement {
         }
         ><input
           type="checkbox"
-          data-name=${heat.name}
+          data-id=${heat.id}
           .checked=${heat.skip}
           ?disabled=${!canPlan || this.busy || this.editing !== null}
           @change=${this.onSkipToggle}
@@ -394,7 +394,7 @@ export default class CupAdminHeats extends LitElement {
       </td>
       <td></td>
       <td>${this.renderCategoryPicker(draft, heat)}</td>
-      <td>${heat?.finals.join(", ") ?? ""}</td>
+      <td>${heat?.finals.map((f) => f.name).join(", ") ?? ""}</td>
       <td>
         <input
           class=${classMap({
@@ -460,7 +460,7 @@ export default class CupAdminHeats extends LitElement {
         (category) => category.name,
         (category) => {
           const other =
-            category.heat && category.heat !== heat?.name
+            category.heat_id && category.heat_id !== heat?.id
               ? category.heat
               : null;
           const otherDiscipline =
@@ -493,8 +493,8 @@ export default class CupAdminHeats extends LitElement {
     </div>`;
   }
 
-  private heatByName(name: string | undefined) {
-    return this.heats.value?.find((heat) => heat.name === name);
+  private heatById(id: string | undefined) {
+    return this.heats.value?.find((heat) => heat.id === id);
   }
 
   private clearError() {
@@ -507,7 +507,7 @@ export default class CupAdminHeats extends LitElement {
   }
 
   private onEdit(e: Event) {
-    const heat = this.heatByName((e.currentTarget as HTMLElement).dataset.name);
+    const heat = this.heatById((e.currentTarget as HTMLElement).dataset.id);
     if (!heat) {
       return;
     }
@@ -598,7 +598,7 @@ export default class CupAdminHeats extends LitElement {
           client.editHeat({
             body: {
               ...fields,
-              name: original.name,
+              id: original.id,
               new_name: draft.name.trim(),
             },
           }),
@@ -614,7 +614,7 @@ export default class CupAdminHeats extends LitElement {
 
   private async onSkipToggle(e: Event) {
     const target = e.currentTarget as HTMLInputElement;
-    const heat = this.heatByName(target.dataset.name);
+    const heat = this.heatById(target.dataset.id);
     if (!heat || this.busy) {
       target.checked = heat?.skip ?? false;
       return;
@@ -623,7 +623,7 @@ export default class CupAdminHeats extends LitElement {
     await this.command(
       "Umschalten fehlgeschlagen",
       async () =>
-        await unwrap(client.setHeatSkip({ body: { name: heat.name, skip } })),
+        await unwrap(client.setHeatSkip({ body: { id: heat.id, skip } })),
     );
     // A refused switch shows the stored state again: the binding wouldn't,
     // as its value didn't change.
@@ -633,7 +633,7 @@ export default class CupAdminHeats extends LitElement {
   }
 
   private async onDelete(e: Event) {
-    const heat = this.heatByName((e.currentTarget as HTMLElement).dataset.name);
+    const heat = this.heatById((e.currentTarget as HTMLElement).dataset.id);
     if (
       !heat ||
       this.busy ||
@@ -643,8 +643,7 @@ export default class CupAdminHeats extends LitElement {
     }
     await this.command(
       "Löschen fehlgeschlagen",
-      async () =>
-        await unwrap(client.deleteHeat({ body: { name: heat.name } })),
+      async () => await unwrap(client.deleteHeat({ body: { id: heat.id } })),
     );
   }
 

@@ -43,6 +43,7 @@ pub struct Discipline {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct FinalNode {
+    id: Uuid,
     name: String,
     description: Option<String>,
     /// Its slots over the slot groups of heats that run their Vorlauf; `None`
@@ -57,6 +58,7 @@ pub struct FinalNode {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatNode {
+    id: Uuid,
     name: String,
     description: Option<String>,
     /// Whether its Vorlauf is skipped: its acts start directly in its final.
@@ -106,7 +108,7 @@ struct CategoryRow {
     name: String,
     description: Option<String>,
     discipline: HeatDiscipline,
-    heat: Option<String>,
+    heat_id: Option<Uuid>,
 }
 
 /// An act with the category it ranks in, if any.
@@ -177,7 +179,7 @@ pub async fn get_structure(
     let mut tx = db.begin().await?;
     let categories: Vec<CategoryRow> = sqlx::query!(
         r#"
-        SELECT name as "name!", description, act_type as "act_type: ActType", is_single_male, heat
+        SELECT name as "name!", description, act_type as "act_type: ActType", is_single_male, heat_id as "heat_id: Uuid"
         FROM categories
         ORDER BY "order", name
         "#
@@ -189,19 +191,21 @@ pub async fn get_structure(
         name: row.name,
         description: row.description,
         discipline: HeatDiscipline::new(row.act_type, row.is_single_male),
-        heat: row.heat,
+        heat_id: row.heat_id,
     })
     .collect();
     // The heats in the order of their first category; those without one have
     // no discipline.
-    let heats =
-        sqlx::query!(r#"SELECT name as "name!", description, skip FROM heats ORDER BY name"#)
-            .fetch_all(&mut *tx)
-            .await?;
+    let heats = sqlx::query!(
+        r#"SELECT id as "id!: Uuid", name as "name!", description, skip FROM heats ORDER BY name"#
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     let final_rows = sqlx::query!(
         r#"
         SELECT
-            name as "name!", description, act_type as "act_type: ActType", is_single_male
+            id as "id!: Uuid", name as "name!", description, act_type as "act_type: ActType",
+            is_single_male
         FROM finals
         ORDER BY "order", name
         "#
@@ -209,22 +213,22 @@ pub async fn get_structure(
     .fetch_all(&mut *tx)
     .await?;
     // Each final's slot groups in slot order: heat, slots.
-    let mut slot_groups: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+    let mut slot_groups: HashMap<Uuid, Vec<(Uuid, i64)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT final_name as "final_name!", heat as "heat!", COUNT(*) as "slots!: i64"
+        SELECT final_id as "final_id!: Uuid", heat_id as "heat_id!: Uuid", COUNT(*) as "slots!: i64"
         FROM final_slots
-        GROUP BY final_name, heat
-        ORDER BY final_name, MIN(position)
+        GROUP BY final_id, heat_id
+        ORDER BY final_id, MIN(position)
         "#
     )
     .fetch_all(&mut *tx)
     .await?
     {
         slot_groups
-            .entry(row.final_name)
+            .entry(row.final_id)
             .or_default()
-            .push((row.heat, row.slots));
+            .push((row.heat_id, row.slots));
     }
     let acts: Vec<ActRow> = sqlx::query!(
         r#"
@@ -290,28 +294,29 @@ pub async fn get_structure(
             );
         }
         // The slots of each heat in its final (a heat feeds at most one).
-        let slots_of: HashMap<&str, i64> = slot_groups
+        let slots_of: HashMap<Uuid, i64> = slot_groups
             .values()
             .flatten()
-            .map(|(heat, slots)| (heat.as_str(), *slots))
+            .map(|(heat, slots)| (*heat, *slots))
             .collect();
-        let mut heat_nodes: HashMap<String, HeatNode> = HashMap::new();
+        let mut heat_nodes: HashMap<Uuid, HeatNode> = HashMap::new();
         for heat in &heats {
             let members: Vec<CategoryNode> = categories
                 .iter()
-                .filter(|c| c.discipline == discipline && c.heat.as_deref() == Some(&heat.name))
+                .filter(|c| c.discipline == discipline && c.heat_id == Some(heat.id))
                 .filter_map(|c| nodes.remove(c.name.as_str()))
                 .collect();
             if members.is_empty() {
                 continue;
             }
             heat_nodes.insert(
-                heat.name.clone(),
+                heat.id,
                 HeatNode {
+                    id: heat.id,
                     name: heat.name.clone(),
                     description: heat.description.clone(),
                     skip: heat.skip,
-                    slots: slots_of.get(heat.name.as_str()).copied(),
+                    slots: slots_of.get(&heat.id).copied(),
                     act_count: members.iter().map(|c| c.act_count).sum(),
                     categories: members,
                 },
@@ -322,18 +327,19 @@ pub async fn get_structure(
             .iter()
             .filter(|f| HeatDiscipline::new(f.act_type, f.is_single_male) == discipline)
         {
-            let groups = slot_groups.get(&row.name).map(Vec::as_slice).unwrap_or(&[]);
+            let groups = slot_groups.get(&row.id).map(Vec::as_slice).unwrap_or(&[]);
             // A skipped heat's slots are unused while it is skipped.
             let running: Vec<i64> = groups
                 .iter()
-                .filter(|(name, _)| heats.iter().any(|h| &h.name == name && !h.skip))
+                .filter(|(id, _)| heats.iter().any(|h| &h.id == id && !h.skip))
                 .map(|(_, n)| *n)
                 .collect();
             let feeding: Vec<HeatNode> = groups
                 .iter()
-                .filter_map(|(name, _)| heat_nodes.remove(name))
+                .filter_map(|(id, _)| heat_nodes.remove(id))
                 .collect();
             final_nodes.push(FinalNode {
+                id: row.id,
                 name: row.name.clone(),
                 description: row.description.clone(),
                 slots: (!running.is_empty()).then(|| running.iter().sum()),

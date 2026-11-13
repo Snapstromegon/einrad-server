@@ -1045,6 +1045,16 @@ describe("errorMessage", () => {
     );
   });
 
+  test("shows the German message of a conflict (409)", () => {
+    assert.equal(
+      errorMessage({
+        type: "Conflict",
+        message: "Erst das ändern, dann löschen.",
+      }),
+      "Erst das ändern, dann löschen.",
+    );
+  });
+
   test("undoes Debug escapes", () => {
     assert.equal(
       errorMessage({

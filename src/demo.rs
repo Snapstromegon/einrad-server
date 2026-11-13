@@ -952,7 +952,7 @@ mod tests {
             ("final_slots", "SELECT COUNT(*) FROM final_slots"),
             (
                 "planned finals",
-                "SELECT COUNT(*) FROM timeplan WHERE final_name IS NOT NULL",
+                "SELECT COUNT(*) FROM timeplan WHERE final_id IS NOT NULL",
             ),
         ] {
             assert!(count(&db, sql).await > 0, "{table} is empty");

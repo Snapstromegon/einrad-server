@@ -43,7 +43,7 @@ type SlotInput = schemas.BlockSlotInput;
 /** The select value for a start block without a category, e.g. "Nachstarter". */
 const BLOCK = "__block__";
 
-/** Select values for a final's block: this prefix and the final's name. */
+/** Select values for a final's block: this prefix and the final's id. */
 const FINAL_PREFIX = "__final__:";
 
 /** The final a draft's select value plans, if any. */
@@ -60,7 +60,7 @@ interface EntryDraft {
   earliest: string;
   /**
    * Category name, `BLOCK` for a start block without a category,
-   * `FINAL_PREFIX` + name for a final's block, "" for a custom entry (break,
+   * `FINAL_PREFIX` + id for a final's block, "" for a custom entry (break,
    * award ceremony, …).
    */
   category: string;
@@ -185,7 +185,7 @@ const slotInput = (slot: TimeplanSlot): SlotInput => {
   }
   return {
     Finalist: {
-      heat: slot.Finalist.group_label,
+      heat_id: slot.Finalist.heat_id,
       number: slot.Finalist.number,
     },
   };
@@ -240,7 +240,7 @@ const applyCarryOver = async (carry: ReturnType<typeof carryOver>) => {
         id: entry.id,
         earliest_start_time: start,
         category: entry.category ?? null,
-        final_name: entry.final_name ?? null,
+        final_id: entry.final_id ?? null,
         label: entry.label ?? null,
         duration_seconds: entry.duration_seconds ?? null,
         kind: entry.kind,
@@ -473,7 +473,7 @@ export default class CupViewAdminTimeplan extends LitElement {
       this.last = {
         entries: list,
         categories: new Map(categories.map((c) => [c.name, c])),
-        finals: new Map(finals.map((f) => [f.name, f])),
+        finals: new Map(finals.map((f) => [f.id, f])),
         heats,
         acts: new Map(allActs.map((act) => [act.id, act])),
         actCounts,
@@ -614,9 +614,7 @@ export default class CupViewAdminTimeplan extends LitElement {
     const splitHeats = this.heatsOnSeveralDays(data);
     const unplannedSkips = skippedWithoutPlannedFinal(
       data.heats,
-      new Set(
-        data.entries.flatMap((e) => (e.final_name ? [e.final_name] : [])),
-      ),
+      new Set(data.entries.flatMap((e) => (e.final_id ? [e.final_id] : []))),
     );
     return html`<div class="kpis">
       <span class="kpi"><b>${data.entries.length}</b> Einträge</span>
@@ -724,8 +722,8 @@ export default class CupViewAdminTimeplan extends LitElement {
     if (block) {
       return blockStarts(block).length;
     }
-    if (entry.final_name) {
-      return finalSlotCount(data.finals.get(entry.final_name));
+    if (entry.final_id) {
+      return finalSlotCount(data.finals.get(entry.final_id));
     }
     return entry.category ? (data.actCounts.get(entry.category) ?? 0) : 0;
   }
@@ -741,7 +739,7 @@ export default class CupViewAdminTimeplan extends LitElement {
       Entry,
       | "kind"
       | "category"
-      | "final_name"
+      | "final_id"
       | "duration_seconds"
       | "einfahrzeit_seconds"
     >,
@@ -783,9 +781,7 @@ export default class CupViewAdminTimeplan extends LitElement {
             : ""),
       };
     }
-    const final = entry.final_name
-      ? data.finals.get(entry.final_name)
-      : undefined;
+    const final = entry.final_id ? data.finals.get(entry.final_id) : undefined;
     const category = entry.category
       ? data.categories.get(entry.category)
       : final;
@@ -998,8 +994,8 @@ export default class CupViewAdminTimeplan extends LitElement {
     const open = this.expanded.has(entry.id);
     const description = entry.category
       ? data.categories.get(entry.category)?.description
-      : entry.final_name
-        ? data.finals.get(entry.final_name)?.description
+      : entry.final_id
+        ? data.finals.get(entry.final_id)?.description
         : undefined;
     const home = entry.category ?? entry.final_name;
     const subtitle = entry.label
@@ -1600,24 +1596,24 @@ export default class CupViewAdminTimeplan extends LitElement {
     );
     const custom = !draft.category;
     const withoutCategory = draft.category === BLOCK;
-    const finalName = draftFinal(draft.category);
+    const finalId = draftFinal(draft.category);
     const category =
-      custom || withoutCategory || finalName ? undefined : draft.category;
+      custom || withoutCategory || finalId ? undefined : draft.category;
     const duration =
       original && !custom
         ? this.entryDuration(data, original, data.predictions.get(original.id))
-        : category || finalName
+        : category || finalId
           ? this.entryDuration(data, {
               kind: "acts",
               category,
-              final_name: finalName,
+              final_id: finalId,
             })
           : null;
     const problems = this.draftProblems(editing, index);
     const defaultWarmup = category
       ? (data.categories.get(category)?.einfahrzeit_seconds ?? 0)
-      : finalName
-        ? (data.finals.get(finalName)?.einfahrzeit_seconds ?? 0)
+      : finalId
+        ? (data.finals.get(finalId)?.einfahrzeit_seconds ?? 0)
         : 0;
     return html`<tr class="editing" @keydown=${this.onEditKeydown}>
       <td class="num muted">${original ? index + 1 : "neu"}</td>
@@ -1662,11 +1658,11 @@ export default class CupViewAdminTimeplan extends LitElement {
                 ? html`<optgroup label="Finals">
                     ${repeat(
                       finals,
-                      (f) => f.name,
+                      (f) => f.id,
                       (f) =>
                         html`<option
-                          value=${FINAL_PREFIX + f.name}
-                          ?selected=${f.name === finalName}
+                          value=${FINAL_PREFIX + f.id}
+                          ?selected=${f.id === finalId}
                         >
                           ${f.name}${f.description ? ` – ${f.description}` : ""}
                         </option>`,
@@ -1683,7 +1679,7 @@ export default class CupViewAdminTimeplan extends LitElement {
             })}
             type="text"
             placeholder=${
-              category || finalName
+              category || finalId
                 ? "Eigener Name (optional)"
                 : withoutCategory
                   ? "Bezeichnung, z. B. Nachstarter"
@@ -1757,7 +1753,7 @@ export default class CupViewAdminTimeplan extends LitElement {
                 title=${`Einfahrzeit des Blocks als m:ss; leer: ${
                   category
                     ? "die der Kategorie"
-                    : finalName
+                    : finalId
                       ? "die des Finales"
                       : "keine"
                 } (${formatDuration(defaultWarmup)})`}
@@ -1876,8 +1872,8 @@ export default class CupViewAdminTimeplan extends LitElement {
         category:
           entry.kind === "custom"
             ? ""
-            : entry.final_name
-              ? FINAL_PREFIX + entry.final_name
+            : entry.final_id
+              ? FINAL_PREFIX + entry.final_id
               : (entry.category ?? BLOCK),
         label: entry.label ?? "",
         duration:
@@ -1969,9 +1965,9 @@ export default class CupViewAdminTimeplan extends LitElement {
     }
 
     const custom = !draft.category;
-    const finalName = draftFinal(draft.category);
+    const finalId = draftFinal(draft.category);
     const category =
-      custom || draft.category === BLOCK || finalName ? null : draft.category;
+      custom || draft.category === BLOCK || finalId ? null : draft.category;
     // edit_timeplan_entry overwrites every field, so the earliest start is
     // sent back exactly as the server returned it unless it was touched.
     const body = {
@@ -1980,7 +1976,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         : (original?.earliest_start_time ?? null),
       kind: custom ? ("custom" as const) : ("acts" as const),
       category,
-      final_name: finalName,
+      final_id: finalId,
       label: draft.label.trim() || null,
       duration_seconds: custom ? parseDuration(draft.duration) : null,
       einfahrzeit_seconds:

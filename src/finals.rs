@@ -5,7 +5,7 @@
 //! e.g. 4 × "E EM 1", then 4 × "E EM 2". They are stored as one
 //! `final_slots` row per slot, which also holds the slot's live state, like
 //! an act's. A final runs in at most one timeplan block
-//! (`timeplan.final_name`); see `crate::timeplan`. Its categories are those
+//! (`timeplan.final_id`); see `crate::timeplan`. Its categories are those
 //! of its heats.
 //!
 //! Once the heats are judged, admins place acts of a slot's heat in it. The
@@ -24,11 +24,29 @@ use crate::{act_type::ActType, heats::Discipline};
 /// Most slots a final can have.
 pub const MAX_SLOTS: i64 = 50;
 
-/// A run of slots of a final filled from one heat, e.g. 5 × "JE EM".
+/// A run of slots of a final filled from one heat, e.g. 5 × "JE EM", as the
+/// competition file writes it: the heat by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SlotGroup {
+    /// The name of the heat whose best acts fill these slots.
+    pub heat: String,
+    pub count: i64,
+}
+
+/// A run of slots as the admin API takes it: the heat by id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
+pub struct SlotGroupInput {
     /// The heat whose best acts fill these slots.
+    pub heat_id: Uuid,
+    pub count: i64,
+}
+
+/// A run of slots as the admin API returns it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct SlotGroupInfo {
+    pub heat_id: Uuid,
+    /// The heat's name.
     pub heat: String,
     pub count: i64,
 }
@@ -45,7 +63,7 @@ pub struct FinalFields {
     pub act_duration_seconds: i64,
     pub judge_duration_seconds: i64,
     /// The reserved slots in start order, e.g. 5 × "JE EM".
-    pub slot_groups: Vec<SlotGroup>,
+    pub slot_groups: Vec<SlotGroupInput>,
 }
 
 impl FinalFields {
@@ -69,7 +87,7 @@ impl FinalFields {
                 .map(|d| d.trim().to_string())
                 .filter(|d| !d.is_empty()),
             is_single_male: self.is_single_male && self.act_type == ActType::Single,
-            slot_groups: normalize_slot_groups(&self.slot_groups)?,
+            slot_groups: check_counts(&self.slot_groups)?,
             ..self
         })
     }
@@ -103,16 +121,7 @@ pub fn normalize_slot_groups(groups: &[SlotGroup]) -> Result<Vec<SlotGroup>, Str
     if groups.iter().any(|group| group.heat.trim().is_empty()) {
         return Err("Jede Gruppe von Finalplätzen braucht eine Vorlaufklasse.".to_string());
     }
-    if groups.iter().any(|group| group.count < 1) {
-        return Err("Jede Gruppe von Finalplätzen braucht mindestens einen Platz.".to_string());
-    }
-    let total: i64 = groups.iter().map(|group| group.count).sum();
-    if total < 1 {
-        return Err("Ein Finale braucht mindestens einen Finalplatz.".to_string());
-    }
-    if total > MAX_SLOTS {
-        return Err(format!("Ein Finale hat höchstens {MAX_SLOTS} Finalplätze."));
-    }
+    check_total(groups.iter().map(|group| group.count))?;
     Ok(groups
         .iter()
         .map(|group| SlotGroup {
@@ -122,29 +131,52 @@ pub fn normalize_slot_groups(groups: &[SlotGroup]) -> Result<Vec<SlotGroup>, Str
         .collect())
 }
 
+/// Checks the slot counts of a final's groups: every group at least one
+/// slot, at least one and at most [`MAX_SLOTS`] in all.
+fn check_total(counts: impl Iterator<Item = i64> + Clone) -> Result<(), String> {
+    if counts.clone().any(|count| count < 1) {
+        return Err("Jede Gruppe von Finalplätzen braucht mindestens einen Platz.".to_string());
+    }
+    let total: i64 = counts.sum();
+    if total < 1 {
+        return Err("Ein Finale braucht mindestens einen Finalplatz.".to_string());
+    }
+    if total > MAX_SLOTS {
+        return Err(format!("Ein Finale hat höchstens {MAX_SLOTS} Finalplätze."));
+    }
+    Ok(())
+}
+
+/// Checks the counts of the slot groups the admin API sends (the heats are
+/// checked against the database, see [`check_heats`]).
+pub fn check_counts(groups: &[SlotGroupInput]) -> Result<Vec<SlotGroupInput>, String> {
+    check_total(groups.iter().map(|group| group.count))?;
+    Ok(groups.to_vec())
+}
+
 /// Replaces the slots of a final with new ones for `groups`, in order. A
 /// slot keeps its placed act if the new slots have one with the same heat
 /// and number. The caller checks that none of the old ones has started and
 /// that the heats exist.
 pub async fn replace_slots(
     conn: &mut SqliteConnection,
-    final_name: &str,
-    groups: &[SlotGroup],
+    final_id: Uuid,
+    groups: &[SlotGroupInput],
 ) -> sqlx::Result<()> {
-    let placed: HashMap<(String, i64), Uuid> = sqlx::query!(
+    let placed: HashMap<(Uuid, i64), Uuid> = sqlx::query!(
         r#"
-        SELECT heat as "heat!", number, act_id as "act_id!: Uuid"
+        SELECT heat_id as "heat_id!: Uuid", number, act_id as "act_id!: Uuid"
         FROM final_slots
-        WHERE final_name = ? AND act_id IS NOT NULL
+        WHERE final_id = ? AND act_id IS NOT NULL
         "#,
-        final_name
+        final_id
     )
     .fetch_all(&mut *conn)
     .await?
     .into_iter()
-    .map(|row| ((row.heat, row.number), row.act_id))
+    .map(|row| ((row.heat_id, row.number), row.act_id))
     .collect();
-    sqlx::query!("DELETE FROM final_slots WHERE final_name = ?", final_name)
+    sqlx::query!("DELETE FROM final_slots WHERE final_id = ?", final_id)
         .execute(&mut *conn)
         .await?;
     let mut position = 0_i64;
@@ -152,16 +184,16 @@ pub async fn replace_slots(
         for number in 1..=group.count {
             position += 1;
             let id = Uuid::now_v7();
-            let act_id = placed.get(&(group.heat.clone(), number));
+            let act_id = placed.get(&(group.heat_id, number));
             sqlx::query!(
                 r#"
-                INSERT INTO final_slots (id, final_name, position, heat, number, act_id)
+                INSERT INTO final_slots (id, final_id, position, heat_id, number, act_id)
                 VALUES (?, ?, ?, ?, ?, ?)
                 "#,
                 id,
-                final_name,
+                final_id,
                 position,
-                group.heat,
+                group.heat_id,
                 number,
                 act_id,
             )
@@ -172,49 +204,47 @@ pub async fn replace_slots(
     Ok(())
 }
 
-/// Checks that the heats of the final `final_name`'s slot groups exist,
-/// share its discipline (an empty heat fits any) and fill no other final.
-/// The message is German.
+/// Checks that the heats of the final `final_id`'s slot groups exist, share
+/// its discipline (an empty heat fits any) and fill no other final. The
+/// message is German.
 pub async fn check_heats(
     conn: &mut SqliteConnection,
-    final_name: &str,
+    final_id: Uuid,
     act_type: ActType,
     is_single_male: bool,
-    groups: &[SlotGroup],
+    groups: &[SlotGroupInput],
 ) -> Result<(), String> {
     let discipline = Discipline::new(act_type, is_single_male);
     for group in groups {
-        let exists = sqlx::query_scalar!(
-            r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?) as "exists!: bool""#,
-            group.heat
-        )
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(|e| e.to_string())?;
-        if !exists {
-            return Err(format!("Die Vorlaufklasse „{}“ gibt es nicht.", group.heat));
-        }
-        let heat = crate::heats::discipline(&mut *conn, &group.heat)
+        let Some(heat) = crate::heats::name_of(&mut *conn, group.heat_id)
+            .await
+            .map_err(|e| e.to_string())?
+        else {
+            return Err("Die Vorlaufklasse gibt es nicht.".to_string());
+        };
+        let heat_discipline = crate::heats::discipline(&mut *conn, group.heat_id)
             .await
             .map_err(|e| e.to_string())?;
-        if heat.is_some_and(|heat| heat != discipline) {
+        if heat_discipline.is_some_and(|heat| heat != discipline) {
             return Err(format!(
-                "Die Vorlaufklasse „{}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale.",
-                group.heat
+                "Die Vorlaufklasse „{heat}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale."
             ));
         }
         let other = sqlx::query_scalar!(
-            "SELECT final_name FROM final_slots WHERE heat = ? AND final_name != ? LIMIT 1",
-            group.heat,
-            final_name
+            r#"
+            SELECT finals.name as "name!" FROM final_slots
+            JOIN finals ON finals.id = final_slots.final_id
+            WHERE final_slots.heat_id = ? AND final_slots.final_id != ? LIMIT 1
+            "#,
+            group.heat_id,
+            final_id
         )
         .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
         if let Some(other) = other {
             return Err(format!(
-                "Die Vorlaufklasse „{}“ füllt schon Finalplätze im Finale „{other}“; eine Vorlaufklasse füllt höchstens ein Finale.",
-                group.heat
+                "Die Vorlaufklasse „{heat}“ füllt schon Finalplätze im Finale „{other}“; eine Vorlaufklasse füllt höchstens ein Finale."
             ));
         }
     }
@@ -222,16 +252,26 @@ pub async fn check_heats(
 }
 
 /// Whether a slot of the final has started.
-pub async fn has_started(conn: &mut SqliteConnection, final_name: &str) -> sqlx::Result<bool> {
+pub async fn has_started(conn: &mut SqliteConnection, final_id: Uuid) -> sqlx::Result<bool> {
     sqlx::query_scalar!(
         r#"
         SELECT EXISTS (
-            SELECT 1 FROM final_slots WHERE final_name = ? AND started_at IS NOT NULL
+            SELECT 1 FROM final_slots WHERE final_id = ? AND started_at IS NOT NULL
         ) as "started!: bool"
         "#,
-        final_name
+        final_id
     )
     .fetch_one(conn)
+    .await
+}
+
+/// The name of a final, or `None` if there is none with that id.
+pub async fn name_of(conn: &mut SqliteConnection, final_id: Uuid) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT name as "name!" FROM finals WHERE id = ?"#,
+        final_id
+    )
+    .fetch_optional(conn)
     .await
 }
 
@@ -239,26 +279,22 @@ pub async fn has_started(conn: &mut SqliteConnection, final_name: &str) -> sqlx:
 /// `except` (the block being edited). The message is German.
 pub async fn check_plannable(
     conn: &mut SqliteConnection,
-    final_name: &str,
+    final_id: Uuid,
     except: Option<i64>,
 ) -> Result<(), String> {
-    let exists = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "exists!: bool""#,
-        final_name
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|e| e.to_string())?;
-    if !exists {
-        return Err(format!("Das Finale „{final_name}“ gibt es nicht."));
-    }
+    let Some(final_name) = name_of(&mut *conn, final_id)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Err("Das Finale gibt es nicht.".to_string());
+    };
     let planned = sqlx::query_scalar!(
         r#"
         SELECT EXISTS (
-            SELECT 1 FROM timeplan WHERE final_name = ? AND id IS NOT ?
+            SELECT 1 FROM timeplan WHERE final_id = ? AND id IS NOT ?
         ) as "planned!: bool"
         "#,
-        final_name,
+        final_id,
         except
     )
     .fetch_one(&mut *conn)
@@ -272,8 +308,40 @@ pub async fn check_plannable(
     Ok(())
 }
 
-/// The slot groups of slots in order: consecutive slots of the same heat
-/// form a group.
+/// The slot groups of slots in order, by heat id: consecutive slots of the
+/// same heat form a group.
+pub fn group_slot_ids(heats: impl IntoIterator<Item = Uuid>) -> Vec<SlotGroupInput> {
+    let mut groups: Vec<SlotGroupInput> = vec![];
+    for heat_id in heats {
+        match groups.last_mut() {
+            Some(group) if group.heat_id == heat_id => group.count += 1,
+            _ => groups.push(SlotGroupInput { heat_id, count: 1 }),
+        }
+    }
+    groups
+}
+
+/// The slot groups of slots in order, by heat id and name: consecutive
+/// slots of the same heat form a group.
+pub fn group_slot_infos<'a>(
+    heats: impl IntoIterator<Item = (Uuid, &'a str)>,
+) -> Vec<SlotGroupInfo> {
+    let mut groups: Vec<SlotGroupInfo> = vec![];
+    for (id, name) in heats {
+        match groups.last_mut() {
+            Some(group) if group.heat_id == id => group.count += 1,
+            _ => groups.push(SlotGroupInfo {
+                heat_id: id,
+                heat: name.to_string(),
+                count: 1,
+            }),
+        }
+    }
+    groups
+}
+
+/// The slot groups of slots in order, by heat name as the competition file
+/// has them: consecutive slots of the same heat form a group.
 ///
 /// ```
 /// use einrad_server::finals::{SlotGroup, group_slots};

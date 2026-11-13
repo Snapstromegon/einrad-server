@@ -4,6 +4,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     heats,
@@ -19,7 +20,7 @@ pub struct SetHeatSkipResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetHeatSkipBody {
     /// The heat.
-    name: String,
+    id: Uuid,
     /// Skip its Vorlauf (its acts start directly in its final) or run it.
     skip: bool,
 }
@@ -54,30 +55,30 @@ pub async fn set_heat_skip(
 ) -> Result<Json<SetHeatSkipResponse>, HttpError> {
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
-    let skip = sqlx::query_scalar!("SELECT skip FROM heats WHERE name = ?", body.name)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    let heat = sqlx::query!(
+        r#"SELECT name as "name!", skip FROM heats WHERE id = ?"#,
+        body.id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    let skip = heat.skip;
     if skip == body.skip {
         return Ok(Json(SetHeatSkipResponse {}));
     }
-    if heats::has_started(&mut tx, &body.name).await? {
+    if heats::has_started(&mut tx, body.id).await? {
         return Err(HttpError::ErrorMessages(format!(
             "In der Vorlaufklasse „{}“ oder ihrem Finale hat schon eine Kür begonnen; ob ihr Vorlauf entfällt, lässt sich nicht mehr ändern.",
-            body.name
+            heat.name
         )));
     }
     info!(
         "Setting the Vorlauf of heat {:?} skipped: {}",
-        body.name, body.skip
+        heat.name, body.skip
     );
-    sqlx::query!(
-        "UPDATE heats SET skip = ? WHERE name = ?",
-        body.skip,
-        body.name
-    )
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query!("UPDATE heats SET skip = ? WHERE id = ?", body.skip, body.id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
 
     // The next act may be another one now.

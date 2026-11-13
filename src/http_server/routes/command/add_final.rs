@@ -2,6 +2,7 @@ use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals::{self, FinalFields},
@@ -23,7 +24,7 @@ pub struct AddFinalBody {
 
 /// Add a final: reserved slots for the best riders of the heats.
 ///
-/// It isn't planned yet; add a timeplan entry with its `final_name` for that.
+/// It isn't planned yet; add a timeplan entry with its `final_id` for that.
 #[utoipa::path(
     post,
     tags=["command", "final"],
@@ -60,14 +61,16 @@ pub async fn add_final(
     }
 
     info!("Adding final {name:?}");
+    let id = Uuid::new_v4();
     sqlx::query!(
         r#"
         INSERT INTO finals (
-            name, description, act_type, is_single_male, "order",
+            id, name, description, act_type, is_single_male, "order",
             einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
         )
-        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), ?, ?, ?)
         "#,
+        id,
         name,
         fields.description,
         fields.act_type,
@@ -80,14 +83,14 @@ pub async fn add_final(
     .await?;
     finals::check_heats(
         &mut tx,
-        &name,
+        id,
         fields.act_type,
         fields.is_single_male,
         &fields.slot_groups,
     )
     .await
     .map_err(HttpError::ErrorMessages)?;
-    finals::replace_slots(&mut tx, &name, &fields.slot_groups).await?;
+    finals::replace_slots(&mut tx, id, &fields.slot_groups).await?;
 
     tx.commit().await?;
     Ok(Json(AddFinalResponse {}))

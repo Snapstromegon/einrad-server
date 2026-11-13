@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
 /// The last migration before heats.
 const BEFORE_HEATS: i64 = 20261111120000;
@@ -109,7 +110,7 @@ async fn heats(db: &SqlitePool) -> Vec<(String, Option<String>, Vec<String>)> {
     let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT heats.name, heats.description, \
          (SELECT group_concat(name, ',') FROM (SELECT name FROM categories \
-            WHERE heat = heats.name ORDER BY name)) \
+            WHERE heat_id = heats.id ORDER BY name)) \
          FROM heats ORDER BY heats.name",
     )
     .fetch_all(db)
@@ -127,11 +128,16 @@ async fn heats(db: &SqlitePool) -> Vec<(String, Option<String>, Vec<String>)> {
 
 /// The heat of each slot of a final, in start order.
 async fn slot_heats(db: &SqlitePool, final_name: &str) -> Vec<String> {
-    sqlx::query_scalar("SELECT heat FROM final_slots WHERE final_name = ? ORDER BY position")
-        .bind(final_name)
-        .fetch_all(db)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT heats.name FROM final_slots \
+         JOIN finals ON finals.id = final_slots.final_id \
+         JOIN heats ON heats.id = final_slots.heat_id \
+         WHERE finals.name = ? ORDER BY position",
+    )
+    .bind(final_name)
+    .fetch_all(db)
+    .await
+    .unwrap()
 }
 
 fn heat(name: &str, categories: &[&str]) -> (String, Option<String>, Vec<String>) {
@@ -345,9 +351,9 @@ fn heat_body(name: &str, categories: &[&str]) -> Value {
     json!({ "name": name, "description": null, "categories": categories })
 }
 
-fn edit_body(name: &str, new_name: &str, categories: &[&str]) -> Value {
+fn edit_body(id: Uuid, new_name: &str, categories: &[&str]) -> Value {
     json!({
-        "name": name,
+        "id": id,
         "new_name": new_name,
         "description": "Expert 1 Einzel Männlich",
         "categories": categories,
@@ -373,28 +379,31 @@ fn names(values: &[Value]) -> Vec<String> {
 #[tokio::test]
 async fn heats_are_seeded_with_their_categories_and_finals() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
+    let final_ = json!([{ "id": app.final_id("Finale EW").await, "name": "Finale EW" }]);
     assert_eq!(
         list_heats(&app).await,
         [
             json!({
+                "id": app.heat_id("JE EW").await,
                 "name": "JE EW",
                 "description": "Junior Expert Einzel Weiblich (U11–U15)",
                 "categories": ["EWU11", "EWU13", "EWU15"],
                 "act_type": "single",
                 "is_single_male": false,
-                "finals": ["Finale EW"],
+                "finals": final_,
                 "threshold": 6,
                 "skip": false,
                 "act_count": 0,
                 "skip_suggested": true,
             }),
             json!({
+                "id": app.heat_id("E EW").await,
                 "name": "E EW",
                 "description": null,
                 "categories": ["EWU17"],
                 "act_type": "single",
                 "is_single_male": false,
-                "finals": ["Finale EW"],
+                "finals": final_,
                 "threshold": 5,
                 "skip": false,
                 "act_count": 0,
@@ -408,6 +417,10 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
     let heat_of =
         |name: &str| categories.iter().find(|c| c["name"] == name).unwrap()["heat"].clone();
     assert_eq!(heat_of("EWU13"), "JE EW");
+    let heat_id_of =
+        |name: &str| categories.iter().find(|c| c["name"] == name).unwrap()["heat_id"].clone();
+    assert_eq!(heat_id_of("EWU13"), json!(app.heat_id("JE EW").await));
+    assert_eq!(heat_id_of("EWU19"), Value::Null);
     assert_eq!(heat_of("EWU19"), Value::Null);
 }
 
@@ -458,7 +471,11 @@ async fn admins_add_edit_and_delete_heats() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            edit_body("E EM 1", "Expert 1 EM", &["EMU19", "EMU21"]),
+            edit_body(
+                app.heat_id("E EM 1").await,
+                "Expert 1 EM",
+                &["EMU19", "EMU21"],
+            ),
             Some(&admin),
         )
         .await;
@@ -473,7 +490,7 @@ async fn admins_add_edit_and_delete_heats() {
     let response = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": "Expert 1 EM" }),
+            json!({ "id": app.heat_id("Expert 1 EM").await }),
             Some(&admin),
         )
         .await;
@@ -490,7 +507,7 @@ async fn admins_add_edit_and_delete_heats() {
     let response = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": "Gibt es nicht" }),
+            json!({ "id": Uuid::new_v4() }),
             Some(&admin),
         )
         .await;
@@ -520,7 +537,7 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            edit_body("E EW", "E EW", &["EMU17"]),
+            edit_body(app.heat_id("E EW").await, "E EW", &["EMU17"]),
             Some(&admin),
         )
         .await;
@@ -529,7 +546,7 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            edit_body("E EW", "E EW", &["EWU15", "EWU17"]),
+            edit_body(app.heat_id("E EW").await, "E EW", &["EWU15", "EWU17"]),
             Some(&admin),
         )
         .await;
@@ -543,7 +560,7 @@ async fn a_heat_in_a_final_is_renamed_with_it_but_not_deleted() {
     let response = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": "E EW" }),
+            json!({ "id": app.heat_id("E EW").await }),
             Some(&admin),
         )
         .await;
@@ -552,7 +569,7 @@ async fn a_heat_in_a_final_is_renamed_with_it_but_not_deleted() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            edit_body("E EW", "Expert EW", &["EWU17", "EWU19"]),
+            edit_body(app.heat_id("E EW").await, "Expert EW", &["EWU17", "EWU19"]),
             Some(&admin),
         )
         .await;
@@ -561,7 +578,10 @@ async fn a_heat_in_a_final_is_renamed_with_it_but_not_deleted() {
     let final_ = &response.body[0];
     assert_eq!(
         final_["slot_groups"],
-        json!([{ "heat": "JE EW", "count": 2 }, { "heat": "Expert EW", "count": 1 }])
+        json!([
+            { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "count": 2 },
+            { "heat_id": app.heat_id("Expert EW").await, "heat": "Expert EW", "count": 1 },
+        ])
     );
     assert_eq!(final_["slots"][2]["label"], "1. Finalist (Expert EW)");
     assert_eq!(

@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals,
@@ -16,7 +17,7 @@ pub struct DeleteFinalResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteFinalBody {
-    name: String,
+    id: Uuid,
 }
 
 /// Delete a final, with its slots and its timeplan block.
@@ -31,6 +32,7 @@ pub struct DeleteFinalBody {
         (status=200, content_type="application/json", body=DeleteFinalResponse),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -44,18 +46,18 @@ pub async fn delete_final(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    if finals::has_started(&mut tx, &body.name).await? {
+    if finals::has_started(&mut tx, body.id).await? {
         return Err(HttpError::ErrorMessages(
             "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
         ));
     }
-    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, &body.name).await?;
-    info!("Deleting final {:?}", body.name);
-    sqlx::query!("DELETE FROM timeplan WHERE final_name = ?", body.name)
+    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, body.id).await?;
+    info!("Deleting final {}", body.id);
+    sqlx::query!("DELETE FROM timeplan WHERE final_id = ?", body.id)
         .execute(&mut *tx)
         .await?;
     // Its slots go with it (foreign key).
-    let result = sqlx::query!("DELETE FROM finals WHERE name = ?", body.name)
+    let result = sqlx::query!("DELETE FROM finals WHERE id = ?", body.id)
         .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {

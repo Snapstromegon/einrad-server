@@ -32,8 +32,8 @@ export const heatsOnSeveralDays = (
 export interface HeatSkip {
   name: string;
   skip: boolean;
-  /** The finals whose slots it fills; at most one. */
-  finals: string[];
+  /** The finals whose slots it fills (by id); at most one. */
+  finals: { id: string }[];
 }
 
 /**
@@ -42,12 +42,13 @@ export interface HeatSkip {
  */
 export const skippedWithoutPlannedFinal = (
   heats: HeatSkip[],
+  /** The ids of the finals that are in the timeplan. */
   plannedFinals: Set<string>,
 ): string[] =>
   heats
     .filter(
       (heat) =>
-        heat.skip && !heat.finals.some((final) => plannedFinals.has(final)),
+        heat.skip && !heat.finals.some((final) => plannedFinals.has(final.id)),
     )
     .map((heat) => heat.name);
 

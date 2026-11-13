@@ -261,9 +261,10 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     )
     .fetch_all(&mut *conn)
     .await?;
-    let categories = sqlx::query!(r#"SELECT name as "name!", heat FROM categories"#)
-        .fetch_all(&mut *conn)
-        .await?;
+    let categories =
+        sqlx::query!(r#"SELECT name as "name!", heat_id as "heat_id: Uuid" FROM categories"#)
+            .fetch_all(&mut *conn)
+            .await?;
     drop(conn);
 
     // Where each unit first runs: the position and planned day of its block.
@@ -293,14 +294,13 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                         ..
                     } => categories
                         .iter()
-                        .any(|c| &c.name == category && c.heat.as_deref() == Some(&row.name)),
+                        .any(|c| &c.name == category && c.heat_id == Some(row.id)),
                     _ => false,
                 }),
                 JuryUnitKind::Final => first_block(&|entry| match entry {
                     TimeplanEntry::Acts {
-                        final_name: Some(name),
-                        ..
-                    } => *name == row.name,
+                        final_id: Some(id), ..
+                    } => *id == row.id,
                     _ => false,
                 }),
             };
@@ -358,29 +358,29 @@ pub fn not_registrable() -> HttpError {
     )
 }
 
-/// Refuses (German message) to delete the heat or final `name` while judges
-/// are registered or assigned to its jury unit (D4).
+/// Refuses (409, German message) to delete the heat or final `id` while
+/// judges are registered or assigned to its jury unit (D4).
 pub async fn ensure_unit_unused(
     conn: &mut sqlx::SqliteConnection,
     kind: JuryUnitKind,
-    name: &str,
+    id: Uuid,
 ) -> Result<(), HttpError> {
     let used = sqlx::query_scalar!(
         r#"
         SELECT (
             (SELECT COUNT(*) FROM judge_registration r JOIN view_jury_unit u ON u.id = r.unit_id
-                WHERE u.kind = ?1 AND u.name = ?2)
+                WHERE u.kind = ?1 AND u.id = ?2)
             + (SELECT COUNT(*) FROM jury_assignments a JOIN view_jury_unit u ON u.id = a.unit_id
-                WHERE u.kind = ?1 AND u.name = ?2)
+                WHERE u.kind = ?1 AND u.id = ?2)
         ) as "count!: i64"
         "#,
         kind,
-        name
+        id
     )
     .fetch_one(conn)
     .await?;
     if used > 0 {
-        return Err(HttpError::ErrorMessages(
+        return Err(HttpError::Conflict(
             "Für die Jury dieser Vorlaufklasse oder dieses Finales sind JurorInnen gemeldet oder eingeteilt. Erst das ändern, dann löschen."
                 .to_string(),
         ));

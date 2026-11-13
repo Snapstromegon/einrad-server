@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
+use uuid::Uuid;
 
 /// Format sent by the admin frontend.
 const START: &str = "2026-04-19T09:00:00Z";
@@ -55,13 +56,13 @@ async fn replace_timeplan(app: &TestApp, admin: &str, entries: &[Value]) {
     }
 }
 
-fn final_entry(final_name: &str, earliest_start_time: Option<&str>) -> Value {
+fn final_entry(final_id: Uuid, earliest_start_time: Option<&str>) -> Value {
     json!({
         "earliest_start_time": earliest_start_time,
         "duration_seconds": null,
         "label": null,
         "category": null,
-        "final_name": final_name,
+        "final_id": final_id,
     })
 }
 
@@ -157,6 +158,7 @@ async fn finals_are_seeded_with_their_slots() {
     assert_eq!(
         finals,
         [json!({
+            "id": app.final_id(FINAL).await,
             "name": FINAL,
             "description": "Finale Einzel Weiblich",
             "act_type": "single",
@@ -166,8 +168,8 @@ async fn finals_are_seeded_with_their_slots() {
             "act_duration_seconds": 180,
             "judge_duration_seconds": 120,
             "slot_groups": [
-                { "heat": "JE EW", "count": 2 },
-                { "heat": "E EW", "count": 1 },
+                { "heat_id": app.heat_id("JE EW").await, "heat": "JE EW", "count": 2 },
+                { "heat_id": app.heat_id("E EW").await, "heat": "E EW", "count": 1 },
             ],
             // From its heats.
             "categories": ["EWU11", "EWU13", "EWU15", "EWU17"],
@@ -189,7 +191,7 @@ async fn a_final_block_reserves_its_slots_with_the_finals_durations() {
         &admin,
         &[
             custom_entry("Begrüßung", 600),
-            final_entry(FINAL, None),
+            final_entry(app.final_id(FINAL).await, None),
             custom_entry("Siegerehrung", 1800),
         ],
     )
@@ -280,7 +282,12 @@ async fn finalists_run_and_are_judged_like_acts() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[final_entry(app.final_id(FINAL).await, Some(START))],
+    )
+    .await;
 
     let planned = ["Planned", "Planned", "Planned"];
     assert_eq!(
@@ -330,13 +337,18 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[final_entry(app.final_id(FINAL).await, Some(START))],
+    )
+    .await;
     let id = list_timeplan(&app).await[0]["id"].clone();
 
     let response = app
         .post(
             "/api/command/add_timeplan_entry",
-            final_entry(FINAL, None),
+            final_entry(app.final_id(FINAL).await, None),
             Some(&admin),
         )
         .await;
@@ -344,12 +356,12 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     let response = app
         .post(
             "/api/command/add_timeplan_entry",
-            final_entry("Finale XY", None),
+            final_entry(Uuid::new_v4(), None),
             Some(&admin),
         )
         .await;
     rejected(&response, "gibt es nicht");
-    let mut both = final_entry(FINAL, None);
+    let mut both = final_entry(app.final_id(FINAL).await, None);
     both["category"] = json!("EWU13");
     let response = app
         .post("/api/command/add_timeplan_entry", both, Some(&admin))
@@ -376,7 +388,7 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
     // Editing the block keeps the final (and doesn't count as a second one).
-    let mut entry = final_entry(FINAL, Some(START));
+    let mut entry = final_entry(app.final_id(FINAL).await, Some(START));
     entry["id"] = id.clone();
     entry["einfahrzeit_seconds"] = json!(0);
     let response = app
@@ -409,7 +421,10 @@ async fn admins_add_edit_and_delete_finals() {
     add_heat(&app, &admin, "E EM 1", &["EMU17", "EMU19", "EMU21"]).await;
     add_heat(&app, &admin, "E EM 2", &["EMU23", "EMU25"]).await;
     add_heat(&app, &admin, "E P 2", &["PU23", "PU25"]).await;
-    let groups = json!([{ "heat": " E EM 1 ", "count": 2 }, { "heat": "E EM 2", "count": 1 }]);
+    let em1 = app.heat_id("E EM 1").await;
+    let em2 = app.heat_id("E EM 2").await;
+    let ep2 = app.heat_id("E P 2").await;
+    let groups = json!([{ "heat_id": em1, "count": 2 }, { "heat_id": em2, "count": 1 }]);
 
     for cookie in [None, Some(owner.as_str())] {
         let response = app
@@ -421,7 +436,7 @@ async fn admins_add_edit_and_delete_finals() {
             .await;
         assert_ne!(response.status, StatusCode::OK);
     }
-    let mut group_final = final_body("Finale KG", json!([{ "heat": "E EM 1", "count": 1 }]));
+    let mut group_final = final_body("Finale KG", json!([{ "heat_id": em1, "count": 1 }]));
     group_final["act_type"] = json!("group_small");
     for (body, message) in [
         (final_body(" ", groups.clone()), "Namen"),
@@ -431,20 +446,19 @@ async fn admins_add_edit_and_delete_finals() {
             "mindestens einen Finalplatz",
         ),
         (
-            final_body("Finale EM", json!([{ "heat": "E EM 1", "count": 0 }])),
+            final_body("Finale EM", json!([{ "heat_id": em1, "count": 0 }])),
             "mindestens einen Platz",
         ),
         (
-            final_body("Finale EM", json!([{ "heat": "", "count": 1 }])),
-            "Vorlauf",
-        ),
-        (
-            final_body("Finale EM", json!([{ "heat": "E EM 9", "count": 1 }])),
-            "E EM 9",
+            final_body(
+                "Finale EM",
+                json!([{ "heat_id": Uuid::new_v4(), "count": 1 }]),
+            ),
+            "Vorlaufklasse gibt es nicht",
         ),
         // Every heat competes in the final's discipline.
         (
-            final_body("Finale EM", json!([{ "heat": "E P 2", "count": 1 }])),
+            final_body("Finale EM", json!([{ "heat_id": ep2, "count": 1 }])),
             "E P 2",
         ),
         // A group final takes group heats only (#345).
@@ -469,7 +483,10 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(finals[1]["is_single_male"], true);
     assert_eq!(
         finals[1]["slot_groups"],
-        json!([{ "heat": "E EM 1", "count": 2 }, { "heat": "E EM 2", "count": 1 }])
+        json!([
+            { "heat_id": em1, "heat": "E EM 1", "count": 2 },
+            { "heat_id": em2, "heat": "E EM 2", "count": 1 },
+        ])
     );
     assert_eq!(
         finals[1]["categories"],
@@ -477,9 +494,15 @@ async fn admins_add_edit_and_delete_finals() {
     );
 
     // Planned, renamed: the timeplan follows. Pairs are never male.
-    replace_timeplan(&app, &admin, &[final_entry("Finale EM", Some(START))]).await;
-    let mut body = final_body("Finale Paar", json!([{ "heat": "E P 2", "count": 4 }]));
-    body["name"] = json!("Finale EM");
+    replace_timeplan(
+        &app,
+        &admin,
+        &[final_entry(app.final_id("Finale EM").await, Some(START))],
+    )
+    .await;
+    let mut body = final_body("Finale Paar", json!([{ "heat_id": ep2, "count": 4 }]));
+    let paar = app.final_id("Finale EM").await;
+    body["id"] = json!(paar);
     body["new_name"] = json!("Finale Paar");
     body["act_type"] = json!("pair");
     let response = app
@@ -491,7 +514,7 @@ async fn admins_add_edit_and_delete_finals() {
     assert_eq!(finals[1]["is_single_male"], false);
     assert_eq!(
         finals[1]["slot_groups"],
-        json!([{ "heat": "E P 2", "count": 4 }])
+        json!([{ "heat_id": ep2, "heat": "E P 2", "count": 4 }])
     );
     assert_eq!(list_timeplan(&app).await[0]["final_name"], "Finale Paar");
     let item = predicted_items(&app).await.remove(0);
@@ -508,14 +531,15 @@ async fn admins_add_edit_and_delete_finals() {
     // Once it has started, its slots stay; other fields can still change.
     step(&app, &admin, "timeplan_forward").await;
     step(&app, &admin, "timeplan_forward").await;
-    let mut body = final_body("Finale Paar", json!([{ "heat": "E P 2", "count": 3 }]));
+    let mut body = final_body("Finale Paar", json!([{ "heat_id": ep2, "count": 3 }]));
+    body["id"] = json!(paar);
     body["new_name"] = json!("Finale Paar");
     body["act_type"] = json!("pair");
     let response = app
         .post("/api/command/edit_final", body.clone(), Some(&admin))
         .await;
     rejected(&response, "schon begonnen");
-    body["slot_groups"] = json!([{ "heat": "E P 2", "count": 4 }]);
+    body["slot_groups"] = json!([{ "heat_id": ep2, "count": 4 }]);
     body["judge_duration_seconds"] = json!(60);
     let response = app
         .post("/api/command/edit_final", body, Some(&admin))
@@ -528,7 +552,7 @@ async fn admins_add_edit_and_delete_finals() {
     let response = app
         .post(
             "/api/command/delete_final",
-            json!({ "name": "Finale Paar" }),
+            json!({ "id": paar }),
             Some(&admin),
         )
         .await;
@@ -540,7 +564,7 @@ async fn admins_add_edit_and_delete_finals() {
     let response = app
         .post(
             "/api/command/delete_final",
-            json!({ "name": "Finale Paar" }),
+            json!({ "id": paar }),
             Some(&admin),
         )
         .await;
@@ -550,7 +574,7 @@ async fn admins_add_edit_and_delete_finals() {
     let response = app
         .post(
             "/api/command/delete_final",
-            json!({ "name": "Finale Paar" }),
+            json!({ "id": paar }),
             Some(&admin),
         )
         .await;
@@ -582,7 +606,7 @@ async fn placed(app: &TestApp, who: Option<&str>) -> Vec<Value> {
 async fn place(app: &TestApp, admin: &str, slots: Value) -> TestResponse {
     app.post(
         "/api/command/set_final_placement",
-        json!({ "name": FINAL, "slots": slots }),
+        json!({ "id": app.final_id(FINAL).await, "slots": slots }),
         Some(admin),
     )
     .await
@@ -591,7 +615,7 @@ async fn place(app: &TestApp, admin: &str, slots: Value) -> TestResponse {
 async fn publish(app: &TestApp, admin: &str, published: bool) -> TestResponse {
     app.post(
         "/api/command/set_final_published",
-        json!({ "name": FINAL, "published": published }),
+        json!({ "id": app.final_id(FINAL).await, "published": published }),
         Some(admin),
     )
     .await
@@ -614,7 +638,12 @@ async fn placed_acts_show_once_the_placement_is_published() {
     // Both start in EWU13, a category of the final.
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
     let berta = app.add_single_act(&owner, club_id, "Berta").await;
-    replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[final_entry(app.final_id(FINAL).await, Some(START))],
+    )
+    .await;
     let slots = slot_ids(&app).await;
 
     let response = place(
@@ -702,7 +731,7 @@ async fn placed_acts_show_once_the_placement_is_published() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            json!({ "name": "JE EW", "new_name": "JE EW", "description": null, "categories": ["EWU11"] }),
+            json!({ "id": app.heat_id("JE EW").await, "new_name": "JE EW", "description": null, "categories": ["EWU11"] }),
             Some(&admin),
         )
         .await;
@@ -774,8 +803,12 @@ async fn placements_survive_new_slot_groups() {
     // isn't.
     let mut body = final_body(
         FINAL,
-        json!([{ "heat": "E EW", "count": 1 }, { "heat": "JE EW", "count": 1 }]),
+        json!([
+            { "heat_id": app.heat_id("E EW").await, "count": 1 },
+            { "heat_id": app.heat_id("JE EW").await, "count": 1 },
+        ]),
     );
+    body["id"] = json!(app.final_id(FINAL).await);
     body["new_name"] = json!(FINAL);
     body["is_single_male"] = json!(false);
     let response = app
@@ -799,7 +832,12 @@ async fn a_placed_act_plays_in_its_final_slot() {
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
-    replace_timeplan(&app, &admin, &[final_entry(FINAL, Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[final_entry(app.final_id(FINAL).await, Some(START))],
+    )
+    .await;
     let slots = slot_ids(&app).await;
     let response = place(
         &app,

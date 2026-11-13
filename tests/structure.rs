@@ -161,7 +161,10 @@ async fn a_final_fed_by_two_heats_appears_once_with_all_its_acts() {
             "einfahrzeit_seconds": 600,
             "act_duration_seconds": 300,
             "judge_duration_seconds": 180,
-            "slot_groups": [{ "heat": "E EM 2", "count": 1 }, { "heat": "E EM 1", "count": 3 }],
+            "slot_groups": [
+                { "heat_id": app.heat_id("E EM 2").await, "count": 1 },
+                { "heat_id": app.heat_id("E EM 1").await, "count": 3 },
+            ],
         }),
     )
     .await;
@@ -336,30 +339,29 @@ async fn a_pair_without_a_heat_sits_in_its_category_without_heat() {
 async fn a_final_of_skipped_heats_has_no_slot_count() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
-    for (command, body) in [
-        (
-            "add_heat",
-            json!({ "name": "Kleingruppe Expert", "description": null, "categories": ["KG15+"] }),
-        ),
-        (
-            "add_final",
-            json!({
-                "name": "Finale KG Expert",
-                "description": null,
-                "act_type": "group_small",
-                "is_single_male": false,
-                "einfahrzeit_seconds": 600,
-                "act_duration_seconds": 300,
-                "judge_duration_seconds": 180,
-                "slot_groups": [{ "heat": "Kleingruppe Expert", "count": 1 }],
-            }),
-        ),
-    ] {
-        let response = app
-            .post(&format!("/api/command/{command}"), body, Some(&admin))
-            .await;
-        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    }
+    post_ok(
+        &app,
+        &admin,
+        "add_heat",
+        json!({ "name": "Kleingruppe Expert", "description": null, "categories": ["KG15+"] }),
+    )
+    .await;
+    post_ok(
+        &app,
+        &admin,
+        "add_final",
+        json!({
+            "name": "Finale KG Expert",
+            "description": null,
+            "act_type": "group_small",
+            "is_single_male": false,
+            "einfahrzeit_seconds": 600,
+            "act_duration_seconds": 300,
+            "judge_duration_seconds": 180,
+            "slot_groups": [{ "heat_id": app.heat_id("Kleingruppe Expert").await, "count": 1 }],
+        }),
+    )
+    .await;
 
     let tree = structure(&app, &admin).await;
     let groups = discipline(&tree, "group_small", false);
@@ -398,7 +400,10 @@ async fn a_final_counts_only_the_slots_of_heats_that_run_their_vorlauf() {
             "einfahrzeit_seconds": 600,
             "act_duration_seconds": 300,
             "judge_duration_seconds": 180,
-            "slot_groups": [{ "heat": "E EM 1", "count": 4 }, { "heat": "E EM 2", "count": 4 }],
+            "slot_groups": [
+                { "heat_id": app.heat_id("E EM 1").await, "count": 4 },
+                { "heat_id": app.heat_id("E EM 2").await, "count": 4 },
+            ],
         }),
     )
     .await;
@@ -406,7 +411,7 @@ async fn a_final_counts_only_the_slots_of_heats_that_run_their_vorlauf() {
         &app,
         &admin,
         "set_heat_skip",
-        json!({ "name": "E EM 2", "skip": true }),
+        json!({ "id": app.heat_id("E EM 2").await, "skip": true }),
     )
     .await;
 

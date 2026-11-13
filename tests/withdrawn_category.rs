@@ -117,7 +117,7 @@ async fn a_withdrawn_act_cannot_be_placed_in_a_final() {
     let response = app
         .post(
             "/api/command/set_final_placement",
-            json!({ "name": "Finale EW", "slots": [{ "slot_id": slot, "act_id": anna }] }),
+            json!({ "id": app.final_id("Finale EW").await, "slots": [{ "slot_id": slot, "act_id": anna }] }),
             Some(&admin),
         )
         .await;

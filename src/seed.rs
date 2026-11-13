@@ -572,7 +572,7 @@ pub fn unscheduled_final_warnings(
 fn entry_kind(entry: &TimeplanEntryConfig) -> EntryKind {
     EntryKind::derive(
         entry.kind,
-        entry.category.as_deref().or(entry.final_name.as_deref()),
+        entry.category.is_some() || entry.final_name.is_some(),
     )
 }
 
@@ -1167,7 +1167,7 @@ impl Snapshot {
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(name)
-                        FROM (SELECT name FROM categories WHERE heat = heats.name ORDER BY name)))
+                        FROM (SELECT name FROM categories WHERE heat_id = heats.id ORDER BY name)))
                 FROM heats ORDER BY name"#,
             )
             .await?,
@@ -1177,14 +1177,16 @@ impl Snapshot {
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts,
                     (SELECT json_group_array(json_array(heat, number))
-                        FROM (SELECT heat, number FROM final_slots
-                            WHERE final_name = finals.name ORDER BY position)))
+                        FROM (SELECT heats.name AS heat, number FROM final_slots
+                            JOIN heats ON heats.id = final_slots.heat_id
+                            WHERE final_slots.final_id = finals.id ORDER BY position)))
                 FROM finals ORDER BY "order", name"#,
             )
             .await?,
             timeplan: rows(
                 r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
-                    final_name, kind, show_photos, internal, einfahrzeit_seconds)
+                    (SELECT name FROM finals WHERE finals.id = timeplan.final_id),
+                    kind, show_photos, internal, einfahrzeit_seconds)
                 FROM timeplan ORDER BY position, id"#,
             )
             .await?,
@@ -1397,6 +1399,8 @@ async fn write(
     }
 
     let heats = resolve_heats(&file.heats, categories)?;
+    // The file names heats and finals; the database refers to them by id.
+    let mut heat_ids: HashMap<String, Uuid> = HashMap::new();
     for heat in &heats {
         if heat.categories.is_empty() {
             warn!(
@@ -1404,13 +1408,16 @@ async fn write(
                 heat.name
             );
         }
+        let heat_id = Uuid::new_v4();
+        heat_ids.insert(heat.name.clone(), heat_id);
         sqlx::query!(
             r#"
             INSERT INTO heats (
-                name, description, threshold, skip, jury_registrable, jury_deployments,
+                id, name, description, threshold, skip, jury_registrable, jury_deployments,
                 jury_needed_technical, jury_needed_performance, jury_needed_dismounts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
+            heat_id,
             heat.name,
             heat.description,
             heat.threshold,
@@ -1424,7 +1431,7 @@ async fn write(
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
-        heats::set_categories(conn, &heat.name, &heat.categories)
+        heats::set_categories(conn, heat_id, &heat.categories)
             .await
             .map_err(db_error)?;
     }
@@ -1444,15 +1451,17 @@ async fn write(
     if !finals.is_empty() {
         let resolved = resolve_finals(finals, &heats)?;
         for (order, item) in (1_i64..).zip(&resolved) {
+            let final_id = Uuid::new_v4();
             sqlx::query!(
                 r#"
                 INSERT INTO finals (
-                    name, description, act_type, is_single_male, "order",
+                    id, name, description, act_type, is_single_male, "order",
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
+                final_id,
                 item.name,
                 item.description,
                 item.act_type,
@@ -1470,7 +1479,17 @@ async fn write(
             .execute(&mut *conn)
             .await
             .map_err(db_error)?;
-            finals::replace_slots(conn, &item.name, &item.slots)
+            // `resolve_finals` checked that every slot group's heat is in
+            // the file.
+            let groups: Vec<finals::SlotGroupInput> = item
+                .slots
+                .iter()
+                .map(|group| finals::SlotGroupInput {
+                    heat_id: heat_ids[&group.heat],
+                    count: group.count,
+                })
+                .collect();
+            finals::replace_slots(conn, final_id, &groups)
                 .await
                 .map_err(db_error)?;
         }
@@ -1498,10 +1517,21 @@ async fn write(
             let duration_seconds = entry.duration_minutes.map(|m| (m * 60.0).round() as i64);
             let einfahrzeit_seconds = entry.einfahrzeit_minutes.map(|m| (m * 60.0).round() as i64);
             let kind = entry_kind(entry);
+            // `validate_timeplan` checked that the final exists.
+            let final_id = match &entry.final_name {
+                Some(name) => sqlx::query_scalar!(
+                    r#"SELECT id as "id: Uuid" FROM finals WHERE name = ?"#,
+                    name
+                )
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(db_error)?,
+                None => None,
+            };
             sqlx::query!(
                 r#"
                 INSERT INTO timeplan (
-                    earliest_start_time, duration_seconds, label, category, final_name, kind,
+                    earliest_start_time, duration_seconds, label, category, final_id, kind,
                     show_photos, internal, position, einfahrzeit_seconds
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1510,7 +1540,7 @@ async fn write(
                 duration_seconds,
                 entry.label,
                 entry.category,
-                entry.final_name,
+                final_id,
                 kind,
                 entry.show_photos,
                 entry.internal,
@@ -2516,11 +2546,13 @@ mod tests {
                 ("Junior".to_string(), Some("Junior Expert".to_string())),
             ]
         );
-        let linked: Vec<(String, Option<String>)> =
-            sqlx::query_as("SELECT name, heat FROM categories ORDER BY \"order\"")
-                .fetch_all(&db)
-                .await
-                .unwrap();
+        let linked: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT categories.name, heats.name FROM categories \
+                 LEFT JOIN heats ON heats.id = categories.heat_id ORDER BY categories.\"order\"",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
         assert_eq!(
             linked,
             [
@@ -2531,11 +2563,13 @@ mod tests {
                 ("KG".to_string(), None),
             ]
         );
-        let slots: Vec<String> =
-            sqlx::query_scalar("SELECT heat FROM final_slots ORDER BY position")
-                .fetch_all(&db)
-                .await
-                .unwrap();
+        let slots: Vec<String> = sqlx::query_scalar(
+            "SELECT heats.name FROM final_slots \
+                 JOIN heats ON heats.id = final_slots.heat_id ORDER BY position",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
         assert_eq!(slots, ["Junior", "Junior", "Expert"]);
     }
 

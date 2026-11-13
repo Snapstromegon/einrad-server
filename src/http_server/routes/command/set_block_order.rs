@@ -26,7 +26,7 @@ pub enum BlockSlotInput {
     Act { act_id: Uuid },
     /// A final's block only: one of its finalist slots, by heat and number
     /// ("2. Finalist (E EM 1)").
-    Finalist { heat: String, number: i64 },
+    Finalist { heat_id: Uuid, number: i64 },
     /// A break. With `id`: an existing break of this block, whose label and
     /// duration change, also while it runs. Without: a new break.
     Break {
@@ -90,6 +90,7 @@ pub async fn set_block_order(
     if block.kind != EntryKind::Acts {
         return Err(invalid("Nur Startblöcke haben eine Reihenfolge."));
     }
+    let final_id = block.final_id;
     let final_name = block.final_name.as_deref();
     if block.ended_at.is_some() {
         return Err(invalid("Der Block ist schon beendet."));
@@ -104,8 +105,8 @@ pub async fn set_block_order(
             .all(|(slot, input)| match (slot, input) {
                 (Slot::Act(act), BlockSlotInput::Act { act_id }) => act.id == *act_id,
                 (Slot::Break(pause), BlockSlotInput::Break { id, .. }) => Some(pause.id) == *id,
-                (Slot::Finalist(finalist), BlockSlotInput::Finalist { heat, number }) => {
-                    finalist.group_label == *heat && finalist.number == *number
+                (Slot::Finalist(finalist), BlockSlotInput::Finalist { heat_id, number }) => {
+                    finalist.heat_id == *heat_id && finalist.number == *number
                 }
                 _ => false,
             });
@@ -146,15 +147,19 @@ pub async fn set_block_order(
                         act.name
                     )));
                 }
-                match (final_name, timeplan.direct_acts.get(act_id)) {
-                    (Some(name), Some(direct)) if name == direct => {}
-                    (Some(name), _) => {
+                match (final_id, timeplan.direct_acts.get(act_id)) {
+                    (Some(id), Some(direct)) if id == *direct => {}
+                    (Some(_), _) => {
                         return Err(invalid(&format!(
-                            "„{}“ startet nicht direkt im Finale „{name}“: ins Finale kommen nur die Küren von Vorlaufklassen, deren Vorlauf entfällt.",
-                            act.name
+                            "„{}“ startet nicht direkt im Finale „{}“: ins Finale kommen nur die Küren von Vorlaufklassen, deren Vorlauf entfällt.",
+                            act.name,
+                            final_name.unwrap_or_default()
                         )));
                     }
                     (None, Some(direct)) => {
+                        let direct = crate::finals::name_of(&mut tx, *direct)
+                            .await?
+                            .unwrap_or_default();
                         return Err(invalid(&format!(
                             "„{}“ startet direkt im Finale „{direct}“, ihr Vorlauf entfällt.",
                             act.name
@@ -166,20 +171,32 @@ pub async fn set_block_order(
                     return Err(invalid("Eine Kür kann nur einmal im Block stehen."));
                 }
             }
-            BlockSlotInput::Finalist { heat, number } => {
-                if final_name.is_none() {
+            BlockSlotInput::Finalist { heat_id, number } => {
+                if final_id.is_none() {
                     return Err(invalid("Finalplätze stehen nur im Block ihres Finales."));
                 }
-                let label = crate::finals::finalist_label(*number, heat);
-                let open = block.slots[started..].iter().any(|slot| {
-                    matches!(slot, Slot::Finalist(f) if f.group_label == *heat && f.number == *number)
+                let heat = block.slots[started..].iter().find_map(|slot| match slot {
+                    Slot::Finalist(f) if f.heat_id == *heat_id && f.number == *number => {
+                        Some(f.group_label.as_str())
+                    }
+                    _ => None,
                 });
+                let open = heat.is_some();
+                // For the message: the heat's name, also if the slot isn't
+                // open.
+                let heat_name = match heat {
+                    Some(name) => name.to_string(),
+                    None => crate::heats::name_of(&mut tx, *heat_id)
+                        .await?
+                        .unwrap_or_default(),
+                };
+                let label = crate::finals::finalist_label(*number, &heat_name);
                 if !open {
                     return Err(invalid(&format!(
                         "„{label}“ gibt es in diesem Finale nicht, er hat schon begonnen oder der Vorlauf seiner Vorlaufklasse entfällt."
                     )));
                 }
-                if !finalists.insert((heat, *number)) {
+                if !finalists.insert((heat_id, *number)) {
                     return Err(invalid(&format!(
                         "„{label}“ kann nur einmal im Block stehen."
                     )));
@@ -249,9 +266,9 @@ pub async fn set_block_order(
             }
             Slot::Finalist(finalist) => {
                 sqlx::query!(
-                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND heat = ? AND number = ?",
+                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND heat_id = ? AND number = ?",
                     block.id,
-                    finalist.group_label,
+                    finalist.heat_id,
                     finalist.number
                 )
                 .execute(&mut *tx)
@@ -277,12 +294,12 @@ pub async fn set_block_order(
                 .execute(&mut *tx)
                 .await?;
             }
-            BlockSlotInput::Finalist { heat, number } => {
+            BlockSlotInput::Finalist { heat_id, number } => {
                 sqlx::query!(
-                    "INSERT INTO timeplan_slots (timeplan_id, position, heat, number) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO timeplan_slots (timeplan_id, position, heat_id, number) VALUES (?, ?, ?, ?)",
                     block.id,
                     position,
-                    heat,
+                    heat_id,
                     number
                 )
                 .execute(&mut *tx)

@@ -26,6 +26,10 @@ pub enum HttpError {
     MailError(#[from] crate::mailer::MailError),
     #[error("{0}")]
     ErrorMessages(String),
+    /// The request clashes with the current state (409), with a German
+    /// message for the user.
+    #[error("{0}")]
+    Conflict(String),
     #[error("Invalid credentials")]
     InvalidCredentials,
     #[error("Status code: {0}")]
@@ -49,6 +53,9 @@ pub enum ClientError {
     InvalidCredentials,
     #[error("{0}")]
     Generic(String),
+    /// The request clashes with the current state; the message is German.
+    #[error("{0}")]
+    Conflict(String),
     #[error("Status code: {0}")]
     StatusCode(u16),
 }
@@ -62,6 +69,7 @@ impl From<HttpError> for ClientError {
             HttpError::DBError(e) => ClientError::Generic(format!("Database error: {:?}", e)),
             HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
             HttpError::ErrorMessages(e) => ClientError::Generic(format!("{e:?}")),
+            HttpError::Conflict(e) => ClientError::Conflict(e),
             HttpError::InvalidCredentials => ClientError::InvalidCredentials,
             HttpError::StatusCode(code) => ClientError::StatusCode(code.as_u16()),
         }
@@ -75,6 +83,7 @@ impl IntoResponse for ClientError {
                 Self::NotFound => axum::http::StatusCode::NOT_FOUND,
                 Self::InternalServerError => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Self::Generic(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Self::Conflict(_) => axum::http::StatusCode::CONFLICT,
                 Self::InvalidCredentials => axum::http::StatusCode::UNAUTHORIZED,
                 Self::StatusCode(code) => axum::http::StatusCode::from_u16(*code).unwrap(),
             },

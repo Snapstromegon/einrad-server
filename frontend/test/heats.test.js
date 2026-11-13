@@ -45,25 +45,25 @@ describe("heatsOnSeveralDays (HEAT-4)", () => {
 
 describe("skippedWithoutPlannedFinal (#344)", () => {
   const heats = [
-    { name: "JE EW", skip: true, finals: ["Finale EW"] },
-    { name: "E EW", skip: true, finals: ["Finale EW"] },
-    { name: "JE EM", skip: true, finals: ["Finale EM"] },
-    { name: "E EM", skip: false, finals: ["Finale EM"] },
+    { name: "JE EW", skip: true, finals: [{ id: "f-ew", name: "Finale EW" }] },
+    { name: "E EW", skip: true, finals: [{ id: "f-ew", name: "Finale EW" }] },
+    { name: "JE EM", skip: true, finals: [{ id: "f-em", name: "Finale EM" }] },
+    { name: "E EM", skip: false, finals: [{ id: "f-em", name: "Finale EM" }] },
     { name: "Ohne Finale", skip: true, finals: [] },
   ];
 
   test("names the skipped heats whose final isn't in the timeplan", () => {
-    assert.deepEqual(
-      skippedWithoutPlannedFinal(heats, new Set(["Finale EW"])),
-      ["JE EM", "Ohne Finale"],
-    );
+    assert.deepEqual(skippedWithoutPlannedFinal(heats, new Set(["f-ew"])), [
+      "JE EM",
+      "Ohne Finale",
+    ]);
   });
 
   test("nothing to warn about when every final is planned", () => {
     assert.deepEqual(
       skippedWithoutPlannedFinal(
         heats.filter((heat) => heat.finals.length),
-        new Set(["Finale EW", "Finale EM"]),
+        new Set(["f-ew", "f-em"]),
       ),
       [],
     );

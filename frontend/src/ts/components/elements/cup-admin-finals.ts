@@ -23,9 +23,9 @@ type Final = schemas.Final;
 type Heat = schemas.Heat;
 type Act = schemas.Act;
 
-/** A slot group as typed: its heat and the count as text. */
+/** A slot group as typed: its heat (id) and the count as text. */
 interface SlotGroupDraft {
-  heat: string;
+  heat_id: string;
   count: string;
 }
 
@@ -45,7 +45,8 @@ interface FinalDraft {
 
 /** The placement of a final being edited: the act per slot id, "" if open. */
 interface Placing {
-  name: string;
+  /** The final's id. */
+  id: string;
   draft: Record<string, string>;
 }
 
@@ -87,11 +88,11 @@ const fitsDiscipline = (
 /** The slot groups of a draft, `null` if one has no heat or count. */
 const parseSlotDrafts = (slots: SlotGroupDraft[]) => {
   const groups = slots.map((slot) => ({
-    heat: slot.heat,
+    heat_id: slot.heat_id,
     count: Number(slot.count),
   }));
   return groups.length &&
-    groups.every((g) => g.heat && Number.isInteger(g.count) && g.count >= 1)
+    groups.every((g) => g.heat_id && Number.isInteger(g.count) && g.count >= 1)
     ? groups
     : null;
 };
@@ -116,7 +117,7 @@ const emptyDraft = (): FinalDraft => ({
   description: "",
   act_type: "single",
   is_single_male: false,
-  slots: [{ heat: "", count: "4" }],
+  slots: [{ heat_id: "", count: "4" }],
   einfahrzeit: "10:00",
   act_duration: "3:00",
   judge_duration: "4:00",
@@ -328,12 +329,12 @@ export default class CupAdminFinals extends LitElement {
       <tbody>
         ${repeat(
           finals,
-          (final) => final.name,
+          (final) => final.id,
           (final) =>
-            this.editing?.original?.name === final.name
+            this.editing?.original?.id === final.id
               ? this.renderEditRow(this.editing.draft, final)
               : html`${this.renderRow(final)}${
-                  this.placing?.name === final.name
+                  this.placing?.id === final.id
                     ? this.renderPlacement(final, this.placing)
                     : nothing
                 }`,
@@ -413,13 +414,13 @@ export default class CupAdminFinals extends LitElement {
         <button
           class="icon-btn primary"
           title=${
-            this.placing?.name === final.name
+            this.placing?.id === final.id
               ? "Platzierung schließen"
               : "Küren auf die Finalplätze setzen"
           }
           aria-label="Platzierung"
-          aria-expanded=${this.placing?.name === final.name}
-          data-name=${final.name}
+          aria-expanded=${this.placing?.id === final.id}
+          data-id=${final.id}
           ?disabled=${locked}
           @click=${this.onTogglePlacement}
         >
@@ -431,7 +432,7 @@ export default class CupAdminFinals extends LitElement {
                   class="icon-btn primary"
                   title=${this.editing ? "Erst speichern oder abbrechen" : "Bearbeiten"}
                   aria-label="Bearbeiten"
-                  data-name=${final.name}
+                  data-id=${final.id}
                   ?disabled=${locked}
                   @click=${this.onEdit}
                 >
@@ -445,7 +446,7 @@ export default class CupAdminFinals extends LitElement {
                       : "Löschen"
                   }
                   aria-label="Löschen"
-                  data-name=${final.name}
+                  data-id=${final.id}
                   ?disabled=${locked || final.started}
                   @click=${this.onDelete}
                 >
@@ -579,7 +580,7 @@ export default class CupAdminFinals extends LitElement {
     const skipped = (this.heats.value ?? [])
       .filter(
         (heat) =>
-          heat.skip && final.slot_groups.some((g) => g.heat === heat.name),
+          heat.skip && final.slot_groups.some((g) => g.heat_id === heat.id),
       )
       .map((heat) => heat.name);
     return skipped.length
@@ -605,11 +606,10 @@ export default class CupAdminFinals extends LitElement {
       return html`<span class="muted small">Lade Vorlaufklassen …</span>`;
     }
     // A heat fills at most one final: not those of another final.
-    const own = this.editing?.original?.name;
+    const own = this.editing?.original?.id;
     const fitting = heats.filter(
       (heat) =>
-        fitsDiscipline(heat, draft) &&
-        heat.finals.every((name) => name === own),
+        fitsDiscipline(heat, draft) && heat.finals.every((f) => f.id === own),
     );
     const rows = draft.slots.map(
       (slot, index) => html`<div class="slot-group">
@@ -631,24 +631,24 @@ export default class CupAdminFinals extends LitElement {
           />
           ×
           <select
-            class=${classMap({ inline: true, invalid: invalid && !slot.heat })}
+            class=${classMap({ inline: true, invalid: invalid && !slot.heat_id })}
             aria-label="Vorlaufklasse"
             data-index=${index}
-            data-part="heat"
+            data-part="heat_id"
             ?disabled=${locked}
             @change=${this.onSlotGroupInput}
           >
-            <option value="" ?selected=${!slot.heat}>— Vorlaufklasse —</option>
+            <option value="" ?selected=${!slot.heat_id}>— Vorlaufklasse —</option>
             ${repeat(
               // The heat chosen before stays, even of another discipline.
               heats.filter(
-                (heat) => fitting.includes(heat) || heat.name === slot.heat,
+                (heat) => fitting.includes(heat) || heat.id === slot.heat_id,
               ),
-              (heat) => heat.name,
+              (heat) => heat.id,
               (heat) =>
                 html`<option
-                  value=${heat.name}
-                  ?selected=${heat.name === slot.heat}
+                  value=${heat.id}
+                  ?selected=${heat.id === slot.heat_id}
                 >
                   ${heat.name}${heat.categories.length ? "" : " (ohne Kategorien)"}
                 </option>`,
@@ -690,9 +690,9 @@ export default class CupAdminFinals extends LitElement {
   /** The categories the draft's heats give the final, read-only. */
   private renderDraftCategories(draft: FinalDraft) {
     const heats = this.heats.value ?? [];
-    const names = new Set(draft.slots.map((slot) => slot.heat));
+    const ids = new Set(draft.slots.map((slot) => slot.heat_id));
     const categories = heats
-      .filter((heat) => names.has(heat.name))
+      .filter((heat) => ids.has(heat.id))
       .flatMap((heat) => heat.categories);
     return categories.length
       ? html`<span class="muted small">${categories.join(", ")}</span>`
@@ -765,7 +765,7 @@ export default class CupAdminFinals extends LitElement {
             ?disabled=${
               this.busy || dirty || (final.placement_published && final.started)
             }
-            data-name=${final.name}
+            data-id=${final.id}
             @click=${this.onTogglePublished}
           >
             <span class="material-icon"
@@ -808,8 +808,7 @@ export default class CupAdminFinals extends LitElement {
         .filter(([id, act]) => id !== slotId && act)
         .map(([, act]) => act),
     );
-    // The slot's group label is its heat.
-    const heat = this.heats.value?.find((h) => h.name === slot?.group_label);
+    const heat = this.heats.value?.find((h) => h.id === slot?.heat_id);
     const groups = (heat?.categories ?? []).map((category) => ({
       label: category,
       acts: acts
@@ -868,8 +867,8 @@ export default class CupAdminFinals extends LitElement {
     };
   }
 
-  private finalByName(name: string | undefined) {
-    return this.finals.value?.find((final) => final.name === name);
+  private finalById(id: string | undefined) {
+    return this.finals.value?.find((final) => final.id === id);
   }
 
   private clearError() {
@@ -882,9 +881,7 @@ export default class CupAdminFinals extends LitElement {
   }
 
   private onEdit(e: Event) {
-    const final = this.finalByName(
-      (e.currentTarget as HTMLElement).dataset.name,
-    );
+    const final = this.finalById((e.currentTarget as HTMLElement).dataset.id);
     if (!final) {
       return;
     }
@@ -897,7 +894,7 @@ export default class CupAdminFinals extends LitElement {
         act_type: final.act_type,
         is_single_male: final.is_single_male,
         slots: final.slot_groups.map((group) => ({
-          heat: group.heat,
+          heat_id: group.heat_id,
           count: String(group.count),
         })),
         einfahrzeit: formatDuration(final.einfahrzeit_seconds),
@@ -932,7 +929,7 @@ export default class CupAdminFinals extends LitElement {
       ...this.editing,
       draft: {
         ...this.editing.draft,
-        slots: [...this.editing.draft.slots, { heat: "", count: "4" }],
+        slots: [...this.editing.draft.slots, { heat_id: "", count: "4" }],
       },
     };
   }
@@ -952,15 +949,13 @@ export default class CupAdminFinals extends LitElement {
   }
 
   private onTogglePlacement(e: Event) {
-    const final = this.finalByName(
-      (e.currentTarget as HTMLElement).dataset.name,
-    );
-    if (!final || this.placing?.name === final.name) {
+    const final = this.finalById((e.currentTarget as HTMLElement).dataset.id);
+    if (!final || this.placing?.id === final.id) {
       this.closePlacement();
       return;
     }
     this.error = "";
-    this.placing = { name: final.name, draft: placementOf(final) };
+    this.placing = { id: final.id, draft: placementOf(final) };
   }
 
   private closePlacement() {
@@ -983,7 +978,7 @@ export default class CupAdminFinals extends LitElement {
 
   private async savePlacement() {
     const placing = this.placing;
-    const final = this.finalByName(placing?.name);
+    const final = this.finalById(placing?.id);
     if (!placing || !final || this.busy) {
       return;
     }
@@ -998,21 +993,19 @@ export default class CupAdminFinals extends LitElement {
       async () =>
         await unwrap(
           client.setFinalPlacement({
-            body: { name: final.name, slots },
+            body: { id: final.id, slots },
           }),
         ),
     );
     // Reset to what was saved; a failed save keeps the draft.
-    const saved = this.finalByName(final.name);
-    if (saved && !this.error && this.placing?.name === final.name) {
-      this.placing = { name: final.name, draft: placementOf(saved) };
+    const saved = this.finalById(final.id);
+    if (saved && !this.error && this.placing?.id === final.id) {
+      this.placing = { id: final.id, draft: placementOf(saved) };
     }
   }
 
   private async onTogglePublished(e: Event) {
-    const final = this.finalByName(
-      (e.currentTarget as HTMLElement).dataset.name,
-    );
+    const final = this.finalById((e.currentTarget as HTMLElement).dataset.id);
     if (!final || this.busy) {
       return;
     }
@@ -1034,7 +1027,7 @@ export default class CupAdminFinals extends LitElement {
       async () =>
         await unwrap(
           client.setFinalPublished({
-            body: { name: final.name, published },
+            body: { id: final.id, published },
           }),
         ),
     );
@@ -1107,7 +1100,7 @@ export default class CupAdminFinals extends LitElement {
           client.editFinal({
             body: {
               ...fields,
-              name: original.name,
+              id: original.id,
               new_name: draft.name.trim(),
             },
           }),
@@ -1124,9 +1117,7 @@ export default class CupAdminFinals extends LitElement {
   }
 
   private async onDelete(e: Event) {
-    const final = this.finalByName(
-      (e.currentTarget as HTMLElement).dataset.name,
-    );
+    const final = this.finalById((e.currentTarget as HTMLElement).dataset.id);
     if (
       !final ||
       this.busy ||
@@ -1144,7 +1135,7 @@ export default class CupAdminFinals extends LitElement {
       async () =>
         await unwrap(
           client.deleteFinal({
-            body: { name: final.name },
+            body: { id: final.id },
           }),
         ),
     );

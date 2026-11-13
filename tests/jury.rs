@@ -191,8 +191,9 @@ async fn the_day_of_a_unit_follows_the_timeplan() {
     .unwrap();
     // The final's block on the second day, too.
     sqlx::query(
-        "INSERT INTO timeplan (kind, final_name, position, earliest_start_time) \
-         VALUES ('acts', 'Finale EW', (SELECT MAX(position) + 1 FROM timeplan), '2027-06-06T15:00:00+02:00')",
+        "INSERT INTO timeplan (kind, final_id, position, earliest_start_time) \
+         VALUES ('acts', (SELECT id FROM finals WHERE name = 'Finale EW'), \
+         (SELECT MAX(position) + 1 FROM timeplan), '2027-06-06T15:00:00+02:00')",
     )
     .execute(&app.db)
     .await
@@ -1037,7 +1038,7 @@ async fn assignments_follow_the_jury_rules() {
     let refused = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": ids[0]["name"] }),
+            json!({ "id": ids[0]["id"] }),
             Some(&admin),
         )
         .await;

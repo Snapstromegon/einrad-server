@@ -2,17 +2,18 @@
 //! whose acts are ranked together to fill a final's finalist slots.
 //!
 //! HEAT-1: all categories of a heat share one act type and, for singles,
-//! gender; a category belongs to at most one heat (`categories.heat`). Group
+//! gender; a category belongs to at most one heat (`categories.heat_id`). Group
 //! categories belong to heats like any other (#345, ADR 0015); a heat of
 //! groups has its Vorlauf skipped from the start. A heat may be empty until
 //! the admin assigns its categories. Its discipline follows from its
 //! categories; an empty heat has none and fits any final.
 //!
-//! A final's slot groups refer to heats (`final_slots.heat`, see
+//! A final's slot groups refer to heats (`final_slots.heat_id`, see
 //! `crate::finals`); the final's categories are those of its heats. Clubs
 //! never see or pick a heat: it follows from the category.
 
 use sqlx::SqliteConnection;
+use uuid::Uuid;
 
 use crate::act_type::ActType;
 
@@ -42,7 +43,7 @@ impl Discipline {
 pub struct CategoryInfo {
     pub name: String,
     pub discipline: Discipline,
-    /// The heat it belongs to, if any.
+    /// The name of the heat it belongs to, if any.
     pub heat: Option<String>,
 }
 
@@ -190,7 +191,7 @@ pub async fn default_threshold_of(
 
 /// Whether an act of the heat, or its final (a slot or its block), has
 /// started: then its Vorlauf can no longer be skipped or restored (Q5).
-pub async fn has_started(conn: &mut SqliteConnection, heat: &str) -> sqlx::Result<bool> {
+pub async fn has_started(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<bool> {
     sqlx::query_scalar!(
         r#"
         SELECT
@@ -198,24 +199,31 @@ pub async fn has_started(conn: &mut SqliteConnection, heat: &str) -> sqlx::Resul
                 SELECT 1 FROM acts
                 JOIN view_act ON view_act.id = acts.id
                 JOIN categories ON categories.name = view_act.category
-                WHERE categories.heat = ?1 AND acts.started_at IS NOT NULL
+                WHERE categories.heat_id = ?1 AND acts.started_at IS NOT NULL
                     AND view_act.withdrawn_at IS NULL
             )
             OR EXISTS (
                 SELECT 1 FROM final_slots
-                WHERE final_name IN (SELECT final_name FROM final_slots WHERE heat = ?1)
+                WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
                     AND started_at IS NOT NULL
             )
             OR EXISTS (
                 SELECT 1 FROM timeplan
-                WHERE final_name IN (SELECT final_name FROM final_slots WHERE heat = ?1)
+                WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
                     AND started_at IS NOT NULL
             ) as "started!: bool"
         "#,
-        heat
+        heat_id
     )
     .fetch_one(conn)
     .await
+}
+
+/// The name of a heat, or `None` if there is none with that id.
+pub async fn name_of(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar!(r#"SELECT name as "name!" FROM heats WHERE id = ?"#, heat_id)
+        .fetch_optional(conn)
+        .await
 }
 
 /// Trims a heat's name; fails with a German message if it's empty.
@@ -245,9 +253,11 @@ pub fn normalize_categories(categories: &[String]) -> Vec<String> {
 pub async fn categories(conn: &mut SqliteConnection) -> sqlx::Result<Vec<CategoryInfo>> {
     Ok(sqlx::query!(
         r#"
-        SELECT name as "name!", act_type as "act_type: ActType", is_single_male, heat
+        SELECT categories.name as "name!", act_type as "act_type: ActType", is_single_male,
+            heats.name as heat
         FROM categories
-        ORDER BY "order", name
+        LEFT JOIN heats ON heats.id = categories.heat_id
+        ORDER BY categories."order", categories.name
         "#
     )
     .fetch_all(conn)
@@ -264,15 +274,15 @@ pub async fn categories(conn: &mut SqliteConnection) -> sqlx::Result<Vec<Categor
 /// The discipline of a heat, from its categories; `None` if it has none.
 pub async fn discipline(
     conn: &mut SqliteConnection,
-    heat: &str,
+    heat_id: Uuid,
 ) -> sqlx::Result<Option<Discipline>> {
     Ok(sqlx::query!(
         r#"
         SELECT act_type as "act_type: ActType", is_single_male
-        FROM categories WHERE heat = ?
+        FROM categories WHERE heat_id = ?
         ORDER BY "order" LIMIT 1
         "#,
-        heat
+        heat_id
     )
     .fetch_optional(conn)
     .await?
@@ -282,16 +292,16 @@ pub async fn discipline(
 /// The finals whose slots a heat fills, with their disciplines, by name.
 pub async fn finals_of(
     conn: &mut SqliteConnection,
-    heat: &str,
+    heat_id: Uuid,
 ) -> sqlx::Result<Vec<(String, Discipline)>> {
     Ok(sqlx::query!(
         r#"
         SELECT DISTINCT finals.name as "name!", act_type as "act_type: ActType", is_single_male
-        FROM finals JOIN final_slots ON final_slots.final_name = finals.name
-        WHERE final_slots.heat = ?
+        FROM finals JOIN final_slots ON final_slots.final_id = finals.id
+        WHERE final_slots.heat_id = ?
         ORDER BY finals.name
         "#,
-        heat
+        heat_id
     )
     .fetch_all(conn)
     .await?
@@ -304,16 +314,19 @@ pub async fn finals_of(
 /// it. The caller checks them first (see [`check`]).
 pub async fn set_categories(
     conn: &mut SqliteConnection,
-    heat: &str,
+    heat_id: Uuid,
     categories: &[String],
 ) -> sqlx::Result<()> {
-    sqlx::query!("UPDATE categories SET heat = NULL WHERE heat = ?", heat)
-        .execute(&mut *conn)
-        .await?;
+    sqlx::query!(
+        "UPDATE categories SET heat_id = NULL WHERE heat_id = ?",
+        heat_id
+    )
+    .execute(&mut *conn)
+    .await?;
     for category in categories {
         sqlx::query!(
-            "UPDATE categories SET heat = ? WHERE name = ?",
-            heat,
+            "UPDATE categories SET heat_id = ? WHERE name = ?",
+            heat_id,
             category
         )
         .execute(&mut *conn)
@@ -322,20 +335,24 @@ pub async fn set_categories(
     Ok(())
 }
 
-/// Checks a heat's new categories (HEAT-1) and that they keep the
-/// discipline of the finals it fills. The message is German.
+/// Checks the new categories of the heat `heat_id` (HEAT-1) and that they
+/// keep the discipline of the finals it fills. The message is German.
 pub async fn check_categories(
     conn: &mut SqliteConnection,
-    heat: &str,
+    heat_id: Uuid,
     categories: &[String],
 ) -> Result<(), String> {
+    let heat = name_of(&mut *conn, heat_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Die Vorlaufklasse gibt es nicht.".to_string())?;
     let known = self::categories(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
-    let Some(discipline) = check(heat, categories, &known).map_err(|p| p.german())? else {
+    let Some(discipline) = check(&heat, categories, &known).map_err(|p| p.german())? else {
         return Ok(());
     };
-    let finals = finals_of(conn, heat).await.map_err(|e| e.to_string())?;
+    let finals = finals_of(conn, heat_id).await.map_err(|e| e.to_string())?;
     if let Some((name, _)) = finals.iter().find(|(_, d)| *d != discipline) {
         return Err(format!(
             "Die Vorlaufklasse füllt Finalplätze im Finale „{name}“; ihre Kategorien brauchen dessen Typ und Geschlecht."

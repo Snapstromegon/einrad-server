@@ -300,7 +300,7 @@ async fn nobody_registers_for_a_unit_that_takes_no_registrations() {
     let skipped = app
         .post(
             "/api/command/set_heat_skip",
-            json!({ "name": "JE EW", "skip": true }),
+            json!({ "id": heat["id"], "skip": true }),
             Some(&admin),
         )
         .await;
@@ -320,7 +320,7 @@ async fn nobody_registers_for_a_unit_that_takes_no_registrations() {
     // Un-skipping opens it again.
     app.post(
         "/api/command/set_heat_skip",
-        json!({ "name": "JE EW", "skip": false }),
+        json!({ "id": heat["id"], "skip": false }),
         Some(&admin),
     )
     .await;
@@ -375,7 +375,7 @@ async fn a_heat_skipped_after_registrations_keeps_counting_but_is_flagged() {
 
     app.post(
         "/api/command/set_heat_skip",
-        json!({ "name": "JE EW", "skip": true }),
+        json!({ "id": heat["id"], "skip": true }),
         Some(&admin),
     )
     .await;
@@ -477,7 +477,7 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
     let renamed = app
         .post(
             "/api/command/edit_heat",
-            json!({ "name": "E EW", "new_name": "Expert EW", "description": null, "categories": ["EWU17"] }),
+            json!({ "id": heat["id"], "new_name": "Expert EW", "description": null, "categories": ["EWU17"] }),
             Some(&admin),
         )
         .await;
@@ -496,10 +496,11 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
     let refused = app
         .post(
             "/api/command/delete_final",
-            json!({ "name": "Finale EW" }),
+            json!({ "id": final_unit["id"] }),
             Some(&admin),
         )
         .await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
     rejected(&refused, "JurorInnen gemeldet");
     // A heat that feeds no final: the jury refuses, with its own message.
     let added_heat = app
@@ -521,16 +522,11 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
     let refused = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": "Solo" }),
+            json!({ "id": solo["id"] }),
             Some(&admin),
         )
         .await;
-    assert_eq!(
-        refused.status,
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "{:?}",
-        refused.body
-    );
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
     rejected(&refused, "JurorInnen gemeldet");
     app.post(
         "/api/command/delete_club_judge",
@@ -541,7 +537,7 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
     let deleted = app
         .post(
             "/api/command/delete_heat",
-            json!({ "name": "Solo" }),
+            json!({ "id": solo["id"] }),
             Some(&admin),
         )
         .await;
@@ -557,7 +553,7 @@ async fn renaming_keeps_the_registrations_and_deleting_is_refused_while_there_ar
     let deleted = app
         .post(
             "/api/command/delete_final",
-            json!({ "name": "Finale EW" }),
+            json!({ "id": final_unit["id"] }),
             Some(&admin),
         )
         .await;
@@ -644,7 +640,7 @@ async fn skip_heat(app: &TestApp, admin: &str, name: &str) {
     let skipped = app
         .post(
             "/api/command/set_heat_skip",
-            json!({ "name": name, "skip": true }),
+            json!({ "id": app.heat_id(name).await, "skip": true }),
             Some(admin),
         )
         .await;

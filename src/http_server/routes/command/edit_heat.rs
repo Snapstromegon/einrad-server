@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use super::add_heat::normalize_description;
 use crate::{
@@ -17,7 +18,7 @@ pub struct EditHeatResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditHeatBody {
     /// The heat to edit.
-    name: String,
+    id: Uuid,
     new_name: String,
     description: Option<String>,
     /// See `AddHeatBody::categories`; the ones left out leave the heat.
@@ -29,7 +30,8 @@ pub struct EditHeatBody {
 
 /// Edit a heat: its name, description, categories and threshold.
 ///
-/// A rename carries over to the finals' slots. The categories keep the
+/// A rename is only a new name: everything that refers to the heat does so
+/// by its id. The categories keep the
 /// discipline of the finals the heat fills. Acts already placed in a final
 /// stay when their category leaves the heat.
 #[utoipa::path(
@@ -62,21 +64,15 @@ pub async fn edit_heat(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    let exists = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?) as "exists!: bool""#,
-        body.name
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if !exists {
+    let Some(name) = heats::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    heats::check_categories(&mut tx, &body.name, &categories)
+    };
+    heats::check_categories(&mut tx, body.id, &categories)
         .await
         .map_err(HttpError::ErrorMessages)?;
-    heats::set_categories(&mut tx, &body.name, &categories).await?;
+    heats::set_categories(&mut tx, body.id, &categories).await?;
 
-    if new_name != body.name {
+    if new_name != name {
         let taken = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?) as "taken!: bool""#,
             new_name
@@ -88,15 +84,14 @@ pub async fn edit_heat(
                 "Eine Vorlaufklasse „{new_name}“ gibt es schon."
             )));
         }
-        info!("Renaming heat {:?} to {new_name:?}", body.name);
+        info!("Renaming heat {name:?} to {new_name:?}");
     }
-    // The categories and slots follow a rename by their foreign keys.
     sqlx::query!(
-        "UPDATE heats SET name = ?, description = ?, threshold = coalesce(?, threshold) WHERE name = ?",
+        "UPDATE heats SET name = ?, description = ?, threshold = coalesce(?, threshold) WHERE id = ?",
         new_name,
         description,
         threshold,
-        body.name
+        body.id
     )
     .execute(&mut *tx)
     .await?;

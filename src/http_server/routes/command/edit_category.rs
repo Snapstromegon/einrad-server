@@ -130,8 +130,9 @@ async fn check_heat(
 ) -> Result<(), HttpError> {
     let Some(row) = sqlx::query!(
         r#"
-        SELECT heat as "heat!", act_type as "act_type: ActType", is_single_male
-        FROM categories WHERE name = ? AND heat IS NOT NULL
+        SELECT heats.name as "heat!", act_type as "act_type: ActType", is_single_male
+        FROM categories JOIN heats ON heats.id = categories.heat_id
+        WHERE categories.name = ?
         "#,
         body.name
     )

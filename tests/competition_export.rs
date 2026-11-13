@@ -67,7 +67,7 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
     let response = app
         .post(
             "/api/command/set_heat_skip",
-            json!({ "name": "E EW", "skip": true }),
+            json!({ "id": app.heat_id("E EW").await, "skip": true }),
             Some(&admin),
         )
         .await;
@@ -242,6 +242,58 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
     // Applying it twice changes nothing.
     assert_eq!(apply(filled).await["registered"], 1);
     assert_eq!(registrations(&app).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_remap_file_does_not_register_for_a_jury_unit_that_takes_no_registrations() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let remap = replace_dropping_a_registration(&app, &admin).await;
+    // D6: the jury lead switched registrations for the final off.
+    let units = app
+        .get("/api/query/list_jury_units", Some(&admin))
+        .await
+        .body;
+    let unit = units
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["name"] == "Finale EW (neu)")
+        .unwrap()
+        .clone();
+    let response = app
+        .post(
+            "/api/command/edit_jury_unit",
+            json!({
+                "kind": unit["kind"],
+                "id": unit["id"],
+                "registrable": false,
+                "deployments": unit["deployments"],
+                "needed_technical": unit["needed_technical"],
+                "needed_performance": unit["needed_performance"],
+                "needed_dismounts": unit["needed_dismounts"],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+
+    let filled = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"");
+    let response = app
+        .post(
+            "/api/command/apply_jury_remap",
+            json!({ "file": filled }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(response.body["registered"], 0);
+    assert_eq!(
+        response.body["not_found"][0]["problem"],
+        "jury_unit_not_registrable"
+    );
+    assert_eq!(registrations(&app).await, vec![]);
 }
 
 #[tokio::test]

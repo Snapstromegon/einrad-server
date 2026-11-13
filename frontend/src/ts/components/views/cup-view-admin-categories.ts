@@ -1136,7 +1136,7 @@ export default class CupViewAdminCategories extends LitElement {
           earliest_start_time: start,
           kind: next.kind,
           category: next.category ?? null,
-          final_name: next.final_name ?? null,
+          final_id: next.final_id ?? null,
           label: next.label ?? null,
           duration_seconds: next.duration_seconds ?? null,
           einfahrzeit_seconds: next.einfahrzeit_seconds ?? null,

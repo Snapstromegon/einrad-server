@@ -231,9 +231,10 @@ async fn new_heats_get_the_default_threshold_unless_given_one() {
 async fn the_organizer_changes_the_threshold() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let admin = app.create_admin().await;
+    let id = app.heat_id("E EW").await;
     let edit = |threshold: i64| {
         json!({
-            "name": "E EW",
+            "id": id,
             "new_name": "E EW",
             "description": null,
             "categories": ["EWU17"],
@@ -254,7 +255,7 @@ async fn the_organizer_changes_the_threshold() {
     let response = app
         .post(
             "/api/command/edit_heat",
-            json!({ "name": "E EW", "new_name": "E EW", "description": null, "categories": ["EWU17"] }),
+            json!({ "id": id, "new_name": "E EW", "description": null, "categories": ["EWU17"] }),
             Some(&admin),
         )
         .await;
@@ -262,10 +263,20 @@ async fn the_organizer_changes_the_threshold() {
     assert_eq!(heat(&app, "E EW").await["threshold"], 3);
 }
 
+/// The id of the heat `name`; a made-up one for a heat that doesn't exist.
+async fn heat_id_or_unknown(app: &TestApp, name: &str) -> uuid::Uuid {
+    sqlx::query_scalar("SELECT id FROM heats WHERE name = ?")
+        .bind(name)
+        .fetch_optional(&app.db)
+        .await
+        .unwrap()
+        .unwrap_or_else(uuid::Uuid::new_v4)
+}
+
 async fn set_skip(app: &TestApp, admin: &str, name: &str, skip: bool) -> TestResponse {
     app.post(
         "/api/command/set_heat_skip",
-        json!({ "name": name, "skip": skip }),
+        json!({ "id": heat_id_or_unknown(app, name).await, "skip": skip }),
         Some(admin),
     )
     .await
@@ -317,7 +328,9 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
     // A slot of its final has started: also for the other heat of the final.
     sqlx::query(
         "UPDATE final_slots SET started_at = datetime('now') \
-         WHERE id = (SELECT id FROM final_slots WHERE final_name = ? ORDER BY position LIMIT 1)",
+         WHERE id = (SELECT final_slots.id FROM final_slots \
+            JOIN finals ON finals.id = final_slots.final_id \
+            WHERE finals.name = ? ORDER BY position LIMIT 1)",
     )
     .bind(FINAL)
     .execute(&app.db)
@@ -326,8 +339,20 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
     rejected(&set_skip(&app, &admin, "E EW", true).await, "begonnen");
 }
 
-fn final_body(name: &str, heats: &[&str]) -> Value {
+/// The body to add or (for a final that exists) edit the final `name` with
+/// one slot for each of the heats named.
+async fn final_body(app: &TestApp, name: &str, heats: &[&str]) -> Value {
+    let id: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM finals WHERE name = ?")
+        .bind(name)
+        .fetch_optional(&app.db)
+        .await
+        .unwrap();
+    let mut groups = vec![];
+    for heat in heats {
+        groups.push(json!({ "heat_id": app.heat_id(heat).await, "count": 1 }));
+    }
     json!({
+        "id": id,
         "name": name,
         "new_name": name,
         "description": null,
@@ -336,7 +361,7 @@ fn final_body(name: &str, heats: &[&str]) -> Value {
         "einfahrzeit_seconds": 300,
         "act_duration_seconds": 180,
         "judge_duration_seconds": 120,
-        "slot_groups": heats.iter().map(|heat| json!({ "heat": heat, "count": 1 })).collect::<Vec<_>>(),
+        "slot_groups": groups,
     })
 }
 
@@ -355,7 +380,7 @@ async fn a_heat_fills_at_most_one_final() {
     rejected(
         &app.post(
             "/api/command/add_final",
-            final_body("Finale 2", &["E EW 2", "E EW"]),
+            final_body(&app, "Finale 2", &["E EW 2", "E EW"]).await,
             Some(&admin),
         )
         .await,
@@ -364,14 +389,14 @@ async fn a_heat_fills_at_most_one_final() {
     ok(&app
         .post(
             "/api/command/add_final",
-            final_body("Finale 2", &["E EW 2"]),
+            final_body(&app, "Finale 2", &["E EW 2"]).await,
             Some(&admin),
         )
         .await);
     rejected(
         &app.post(
             "/api/command/edit_final",
-            final_body("Finale 2", &["E EW 2", "JE EW"]),
+            final_body(&app, "Finale 2", &["E EW 2", "JE EW"]).await,
             Some(&admin),
         )
         .await,
@@ -381,7 +406,7 @@ async fn a_heat_fills_at_most_one_final() {
     ok(&app
         .post(
             "/api/command/edit_final",
-            final_body(FINAL, &["JE EW", "E EW", "JE EW"]),
+            final_body(&app, FINAL, &["JE EW", "E EW", "JE EW"]).await,
             Some(&admin),
         )
         .await);
@@ -424,13 +449,22 @@ async fn replace_timeplan(app: &TestApp, admin: &str, entries: &[Value]) {
     }
 }
 
-fn block(category: Option<&str>, final_name: Option<&str>, start: Option<&str>) -> Value {
+async fn block(
+    app: &TestApp,
+    category: Option<&str>,
+    final_name: Option<&str>,
+    start: Option<&str>,
+) -> Value {
+    let final_id = match final_name {
+        Some(name) => Some(app.final_id(name).await),
+        None => None,
+    };
     json!({
         "earliest_start_time": start,
         "duration_seconds": null,
         "label": null,
         "category": category,
-        "final_name": final_name,
+        "final_id": final_id,
     })
 }
 
@@ -487,9 +521,9 @@ async fn a_skipped_heat_starts_directly_in_its_final() {
         &app,
         &admin,
         &[
-            block(Some("EWU13"), None, Some(START)),
-            block(Some("EWU17"), None, None),
-            block(None, Some(FINAL), None),
+            block(&app, Some("EWU13"), None, Some(START)).await,
+            block(&app, Some("EWU17"), None, None).await,
+            block(&app, None, Some(FINAL), None).await,
         ],
     )
     .await;
@@ -547,7 +581,12 @@ async fn a_skipped_heat_without_a_planned_final_keeps_its_vorlauf() {
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
-    replace_timeplan(&app, &admin, &[block(Some("EWU13"), None, Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[block(&app, Some("EWU13"), None, Some(START)).await],
+    )
+    .await;
 
     ok(&set_skip(&app, &admin, "JE EW", true).await);
 
@@ -565,8 +604,8 @@ async fn set_order(app: &TestApp, admin: &str, timeplan_id: &Value, slots: Value
     .await
 }
 
-fn finalist(heat: &str, number: i64) -> Value {
-    json!({ "Finalist": { "heat": heat, "number": number } })
+async fn finalist(app: &TestApp, heat: &str, number: i64) -> Value {
+    json!({ "Finalist": { "heat_id": app.heat_id(heat).await, "number": number } })
 }
 
 fn act_input(id: uuid::Uuid) -> Value {
@@ -585,8 +624,8 @@ async fn direct_acts_and_finalist_slots_share_the_finals_start_order() {
         &app,
         &admin,
         &[
-            block(None, Some(FINAL), Some(START)),
-            block(Some("EWU17"), None, None),
+            block(&app, None, Some(FINAL), Some(START)).await,
+            block(&app, Some("EWU17"), None, None).await,
         ],
     )
     .await;
@@ -605,7 +644,7 @@ async fn direct_acts_and_finalist_slots_share_the_finals_start_order() {
         &final_block,
         json!([
             act_input(berta),
-            finalist("E EW", 1),
+            finalist(&app, "E EW", 1).await,
             { "Break": { "id": null, "label": "Umbau", "duration_seconds": 120 } },
             act_input(anna),
         ]),
@@ -630,11 +669,14 @@ async fn direct_acts_and_finalist_slots_share_the_finals_start_order() {
         &app,
         &admin,
         &final_block,
-        json!([act_input(berta), finalist("E EW", 1)]),
+        json!([act_input(berta), finalist(&app, "E EW", 1).await]),
     )
     .await);
-    let mut body = final_body(FINAL, &["JE EW", "JE EW", "E EW", "E EW"]);
-    body["slot_groups"] = json!([{ "heat": "JE EW", "count": 2 }, { "heat": "E EW", "count": 2 }]);
+    let mut body = final_body(&app, FINAL, &["JE EW", "JE EW", "E EW", "E EW"]).await;
+    body["slot_groups"] = json!([
+        { "heat_id": app.heat_id("JE EW").await, "count": 2 },
+        { "heat_id": app.heat_id("E EW").await, "count": 2 },
+    ]);
     ok(&app
         .post("/api/command/edit_final", body, Some(&admin))
         .await);
@@ -652,13 +694,16 @@ async fn direct_acts_and_finalist_slots_share_the_finals_start_order() {
     // Vorlauf, no slots of skipped heats.
     for (slots, message) in [
         (json!([act_input(dora)]), "Finale"),
-        (json!([finalist("JE EW", 1)]), "JE EW"),
-        (json!([finalist("E EW", 9)]), "E EW"),
+        (json!([finalist(&app, "JE EW", 1).await]), "JE EW"),
+        (json!([finalist(&app, "E EW", 9).await]), "E EW"),
     ] {
         rejected(&set_order(&app, &admin, &final_block, slots).await, message);
     }
     // Direct acts stay in the final, finalist slots too.
-    for slots in [json!([act_input(anna)]), json!([finalist("E EW", 1)])] {
+    for slots in [
+        json!([act_input(anna)]),
+        json!([finalist(&app, "E EW", 1).await]),
+    ] {
         rejected(&set_order(&app, &admin, &ewu17, slots).await, "Finale");
     }
 
@@ -687,7 +732,12 @@ async fn a_direct_act_runs_like_an_act_in_the_final() {
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
-    replace_timeplan(&app, &admin, &[block(None, Some(FINAL), Some(START))]).await;
+    replace_timeplan(
+        &app,
+        &admin,
+        &[block(&app, None, Some(FINAL), Some(START)).await],
+    )
+    .await;
     ok(&set_skip(&app, &admin, "JE EW", true).await);
     let final_block = predicted(&app, Some(&admin), false).await[0]["id"].clone();
     ok(&set_order(&app, &admin, &final_block, json!([act_input(anna)])).await);

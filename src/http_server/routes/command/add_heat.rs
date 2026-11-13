@@ -2,6 +2,7 @@ use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     heats,
@@ -70,32 +71,34 @@ pub async fn add_heat(
             "Eine Vorlaufklasse „{name}“ gibt es schon."
         )));
     }
-    heats::check_categories(&mut tx, &name, &categories)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-
     let threshold = match threshold {
         Some(threshold) => threshold,
         None => heats::default_threshold_of(&mut tx, &categories).await?,
     };
 
     info!("Adding heat {name:?}");
+    let id = Uuid::new_v4();
     sqlx::query!(
-        "INSERT INTO heats (name, description, threshold) VALUES (?, ?, ?)",
+        "INSERT INTO heats (id, name, description, threshold) VALUES (?, ?, ?, ?)",
+        id,
         name,
         description,
         threshold
     )
     .execute(&mut *tx)
     .await?;
-    heats::set_categories(&mut tx, &name, &categories).await?;
+    // A refusal rolls the new heat back with the transaction.
+    heats::check_categories(&mut tx, id, &categories)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
+    heats::set_categories(&mut tx, id, &categories).await?;
     // Groups start in their final: their Vorlauf is skipped from the start
     // (#345); the organizer may restore it.
-    if heats::discipline(&mut tx, &name)
+    if heats::discipline(&mut tx, id)
         .await?
         .is_some_and(heats::Discipline::is_group)
     {
-        sqlx::query!("UPDATE heats SET skip = TRUE WHERE name = ?", name)
+        sqlx::query!("UPDATE heats SET skip = TRUE WHERE id = ?", id)
             .execute(&mut *tx)
             .await?;
     }

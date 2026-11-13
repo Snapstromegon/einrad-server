@@ -68,6 +68,7 @@ export function errorMessage(error: unknown, status?: number): string {
   if (isClientError(error)) {
     switch (error.type) {
       case "Generic":
+      case "Conflict":
         return undebug(error.message).trim() || "Unbekannter Fehler";
       case "StatusCode":
         return statusMessages[error.message] ?? statusFallback(error.message);
@@ -113,7 +114,7 @@ export class ApiError extends Error {
     message: string,
     /** The HTTP status, if there was a response. */
     readonly status?: number,
-    /** The server wrote the message for the user (a `Generic` error). */
+    /** The server wrote the message for the user (a `Generic` or `Conflict` error). */
     readonly fromServer = false,
   ) {
     super(message);
@@ -161,7 +162,8 @@ export async function unwrap<T>(call: Promise<{ data: T }>): Promise<T> {
       throw new ApiError(
         errorMessage(error.data, error.status),
         error.status,
-        isClientError(error.data) && error.data.type === "Generic",
+        isClientError(error.data) &&
+          (error.data.type === "Generic" || error.data.type === "Conflict"),
       );
     }
     throw error;

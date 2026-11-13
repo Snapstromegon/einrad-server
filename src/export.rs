@@ -136,13 +136,13 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     for row in sqlx::query!(
         r#"
         SELECT
-            name as "name!", description, threshold, skip,
+            id as "id!: uuid::Uuid", name as "name!", description, threshold, skip,
             jury_registrable as "jury_registrable: bool", jury_deployments,
             jury_needed_technical, jury_needed_performance, jury_needed_dismounts
         FROM heats
         ORDER BY
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name),
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id) IS NULL,
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id),
             name
         "#
     )
@@ -150,8 +150,8 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     .await?
     {
         let categories = sqlx::query_scalar!(
-            r#"SELECT name as "name!" FROM categories WHERE heat = ? ORDER BY "order", name"#,
-            row.name
+            r#"SELECT name as "name!" FROM categories WHERE heat_id = ? ORDER BY "order", name"#,
+            row.id
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -185,7 +185,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let rows = sqlx::query!(
         r#"
         SELECT
-            name as "name!", description, act_type as "act_type: ActType",
+            id as "id!: uuid::Uuid", name as "name!", description, act_type as "act_type: ActType",
             is_single_male, einfahrzeit_seconds, act_duration_seconds,
             judge_duration_seconds,
             jury_registrable as "jury_registrable: bool", jury_deployments,
@@ -198,8 +198,12 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let mut final_configs = Vec::with_capacity(rows.len());
     for row in rows {
         let heats = sqlx::query_scalar!(
-            r#"SELECT heat as "heat!" FROM final_slots WHERE final_name = ? ORDER BY position"#,
-            row.name
+            r#"
+            SELECT heats.name as "heat!" FROM final_slots
+            JOIN heats ON heats.id = final_slots.heat_id
+            WHERE final_slots.final_id = ? ORDER BY position
+            "#,
+            row.id
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -231,7 +235,9 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let timeplan = sqlx::query!(
         r#"
         SELECT
-            kind as "kind: EntryKind", category, final_name, label, duration_seconds,
+            kind as "kind: EntryKind", category,
+            (SELECT name FROM finals WHERE finals.id = timeplan.final_id) as final_name,
+            label, duration_seconds,
             einfahrzeit_seconds, show_photos, internal,
             earliest_start_time as "earliest_start_time: OffsetDateTime"
         FROM timeplan ORDER BY position, id

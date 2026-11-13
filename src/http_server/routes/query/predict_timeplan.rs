@@ -71,9 +71,12 @@ pub struct TimeplanFinalist {
     pub id: Uuid,
     /// "3. Finalist (E EM 1)".
     pub label: String,
+    pub final_id: Uuid,
     pub final_name: String,
     pub final_description: String,
-    /// The heat the finalist comes from, e.g. "E EM 1".
+    /// The heat the finalist comes from, by id.
+    pub heat_id: Uuid,
+    /// The name of the heat the finalist comes from, e.g. "E EM 1".
     pub group_label: String,
     /// Counts within the group.
     pub number: i64,
@@ -128,8 +131,9 @@ pub enum TimeplanEntry {
         description: String,
         /// The category whose acts run here by default.
         home_category: Option<String>,
-        /// The final running here instead of a category; its slots are
-        /// `Finalist` slots.
+        /// The final running here instead of a category (by id and name);
+        /// its slots are `Finalist` slots.
+        final_id: Option<Uuid>,
         final_name: Option<String>,
         /// The categories of the block's acts, in order of appearance.
         categories: Vec<String>,
@@ -433,7 +437,7 @@ pub fn predict_from(
                             next_planned_start_time += duration;
                         }
                         Slot::Finalist(finalist) => {
-                            let info = loaded.finals.get(&finalist.final_name);
+                            let info = loaded.finals.get(&finalist.final_id);
                             let act_duration =
                                 time::Duration::seconds(info.map_or(0, |f| f.act_duration_seconds));
                             let judge_duration = time::Duration::seconds(
@@ -446,11 +450,13 @@ pub fn predict_from(
                                 )?,
                                 id: finalist.id,
                                 label: finalist.label(),
+                                final_id: finalist.final_id,
                                 final_name: finalist.final_name.clone(),
                                 final_description: info.map_or_else(
                                     || finalist.final_name.clone(),
                                     |f| f.description.clone(),
                                 ),
+                                heat_id: finalist.heat_id,
                                 group_label: finalist.group_label.clone(),
                                 number: finalist.number,
                                 act: finalist.act.as_ref().map(|act| TimeplanFinalistAct {
@@ -489,12 +495,7 @@ pub fn predict_from(
                     .category
                     .as_ref()
                     .and_then(|name| loaded.categories.get(name))
-                    .or_else(|| {
-                        entry
-                            .final_name
-                            .as_ref()
-                            .and_then(|name| loaded.finals.get(name))
-                    });
+                    .or_else(|| entry.final_id.as_ref().and_then(|id| loaded.finals.get(id)));
                 let description = entry
                     .label
                     .clone()
@@ -507,6 +508,7 @@ pub fn predict_from(
                     label: entry.label,
                     description,
                     home_category: entry.category,
+                    final_id: entry.final_id,
                     final_name: entry.final_name,
                     categories,
                     duration_seconds: (next_planned_start_time - block_start).whole_seconds(),

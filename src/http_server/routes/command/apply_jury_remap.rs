@@ -26,6 +26,9 @@ pub enum RemapProblem {
     JudgeNotFound,
     /// No jury unit of that name (`heat: <name>` or `final: <name>`).
     JuryUnitNotFound,
+    /// The jury unit takes no registrations (D6): its Vorlauf is skipped or
+    /// the jury lead switched them off.
+    JuryUnitNotRegistrable,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -40,15 +43,16 @@ pub struct ApplyJuryRemapResponse {
     registered: usize,
     /// Entries without a `jury_unit`; nothing was done for them.
     unfilled: Vec<RemapRegistration>,
-    /// Entries whose judge or jury unit isn't found.
+    /// Entries whose judge or jury unit isn't found, or whose jury unit takes
+    /// no registrations.
     not_found: Vec<RemapEntryNotFound>,
 }
 
 /// Applies a remap file of judge registrations a replace dropped (ADR
 /// 0005): every entry with a filled-in, existing `jury_unit` (`heat: <name>`
 /// or `final: <name>`) registers its judge for that jury unit and task
-/// again. Entries whose judge or jury unit isn't found are listed back. Jury
-/// lead.
+/// again. Entries whose judge or jury unit isn't found, or whose jury unit
+/// takes no registrations (D6), are listed back. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -119,6 +123,13 @@ pub async fn apply_jury_remap(
             });
             continue;
         };
+        if jury::unit_is_registrable(&mut transaction, kind, unit).await? != Some(true) {
+            not_found.push(RemapEntryNotFound {
+                registration,
+                problem: RemapProblem::JuryUnitNotRegistrable,
+            });
+            continue;
+        }
         let (heat_id, final_id) = jury::unit_columns(kind, unit);
         sqlx::query!(
             r#"
