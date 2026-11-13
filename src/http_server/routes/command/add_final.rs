@@ -37,6 +37,7 @@ pub struct AddFinalBody {
     responses(
         (status=200, content_type="application/json", body=AddFinalResponse),
         (status=403, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -55,7 +56,7 @@ pub async fn add_final(
 
     finals::check_free(&mut tx, None, &name, &code)
         .await
-        .map_err(HttpError::ErrorMessages)?;
+        .map_err(HttpError::Conflict)?;
 
     info!("Adding final {name:?}");
     let id = Uuid::new_v4();

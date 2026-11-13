@@ -41,6 +41,7 @@ pub struct EditFinalBody {
         (status=200, content_type="application/json", body=EditFinalResponse),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -82,7 +83,7 @@ pub async fn edit_final(
     };
     finals::check_free(&mut tx, Some(body.id), &new_name, &new_code)
         .await
-        .map_err(HttpError::ErrorMessages)?;
+        .map_err(HttpError::Conflict)?;
     if new_name != name {
         info!("Renaming final {name:?} to {new_name:?}");
     }

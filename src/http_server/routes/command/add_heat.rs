@@ -43,6 +43,7 @@ pub struct AddHeatBody {
     responses(
         (status=200, content_type="application/json", body=AddHeatResponse),
         (status=403, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -67,7 +68,7 @@ pub async fn add_heat(
 
     heats::check_free(&mut tx, None, &name, &code)
         .await
-        .map_err(HttpError::ErrorMessages)?;
+        .map_err(HttpError::Conflict)?;
     let threshold = match threshold {
         Some(threshold) => threshold,
         None => heats::default_threshold_of(&mut tx, &categories).await?,

@@ -121,6 +121,12 @@ fn rejected(response: &TestResponse, message: &str) {
     );
 }
 
+/// A duplicate name or code is a conflict, not a server fault.
+fn conflict(response: &TestResponse, message: &str) {
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    rejected(response, message);
+}
+
 fn final_body(name: &str, slot_groups: Value) -> Value {
     json!({
         "name": name,
@@ -438,7 +444,7 @@ async fn a_final_has_a_readable_name_and_a_unique_code() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "Kürzel „E EM“");
+    conflict(&response, "Kürzel „E EM“");
     let response = app
         .post(
             "/api/command/add_final",
@@ -446,7 +452,7 @@ async fn a_final_has_a_readable_name_and_a_unique_code() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "gibt es schon");
+    conflict(&response, "gibt es schon");
     let response = app
         .post(
             "/api/command/add_final",
@@ -478,7 +484,17 @@ async fn a_final_has_a_readable_name_and_a_unique_code() {
     let response = app
         .post("/api/command/edit_final", body, Some(&admin))
         .await;
-    rejected(&response, &format!("Kürzel „{FINAL}“"));
+    conflict(&response, &format!("Kürzel „{FINAL}“"));
+    let mut body = final_body(
+        "Neuer Name",
+        json!([{ "heat_id": app.heat_id("E EM 1").await, "count": 2 }]),
+    );
+    body["id"] = json!(id);
+    body["new_name"] = json!(FINAL);
+    let response = app
+        .post("/api/command/edit_final", body, Some(&admin))
+        .await;
+    conflict(&response, "gibt es schon");
 }
 
 /// Adds a heat through the admin API.

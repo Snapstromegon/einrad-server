@@ -369,6 +369,12 @@ fn rejected(response: &TestResponse, message: &str) {
     );
 }
 
+/// A duplicate name or code is a conflict, not a server fault.
+fn conflict(response: &TestResponse, message: &str) {
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    rejected(response, message);
+}
+
 fn names(values: &[Value]) -> Vec<String> {
     values
         .iter()
@@ -555,7 +561,7 @@ async fn a_heat_has_a_readable_name_and_a_unique_code() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "Kürzel „E EM 1“");
+    conflict(&response, "Kürzel „E EM 1“");
     let response = app
         .post(
             "/api/command/add_heat",
@@ -563,7 +569,7 @@ async fn a_heat_has_a_readable_name_and_a_unique_code() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "„Kürklasse“ gibt es schon");
+    conflict(&response, "„Kürklasse“ gibt es schon");
 
     // Edited: the code changes only if given.
     let id = app.heat_id("E EM 1").await;
@@ -599,7 +605,15 @@ async fn a_heat_has_a_readable_name_and_a_unique_code() {
             Some(&admin),
         )
         .await;
-    rejected(&response, "Kürzel „E EW“");
+    conflict(&response, "Kürzel „E EW“");
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({ "id": id, "new_name": "Kürklasse", "description": null, "categories": [] }),
+            Some(&admin),
+        )
+        .await;
+    conflict(&response, "„Kürklasse“ gibt es schon");
 }
 
 #[tokio::test]
