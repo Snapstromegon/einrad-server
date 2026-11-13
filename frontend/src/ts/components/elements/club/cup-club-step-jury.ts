@@ -671,6 +671,11 @@ export default class CupClubStepJury extends LitElement {
           font-weight: normal;
         }
 
+        /* N-1: no date on a unit row. */
+        table.grid small.date {
+          display: none;
+        }
+
         /* Shorter names: the discipline above says the rest. */
         table.grid .full {
           display: none;
