@@ -671,6 +671,11 @@ export default class CupClubStepJury extends LitElement {
           font-weight: normal;
         }
 
+        /* N-3: the x von y badge; the x/y Einsätze show the progress. */
+        table.grid .badge {
+          display: none;
+        }
+
         /* N-1: no date on a unit row. */
         table.grid small.date {
           display: none;
