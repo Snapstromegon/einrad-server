@@ -235,9 +235,17 @@ const dropWord = (name: string, word: string) => {
  * nothing would be left.
  */
 export const shortFinalLabel = (name: string, discipline: string) =>
-  dropWord(name.replace(/^Finale\s+/, ""), discipline) ?? name;
+  dropWord(name.replace(/^Finale\s+/i, ""), discipline) ?? name;
 
 const AGE = /\([^)]*\)/g;
+
+/** "Vorlauf" and the words, unless the first already is "Vorlauf". */
+const vorlauf = (words: (string | undefined)[]) => {
+  const parts = words.filter(Boolean) as string[];
+  return /^vorlauf$/i.test(parts[0]?.split(/\s+/)[0] ?? "")
+    ? parts.join(" ")
+    : ["Vorlauf", ...parts].join(" ");
+};
 
 /**
  * A unit's name under its group: a final is just "Finale". A heat is
@@ -257,7 +265,7 @@ export const shortUnitName = (
   }
   const named = dropWord(unit.name, discipline) ?? unit.name;
   if (finalLabel === undefined) {
-    return `Vorlauf ${named}`;
+    return vorlauf([named]);
   }
   const finalShort = shortFinalLabel(finalLabel, discipline);
   if (named === finalShort) {
@@ -273,7 +281,25 @@ export const shortUnitName = (
   const rest = (dropWord(unit.name.replace(AGE, " "), discipline) ?? "")
     .split(/\s+/)
     .filter((w) => w && !shared.has(w.toLowerCase()));
-  return ["Vorlauf", ...rest, age].filter(Boolean).join(" ");
+  return vorlauf([...rest, age]);
+};
+
+/**
+ * The names of the units of one final, in order. Heats whose short names
+ * collide keep their heat names (minus the discipline word), so they stay
+ * distinguishable.
+ */
+export const shortUnitNames = (
+  units: readonly { kind: "heat" | "final"; name: string }[],
+  discipline: string,
+  finalLabel?: string,
+) => {
+  const names = units.map((u) => shortUnitName(u, discipline, finalLabel));
+  return units.map((unit, i) =>
+    unit.kind === "heat" && names.filter((n) => n === names[i]).length > 1
+      ? shortUnitName(unit, discipline)
+      : names[i],
+  );
 };
 
 /**

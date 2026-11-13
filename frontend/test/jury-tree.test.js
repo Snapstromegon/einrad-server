@@ -11,6 +11,7 @@ import {
   leavesOf,
   shortFinalLabel,
   shortUnitName,
+  shortUnitNames,
   taskState,
   toggleGroup,
 } from "../src/ts/jury-tree.ts";
@@ -409,6 +410,99 @@ describe("shortUnitName under its final", () => {
     assert.equal(
       under("Expert 2 Einzel Weiblich (U23 und älter)", undefined),
       "Vorlauf Expert 2 Weiblich (U23 und älter)",
+    );
+  });
+});
+
+describe("shortFinalLabel case", () => {
+  test("strips a leading Finale in any case", () => {
+    assert.equal(shortFinalLabel("FINALE Expert Einzel", "Einzel"), "Expert");
+    assert.equal(shortFinalLabel("finale Expert Einzel", "Einzel"), "Expert");
+  });
+});
+
+describe("Vorlauf in the heat's name", () => {
+  test("is not prefixed again", () => {
+    assert.equal(
+      shortUnitName(
+        heat("h", "f", "single", { name: "Vorlauf Expert 1 Einzel" }),
+        "Einzel",
+      ),
+      "Vorlauf Expert 1",
+    );
+    assert.equal(
+      shortUnitName(
+        heat("h", "f", "single", {
+          name: "Vorlauf 2 Einzel Weiblich (U17–U21)",
+        }),
+        "Einzel",
+        "Finale Expert Einzel Weiblich (U17 und älter)",
+      ),
+      "Vorlauf 2 (U17–U21)",
+    );
+  });
+});
+
+describe("shortUnitNames", () => {
+  const finalLabel = "Finale Expert Einzel Weiblich (U17 und älter)";
+  test("labels the units of a final in order", () => {
+    assert.deepEqual(
+      shortUnitNames(
+        [
+          heat("a", "f", "single", {
+            name: "Expert 1 Einzel Weiblich (U17–U21)",
+          }),
+          heat("b", "f", "single", {
+            name: "Expert 2 Einzel Weiblich (U23 und älter)",
+          }),
+          final("f"),
+        ],
+        "Einzel",
+        finalLabel,
+      ),
+      ["Vorlauf 1 (U17–U21)", "Vorlauf 2 (U23 und älter)", "Finale"],
+    );
+  });
+
+  test("falls back to the heat names when the short ones collide", () => {
+    assert.deepEqual(
+      shortUnitNames(
+        [
+          heat("a", "f", "single", {
+            name: "Expert Einzel Weiblich (U17–U21) A",
+          }),
+          heat("b", "f", "single", {
+            name: "Expert Einzel Weiblich (U17–U21) B",
+          }),
+          final("f"),
+        ],
+        "Einzel",
+        "Finale Expert Einzel Weiblich (U17 und älter) A B",
+      ),
+      [
+        "Vorlauf Expert Weiblich (U17–U21) A",
+        "Vorlauf Expert Weiblich (U17–U21) B",
+        "Finale",
+      ],
+    );
+  });
+
+  test("only collided heats fall back", () => {
+    assert.deepEqual(
+      shortUnitNames(
+        [
+          heat("a", "f", "single", { name: "Expert Einzel (U17–U21)" }),
+          heat("b", "f", "single", { name: "Expert Einzel (U17–U21)" }),
+          heat("c", "f", "single", { name: "Expert 3 Einzel (U23 und älter)" }),
+        ],
+        "Einzel",
+        "Finale Expert Einzel (U17 und älter)",
+      ),
+      [
+        "Vorlauf Expert (U17–U21)",
+        "Vorlauf Expert (U17–U21)",
+        "Vorlauf 3 (U23 und älter)",
+      ],
     );
   });
 });

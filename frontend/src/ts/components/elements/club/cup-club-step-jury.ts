@@ -33,7 +33,7 @@ import {
   initiallyOpen,
   leavesOf,
   shortFinalLabel,
-  shortUnitName,
+  shortUnitNames,
   taskState,
   toggleGroup,
   type TreeGroup,
@@ -518,8 +518,13 @@ export default class CupClubStepJury extends LitElement {
         margin: 0;
       }
 
-      .seg:not(.off):hover {
-        background: var(--color-hover);
+      /* Hover only lightens a segment that is off; never sticks on touch. */
+      @media (hover: hover) {
+        .seg:not(.off):not(:has(input:checked)):not(
+            :has(input:indeterminate)
+          ):hover {
+          background: var(--color-hover);
+        }
       }
 
       .seg:has(input:indeterminate) {
@@ -633,6 +638,10 @@ export default class CupClubStepJury extends LitElement {
           border-left-color: var(--color-primary-border);
         }
 
+        table.grid > tbody > tr.in-card {
+          border-left-color: var(--color-primary-border);
+        }
+
         table.grid > tbody > tr.in-card::before {
           content: "";
           grid-column: 1 / -1;
@@ -732,7 +741,7 @@ export default class CupClubStepJury extends LitElement {
         }
 
         .seg {
-          min-width: 1.9rem;
+          min-width: 2.25rem;
           min-height: 2.5rem;
         }
 
@@ -1355,6 +1364,12 @@ export default class CupClubStepJury extends LitElement {
     const finals = units.filter((u) => u.kind === "final").length;
     const heats = units.length - finals;
     const isFinal = group.level === "final";
+    const unitNames = new Map<string, string>();
+    if (isFinal) {
+      shortUnitNames(units, discipline, group.label).forEach((name, i) =>
+        unitNames.set(units[i].id, name),
+      );
+    }
     // The discipline above says the rest; the full name is the title.
     const label = isFinal
       ? html`<span title=${group.label}
@@ -1439,7 +1454,7 @@ ${
                       cardEnd: isFinal && index === group.children.length - 1,
                       disciplineEnd: last,
                       discipline,
-                      finalLabel: isFinal ? group.label : undefined,
+                      shortName: unitNames.get(child.unit.id),
                     });
               },
             )
@@ -1455,7 +1470,8 @@ ${
       cardEnd: boolean;
       disciplineEnd: boolean;
       discipline: string;
-      finalLabel?: string;
+      /** Set under a final; else the heat's own name is shortened. */
+      shortName?: string;
     },
   ) {
     const registrations = this.draft.registrations;
@@ -1483,7 +1499,7 @@ ${
     return html`<tr class=${rowClass} style="--depth: ${depth}">
       <td class="category">
         <span title=${unitName(category)}
-          >${shortUnitName(category, where.discipline, where.finalLabel)}</span
+          >${where.shortName ?? shortUnitNames([category], where.discipline)[0]}</span
         >
         ${
           closedReason(category)
