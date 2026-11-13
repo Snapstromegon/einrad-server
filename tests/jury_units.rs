@@ -138,6 +138,25 @@ async fn the_migration_maps_jury_categories_only_where_the_match_is_unambiguous(
         .await,
         ["0"]
     );
+
+    // Going back keeps the unmapped registrations as categories of their
+    // old name, next to the mapped ones.
+    migrator.undo(&db, BEFORE_JURY_UNITS).await.unwrap();
+    assert_eq!(
+        texts(
+            &db,
+            "SELECT c.name || ' ' || r.task FROM judge_registration r \
+             JOIN jury_categories c ON c.id = r.jury_category_id ORDER BY 1"
+        )
+        .await,
+        [
+            "Doppelt Vorlauf technical",
+            "E EW dismounts",
+            "Einzel Expert Vorlauf technical",
+            "Finale EW performance",
+            "JE EW Vorlauf technical"
+        ]
+    );
 }
 
 // ---------- Jury units over the API ----------
