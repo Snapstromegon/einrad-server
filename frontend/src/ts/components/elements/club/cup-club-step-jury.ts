@@ -401,6 +401,7 @@ export default class CupClubStepJury extends LitElement {
       }
 
       table.grid .badge {
+        display: inline-block;
         margin-left: 0.35rem;
         padding: 0.1rem 0.5rem;
         border-radius: 99px;
@@ -1256,9 +1257,13 @@ export default class CupClubStepJury extends LitElement {
             >
             <span>${group.label}</span>
           </button>
-          <span class="badge" title="Einträge mit Auswahl">
-            ${count.ticked} von ${count.total}
-          </span>
+          ${
+            count.ticked
+              ? html`<span class="badge" title="Einträge mit Auswahl">
+                  ${count.ticked} von ${count.total}
+                </span>`
+              : nothing
+          }
           <small>${what}</small>
         </td>
         <td class="count">
