@@ -545,7 +545,7 @@ export default class CupClubStepJury extends LitElement {
         opacity: 0.35;
       }
 
-      .legend,
+      table.grid tr.legend,
       table.grid .short,
       table.grid .unit {
         display: none;
@@ -559,7 +559,7 @@ export default class CupClubStepJury extends LitElement {
       @media (max-width: 720px) {
         /* The form sits in two cards: use their padding, too. */
         .grid-wrap {
-          margin-inline: -0.75rem;
+          margin-inline: -1rem;
           border: none;
           overflow: visible;
         }
@@ -600,7 +600,7 @@ export default class CupClubStepJury extends LitElement {
           margin-top: 0.6rem;
           padding-top: 0.2rem;
           border-top-right-radius: 0.75rem;
-          font-size: 1.05rem;
+          font-size: 0.88rem;
         }
 
         /* A card: white inside the gutter; its dashed line separates rows. */
@@ -654,13 +654,19 @@ export default class CupClubStepJury extends LitElement {
         table.grid td.category {
           min-width: 0;
           padding-left: 0;
+          padding-right: 0.3rem;
           font-weight: 600;
-          overflow-wrap: anywhere;
+          overflow-wrap: break-word;
         }
 
         table.grid button.toggle {
           min-width: 0;
-          overflow-wrap: anywhere;
+          gap: 0;
+          overflow-wrap: break-word;
+        }
+
+        table.grid button.toggle .material-icon {
+          font-size: 1.15rem;
         }
 
         table.grid tr.unit-row td.category {
@@ -677,7 +683,7 @@ export default class CupClubStepJury extends LitElement {
         }
 
         /* N-1: no date on a unit row. */
-        table.grid small.date {
+        table.grid td.category small.date {
           display: none;
         }
 
@@ -702,15 +708,23 @@ export default class CupClubStepJury extends LitElement {
         }
 
         .seg {
-          min-width: 2rem;
+          min-width: 1.9rem;
           min-height: 2.5rem;
         }
 
-        .legend {
+        table.grid > tfoot > tr.legend {
           display: block;
           margin: 0.5rem 0.25rem;
+          padding: 0;
+          border: none;
+          background: none;
           color: var(--color-text-muted);
           font-size: 0.8rem;
+          font-weight: normal;
+        }
+
+        table.grid > tfoot > tr.legend > td {
+          font-weight: normal;
         }
 
         table.grid > tfoot > tr {
@@ -1254,10 +1268,7 @@ export default class CupClubStepJury extends LitElement {
         </tbody>
         ${this.renderGridTotal()}
       </table>
-      <p class="legend">
-        ${TASKS.map((t) => `${taskLabels[t]} ${taskNames[t]}`).join(" · ")}
-        · Zahl = Einsätze
-      </p>
+
     </div>`;
   }
 
@@ -1482,6 +1493,12 @@ ${
       max_deployments: max,
     });
     return html`<tfoot>
+      <tr class="legend">
+        <td colspan="3">
+          ${TASKS.map((t) => `${taskLabels[t]} ${taskNames[t]}`).join(" · ")}
+          · Zahl = Einsätze
+        </td>
+      </tr>
       <tr>
         <td class="category">
           Zählt für euren Verein
