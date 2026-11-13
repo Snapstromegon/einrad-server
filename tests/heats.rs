@@ -565,6 +565,7 @@ async fn a_heat_in_a_final_is_renamed_with_it_but_not_deleted() {
         )
         .await;
     rejected(&response, "Finale EW");
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
 
     let response = app
         .post(

@@ -49,7 +49,7 @@ pub async fn delete_heat(
     let finals = heats::finals_of(&mut tx, body.id).await?;
     if !finals.is_empty() {
         let names: Vec<String> = finals.iter().map(|(name, _)| format!("„{name}“")).collect();
-        return Err(HttpError::ErrorMessages(format!(
+        return Err(HttpError::Conflict(format!(
             "Die Vorlaufklasse füllt Finalplätze in {} {}; bitte sie dort zuerst durch einen anderen ersetzen.",
             if names.len() == 1 {
                 "dem Finale"
