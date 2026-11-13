@@ -366,3 +366,49 @@ describe("isSingleFinal", () => {
     assert.equal(isSingleFinal(buildTree([final("f1")], new Set())[0]), false);
   });
 });
+
+describe("shortUnitName under its final", () => {
+  const under = (name, finalLabel) =>
+    shortUnitName(heat("h", "f", "single", { name }), "Einzel", finalLabel);
+
+  test("a heat named like its final reads just Vorlauf", () => {
+    assert.equal(
+      under(
+        "Junior Expert Einzel Männlich (U11–U15)",
+        "Finale Junior Expert Einzel Männlich (U11–U15)",
+      ),
+      "Vorlauf",
+    );
+  });
+
+  test("drops the words it shares with the final, keeps the age", () => {
+    assert.equal(
+      under(
+        "Expert 1 Einzel Weiblich (U17–U21)",
+        "Finale Expert Einzel Weiblich (U17 und älter)",
+      ),
+      "Vorlauf 1 (U17–U21)",
+    );
+  });
+
+  test("keeps Vorlauf and the age if nothing else is left", () => {
+    assert.equal(
+      under(
+        "Expert Einzel Weiblich (U17–U21)",
+        "Finale Expert Einzel Weiblich (U17 und älter)",
+      ),
+      "Vorlauf (U17–U21)",
+    );
+  });
+
+  test("keeps a name without an age whole", () => {
+    assert.equal(under("Expert 2 Einzel", "Finale Expert Einzel"), "Vorlauf 2");
+  });
+
+  test("without a final it only drops the discipline word", () => {
+    assert.equal(
+      under("Expert 2 Einzel Weiblich (U23 und älter)", undefined),
+      "Vorlauf Expert 2 Weiblich (U23 und älter)",
+    );
+  });
+});

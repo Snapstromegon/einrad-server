@@ -1331,11 +1331,11 @@ export default class CupClubStepJury extends LitElement {
     const finals = units.filter((u) => u.kind === "final").length;
     const heats = units.length - finals;
     const isFinal = group.level === "final";
+    // The discipline above says the rest; the full name is the title.
     const label = isFinal
-      ? html`<span class="full">${group.label}</span
-          ><span class="short" title=${group.label}
-            >${shortFinalLabel(group.label, discipline)}</span
-          >`
+      ? html`<span title=${group.label}
+          >${shortFinalLabel(group.label, discipline)}</span
+        >`
       : html`<span>${group.label}</span>`;
     const rowClass = [
       "group",
@@ -1363,6 +1363,7 @@ ${
                   type="button"
                   class="toggle"
                   aria-expanded=${isOpen ? "true" : "false"}
+                  aria-label=${ifDefined(isFinal ? group.label : undefined)}
                   data-group=${group.id}
                   @click=${this.onGroupToggle}
                 >
@@ -1414,6 +1415,7 @@ ${
                       cardEnd: isFinal && index === group.children.length - 1,
                       disciplineEnd: last,
                       discipline,
+                      finalLabel: isFinal ? group.label : undefined,
                     });
               },
             )
@@ -1429,6 +1431,7 @@ ${
       cardEnd: boolean;
       disciplineEnd: boolean;
       discipline: string;
+      finalLabel?: string;
     },
   ) {
     const registrations = this.draft.registrations;
@@ -1455,9 +1458,8 @@ ${
     ].join(" ");
     return html`<tr class=${rowClass} style="--depth: ${depth}">
       <td class="category">
-        <span class="full">${unitName(category)}</span
-        ><span class="short" title=${unitName(category)}
-          >${shortUnitName(category, where.discipline)}</span
+        <span title=${unitName(category)}
+          >${shortUnitName(category, where.discipline, where.finalLabel)}</span
         >
         ${
           closedReason(category)

@@ -237,17 +237,44 @@ const dropWord = (name: string, word: string) => {
 export const shortFinalLabel = (name: string, discipline: string) =>
   dropWord(name.replace(/^Finale\s+/, ""), discipline) ?? name;
 
+const AGE = /\([^)]*\)/g;
+
 /**
- * A unit's name for narrow screens: a heat is "Vorlauf" and its name without
- * the discipline word, a final just "Finale".
+ * A unit's name under its group: a final is just "Finale". A heat is
+ * "Vorlauf" and its name without the discipline word; with the final's label
+ * it also drops the words the final's group already says, keeping the
+ * parenthesised age ("Expert 1 Einzel Weiblich (U17–U21)" under "Finale
+ * Expert Einzel Weiblich (U17 und älter)" → "Vorlauf 1 (U17–U21)"), and
+ * a heat named like the final is just "Vorlauf".
  */
 export const shortUnitName = (
   unit: { kind: "heat" | "final"; name: string },
   discipline: string,
-) =>
-  unit.kind === "final"
-    ? "Finale"
-    : `Vorlauf ${dropWord(unit.name, discipline) ?? unit.name}`;
+  finalLabel?: string,
+) => {
+  if (unit.kind === "final") {
+    return "Finale";
+  }
+  const named = dropWord(unit.name, discipline) ?? unit.name;
+  if (finalLabel === undefined) {
+    return `Vorlauf ${named}`;
+  }
+  const finalShort = shortFinalLabel(finalLabel, discipline);
+  if (named === finalShort) {
+    return "Vorlauf";
+  }
+  const shared = new Set(
+    finalShort
+      .replace(AGE, " ")
+      .split(/\s+/)
+      .map((w) => w.toLowerCase()),
+  );
+  const age = unit.name.match(AGE)?.join(" ");
+  const rest = (dropWord(unit.name.replace(AGE, " "), discipline) ?? "")
+    .split(/\s+/)
+    .filter((w) => w && !shared.has(w.toLowerCase()));
+  return ["Vorlauf", ...rest, age].filter(Boolean).join(" ");
+};
 
 /**
  * The subline of a group: "2 Vorläufe + Finale" for a final ("2 VL + Finale"
