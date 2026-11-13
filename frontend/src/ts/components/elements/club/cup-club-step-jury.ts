@@ -228,7 +228,7 @@ export default class CupClubStepJury extends LitElement {
 
         table.judges > tbody > tr {
           display: grid;
-          grid-template-columns: 1fr auto auto;
+          grid-template-columns: minmax(0, 1fr) auto auto;
           grid-template-areas:
             "name icon actions"
             "age count count"
@@ -277,6 +277,7 @@ export default class CupClubStepJury extends LitElement {
 
         table.judges > tbody > tr > td.regs {
           grid-area: regs;
+          min-width: 0;
         }
 
         table.judges > tfoot > tr {
@@ -557,9 +558,18 @@ export default class CupClubStepJury extends LitElement {
        * legend sits above the total.
        */
       @media (max-width: 720px) {
-        /* The form sits in two cards: use their padding, too. */
+        /* The tree gets the width: slim cards, and none inside the card. */
+        section.card {
+          padding-inline: 0.5rem;
+        }
+
+        table.judges > tbody > tr.editing > td > section.card {
+          padding-inline: 0;
+          border: none;
+          box-shadow: none;
+        }
+
         .grid-wrap {
-          margin-inline: -1rem;
           border: none;
           overflow: visible;
         }
@@ -594,6 +604,12 @@ export default class CupClubStepJury extends LitElement {
         table.grid > tbody > tr > td {
           padding: 0.45rem 0;
           border: none;
+        }
+
+        /* The Schiene is the row's border here. */
+        table.grid tr.group.discipline td.category,
+        table.grid tr.group.final td.category {
+          box-shadow: none;
         }
 
         table.grid > tbody > tr.group.discipline {
@@ -662,7 +678,15 @@ export default class CupClubStepJury extends LitElement {
         table.grid button.toggle {
           min-width: 0;
           gap: 0;
+          font-size: 0.9rem;
+          line-height: 1.2;
           overflow-wrap: break-word;
+        }
+
+        table.grid span.toggle.plain {
+          padding-left: 0.2rem;
+          font-size: 0.9rem;
+          line-height: 1.2;
         }
 
         table.grid button.toggle .material-icon {
@@ -687,7 +711,7 @@ export default class CupClubStepJury extends LitElement {
           display: none;
         }
 
-        /* Shorter names: the discipline above says the rest. */
+        /* "2 Vorläufe" is "2 VL" here. */
         table.grid .full {
           display: none;
         }
