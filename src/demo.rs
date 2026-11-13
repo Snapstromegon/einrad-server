@@ -1031,6 +1031,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn demo_structure_has_no_loose_ends() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM categories WHERE heat_id IS NULL").await,
+            0,
+            "a category has no heat"
+        );
+        assert_eq!(
+            count(
+                &db,
+                "SELECT COUNT(*) FROM heats WHERE NOT EXISTS (SELECT 1 FROM final_slots WHERE final_slots.heat_id = heats.id)"
+            )
+            .await,
+            0,
+            "a heat feeds no final"
+        );
+        assert_eq!(
+            count(
+                &db,
+                "SELECT COUNT(*) FROM finals WHERE NOT EXISTS (SELECT 1 FROM timeplan WHERE timeplan.final_id = finals.id)"
+            )
+            .await,
+            0,
+            "a final is not in the timeplan"
+        );
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn unknown_partner_is_rejected() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
