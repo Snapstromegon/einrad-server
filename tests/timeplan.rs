@@ -1896,3 +1896,69 @@ async fn start_blocks_cant_be_internal() {
         .await;
     assert_ne!(response.status, StatusCode::OK, "{:?}", response.body);
 }
+
+async fn stored_start_times(app: &TestApp) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT earliest_start_time FROM timeplan ORDER BY position, id")
+        .fetch_all(&app.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn start_times_are_stored_as_rfc3339_text_and_invalid_ones_are_rejected() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    replace_timeplan(&app, &admin, &[]).await;
+
+    // Added: UTC, with an offset and without a start time.
+    for start in [Some(START), Some("2026-04-19T11:00:00+02:00"), None] {
+        let response = app
+            .post(
+                "/api/command/add_timeplan_entry",
+                category_entry("EWU13", start),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+    assert_eq!(
+        stored_start_times(&app).await,
+        [
+            Some(START.to_string()),
+            Some("2026-04-19T11:00:00+02:00".to_string()),
+            None
+        ]
+    );
+
+    // Edited the same way.
+    let entries = list_timeplan(&app).await;
+    let mut edit = category_entry("EWU13", Some("2026-04-20T08:30:00Z"));
+    edit["id"] = entries[2]["id"].clone();
+    let response = app
+        .post("/api/command/edit_timeplan_entry", edit, Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(
+        stored_start_times(&app).await[2].as_deref(),
+        Some("2026-04-20T08:30:00Z")
+    );
+
+    // Invalid values are a 400 and change nothing.
+    let before = stored_start_times(&app).await;
+    let mut bad_edit = category_entry("EWU13", Some("morgen um neun"));
+    bad_edit["id"] = entries[0]["id"].clone();
+    let response = app
+        .post("/api/command/edit_timeplan_entry", bad_edit, Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    let response = app
+        .post(
+            "/api/command/add_timeplan_entry",
+            category_entry("EWU13", Some("2026-13-45T99:00:00Z")),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert_eq!(stored_start_times(&app).await, before);
+}

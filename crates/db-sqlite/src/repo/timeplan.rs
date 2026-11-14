@@ -10,6 +10,7 @@ use db_core::{
     },
 };
 use sqlx::SqliteConnection;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::info;
 
 use super::SqliteRepo;
@@ -20,6 +21,13 @@ use crate::{
         swap_with_neighbour, unstart_slot,
     },
 };
+
+/// The text a start time is stored as: RFC 3339, as the admin frontend
+/// sends it.
+fn sqlite_start_time(time: OffsetDateTime) -> Result<String, sqlx::Error> {
+    time.format(&Rfc3339)
+        .map_err(|error| sqlx::Error::Encode(Box::new(error)))
+}
 
 #[async_trait::async_trait]
 impl TimeplanRepo for SqliteRepo {
@@ -70,9 +78,10 @@ impl TimeplanRepo for SqliteRepo {
     async fn add_timeplan_entry(
         &self,
         fields: &EntryFields,
-        earliest_start_time: Option<&str>,
+        earliest_start_time: Option<OffsetDateTime>,
         after_id: Option<i64>,
     ) -> Result<i64, RegistrationError> {
+        let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
             check_final_plannable(&mut tx, final_id, None)
@@ -128,8 +137,9 @@ impl TimeplanRepo for SqliteRepo {
         &self,
         id: i64,
         fields: &EntryFields,
-        earliest_start_time: Option<&str>,
+        earliest_start_time: Option<OffsetDateTime>,
     ) -> Result<(), RegistrationError> {
+        let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
             check_final_plannable(&mut tx, final_id, Some(id))

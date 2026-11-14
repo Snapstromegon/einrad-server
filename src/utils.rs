@@ -52,6 +52,22 @@ pub fn check_password(password: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Parses the optional RFC 3339 start time of a timeplan entry; an invalid
+/// value is a 400.
+///
+/// # Errors
+/// `BAD_REQUEST` if the text is no RFC 3339 date and time.
+pub fn parse_start_time(
+    text: Option<&str>,
+) -> Result<Option<time::OffsetDateTime>, crate::http_server::HttpError> {
+    text.map(|text| {
+        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).map_err(
+            |_| crate::http_server::HttpError::StatusCode(axum::http::StatusCode::BAD_REQUEST),
+        )
+    })
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

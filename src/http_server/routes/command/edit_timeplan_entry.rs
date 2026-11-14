@@ -9,6 +9,7 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
     timeplan::{EntryFields, EntryKind},
+    utils::parse_start_time,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -17,7 +18,7 @@ pub struct EditTimeplanEntryResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditTimeplanEntryBody {
     id: i64,                             // Primary key - timeplan entry to edit
-    earliest_start_time: Option<String>, // ISO datetime string
+    earliest_start_time: Option<String>, // RFC 3339 datetime string
     duration_seconds: Option<i64>,
     label: Option<String>,
     /// The start block's home category.
@@ -80,7 +81,8 @@ pub async fn edit_timeplan_entry(
             .with_internal(body.internal)
     })
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    repo.edit_timeplan_entry(body.id, &fields, body.earliest_start_time.as_deref())
+    let earliest_start_time = parse_start_time(body.earliest_start_time.as_deref())?;
+    repo.edit_timeplan_entry(body.id, &fields, earliest_start_time)
         .await?;
 
     Ok(Json(EditTimeplanEntryResponse {}))

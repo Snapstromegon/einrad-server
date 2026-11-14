@@ -9,6 +9,7 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
     timeplan::{EntryFields, EntryKind},
+    utils::parse_start_time,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -19,7 +20,7 @@ pub struct AddTimeplanEntryResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddTimeplanEntryBody {
-    earliest_start_time: Option<String>, // ISO datetime string
+    earliest_start_time: Option<String>, // RFC 3339 datetime string
     duration_seconds: Option<i64>,
     label: Option<String>,
     /// The start block's home category.
@@ -85,8 +86,9 @@ pub async fn add_timeplan_entry(
             .with_internal(body.internal)
     })
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
+    let earliest_start_time = parse_start_time(body.earliest_start_time.as_deref())?;
     let id = repo
-        .add_timeplan_entry(&fields, body.earliest_start_time.as_deref(), body.after_id)
+        .add_timeplan_entry(&fields, earliest_start_time, body.after_id)
         .await?;
 
     Ok(Json(AddTimeplanEntryResponse { id }))

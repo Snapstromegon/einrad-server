@@ -741,7 +741,7 @@ pub trait TimeplanRepo: Send + Sync {
     async fn add_timeplan_entry(
         &self,
         fields: &EntryFields,
-        earliest_start_time: Option<&str>,
+        earliest_start_time: Option<OffsetDateTime>,
         after_id: Option<i64>,
     ) -> Result<i64, RegistrationError>;
 
@@ -751,7 +751,7 @@ pub trait TimeplanRepo: Send + Sync {
         &self,
         id: i64,
         fields: &EntryFields,
-        earliest_start_time: Option<&str>,
+        earliest_start_time: Option<OffsetDateTime>,
     ) -> Result<(), RegistrationError>;
 
     /// Deletes an entry; its acts go back to their home blocks.
