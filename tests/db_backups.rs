@@ -210,3 +210,48 @@ async fn an_in_memory_database_has_no_backups() {
     let list = app.get("/api/query/list_db_backups", Some(&admin)).await;
     assert_eq!(list.status, StatusCode::CONFLICT, "{:?}", list.body);
 }
+
+#[tokio::test]
+async fn a_backend_without_backups_answers_501_with_a_german_message() {
+    let app = TestApp::without_backups(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let expected = json!({
+        "type": "NotImplemented",
+        "message": "Dieses Datenbank-Backend unterstützt keine Backups aus der Anwendung."
+    });
+
+    let responses = [
+        app.get("/api/query/list_db_backups", Some(&admin)).await,
+        app.post("/api/command/create_db_backup", json!({}), Some(&admin))
+            .await,
+        app.post(
+            "/api/command/delete_db_backups",
+            json!({ "filenames": [OLD] }),
+            Some(&admin),
+        )
+        .await,
+        app.get(
+            &format!("/api/query/check_db_backup?filename={OLD}"),
+            Some(&admin),
+        )
+        .await,
+        app.post(
+            "/api/command/restore_db_backup",
+            json!({ "filename": OLD, "force": false }),
+            Some(&admin),
+        )
+        .await,
+    ];
+    for response in responses {
+        assert_eq!(response.status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.body, expected);
+    }
+
+    let cookie = [(header::COOKIE, admin.as_str())];
+    let download = app
+        .get_raw(&format!("/api/db-backups/{OLD}"), &cookie)
+        .await;
+    assert_eq!(download.status, StatusCode::NOT_IMPLEMENTED);
+    let body: serde_json::Value = serde_json::from_slice(&download.bytes).unwrap();
+    assert_eq!(body, expected);
+}

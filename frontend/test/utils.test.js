@@ -1056,6 +1056,16 @@ describe("errorMessage", () => {
     );
   });
 
+  test("shows the German message of an unsupported capability (501)", () => {
+    assert.equal(
+      errorMessage({
+        type: "NotImplemented",
+        message: "Dieses Datenbank-Backend unterstützt keine Backups.",
+      }),
+      "Dieses Datenbank-Backend unterstützt keine Backups.",
+    );
+  });
+
   test("undoes Debug escapes", () => {
     assert.equal(
       errorMessage({

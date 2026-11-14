@@ -273,7 +273,7 @@ impl TestApp {
     pub async fn without_reload_token(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build_with(db, mailer, None, None, None, "")
+        Self::build_with(db, mailer, None, None, None, "", true)
     }
 
     /// App whose database file (as far as the server knows) is `db.sqlite`
@@ -282,7 +282,7 @@ impl TestApp {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
         let url = format!("sqlite://{}", dir.join("db.sqlite").display());
-        Self::build_with(db, mailer, None, None, Some(RELOAD_DB_TOKEN), &url)
+        Self::build_with(db, mailer, None, None, Some(RELOAD_DB_TOKEN), &url, true)
     }
 
     fn build(
@@ -298,7 +298,16 @@ impl TestApp {
             competition_file_id,
             Some(RELOAD_DB_TOKEN),
             "",
+            true,
         )
+    }
+
+    /// App over a backend that offers no file backups (the capability is
+    /// `None`), like a server database would.
+    pub async fn without_backups(db: SqlitePool) -> Self {
+        seed_db(&db, &open_registration()).await;
+        let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+        Self::build_with(db, mailer, None, None, Some(RELOAD_DB_TOKEN), "", false)
     }
 
     /// `competition_file_id` the id in the competition file the server
@@ -310,6 +319,7 @@ impl TestApp {
         competition_file_id: Option<&str>,
         reload_db_token: Option<&str>,
         db_url: &str,
+        backups: bool,
     ) -> Self {
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_aud = false;
@@ -330,7 +340,13 @@ impl TestApp {
             competition_file_id: competition_file_id.map(Into::into),
         };
         let reloadable = ReloadableSqlite::new(db.clone(), db_url.to_string());
-        let repo = SqliteRepo::new(reloadable.clone()).into_handle();
+        let repo = SqliteRepo::new(reloadable.clone());
+        let repo = if backups {
+            repo
+        } else {
+            repo.without_backups_for_test()
+        }
+        .into_handle();
         let player_hub = PlayerHub::new(repo.clone());
         let photos = Photos::new().unwrap();
         let router = get_api_router(

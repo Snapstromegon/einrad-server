@@ -70,6 +70,7 @@ export function errorMessage(error: unknown, status?: number): string {
       case "Generic":
       case "Conflict":
       case "NotFoundMessage":
+      case "NotImplemented":
         return undebug(error.message).trim() || "Unbekannter Fehler";
       case "StatusCode":
         return statusMessages[error.message] ?? statusFallback(error.message);

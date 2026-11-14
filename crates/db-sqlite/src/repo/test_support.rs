@@ -6,6 +6,15 @@ use db_core::ids::ActId;
 use super::SqliteRepo;
 
 impl SqliteRepo {
+    /// The same repo, but [`db_core::Db::backups`] answers `None`, like a
+    /// backend without file backups.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn without_backups_for_test(mut self) -> Self {
+        self.backups = false;
+        self
+    }
+
     /// Inserts an act that has started and not ended.
     #[doc(hidden)]
     pub async fn insert_running_act_for_test(&self, id: ActId) {
