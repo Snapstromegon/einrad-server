@@ -18,4 +18,8 @@ pub trait SettingsRepo {
     /// The name mails and pages use for the event: the current competition's
     /// name, or a neutral fallback before one is configured.
     async fn event_name(&self) -> Result<String, DbError>;
+
+    /// Whether an admin published the current competition's start list and
+    /// timeplan. Without a competition nothing is published.
+    async fn startlist_published(&self) -> Result<bool, DbError>;
 }

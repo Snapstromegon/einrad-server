@@ -1,5 +1,6 @@
 use crate::ids::{ActId, CategoryId, ClubId};
-use crate::{act_type::ActType, normalize::NormalizationStatus, roles::Permission};
+use crate::{act_type::ActType, roles::Permission};
+use db_core::acts::{ActRecord, NormalizationStatus};
 
 pub use db_core::users::User;
 
@@ -81,33 +82,8 @@ impl Act {
     }
 }
 
-/// A row of `view_act` (left-joined with its category) as read by `list_acts`
-/// and `get_act`.
-pub struct DBAct {
-    pub id: ActId,
-    pub name: String,
-    pub group_name: Option<String>,
-    pub owner_club_id: Option<ClubId>,
-    pub song_file: Option<String>,
-    pub description: Option<String>,
-    pub song_file_name: Option<String>,
-    pub song_file_normalized: Option<String>,
-    pub normalization_status: Option<NormalizationStatus>,
-    pub act_type: ActType,
-    pub max_age: Option<f64>,
-    pub participants: sqlx::types::Json<Vec<ActParticipant>>,
-    pub category_id: Option<CategoryId>,
-    pub category: Option<String>,
-    pub type_conflict: bool,
-    pub song_checked: bool,
-    pub withdrawn: bool,
-    pub fee_waiver: Option<String>,
-    pub act_order: Option<i64>,
-    pub category_order: Option<i64>,
-}
-
-impl From<DBAct> for Act {
-    fn from(db_act: DBAct) -> Self {
+impl From<ActRecord> for Act {
+    fn from(db_act: ActRecord) -> Self {
         Act {
             id: db_act.id,
             name: db_act.name,
@@ -123,7 +99,7 @@ impl From<DBAct> for Act {
             normalization_status: db_act.normalization_status,
             act_type: db_act.act_type,
             max_age: db_act.max_age,
-            participants: db_act.participants.0,
+            participants: db_act.participants,
             category_id: db_act.category_id,
             category: db_act.category,
             type_conflict: db_act.type_conflict,

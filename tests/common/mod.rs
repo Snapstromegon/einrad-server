@@ -51,6 +51,7 @@ pub const PASSWORD: &str = "Sicheres-Passwort1";
 
 pub struct TestApp {
     pub db: SqlitePool,
+    pub repo: db_core::DbHandle,
     pub jwt: Arc<JWTConfig>,
     mailpit: Option<Mailpit>,
     data_dir: TempDir,
@@ -328,7 +329,7 @@ impl TestApp {
         let router = get_api_router(
             Arc::new(options),
             reloadable,
-            repo,
+            repo.clone(),
             Arc::new(mailer),
             jwt.clone(),
             player_hub.clone(),
@@ -336,6 +337,7 @@ impl TestApp {
         );
         Self {
             db,
+            repo,
             jwt,
             mailpit,
             data_dir,

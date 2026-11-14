@@ -8,9 +8,8 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    competition::{Competition, Features},
+    competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
 };
 
@@ -41,11 +40,10 @@ pub struct EditClubActBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(repo, db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_club_act(
     Extension(repo): Extension<DbHandle>,
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     auth: Auth,
     capabilities: Capabilities,
@@ -55,22 +53,13 @@ pub async fn edit_club_act(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     repo.ensure_act_access(&auth.actor(), body.id).await?;
-    let db = db.get().await.clone();
-    let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
-
-    sqlx::query!(
-        r#"
-        UPDATE acts
-        SET name = $1,
-            description = CASE WHEN $2 THEN $3 ELSE description END
-        WHERE id = $4
-        "#,
-        body.name,
-        moderation_input,
-        body.description,
+    let moderation_input = Features::from_repo(repo.as_ref()).await?.moderation_input;
+    repo.edit_act(
         body.id,
+        &body.name,
+        moderation_input,
+        body.description.as_deref(),
     )
-    .execute(&db)
     .await?;
 
     Ok(Json(EditClubActResponse {}))

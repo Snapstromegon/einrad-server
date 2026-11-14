@@ -1,12 +1,12 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -36,28 +36,16 @@ pub struct SongCheckedBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_song_checked(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     _: Granted<permit::CheckSongs>,
     Json(body): Json<SongCheckedBody>,
 ) -> Result<Json<SetSongCheckedResponse>, HttpError> {
-    let db = db.get().await.clone();
-
     info!(
         "Setting song checked to {} for act {}",
         body.checked, body.act_id
     );
 
-    sqlx::query!(
-        r#"
-        UPDATE acts
-        SET song_checked = $1
-        WHERE id = $2
-        "#,
-        body.checked,
-        body.act_id,
-    )
-    .execute(&db)
-    .await?;
+    db.set_song_checked(body.act_id, body.checked).await?;
 
     Ok(Json(SetSongCheckedResponse {}))
 }

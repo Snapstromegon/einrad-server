@@ -2,15 +2,13 @@ use crate::ids::{ActId, ClubId, RiderId};
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
-use db_core::DbHandle;
+use db_core::{DbHandle, acts::NormalizationStatus};
 use tracing::instrument;
 
 use crate::{
     act_type::ActType,
-    competition::{Competition, Features},
+    competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
-    normalize::NormalizationStatus,
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
@@ -77,74 +75,22 @@ pub struct ListClubActsQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(repo, db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn list_club_acts(
     Extension(repo): Extension<DbHandle>,
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Query(query): Query<ListClubActsQuery>,
     auth: Auth,
 ) -> Result<Json<Vec<ClubAct>>, HttpError> {
     repo.ensure_club_access(&auth.actor(), query.club_id)
         .await?;
-    let db = db.get().await.clone();
-    let mut connection = db.acquire().await?;
-    let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
-    let acts_with_club_participation = sqlx::query!(
-        r#"
-        SELECT
-            acts.id as "id!: ActId",
-            acts.name,
-            acts.group_name,
-            acts.owner_club_id as "owner_club_id: ClubId",
-            acts.description,
-            acts.song_file_name,
-            acts.song_file,
-            acts.song_file_normalized,
-            acts.normalization_status as "normalization_status: NormalizationStatus",
-            acts.act_type as "act_type: ActType",
-            acts.created_at as "created_at!: time::OffsetDateTime",
-            acts.withdrawn_at IS NOT NULL as "withdrawn!: bool",
-            acts.fee_waiver IS NOT NULL as "fee_waived!: bool"
-        FROM acts
-        WHERE acts.owner_club_id = ?1
-            OR EXISTS (
-                SELECT 1 FROM act_participants
-                JOIN rider ON act_participants.rider_id = rider.id
-                WHERE act_participants.act_id = acts.id AND rider.club_id = ?1
-            )
-        ORDER BY acts.id
-        "#,
-        query.club_id
-    )
-    .fetch_all(&mut *connection)
-    .await?;
+    let moderation_input = Features::from_repo(repo.as_ref()).await?.moderation_input;
+    let acts = repo.list_club_acts(query.club_id).await?;
 
-    let mut club_acts: Vec<ClubAct> = Vec::with_capacity(acts_with_club_participation.len());
-    for act in acts_with_club_participation {
-        let participants = sqlx::query!(
-            r#"
-            SELECT
-                rider.id as "id!: RiderId",
-                rider.firstname,
-                rider.lastname,
-                rider.club_id as "club_id!: ClubId",
-                clubs.name as club_name,
-                act_participants.is_replacement,
-                rider.birthdate
-            FROM act_participants
-            JOIN rider ON act_participants.rider_id = rider.id
-            JOIN clubs ON clubs.id = rider.club_id
-            WHERE act_participants.act_id = $1
-            ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
-            "#,
-            act.id
-        )
-        .fetch_all(&mut *connection)
-        .await?;
-
-        club_acts.push(ClubAct {
+    let club_acts: Vec<ClubAct> = acts
+        .into_iter()
+        .map(|act| ClubAct {
             id: act.id,
             name: act.name,
             group_name: act.group_name,
@@ -160,7 +106,8 @@ pub async fn list_club_acts(
             created_at: act.created_at,
             withdrawn: act.withdrawn,
             fee_waived: act.fee_waived,
-            participants: participants
+            participants: act
+                .participants
                 .into_iter()
                 .map(|participant| ClubActParticipant {
                     id: participant.id,
@@ -173,8 +120,8 @@ pub async fn list_club_acts(
                         .then_some(participant.birthdate),
                 })
                 .collect(),
-        });
-    }
+        })
+        .collect();
 
     Ok(Json(club_acts))
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
@@ -57,9 +58,10 @@ pub struct RestoreDbBackupBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, options, player_hub))]
+#[instrument(skip(db, repo, options, player_hub))]
 pub async fn restore_db_backup(
     Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
     auth: Granted<permit::ManageBackups>,
@@ -105,11 +107,11 @@ pub async fn restore_db_backup(
         .unwrap_or_default();
 
     player_hub.reset_after_restore().await;
-    if let Err(e) = normalize::requeue_missing(&db, &options.data_path).await {
+    if let Err(e) = normalize::requeue_missing(&repo, &options.data_path).await {
         warn!("Couldn't queue the normalization after the restore: {e}");
     }
-    let pool = db.get().await.clone();
-    let missing_songs = db_restore::missing_songs(&pool, &options.data_path).await?;
+    let missing_songs =
+        db_core::acts::missing_songs(repo.list_act_songs().await?, &options.data_path);
 
     info!(
         "{} restored database backup {} (state before: {snapshot_filename})",

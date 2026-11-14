@@ -12,12 +12,12 @@ use std::{
 };
 
 use crate::ids::ActId;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::{process::Command, sync::Semaphore};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::reloadable_sqlite::ReloadableSqlite;
+use db_core::DbHandle;
 
 /// Integrated loudness of the copies.
 pub const TARGET_LUFS: f64 = -14.0;
@@ -28,16 +28,7 @@ const TARGET_LRA: f64 = 11.0;
 /// ffmpeg is CPU-heavy; one job at a time keeps the server responsive.
 static JOBS: Semaphore = Semaphore::const_new(1);
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema, sqlx::Type,
-)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(rename_all = "snake_case")]
-pub enum NormalizationStatus {
-    Pending,
-    Done,
-    Failed,
-}
+pub use db_core::acts::NormalizationStatus;
 
 /// The file name of a new normalized copy. It is new for every upload, so a
 /// job for an older upload can't overwrite the copy of a newer one.
@@ -47,13 +38,7 @@ pub fn normalized_file_name(act_id: ActId) -> String {
 
 /// Normalizes `source` into `target` in the background and records the
 /// result for `act_id`, unless the act got another upload meanwhile.
-pub fn spawn(
-    db: ReloadableSqlite,
-    data_path: PathBuf,
-    act_id: ActId,
-    source: String,
-    target: String,
-) {
+pub fn spawn(db: DbHandle, data_path: PathBuf, act_id: ActId, source: String, target: String) {
     tokio::spawn(async move {
         let _permit = JOBS.acquire().await.expect("semaphore is never closed");
         let target_path = data_path.join(&target);
@@ -68,23 +53,12 @@ pub fn spawn(
                 NormalizationStatus::Failed
             }
         };
-        let pool = db.get().await.clone();
-        let updated = sqlx::query!(
-            r#"
-            UPDATE acts SET normalization_status = $1
-            WHERE id = $2 AND song_file_normalized = $3
-            "#,
-            status,
-            act_id,
-            target,
-        )
-        .execute(&pool)
-        .await;
+        let updated = db.finish_normalization(act_id, &target, status).await;
         match updated {
-            Ok(done) if done.rows_affected() == 1 => {
+            Ok(true) => {
                 info!("Normalized the song of act {act_id}: {status:?}");
             }
-            Ok(_) => {
+            Ok(false) => {
                 // A newer upload replaced this one meanwhile.
                 remove_file(&target_path).await;
             }
@@ -95,34 +69,18 @@ pub fn spawn(
 
 /// Starts the jobs that didn't run or didn't finish, e.g. because the server
 /// stopped meanwhile or the songs were uploaded before this feature existed.
-pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()> {
-    let pool = db.get().await.clone();
-    let acts = sqlx::query!(
-        r#"
-        SELECT id as "id!: ActId", song_file as "song_file!"
-        FROM acts
-        WHERE song_file IS NOT NULL
-            AND (normalization_status IS NULL OR normalization_status = 'pending')
-        "#
-    )
-    .fetch_all(&pool)
-    .await?;
+pub async fn resume(db: &DbHandle, data_path: &Path) -> Result<(), db_core::DbError> {
+    let acts = db.list_songs_to_normalize().await?;
     if !acts.is_empty() {
         info!("Normalizing {} song(s) in the background", acts.len());
     }
     for act in acts {
-        let target = normalized_file_name(act.id);
-        sqlx::query!(
-            "UPDATE acts SET song_file_normalized = $1, normalization_status = 'pending' WHERE id = $2",
-            target,
-            act.id
-        )
-        .execute(&pool)
-        .await?;
+        let target = normalized_file_name(act.act_id);
+        db.queue_normalization(act.act_id, &target).await?;
         spawn(
             db.clone(),
             data_path.to_owned(),
-            act.id,
+            act.act_id,
             act.song_file,
             target,
         );
@@ -134,31 +92,26 @@ pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()>
 /// Queues the normalization again for acts whose original song exists but
 /// whose normalized copy doesn't, e.g. after a database restore (the songs
 /// aren't part of a backup). Returns how many were queued.
-pub async fn requeue_missing(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<usize> {
-    let pool = db.get().await.clone();
-    let acts: Vec<(ActId, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, song_file, song_file_normalized FROM acts WHERE song_file IS NOT NULL",
-    )
-    .fetch_all(&pool)
-    .await?;
+pub async fn requeue_missing(db: &DbHandle, data_path: &Path) -> Result<usize, db_core::DbError> {
     let mut queued = 0;
-    for (id, song_file, normalized) in acts {
-        let original_exists = data_path.join(&song_file).is_file();
-        let normalized_exists = normalized
+    for song in db.list_song_files().await? {
+        let original_exists = data_path.join(&song.song_file).is_file();
+        let normalized_exists = song
+            .song_file_normalized
             .as_ref()
             .is_some_and(|n| data_path.join(n).is_file());
         if !original_exists || normalized_exists {
             continue;
         }
-        let target = normalized_file_name(id);
-        sqlx::query(
-            "UPDATE acts SET song_file_normalized = $1, normalization_status = 'pending' WHERE id = $2",
-        )
-        .bind(&target)
-        .bind(id)
-        .execute(&pool)
-        .await?;
-        spawn(db.clone(), data_path.to_owned(), id, song_file, target);
+        let target = normalized_file_name(song.act_id);
+        db.queue_normalization(song.act_id, &target).await?;
+        spawn(
+            db.clone(),
+            data_path.to_owned(),
+            song.act_id,
+            song.song_file,
+            target,
+        );
         queued += 1;
     }
     Ok(queued)

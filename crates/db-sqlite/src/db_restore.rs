@@ -4,10 +4,9 @@
 //! the pool's write lock: pre-restore snapshot, close, atomic rename, reopen,
 //! migrate; any failure after the close puts the snapshot back.
 
-use db_core::ids::ActId;
+use db_core::{acts::ActSong, ids::ActId};
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use sqlx::{
     SqlitePool,
     migrate::Migrator,
@@ -15,7 +14,6 @@ use sqlx::{
 };
 use thiserror::Error;
 use time::PrimitiveDateTime;
-use utoipa::ToSchema;
 
 use crate::{
     db_backup::{self, BackupError},
@@ -31,19 +29,7 @@ pub struct BackupCheck {
     pub pending_migrations: Vec<String>,
 }
 
-/// An act whose song file isn't in the data directory.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct MissingSong {
-    pub act_id: ActId,
-    /// The act's name, or the group's.
-    pub name: String,
-    /// The act's club(s), if known.
-    pub club: Option<String>,
-    /// The file name of the original upload.
-    pub song_file_name: Option<String>,
-    /// The expected file, relative to the data directory.
-    pub song_file: String,
-}
+pub use db_core::acts::MissingSong;
 
 #[derive(Debug, Error)]
 pub enum RestoreError {
@@ -179,6 +165,15 @@ pub async fn missing_songs(
     pool: &SqlitePool,
     data_path: &Path,
 ) -> Result<Vec<MissingSong>, sqlx::Error> {
+    Ok(db_core::acts::missing_songs(
+        act_songs(pool).await?,
+        data_path,
+    ))
+}
+
+/// Every act with a song, by name. See [`missing_songs`] for the schema
+/// fallback.
+pub(crate) async fn act_songs(pool: &SqlitePool) -> Result<Vec<ActSong>, sqlx::Error> {
     type Row = (ActId, String, Option<String>, Option<String>, String);
     let rich = sqlx::query_as::<_, Row>(
         r#"
@@ -212,16 +207,13 @@ pub async fn missing_songs(
     };
     Ok(rows
         .into_iter()
-        .filter(|(.., song_file)| !data_path.join(song_file).is_file())
-        .map(
-            |(act_id, name, club, song_file_name, song_file)| MissingSong {
-                act_id,
-                name,
-                club,
-                song_file_name,
-                song_file,
-            },
-        )
+        .map(|(act_id, name, club, song_file_name, song_file)| ActSong {
+            act_id,
+            name,
+            club,
+            song_file_name,
+            song_file,
+        })
         .collect())
 }
 

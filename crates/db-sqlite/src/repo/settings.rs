@@ -30,4 +30,17 @@ impl SettingsRepo for SqliteRepo {
             moderation_input: row.feature_moderation_input,
         }))
     }
+
+    async fn startlist_published(&self) -> Result<bool, DbError> {
+        let pool = self.pool().await;
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT startlist_published_at IS NOT NULL as "published!: bool"
+            FROM competition ORDER BY start_date DESC LIMIT 1
+            "#
+        )
+        .fetch_optional(&pool)
+        .await?
+        .unwrap_or(false))
+    }
 }

@@ -80,7 +80,7 @@ pub async fn build(
     let db = ReloadableSqlite::new(db, settings.database_url);
     let repo = SqliteRepo::new(db.clone()).into_handle();
     // Songs uploaded while the server was down or before normalization existed.
-    normalize::resume(&db, &settings.data_path).await?;
+    normalize::resume(&repo, &settings.data_path).await?;
 
     let photos = Photos::new().map_err(|e| eyre!(e))?;
     let player_hub = PlayerHub::new(db.clone());

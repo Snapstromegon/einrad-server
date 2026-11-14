@@ -30,6 +30,7 @@ pub mod settings;
 pub mod structure;
 pub mod users;
 
+pub use acts::ActsRepo;
 pub use auth::AuthRepo;
 pub use bookings::BookingsRepo;
 pub use categories::CategoriesRepo;
@@ -63,6 +64,7 @@ pub trait Db:
     + ClubMailsRepo
     + CategoriesRepo
     + HeatsFinalsRepo
+    + ActsRepo
     + Send
     + Sync
     + 'static

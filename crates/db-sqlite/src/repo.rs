@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 
 use crate::reloadable_sqlite::ReloadableSqlite;
 
+mod acts;
 mod auth;
 mod bookings;
 mod categories;

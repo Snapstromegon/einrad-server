@@ -1,12 +1,12 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -36,23 +36,11 @@ pub struct ActOrderBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_act_order(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<ActOrderBody>,
 ) -> Result<Json<SetActOrderResponse>, HttpError> {
-    let db = db.get().await.clone();
-
-    sqlx::query!(
-        r#"
-        UPDATE acts
-        SET "order" = $1
-        WHERE id = $2
-        "#,
-        body.order,
-        body.act_id,
-    )
-    .execute(&db)
-    .await?;
+    db.set_act_order(body.act_id, body.order).await?;
 
     Ok(Json(SetActOrderResponse {}))
 }

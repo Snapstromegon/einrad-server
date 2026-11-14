@@ -1,12 +1,12 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -39,23 +39,11 @@ pub struct ClearActSongBody {
 )]
 #[instrument(skip(db))]
 pub async fn clear_act_song(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Granted<permit::ManageBackups>,
     Json(body): Json<ClearActSongBody>,
 ) -> Result<Json<ClearActSongResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let done = sqlx::query(
-        r#"
-        UPDATE acts
-        SET song_file = NULL, song_file_name = NULL, song_file_normalized = NULL,
-            normalization_status = NULL, song_checked = FALSE
-        WHERE id = $1
-        "#,
-    )
-    .bind(body.act_id)
-    .execute(&db)
-    .await?;
-    if done.rows_affected() == 0 {
+    if !db.clear_act_song(body.act_id).await? {
         return Err(HttpError::NotFound);
     }
     info!(
