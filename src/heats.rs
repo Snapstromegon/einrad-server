@@ -175,12 +175,12 @@ pub fn check_threshold(threshold: i64) -> Result<i64, String> {
 /// [`default_threshold`]).
 pub async fn default_threshold_of(
     conn: &mut SqliteConnection,
-    categories: &[String],
+    categories: &[CategoryId],
 ) -> sqlx::Result<i64> {
     let mut under_ages = Vec::with_capacity(categories.len());
     for category in categories {
         under_ages.push(
-            sqlx::query_scalar!("SELECT under_age FROM categories WHERE name = ?", category)
+            sqlx::query_scalar!("SELECT under_age FROM categories WHERE id = ?", category)
                 .fetch_optional(&mut *conn)
                 .await?
                 .flatten(),
@@ -198,7 +198,7 @@ pub async fn has_started(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::
             EXISTS (
                 SELECT 1 FROM acts
                 JOIN view_act ON view_act.id = acts.id
-                JOIN categories ON categories.name = view_act.category
+                JOIN categories ON categories.id = view_act.category_id
                 WHERE categories.heat_id = ?1 AND acts.started_at IS NOT NULL
                     AND view_act.withdrawn_at IS NULL
             )

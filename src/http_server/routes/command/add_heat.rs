@@ -73,7 +73,7 @@ pub async fn add_heat(
         .map_err(HttpError::Conflict)?;
     let threshold = match threshold {
         Some(threshold) => threshold,
-        None => heats::default_threshold_of(&mut tx, &categories).await?,
+        None => heats::default_threshold_of(&mut tx, &body.category_ids).await?,
     };
 
     info!("Adding heat {name:?}");

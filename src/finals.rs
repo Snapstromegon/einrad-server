@@ -302,7 +302,7 @@ pub async fn has_started(conn: &mut SqliteConnection, final_id: FinalId) -> sqlx
             OR EXISTS (
                 SELECT 1 FROM acts
                 JOIN view_act ON view_act.id = acts.id
-                JOIN categories ON categories.name = view_act.category
+                JOIN categories ON categories.id = view_act.category_id
                 JOIN heats ON heats.id = categories.heat_id
                 WHERE heats.skip AND acts.started_at IS NOT NULL
                     AND view_act.withdrawn_at IS NULL
