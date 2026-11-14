@@ -9,7 +9,7 @@ use crate::{
         ClientError, HttpError,
         extractor::auth::{Auth, Granted},
     },
-    jury::{JudgeTask, JuryAssignment, JuryEnabled},
+    jury::{JudgeTask, JuryAssignment, JuryEnabled, JuryUnitKind},
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -75,13 +75,14 @@ pub async fn list_jury_plan(
         r#"
         SELECT
             jury_assignments.judge_id as "judge_id!: Uuid",
-            jury_assignments.jury_category_id as "jury_category_id!: Uuid",
+            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
+            jury_assignments.unit_id as "unit_id!: Uuid",
             jury_assignments.task as "task!: JudgeTask"
         FROM jury_assignments
         JOIN judge ON judge.id = jury_assignments.judge_id
-        JOIN jury_categories ON jury_categories.id = jury_assignments.jury_category_id
+        JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
-        ORDER BY jury_categories.sort_order, jury_assignments.task, judge.lastname, judge.firstname
+        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.task, judge.lastname, judge.firstname
         "#,
         query.club_id
     )

@@ -92,6 +92,12 @@ async fn an_invalid_address_is_an_error_naming_it() {
         .send_text("anna@cup.test", "Hallo", "Text")
         .await;
 
-    assert_eq!(to.unwrap_err().to_string(), "Ungültige Adresse: not an address");
-    assert_eq!(from.unwrap_err().to_string(), "Ungültige Absenderadresse: noreply");
+    assert_eq!(
+        to.unwrap_err().to_string(),
+        "Ungültige Adresse: not an address"
+    );
+    assert_eq!(
+        from.unwrap_err().to_string(),
+        "Ungültige Absenderadresse: noreply"
+    );
 }

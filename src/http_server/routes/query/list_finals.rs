@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
-    finals::{self, SlotGroup},
+    finals::{self, SlotGroupInfo},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
@@ -14,7 +14,11 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Final {
+    id: Uuid,
+    /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
     name: String,
+    /// The short code, unique, e.g. "E EM".
+    code: String,
     description: Option<String>,
     act_type: ActType,
     is_single_male: bool,
@@ -23,7 +27,7 @@ pub struct Final {
     act_duration_seconds: i64,
     judge_duration_seconds: i64,
     /// The reserved slots in start order, e.g. 5 × "JE EM".
-    slot_groups: Vec<SlotGroup>,
+    slot_groups: Vec<SlotGroupInfo>,
     /// The categories of its heats, whose acts can be placed in the slots.
     categories: Vec<String>,
     /// The slots in start order, with their placed acts.
@@ -41,7 +45,9 @@ pub struct FinalSlot {
     id: Uuid,
     /// "3. Finalist (E EM 1)".
     label: String,
-    /// The heat whose acts fill the slot.
+    /// The heat whose acts fill the slot, by id.
+    heat_id: Uuid,
+    /// The heat's short code, as the label has it.
     group_label: String,
     /// Counts within the group.
     number: i64,
@@ -69,29 +75,40 @@ pub async fn list_finals(
     let db = db.get().await.clone();
     // One read transaction, so the finals and their slots match.
     let mut tx = db.begin().await?;
-    let mut slots: HashMap<String, Vec<FinalSlot>> = HashMap::new();
+    let mut slots: HashMap<Uuid, Vec<FinalSlot>> = HashMap::new();
+    // The heat of each slot, by id, name and code, for the slot groups.
+    let mut slot_heats: HashMap<Uuid, Vec<(Uuid, String, String)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
             final_slots.id as "id!: Uuid",
-            final_name,
-            heat as "heat!",
+            final_slots.final_id as "final_id!: Uuid",
+            final_slots.heat_id as "heat_id!: Uuid",
+            heats.name as "heat!",
+            heats.code as "heat_code!",
             number,
             act_id as "act_id: Uuid",
-            started_at IS NOT NULL as "started!: bool",
+            final_slots.started_at IS NOT NULL as "started!: bool",
             finals.placement_published
         FROM final_slots
-        JOIN finals ON finals.name = final_slots.final_name
-        ORDER BY final_name, position
+        JOIN finals ON finals.id = final_slots.final_id
+        JOIN heats ON heats.id = final_slots.heat_id
+        ORDER BY finals."order", finals.name, position
         "#
     )
     .fetch_all(&mut *tx)
     .await?
     {
-        slots.entry(row.final_name).or_default().push(FinalSlot {
+        slot_heats.entry(row.final_id).or_default().push((
+            row.heat_id,
+            row.heat.clone(),
+            row.heat_code.clone(),
+        ));
+        slots.entry(row.final_id).or_default().push(FinalSlot {
             id: row.id,
-            label: finals::finalist_label(row.number, &row.heat),
-            group_label: row.heat,
+            label: finals::finalist_label(row.number, &row.heat_code),
+            heat_id: row.heat_id,
+            group_label: row.heat_code,
             number: row.number,
             act_id: row
                 .act_id
@@ -99,27 +116,29 @@ pub async fn list_finals(
             started: row.started,
         });
     }
-    let mut categories: HashMap<String, Vec<String>> = HashMap::new();
+    let mut categories: HashMap<Uuid, Vec<String>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT DISTINCT final_slots.final_name, categories.name as "category!", categories."order"
+        SELECT DISTINCT final_slots.final_id as "final_id!: Uuid", categories.name as "category!", categories."order"
         FROM final_slots
-        JOIN categories ON categories.heat = final_slots.heat
-        ORDER BY final_slots.final_name, categories."order", categories.name
+        JOIN categories ON categories.heat_id = final_slots.heat_id
+        ORDER BY final_slots.final_id, categories."order", categories.name
         "#
     )
     .fetch_all(&mut *tx)
     .await?
     {
         categories
-            .entry(row.final_name)
+            .entry(row.final_id)
             .or_default()
             .push(row.category);
     }
     let rows = sqlx::query!(
         r#"
         SELECT
+            id as "id!: Uuid",
             name as "name!",
+            code as "code!",
             description,
             act_type as "act_type: ActType",
             is_single_male,
@@ -128,7 +147,7 @@ pub async fn list_finals(
             act_duration_seconds,
             judge_duration_seconds,
             placement_published,
-            (SELECT id FROM timeplan WHERE timeplan.final_name = finals.name) as "timeplan_id: i64"
+            (SELECT id FROM timeplan WHERE timeplan.final_id = finals.id) as "timeplan_id: i64"
         FROM finals
         ORDER BY "order", name
         "#
@@ -140,16 +159,22 @@ pub async fn list_finals(
     Ok(Json(
         rows.into_iter()
             .map(|row| {
-                let slots = slots.remove(&row.name).unwrap_or_default();
+                let slots = slots.remove(&row.id).unwrap_or_default();
                 Final {
-                    slot_groups: finals::group_slots(
-                        slots.iter().map(|slot| slot.group_label.as_str()),
+                    slot_groups: finals::group_slot_infos(
+                        slot_heats
+                            .remove(&row.id)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|(id, name, code)| (*id, name.as_str(), code.as_str())),
                     ),
                     started: slots.iter().any(|slot| slot.started),
                     slots,
-                    categories: categories.remove(&row.name).unwrap_or_default(),
+                    categories: categories.remove(&row.id).unwrap_or_default(),
+                    id: row.id,
                     placement_published: row.placement_published,
                     name: row.name,
+                    code: row.code,
                     description: row.description,
                     act_type: row.act_type,
                     is_single_male: row.is_single_male,

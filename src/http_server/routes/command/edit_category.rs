@@ -130,8 +130,9 @@ async fn check_heat(
 ) -> Result<(), HttpError> {
     let Some(row) = sqlx::query!(
         r#"
-        SELECT heat as "heat!", act_type as "act_type: ActType", is_single_male
-        FROM categories WHERE name = ? AND heat IS NOT NULL
+        SELECT heats.name as "heat!", act_type as "act_type: ActType", is_single_male
+        FROM categories JOIN heats ON heats.id = categories.heat_id
+        WHERE categories.name = ?
         "#,
         body.name
     )
@@ -144,7 +145,7 @@ async fn check_heat(
         != Discipline::new(body.act_type, body.is_single_male)
     {
         return Err(HttpError::ErrorMessages(format!(
-            "{} gehört zum Vorlauf „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
+            "{} gehört zur Vorlaufklasse „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
             body.name, row.heat
         )));
     }

@@ -5,10 +5,10 @@
 # - It is applied only when the database has no competition yet. Later edits
 #   to this file change nothing; the server warns that the file differs.
 # - --replace-competition / REPLACE_COMPETITION replaces the competition,
-#   categories, heats, finals, timeplan and jury categories with this file.
+#   categories, heats, finals and timeplan with this file.
 #   Club data (clubs, riders, acts with music, judges, bookings, …) is kept;
 #   timeplan slots and progress, finals placements and the jury plan are
-#   dropped. Judge registrations are matched to the new jury categories by
+#   dropped. Judge registrations are matched to the new heats and finals by
 #   name; the others are written to data_path/remap/ to fill in. A file that
 #   changes nothing replaces nothing.
 # - The logo, break image, sponsors and colors are the exception (ADR 0009,
@@ -98,11 +98,11 @@ reference = "Startgeld"
 # registration_end = 2027-04-30T23:59:59+02:00  # default: registration_end
 
 # Optional: features that are still being refined, on (true) or off (false).
-# Unset ones follow the build default: jury registration is on in debug builds
-# and off in release builds, moderation input is on.
+# Unset ones follow the build default: jury registration is on, moderation
+# input is off.
 [competition.features]
 # Clubs register judges, admins plan the jury.
-# jury_registration = true
+# jury_registration = false
 # Clubs can add an extra text for moderation when they register acts.
 # moderation_input = true
 
@@ -535,70 +535,110 @@ einfahrzeit_minutes = 10
 act_duration_minutes = 5
 judge_duration_minutes = 3
 
-# Heats (Vorläufe): the categories of one discipline whose acts are ranked
-# together; their best fill a final's slots. A heat's categories share one
-# act type and, for singles, gender; a category is in at most one heat, group
-# categories in none (they are their own final). Clubs never pick a heat: it
-# follows from the category.
+# Heats (Vorlaufklassen): the categories of one discipline whose acts are
+# ranked together in their preliminary round (Vorlauf); their best fill a
+# final's slots. A heat's categories share one act type and, for singles,
+# gender; a category is in at most one heat, group categories too. A heat
+# fills the slots of at most one final. Clubs never pick a heat: it follows
+# from the category. A category without a heat only gives a warning.
+#
+# name: the readable name, shown wherever a person reads the heat (jury
+#   registration, structure tree, editors). Unique.
+# code: the short code for tight spaces ("1. Finalist (E EM 1)") and the
+#   reference in this file (a final's slots, `heat = "<code>"`). Unique.
+#   Without: the name, which then is the reference. References accept the
+#   code only, never the readable name. Finals have the same pair, and
+#   `[[timeplan]] final = "<code>"` refers to the final's code.
+# threshold: the fewest acts a heat needs for its Vorlauf (Konzept §1.5).
+#   Without: 6 if all its categories are U15 or younger (Junior Expert),
+#   otherwise 5. With fewer acts the admin UI suggests skipping the Vorlauf.
+# skip = true: the Vorlauf is skipped; the heat's acts start directly in its
+#   final, and its categories' blocks stay in the timeplan, marked
+#   "Vorlauf entfällt". Without it, a heat of group categories is skipped
+#   (they start in their final), others are not.
 
 [[heats]]
-name = "JE EM"
-description = "Junior Expert Einzel Männlich (U11–U15)"
+name = "Junior Expert Einzel Männlich (U11–U15)"
+code = "JE EM"
 categories = ["EMU11", "EMU13", "EMU15"]
+threshold = 6
 
 [[heats]]
-name = "E EM 1"
-description = "Expert 1 Einzel Männlich (U17–U21)"
+name = "Expert 1 Einzel Männlich (U17–U21)"
+code = "E EM 1"
 categories = ["EMU17", "EMU19", "EMU21"]
 
 [[heats]]
-name = "E EM 2"
-description = "Expert 2 Einzel Männlich (U23 und älter)"
+name = "Expert 2 Einzel Männlich (U23 und älter)"
+code = "E EM 2"
 categories = ["EMU23", "EMU25", "EMU30", "EMU50", "EMU70", "EM70+"]
 
 [[heats]]
-name = "JE EW"
-description = "Junior Expert Einzel Weiblich (U11–U15)"
+name = "Junior Expert Einzel Weiblich (U11–U15)"
+code = "JE EW"
 categories = ["EWU11", "EWU13", "EWU15"]
 
 [[heats]]
-name = "E EW 1"
-description = "Expert 1 Einzel Weiblich (U17–U21)"
+name = "Expert 1 Einzel Weiblich (U17–U21)"
+code = "E EW 1"
 categories = ["EWU17", "EWU19", "EWU21"]
 
 [[heats]]
-name = "E EW 2"
-description = "Expert 2 Einzel Weiblich (U23 und älter)"
+name = "Expert 2 Einzel Weiblich (U23 und älter)"
+code = "E EW 2"
 categories = ["EWU23", "EWU25", "EWU30", "EWU50", "EWU70", "EW70+"]
 
 [[heats]]
-name = "JE P"
-description = "Junior Expert Paar (U11–U15)"
+name = "Junior Expert Paar (U11–U15)"
+code = "JE P"
 categories = ["PU11", "PU13", "PU15"]
 
 [[heats]]
-name = "E P 1"
-description = "Expert 1 Paar (U17–U21)"
+name = "Expert 1 Paar (U17–U21)"
+code = "E P 1"
 categories = ["PU17", "PU19", "PU21"]
 
 [[heats]]
-name = "E P 2"
-description = "Expert 2 Paar (U23 und älter)"
+name = "Expert 2 Paar (U23 und älter)"
+code = "E P 2"
 categories = ["PU23", "PU25", "PU30", "PU50", "PU70", "P70+"]
+
+# Group heats and finals (one each per group category): groups start in
+# their final, so a group heat's Vorlauf is skipped by default (skip = true
+# without writing it); its one slot stays unused while it is skipped.
+[[heats]]
+name = "Kleingruppe Junior Expert (U15)"
+code = "KGU15"
+categories = ["KGU15"]
+
+[[heats]]
+name = "Kleingruppe Expert (15+)"
+code = "KG15+"
+categories = ["KG15+"]
+
+[[heats]]
+name = "Großgruppe Junior Expert (U15)"
+code = "GGU15"
+categories = ["GGU15"]
+
+[[heats]]
+name = "Großgruppe Expert (15+)"
+code = "GG15+"
+categories = ["GG15+"]
 
 # Finals: reserved slots for the best riders of the heats, planned before the
 # results are known. Each slot runs like an act with the final's durations;
 # slots lists them in start order as groups filled from a heat, e.g. 5 slots
 # from the heat "JE EM" become "1. Finalist (JE EM)" … "5. Finalist (JE EM)".
-# A [[timeplan]] entry with final = "<name>" plans a final (each final once).
+# A [[timeplan]] entry with final = "<code>" plans a final (each final once).
 # act_type and single_male name the discipline, which every heat of the final
-# shares; only singles and pairs have finals. The final's categories are
-# those of its heats: once the heats are judged, admins place their acts in
+# shares. The final's categories are those of
+# its heats: once the heats are judged, admins place their acts in
 # the slots; the placement shows in the timeplan once it is published.
 
 [[finals]]
-name = "Finale 1 EM"
-description = "Finale 1 Einzel Männlich (U11–U15)"
+name = "Finale 1 Einzel Männlich (U11–U15)"
+code = "Finale 1 EM"
 act_type = "single"
 single_male = true
 einfahrzeit_minutes = 10
@@ -607,8 +647,8 @@ judge_duration_minutes = 4
 slots = [{ heat = "JE EM", count = 5 }]
 
 [[finals]]
-name = "Finale 2 EM"
-description = "Finale 2 Einzel Männlich (U17 und älter)"
+name = "Finale 2 Einzel Männlich (U17 und älter)"
+code = "Finale 2 EM"
 act_type = "single"
 single_male = true
 einfahrzeit_minutes = 10
@@ -617,8 +657,8 @@ judge_duration_minutes = 6
 slots = [{ heat = "E EM 1", count = 4 }, { heat = "E EM 2", count = 4 }]
 
 [[finals]]
-name = "Finale 1 EW"
-description = "Finale 1 Einzel Weiblich (U11–U15)"
+name = "Finale 1 Einzel Weiblich (U11–U15)"
+code = "Finale 1 EW"
 act_type = "single"
 single_male = false
 einfahrzeit_minutes = 10
@@ -627,8 +667,8 @@ judge_duration_minutes = 4
 slots = [{ heat = "JE EW", count = 5 }]
 
 [[finals]]
-name = "Finale 2 EW"
-description = "Finale 2 Einzel Weiblich (U17 und älter)"
+name = "Finale 2 Einzel Weiblich (U17 und älter)"
+code = "Finale 2 EW"
 act_type = "single"
 single_male = false
 einfahrzeit_minutes = 10
@@ -637,8 +677,8 @@ judge_duration_minutes = 6
 slots = [{ heat = "E EW 1", count = 4 }, { heat = "E EW 2", count = 4 }]
 
 [[finals]]
-name = "Finale 1 P"
-description = "Finale 1 Paar (U11–U15)"
+name = "Finale 1 Paar (U11–U15)"
+code = "Finale 1 P"
 act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
@@ -646,13 +686,49 @@ judge_duration_minutes = 2
 slots = [{ heat = "JE P", count = 5 }]
 
 [[finals]]
-name = "Finale 2 P"
-description = "Finale 2 Paar (U17 und älter)"
+name = "Finale 2 Paar (U17 und älter)"
+code = "Finale 2 P"
 act_type = "pair"
 einfahrzeit_minutes = 10
 act_duration_minutes = 3
 judge_duration_minutes = 2
 slots = [{ heat = "E P 1", count = 4 }, { heat = "E P 2", count = 4 }]
+
+[[finals]]
+name = "Finale Kleingruppe Junior Expert (U15)"
+code = "KGU15"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KGU15", count = 1 }]
+
+[[finals]]
+name = "Finale Kleingruppe Expert (15+)"
+code = "KG15+"
+act_type = "group_small"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "KG15+", count = 1 }]
+
+[[finals]]
+name = "Finale Großgruppe Junior Expert (U15)"
+code = "GGU15"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GGU15", count = 1 }]
+
+[[finals]]
+name = "Finale Großgruppe Expert (15+)"
+code = "GG15+"
+act_type = "group_large"
+einfahrzeit_minutes = 10
+act_duration_minutes = 5
+judge_duration_minutes = 3
+slots = [{ heat = "GG15+", count = 1 }]
 
 # Timeplan in order. An entry runs a category (its duration comes from the
 # category and its acts), a final (from the final and its slots), or is a
@@ -800,97 +876,36 @@ final = "Finale 2 P"
 category = "KGU15"
 
 [[timeplan]]
+final = "KGU15"
+
+[[timeplan]]
 category = "KG15+"
+
+[[timeplan]]
+final = "KG15+"
 
 [[timeplan]]
 category = "GGU15"
 
 [[timeplan]]
+final = "GGU15"
+
+[[timeplan]]
 category = "GG15+"
+
+[[timeplan]]
+final = "GG15+"
 
 [[timeplan]]
 label = "Siegerehrung"
 duration_minutes = 45
 
-# What judges register for and get assigned to, used by the jury
-# registration ([competition.features] jury_registration). Only written into an empty
-# table, like [[categories]]. A heat (Vorlauf) counts 2 Einsätze, a final 1.
-# Optional: day (within the event), needed_technical / needed_performance
-# (default 5) and needed_dismounts (default 3).
-
-[[jury_categories]]
-name = "Einzel W – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel M – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Expert 1 Vorlauf"
-
-[[jury_categories]]
-name = "Paar – Expert 2 Vorlauf"
-
-[[jury_categories]]
-name = "Einzel W – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel W – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel M – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Einzel M – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Paar – Finale 1 (U11–U15)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Paar – Finale 2 (U17+)"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Kleingruppe Junior Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Kleingruppe Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Großgruppe Junior Expert"
-deployments = 1
-day = 2027-06-05
-
-[[jury_categories]]
-name = "Großgruppe Expert"
-deployments = 1
-day = 2027-06-05
+# Jury (jury registration, [competition.features] jury_registration): judges
+# register for the Vorlauf of every heat and for every final, and the jury plan
+# assigns them there; there is nothing to define for that. A heat counts 2
+# Einsätze, a final 1, and every unit needs 5 technical, 5 performance and 3
+# dismount judges. Where that doesn't fit, set it on the heat or final with
+# jury_deployments, jury_needed_technical, jury_needed_performance and
+# jury_needed_dismounts, or jury_registrable = false for a unit nobody
+# registers for. A skipped Vorlauf takes no registrations. The day follows the
+# timeplan.

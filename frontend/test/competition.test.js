@@ -35,7 +35,7 @@ describe("droppedItems", () => {
         "12 Slots im Zeitplan",
         "1 Platzierung in Finals",
         "die Veröffentlichung des Juryplans",
-        "4 Jury-Anmeldungen ohne passende Jury-Kategorie",
+        "4 Jury-Anmeldungen ohne passenden Vorlauf oder Finale",
       ],
     );
   });

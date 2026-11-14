@@ -12,6 +12,7 @@ import {
 import {
   ageOnStart,
   coverage,
+  closedReason,
   deploymentNote,
   judgeRegistrationEnd,
   neededFor,
@@ -19,13 +20,14 @@ import {
   TASKS,
   taskLabels,
   taskNames,
+  unitName,
 } from "../../jury";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { formatDate, formatMoney } from "../../utils";
 
-type JuryCategory = schemas.JuryCategory;
-type JuryCategoryFields = schemas.JuryCategoryFields;
+type JuryUnit = schemas.JuryUnit;
+type JuryUnitFields = schemas.JuryUnitFields;
 type ClubJudge = schemas.ClubJudge;
 type ClubOverview = schemas.ClubOverview;
 type JuryPlan = schemas.JuryPlan;
@@ -36,31 +38,19 @@ type NumberField =
   | "needed_performance"
   | "needed_dismounts";
 
-/** `editing` value of the add row. */
-const NEW = "new";
-
-/** An empty jury category: a heat with the default jury size. */
-const newCategory = (): JuryCategoryFields => ({
-  name: "",
-  deployments: 2,
-  day: null,
-  needed_technical: 5,
-  needed_performance: 5,
-  needed_dismounts: 3,
-});
-
-const fieldsOf = (category: JuryCategory): JuryCategoryFields => ({
-  name: category.name,
-  deployments: category.deployments,
-  day: category.day ?? null,
-  needed_technical: category.needed_technical,
-  needed_performance: category.needed_performance,
-  needed_dismounts: category.needed_dismounts,
+const fieldsOf = (unit: JuryUnit): JuryUnitFields => ({
+  kind: unit.kind,
+  id: unit.id,
+  registrable: unit.registrable_setting,
+  deployments: unit.deployments,
+  needed_technical: unit.needed_technical,
+  needed_performance: unit.needed_performance,
+  needed_dismounts: unit.needed_dismounts,
 });
 
 /**
  * Jury (/admin-judges): who can judge what, each club's jury obligation, the
- * judges and the jury categories they register for. Only reachable while the
+ * judges and the jury units (heats' Vorlaufs and finals) they register for. Only reachable while the
  * jury registration is on.
  */
 @customElement("cup-view-admin-judges")
@@ -113,9 +103,9 @@ export default class CupViewAdminJudges extends LitElement {
     `,
   ];
 
-  /** Id of the category being edited, `NEW` for the add row, or null. */
+  /** Id of the jury unit being edited, or null. */
   @state() private editing: string | null = null;
-  @state() private draft: JuryCategoryFields = newCategory();
+  @state() private draft: JuryUnitFields | null = null;
   @state() private saving = false;
   @state() private error: string | null = null;
   @state() private search = "";
@@ -129,9 +119,9 @@ export default class CupViewAdminJudges extends LitElement {
   @consume({ context: systemStatusContext, subscribe: true })
   systemStatus: SystemStatus | null = null;
 
-  private categories = new Task(this, {
+  private units = new Task(this, {
     args: () => [],
-    task: () => unwrap(client.listJuryCategories()),
+    task: () => unwrap(client.listJuryUnits()),
   });
 
   private judges = new Task(this, {
@@ -180,11 +170,11 @@ export default class CupViewAdminJudges extends LitElement {
           : nothing
       }
       ${this.renderLoaded(
-        this.categories,
-        "Jury-Kategorien",
-        (categories) =>
-          html`${this.renderJudgeSections(categories)}
-          ${this.renderCategories(categories)} ${this.renderRemap()}`,
+        this.units,
+        "Vorläufe und Finals",
+        (units) =>
+          html`${this.renderJudgeSections(units)}
+          ${this.renderUnits(units)} ${this.renderRemap()}`,
       )}
     </div>`;
   }
@@ -204,14 +194,14 @@ export default class CupViewAdminJudges extends LitElement {
     </div>`;
   }
 
-  private renderJudgeSections(categories: JuryCategory[]) {
+  private renderJudgeSections(units: JuryUnit[]) {
     return this.renderLoaded(
       this.judges,
       "JurorInnen",
       ([judges, clubs, plan]) =>
-        html`${this.renderPlan(categories, judges, plan)}
-        ${this.renderCoverage(categories, judges)} ${this.renderClubs(clubs)}
-        ${this.renderJudges(categories, judges)}`,
+        html`${this.renderPlan(units, judges, plan)}
+        ${this.renderCoverage(units, judges)} ${this.renderClubs(clubs)}
+        ${this.renderJudges(units, judges)}`,
     );
   }
 
@@ -237,38 +227,34 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   /**
-   * The Juryplan: per jury category and task the assigned judges, a picker to
-   * assign more and the category's warnings; grouped by day for printing.
+   * The Juryplan: per jury unit and task the assigned judges, a picker to
+   * assign more and the unit's warnings; grouped by day for printing.
    */
-  private renderPlan(
-    categories: JuryCategory[],
-    judges: ClubJudge[],
-    plan: JuryPlan,
-  ) {
-    const byDay = new Map<string, JuryCategory[]>();
-    for (const category of categories) {
-      const day = category.day ?? "";
-      byDay.set(day, [...(byDay.get(day) ?? []), category]);
+  private renderPlan(units: JuryUnit[], judges: ClubJudge[], plan: JuryPlan) {
+    const byDay = new Map<string, JuryUnit[]>();
+    for (const unit of units) {
+      const day = unit.day ?? "";
+      byDay.set(day, [...(byDay.get(day) ?? []), unit]);
     }
     const days = [...byDay].sort(([a], [b]) =>
       a === "" ? 1 : b === "" ? -1 : a.localeCompare(b),
     );
     const headers = TASKS.map((task) => html`<th>${taskNames[task]}</th>`);
     const groups = days.map(
-      ([day, dayCategories]) =>
+      ([day, dayUnits]) =>
         html`<h3>${day ? formatDate(day) : "Ohne Tag"}</h3>
           <table class="dense fit plan">
             <thead>
               <tr>
-                <th>Jury-Kategorie</th>
+                <th>Vorlauf / Finale</th>
                 ${headers}
               </tr>
             </thead>
             <tbody>
               ${repeat(
-                dayCategories,
-                (category) => category.id,
-                (category) => this.renderPlanRow(category, judges, plan),
+                dayUnits,
+                (unit) => unit.id,
+                (unit) => this.renderPlanRow(unit, judges, plan),
               )}
             </tbody>
           </table>`,
@@ -313,7 +299,7 @@ export default class CupViewAdminJudges extends LitElement {
         </button>
       </div>
       <p class="muted small no-print">
-        Vorgeschlagen werden die JurorInnen, die sich für die Jury-Kategorie
+        Vorgeschlagen werden die JurorInnen, die sich für Vorlauf oder Finale
         und Aufgabe gemeldet haben; mit „alle zeigen“ auch alle anderen.
         Veröffentlicht sieht jeder Verein die Einteilung seiner JurorInnen; das
         geht erst nach dem Ende der Jury-Anmeldung${
@@ -324,21 +310,10 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
-  private renderPlanRow(
-    category: JuryCategory,
-    judges: ClubJudge[],
-    plan: JuryPlan,
-  ) {
+  private renderPlanRow(unit: JuryUnit, judges: ClubJudge[], plan: JuryPlan) {
     const competition = this.systemStatus?.competition;
-    const assigned = plan.assignments.filter(
-      (a) => a.jury_category_id === category.id,
-    );
-    const warnings = planWarnings(
-      category,
-      plan.assignments,
-      judges,
-      competition,
-    );
+    const assigned = plan.assignments.filter((a) => a.unit_id === unit.id);
+    const warnings = planWarnings(unit, plan.assignments, judges, competition);
     const byId = new Map(judges.map((j) => [j.id, j]));
     const cells = TASKS.map((task) => {
       const names = assigned
@@ -346,7 +321,7 @@ export default class CupViewAdminJudges extends LitElement {
         .map((a) => {
           const judge = byId.get(a.judge_id);
           const registered = judge?.registrations.some(
-            (r) => r.jury_category_id === category.id && r.task === task,
+            (r) => r.unit_id === unit.id && r.task === task,
           );
           return html`<span
             class="chip ${registered ? "" : "warn"}"
@@ -357,7 +332,7 @@ export default class CupViewAdminJudges extends LitElement {
               title="Entfernen"
               aria-label="Entfernen"
               data-judge=${a.judge_id}
-              data-category=${category.id}
+              data-unit=${unit.id}
               ?disabled=${this.saving}
               @click=${this.onUnassignClick}
             >
@@ -368,9 +343,9 @@ export default class CupViewAdminJudges extends LitElement {
       return html`<td>
         <div class="chips">${names}</div>
         <small class="muted"
-          >${assigned.filter((a) => a.task === task).length}/${neededFor(category, task)}</small
+          >${assigned.filter((a) => a.task === task).length}/${neededFor(unit, task)}</small
         >
-        ${this.renderPicker(category, task, judges, assigned)}
+        ${this.renderPicker(unit, task, judges, assigned)}
       </td>`;
     });
     const warningLines = warnings.map(
@@ -378,7 +353,8 @@ export default class CupViewAdminJudges extends LitElement {
     );
     return html`<tr>
       <td>
-        <b>${category.name}</b>
+        <b>${unitName(unit)}</b>
+        ${closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
         ${warningLines}
       </td>
       ${cells}
@@ -387,16 +363,14 @@ export default class CupViewAdminJudges extends LitElement {
 
   /** Judges that can be added to a task; untrained ones only count dismounts. */
   private renderPicker(
-    category: JuryCategory,
+    unit: JuryUnit,
     task: JudgeTask,
     judges: ClubJudge[],
     assigned: { judge_id: string }[],
   ) {
     const taken = new Set(assigned.map((a) => a.judge_id));
     const registered = (judge: ClubJudge) =>
-      judge.registrations.some(
-        (r) => r.jury_category_id === category.id && r.task === task,
-      );
+      judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
     const options = judges
       .filter(
         (judge) =>
@@ -417,8 +391,8 @@ export default class CupViewAdminJudges extends LitElement {
     }
     return html`<select
       class="no-print"
-      aria-label="${category.name}: ${taskNames[task]} einteilen"
-      data-category=${category.id}
+      aria-label="${unitName(unit)}: ${taskNames[task]} einteilen"
+      data-unit=${unit.id}
       data-task=${task}
       ?disabled=${this.saving}
       @change=${this.onAssignChange}
@@ -428,31 +402,30 @@ export default class CupViewAdminJudges extends LitElement {
     </select>`;
   }
 
-  /** Jury category × task: trained (and untrained) judges against needed. */
-  private renderCoverage(categories: JuryCategory[], judges: ClubJudge[]) {
-    const counts = coverage(categories, judges, this.systemStatus?.competition);
+  /** Jury unit × task: trained (and untrained) judges against needed. */
+  private renderCoverage(units: JuryUnit[], judges: ClubJudge[]) {
+    const counts = coverage(units, judges, this.systemStatus?.competition);
     const needed = neededFor;
     const headers = TASKS.map(
       (task) =>
         html`<th class="num" title=${taskNames[task]}>${taskLabels[task]}</th>`,
     );
-    const rows = categories.map((category) => {
-      const count = counts.get(category.id)!;
+    const rows = units.map((unit) => {
+      const count = counts.get(unit.id)!;
       const cells = TASKS.map((task) => {
         const { trained, untrained } = count[task];
         // Untrained people only count dismounts, so they fill "A" too.
         const available = task === "dismounts" ? trained + untrained : trained;
-        const tone =
-          available < needed(category, task) ? "text-bad" : "text-ok";
+        const tone = available < needed(unit, task) ? "text-bad" : "text-ok";
         return html`<td
           class="num ${tone}"
-          title="${trained} geschult${untrained ? `, ${untrained} nicht geschult` : ""} · benötigt ${needed(category, task)}"
+          title="${trained} geschult${untrained ? `, ${untrained} nicht geschult` : ""} · benötigt ${needed(unit, task)}"
         >
-          ${available}/${needed(category, task)}
+          ${available}/${needed(unit, task)}
         </td>`;
       });
       return html`<tr>
-        <td>${category.name}</td>
+        <td>${unitName(unit)}</td>
         ${cells}
         <td class="num ${count.fifteen > 3 ? "fifteen" : ""}">
           ${count.fifteen || ""}
@@ -462,14 +435,14 @@ export default class CupViewAdminJudges extends LitElement {
     return html`<section>
       <h2>Wer kann was werten?</h2>
       <p class="muted small">
-        Gemeldete JurorInnen je Jury-Kategorie und Aufgabe gegen die benötigten;
+        Gemeldete JurorInnen je Vorlauf oder Finale und Aufgabe gegen die benötigten;
         für Abstiege zählen auch nicht geschulte. „15“: davon 15-jährig (höchstens
         drei je Wertungsklasse).
       </p>
       <table class="dense fit">
         <thead>
           <tr>
-            <th>Jury-Kategorie</th>
+            <th>Vorlauf / Finale</th>
             ${headers}
             <th class="num" title="15-jährige JurorInnen">15</th>
           </tr>
@@ -541,32 +514,55 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
-  /** All judges, filterable by club, name and category. */
-  private renderJudges(categories: JuryCategory[], judges: ClubJudge[]) {
-    const names = new Map(categories.map((c) => [c.id, c.name]));
+  /** All judges, filterable by club, name and unit. */
+  private renderJudges(units: JuryUnit[], judges: ClubJudge[]) {
+    const byId = new Map(units.map((c) => [c.id, c]));
     const needle = this.search.trim().toLocaleLowerCase("de");
     const describe = (judge: ClubJudge) => {
       const tasks = new Map<string, string[]>();
       for (const r of judge.registrations) {
-        tasks.set(r.jury_category_id, [
-          ...(tasks.get(r.jury_category_id) ?? []),
+        tasks.set(r.unit_id, [
+          ...(tasks.get(r.unit_id) ?? []),
           taskLabels[r.task],
         ]);
       }
-      return [...tasks].map(
-        ([id, labels]) => `${names.get(id) ?? "?"}: ${labels.join("/")}`,
-      );
+      return [...tasks].map(([id, labels]) => ({
+        id,
+        flagged: judge.registrations.some((r) => r.unit_id === id && r.flagged),
+        reason: byId.get(id) ? closedReason(byId.get(id)!) : null,
+        text: `${byId.get(id) ? unitName(byId.get(id)!) : "?"}: ${labels.join("/")}`,
+      }));
     };
     const shown = judges.filter((judge) =>
-      `${judge.club_name} ${judge.firstname} ${judge.lastname} ${describe(judge).join(" ")} ${judge.note ?? ""}`
+      `${judge.club_name} ${judge.firstname} ${judge.lastname} ${describe(judge)
+        .map((d) => d.text)
+        .join(
+          " ",
+        )} ${judge.unmapped_registrations.map((r) => r.old_unit).join(" ")} ${judge.note ?? ""}`
         .toLocaleLowerCase("de")
         .includes(needle),
     );
     const rows = shown.map((judge) => {
       const age = ageOnStart(judge.birthdate, this.systemStatus?.competition);
-      const chips = describe(judge).map(
-        (text) => html`<span class="chip">${text}</span>`,
-      );
+      const chips = [
+        ...describe(judge).map(
+          ({ id, flagged, reason, text }) =>
+            html`<span
+              class="chip ${flagged ? "warn" : ""}"
+              title=${flagged ? `${reason ?? "Anmeldung geschlossen"}: der Einsatz zählt weiter, bitte neu zuteilen` : ""}
+              >${text}${flagged ? html` ${this.renderMovePicker(units, judge, id)}` : nothing}</span
+            >`,
+        ),
+        ...judge.unmapped_registrations.map(
+          (r) =>
+            html`<span
+              class="chip warn"
+              title="Aus einer alten Jury-Kategorie ohne passenden Vorlauf oder Finale; zählt erst, wenn sie zugeordnet ist"
+              >${r.old_unit}: ${taskLabels[r.task]}
+              ${this.renderResolvePicker(units, r.id)}</span
+            >`,
+        ),
+      ];
       return html`<tr>
         <td>${judge.club_name}</td>
         <td>${judge.lastname}, ${judge.firstname}</td>
@@ -632,16 +628,97 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
+  /** The units a registration can move to: everything that takes registrations. */
+  private moveOptions(units: JuryUnit[], exceptId?: string) {
+    return units
+      .filter((unit) => unit.registrable && unit.id !== exceptId)
+      .map((unit) => html`<option value=${unit.id}>${unitName(unit)}</option>`);
+  }
+
+  /** Moves a judge's registrations of a skipped Vorlauf to another unit. */
+  private renderMovePicker(
+    units: JuryUnit[],
+    judge: ClubJudge,
+    fromId: string,
+  ) {
+    return html`<select
+      class="no-print"
+      aria-label="Anmeldungen von ${judge.firstname} ${judge.lastname} verschieben"
+      data-judge=${judge.id}
+      data-from=${fromId}
+      ?disabled=${this.saving}
+      @change=${this.onMoveChange}
+    >
+      <option value="" selected>verschieben nach …</option>
+      ${this.moveOptions(units, fromId)}
+    </select>`;
+  }
+
+  /** Assigns an unmapped registration (JURY-5) to a unit, or drops it. */
+  private renderResolvePicker(units: JuryUnit[], id: number) {
+    return html`<select
+      class="no-print"
+      aria-label="Alte Anmeldung zuordnen"
+      data-id=${id}
+      ?disabled=${this.saving}
+      @change=${this.onResolveChange}
+    >
+      <option value="" selected>zuordnen …</option>
+      ${this.moveOptions(units)}
+      <option value="drop">verwerfen</option>
+    </select>`;
+  }
+
+  private async onMoveChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const to = this.units.value?.find((unit) => unit.id === select.value);
+    const from = this.units.value?.find(
+      (unit) => unit.id === select.dataset.from,
+    );
+    if (!to || !from) {
+      return;
+    }
+    const body = {
+      judge_id: select.dataset.judge!,
+      from_kind: from.kind,
+      from_id: from.id,
+      to_kind: to.kind,
+      to_id: to.id,
+    };
+    await this.change(
+      () => unwrap(client.moveJudgeRegistrations({ body })),
+      "Verschieben",
+    );
+  }
+
+  private async onResolveChange(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const id = Number(select.dataset.id);
+    const unit = this.units.value?.find((u) => u.id === select.value);
+    if (!select.value || (select.value !== "drop" && !unit)) {
+      return;
+    }
+    const body = {
+      id,
+      unit: unit ? { kind: unit.kind, id: unit.id } : null,
+    };
+    await this.change(
+      () => unwrap(client.resolveUnmappedRegistration({ body })),
+      "Zuordnen",
+    );
+  }
+
   /**
    * Applying a remap file: the judge registrations a competition import
-   * dropped, with their new jury category filled in.
+   * dropped, with their new heat or final filled in.
    */
   private renderRemap() {
     const result = this.remapResult;
     const name = (r: schemas.RemapRegistration) =>
       `${r.firstname} ${r.lastname} (${r.club}, ${taskNames[r.task]})`;
     const unfilled = (result?.unfilled ?? []).map(
-      (r) => html`<li>${name(r)}: keine Jury-Kategorie eingetragen</li>`,
+      (r) =>
+        html`<li>${name(r)}: keinen Vorlauf oder kein Finale eingetragen</li>`,
     );
     const notFound = (result?.not_found ?? []).map(
       ({ registration: r, problem }) =>
@@ -650,17 +727,19 @@ export default class CupViewAdminJudges extends LitElement {
           ${
             problem === "judge_not_found"
               ? "JurorIn nicht gefunden"
-              : `Jury-Kategorie „${r.jury_category}“ nicht gefunden`
+              : `„${r.jury_unit}“ nicht gefunden (heat: … oder final: …)`
           }
         </li>`,
     );
     return html`<section class="no-print">
       <h2>Remap-Datei anwenden</h2>
       <p class="muted">
-        Hat ein Import Jury-Kategorien umbenannt oder entfernt, gibt es die
-        Jury-Anmeldungen ohne passende Kategorie als Datei. Trag dort bei jeder
-        Anmeldung die neue Jury-Kategorie ein (<code>jury_category</code>) und
-        lade sie hier hoch: Die JurorInnen werden wieder angemeldet.
+        Hat ein Import Vorlaufklassen oder Finals umbenannt oder entfernt, gibt es
+        die Jury-Anmeldungen ohne passenden Vorlauf oder Finale als Datei. Trag
+        dort bei jeder Anmeldung den neuen Vorlauf oder das neue Finale ein
+        (<code>jury_unit = "heat: E EW"</code> oder
+        <code>jury_unit = "final: Finale EW"</code>) und lade sie hier hoch: Die
+        JurorInnen werden wieder angemeldet.
       </p>
       <input
         type="file"
@@ -716,33 +795,28 @@ export default class CupViewAdminJudges extends LitElement {
     }
   }
 
-  private renderCategories(categories: JuryCategory[]) {
+  private renderUnits(units: JuryUnit[]) {
     return html`<section class="no-print">
       <div class="toolbar">
-        <h2>Jury-Kategorien</h2>
-        <span class="spacer"></span>
-        <button
-          class="btn small primary"
-          ?disabled=${this.editing !== null}
-          @click=${this.startAdd}
-        >
-          <span class="material-icon">add</span> Jury-Kategorie
-        </button>
+        <h2>Vorläufe und Finals</h2>
       </div>
       <p class="muted small">
-        JurorInnen melden sich für Jury-Kategorien an und werden ihnen
-        zugeteilt. Ein Vorlauf zählt üblicherweise 2 Juryeinsätze, ein Finale
-        1. T, P und A sind die benötigten JurorInnen für Technik, Performance
-        und Abstiege.
+        JurorInnen melden sich für den Vorlauf jeder Vorlaufklasse und für jedes
+        Finale an und werden ihnen zugeteilt; Reihenfolge und Tag folgen dem
+        Zeitplan. Ein Vorlauf zählt üblicherweise 2 Juryeinsätze, ein Finale 1.
+        T, P und A sind die benötigten JurorInnen für Technik, Performance und
+        Abstiege. Entfällt ein Vorlauf, nimmt er keine Anmeldungen mehr an; die
+        schon gemeldeten zählen weiter.
       </p>
       <table class="dense fit">
         <thead>
           <tr>
-            <th>Name</th>
-            <th class="num" title="Juryeinsätze, für die sie zählt">
+            <th>Vorlauf / Finale</th>
+            <th>Tag</th>
+            <th title="Können JurorInnen sich anmelden?">Anmeldung</th>
+            <th class="num" title="Juryeinsätze, für die es zählt">
               Einsätze
             </th>
-            <th>Tag</th>
             <th class="num" title="Benötigte JurorInnen Technik">T</th>
             <th class="num" title="Benötigte JurorInnen Performance">P</th>
             <th class="num" title="Benötigte AbstiegszählerInnen">A</th>
@@ -751,20 +825,19 @@ export default class CupViewAdminJudges extends LitElement {
         </thead>
         <tbody>
           ${repeat(
-            categories,
-            (category) => category.id,
-            (category, index) =>
-              this.editing === category.id
-                ? this.renderForm()
-                : this.renderRow(categories.length, category, index),
+            units,
+            (unit) => unit.id,
+            (unit) =>
+              this.editing === unit.id
+                ? this.renderForm(unit)
+                : this.renderRow(unit),
           )}
-          ${this.editing === NEW ? this.renderForm() : nothing}
           ${
-            categories.length || this.editing === NEW
+            units.length
               ? nothing
               : html`<tr>
-                  <td colspan="7" class="empty">
-                    Noch keine Jury-Kategorien.
+                  <td colspan="8" class="empty">
+                    Noch keine Vorlaufklassen oder Finals.
                   </td>
                 </tr>`
           }
@@ -773,66 +846,50 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
-  private renderRow(count: number, category: JuryCategory, index: number) {
+  private renderRow(unit: JuryUnit) {
     const idle = this.editing === null && !this.saving;
     return html`<tr>
-      <td><b>${category.name}</b></td>
-      <td class="num">${category.deployments}</td>
       <td>
-        ${category.day ? formatDate(category.day) : html`<span class="muted">–</span>`}
+        <b>${unitName(unit)}</b>
+        ${
+          closedReason(unit)
+            ? html`<br /><small class="text-warn">${closedReason(unit)}</small>`
+            : nothing
+        }
       </td>
-      <td class="num">${category.needed_technical}</td>
-      <td class="num">${category.needed_performance}</td>
-      <td class="num">${category.needed_dismounts}</td>
+      <td>
+        ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
+      </td>
+      <td>
+        ${
+          unit.registrable
+            ? "offen"
+            : html`<span class="muted"
+                >${closedReason(unit)}</span
+              >`
+        }
+      </td>
+      <td class="num">${unit.deployments}</td>
+      <td class="num">${unit.needed_technical}</td>
+      <td class="num">${unit.needed_performance}</td>
+      <td class="num">${unit.needed_dismounts}</td>
       <td class="nowrap">
         <button
           class="icon-btn"
-          title="Nach oben"
-          aria-label="${category.name} nach oben"
-          data-index=${index}
-          data-by="-1"
-          ?disabled=${!idle || index === 0}
-          @click=${this.onMoveClick}
-        >
-          arrow_upward
-        </button>
-        <button
-          class="icon-btn"
-          title="Nach unten"
-          aria-label="${category.name} nach unten"
-          data-index=${index}
-          data-by="1"
-          ?disabled=${!idle || index === count - 1}
-          @click=${this.onMoveClick}
-        >
-          arrow_downward
-        </button>
-        <button
-          class="icon-btn"
           title="Bearbeiten"
-          aria-label="${category.name} bearbeiten"
-          data-index=${index}
+          aria-label="${unitName(unit)} bearbeiten"
+          data-id=${unit.id}
           ?disabled=${!idle}
           @click=${this.onEditClick}
         >
           edit
         </button>
-        <button
-          class="icon-btn"
-          title="Löschen"
-          aria-label="${category.name} löschen"
-          data-index=${index}
-          ?disabled=${!idle}
-          @click=${this.onDeleteClick}
-        >
-          delete
-        </button>
       </td>
     </tr>`;
   }
 
-  private renderForm() {
-    const draft = this.draft;
+  private renderForm(unit: JuryUnit) {
+    const draft = this.draft!;
     const number = (key: NumberField, label: string) =>
       html`<td class="num">
         <input
@@ -847,26 +904,22 @@ export default class CupViewAdminJudges extends LitElement {
         />
       </td>`;
     return html`<tr class="editing">
-      <td class="name">
-        <input
-          type="text"
-          required
-          aria-label="Name"
-          placeholder="z. B. Einzel W – Junior Expert Vorlauf"
-          .value=${draft.name}
-          @input=${this.onNameInput}
-          @keydown=${this.onKeydown}
-        />
+      <td><b>${unitName(unit)}</b></td>
+      <td>
+        ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
+      </td>
+      <td>
+        <label>
+          <input
+            type="checkbox"
+            aria-label="Anmeldung möglich"
+            .checked=${draft.registrable}
+            @change=${this.onRegistrableChange}
+          />
+          möglich
+        </label>
       </td>
       ${number("deployments", "Einsätze")}
-      <td>
-        <input
-          type="date"
-          aria-label="Tag"
-          .value=${draft.day ?? ""}
-          @input=${this.onDayInput}
-        />
-      </td>
       ${number("needed_technical", "Benötigte JurorInnen Technik")}
       ${number("needed_performance", "Benötigte JurorInnen Performance")}
       ${number("needed_dismounts", "Benötigte AbstiegszählerInnen")}
@@ -875,7 +928,7 @@ export default class CupViewAdminJudges extends LitElement {
           class="icon-btn primary"
           title="Speichern"
           aria-label="Speichern"
-          ?disabled=${this.saving || !draft.name.trim()}
+          ?disabled=${this.saving}
           @click=${this.save}
         >
           check
@@ -911,9 +964,14 @@ export default class CupViewAdminJudges extends LitElement {
     if (!judge_id) {
       return;
     }
+    const unit = this.units.value?.find((u) => u.id === select.dataset.unit);
+    if (!unit) {
+      return;
+    }
     const body = {
       judge_id,
-      jury_category_id: select.dataset.category!,
+      unit_kind: unit.kind,
+      unit_id: unit.id,
       task: select.dataset.task as JudgeTask,
     };
     await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
@@ -923,7 +981,7 @@ export default class CupViewAdminJudges extends LitElement {
     const button = e.currentTarget as HTMLElement;
     const body = {
       judge_id: button.dataset.judge!,
-      jury_category_id: button.dataset.category!,
+      unit_id: button.dataset.unit!,
     };
     await this.change(
       () => unwrap(client.unassignJudge({ body })),
@@ -961,45 +1019,25 @@ export default class CupViewAdminJudges extends LitElement {
     );
   }
 
-  /** The category of a row button, from its `data-index`. */
-  private categoryOf(e: Event) {
-    const index = Number((e.currentTarget as HTMLElement).dataset.index);
-    return this.categories.value?.[index];
-  }
-
-  private onNameInput(e: InputEvent) {
-    this.draft = { ...this.draft, name: (e.target as HTMLInputElement).value };
-  }
-
-  private onDayInput(e: InputEvent) {
-    const day = (e.target as HTMLInputElement).value;
-    this.draft = { ...this.draft, day: day || null };
+  private onRegistrableChange(e: Event) {
+    this.draft = {
+      ...this.draft!,
+      registrable: (e.target as HTMLInputElement).checked,
+    };
   }
 
   private onNumberInput(e: InputEvent) {
     const input = e.target as HTMLInputElement;
     const key = input.dataset.key as NumberField;
-    this.draft = { ...this.draft, [key]: Number(input.value) };
-  }
-
-  private onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      this.cancel();
-    } else if (e.key === "Enter") {
-      void this.save();
-    }
-  }
-
-  private startAdd() {
-    this.draft = newCategory();
-    this.editing = NEW;
+    this.draft = { ...this.draft!, [key]: Number(input.value) };
   }
 
   private onEditClick(e: Event) {
-    const category = this.categoryOf(e);
-    if (category) {
-      this.draft = fieldsOf(category);
-      this.editing = category.id;
+    const id = (e.currentTarget as HTMLElement).dataset.id;
+    const unit = this.units.value?.find((u) => u.id === id);
+    if (unit) {
+      this.draft = fieldsOf(unit);
+      this.editing = unit.id;
     }
   }
 
@@ -1012,42 +1050,13 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   private async save() {
-    const id = this.editing;
-    if (!id || !this.draft.name.trim()) {
+    const draft = this.draft;
+    if (!this.editing || !draft) {
       return;
     }
     await this.change(
-      () =>
-        id === NEW
-          ? unwrap(client.addJuryCategory({ body: this.draft }))
-          : unwrap(client.editJuryCategory({ body: { ...this.draft, id } })),
+      () => unwrap(client.editJuryUnit({ body: draft })),
       "Speichern",
-    );
-  }
-
-  private async onDeleteClick(e: Event) {
-    const category = this.categoryOf(e);
-    if (!category || !confirm(`Jury-Kategorie „${category.name}“ löschen?`)) {
-      return;
-    }
-    await this.change(
-      () => unwrap(client.deleteJuryCategory({ body: { id: category.id } })),
-      "Löschen",
-    );
-  }
-
-  private async onMoveClick(e: Event) {
-    const button = e.currentTarget as HTMLElement;
-    const index = Number(button.dataset.index);
-    const other = index + Number(button.dataset.by);
-    const ids = (this.categories.value ?? []).map((c) => c.id);
-    if (other < 0 || other >= ids.length) {
-      return;
-    }
-    [ids[index], ids[other]] = [ids[other], ids[index]];
-    await this.change(
-      () => unwrap(client.setJuryCategoryOrder({ body: { ids } })),
-      "Verschieben",
     );
   }
 
@@ -1058,7 +1067,8 @@ export default class CupViewAdminJudges extends LitElement {
       await run();
       this.error = null;
       this.editing = null;
-      await Promise.all([this.categories.run(), this.judges.run()]);
+      this.draft = null;
+      await Promise.all([this.units.run(), this.judges.run()]);
     } catch (error) {
       this.error = `${action} fehlgeschlagen: ${errorMessage(error)}`;
     } finally {

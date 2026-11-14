@@ -1,0 +1,13 @@
+# A heat's preliminary round can be skipped, its acts start in its final
+
+With fewer than 5 (Expert) or 6 (Junior Expert) acts, a heat's acts start directly in the final (Konzept gemeinsame Wettkämpfe Einrad-Freestyle, §1.5). The tool supports this per heat (#344). Each heat has a **threshold** and a **skip** flag (`heats.threshold`, `heats.skip`). The threshold is stored, can be edited and is set in the competition file. Without one it is 6 when every category of the heat is U15 or younger (`under_age` ≤ 15, Junior Expert), and 5 otherwise, also for a heat without categories. It is computed when a heat is created and, by the migration, for existing heats. The tool only **suggests** skipping when a heat has fewer acts than its threshold, not counting withdrawn ones. The organizer decides, and the tool never switches by itself. Once an act of the heat or anything in its final has started, the flag can't change.
+
+A skipped heat keeps its categories' blocks in the timeplan, marked "Vorlauf entfällt". They run none of its acts, so they take no time, and the public screens leave them out like any empty block. Running the preliminary round again puts the acts back where they were. Its slot groups in the final stay defined but go unused. Its acts are **direct acts** of the final:
+- They run as ordinary acts, with their own progress and music and their category's act and judging times.
+- They show on the startlist and info board as soon as the heat is skipped, without waiting for a published placement.
+
+The final's start order reuses the block order of category blocks (`set_block_order`, `timeplan_slots`) instead of a new mechanism. A final's block stores its direct acts, breaks and finalist slots in one list. Finalist slots are referenced by heat and number, because the slots' ids change whenever the final's slot groups are edited. Whatever it doesn't store follows: first its other finalist slots, then its other direct acts, in category and start order. Direct acts can't move to other blocks, and other acts can't move into a final.
+
+A heat fills the slots of **at most one final**: the competition file import and the admin UI refuse a second one and name it. So "its final" is always clear. Data that still has a heat in two finals keeps working, and the first final in final order takes the direct acts. The migration leaves such data as it is: #338 had not been released, so only a hand-made setup could have it. If a skipped heat's final is not in the timeplan, its acts stay in their category blocks and the timeplan view warns.
+
+Not covered: §1.5's age class winners, taken from the final when the preliminary round is skipped. They belong with the result import (#235).

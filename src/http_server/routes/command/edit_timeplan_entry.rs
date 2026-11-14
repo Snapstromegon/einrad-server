@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals,
@@ -23,7 +24,7 @@ pub struct EditTimeplanEntryBody {
     category: Option<String>,
     /// A start block running this final instead of a category.
     #[serde(default)]
-    final_name: Option<String>,
+    final_id: Option<Uuid>,
     /// Without one: a start block if a category (or final) is set, otherwise
     /// a custom entry. Turning a start block into a custom entry or a final's
     /// block drops its order.
@@ -67,7 +68,7 @@ pub async fn edit_timeplan_entry(
     let fields = EntryFields::new(
         body.kind,
         body.category,
-        body.final_name,
+        body.final_id,
         body.label,
         body.duration_seconds,
         body.einfahrzeit_seconds,
@@ -80,13 +81,13 @@ pub async fn edit_timeplan_entry(
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
-    if let Some(final_name) = &fields.final_name {
-        finals::check_plannable(&mut tx, final_name, Some(body.id))
+    if let Some(final_id) = fields.final_id {
+        finals::check_plannable(&mut tx, final_id, Some(body.id))
             .await
             .map_err(HttpError::ErrorMessages)?;
     }
     // A final's block holds only the final's slots.
-    let drops_slots = fields.kind == EntryKind::Custom || fields.final_name.is_some();
+    let drops_slots = fields.kind == EntryKind::Custom || fields.final_id.is_some();
 
     // Acts that leave the block go back to their home blocks, which mustn't
     // be over: all of them when it becomes a custom entry or a final's block,
@@ -111,7 +112,7 @@ pub async fn edit_timeplan_entry(
             duration_seconds = $2,
             label = $3,
             category = $4,
-            final_name = $5,
+            final_id = $5,
             kind = $6,
             einfahrzeit_seconds = $7,
             show_photos = $8,
@@ -122,7 +123,7 @@ pub async fn edit_timeplan_entry(
         fields.duration_seconds,
         fields.label,
         fields.category,
-        fields.final_name,
+        fields.final_id,
         fields.kind,
         fields.einfahrzeit_seconds,
         fields.show_photos,

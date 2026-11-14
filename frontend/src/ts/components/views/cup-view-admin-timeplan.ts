@@ -6,7 +6,7 @@ import { classMap } from "lit/directives/class-map.js";
 import { repeat } from "lit/directives/repeat.js";
 import { errorMessage, PollController, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
-import { heatsOnSeveralDays } from "../../heats";
+import { heatsOnSeveralDays, skippedWithoutPlannedFinal } from "../../heats";
 import {
   SYSTEM_STATUS_CHANGED,
   type SystemStatus,
@@ -33,6 +33,7 @@ import {
 type Act = schemas.Act;
 type Category = schemas.Category;
 type Final = schemas.Final;
+type Heat = schemas.Heat;
 type Entry = schemas.TimeplanListEntry;
 type TimeplanItem = schemas.TimeplanItem;
 type TimeplanSlot = schemas.TimeplanSlot;
@@ -42,7 +43,7 @@ type SlotInput = schemas.BlockSlotInput;
 /** The select value for a start block without a category, e.g. "Nachstarter". */
 const BLOCK = "__block__";
 
-/** Select values for a final's block: this prefix and the final's name. */
+/** Select values for a final's block: this prefix and the final's id. */
 const FINAL_PREFIX = "__final__:";
 
 /** The final a draft's select value plans, if any. */
@@ -59,7 +60,7 @@ interface EntryDraft {
   earliest: string;
   /**
    * Category name, `BLOCK` for a start block without a category,
-   * `FINAL_PREFIX` + name for a final's block, "" for a custom entry (break,
+   * `FINAL_PREFIX` + id for a final's block, "" for a custom entry (break,
    * award ceremony, …).
    */
   category: string;
@@ -106,6 +107,7 @@ interface Data {
   entries: Entry[];
   categories: Map<string, Category>;
   finals: Map<string, Final>;
+  heats: Heat[];
   acts: Map<string, Act>;
   actCounts: Map<string, number>;
   /** Acts no category matches; no block ever calls them. */
@@ -181,11 +183,18 @@ const slotInput = (slot: TimeplanSlot): SlotInput => {
       },
     };
   }
-  // A final's blocks are never re-planned (see `replannable`).
-  throw new Error("Die Finalplätze eines Finales stehen fest.");
+  return {
+    Finalist: {
+      heat_id: slot.Finalist.heat_id,
+      number: slot.Finalist.number,
+    },
+  };
 };
 
-/** Whether acts and breaks of a block can be re-planned: not a final's. */
+/**
+ * Whether acts can move into a block: not a final's, which takes only the
+ * acts of its skipped heats (and keeps them).
+ */
 const replannable = (entry: Entry) =>
   entry.kind === "acts" && !entry.final_name;
 
@@ -231,7 +240,7 @@ const applyCarryOver = async (carry: ReturnType<typeof carryOver>) => {
         id: entry.id,
         earliest_start_time: start,
         category: entry.category ?? null,
-        final_name: entry.final_name ?? null,
+        final_id: entry.final_id ?? null,
         label: entry.label ?? null,
         duration_seconds: entry.duration_seconds ?? null,
         kind: entry.kind,
@@ -432,11 +441,12 @@ export default class CupViewAdminTimeplan extends LitElement {
     // The next run aborts a hanging one through `signal`, e.g. the next poll
     // after the PollController gave up on it.
     task: async (_args, { signal }): Promise<Data> => {
-      const [entries, categories, finals, acts, prediction] = await Promise.all(
-        [
+      const [entries, categories, finals, heats, acts, prediction] =
+        await Promise.all([
           unwrap(client.listTimeplan({ signal })),
           unwrap(client.listCategories({ signal })),
           unwrap(client.listFinals({ signal })),
+          unwrap(client.listHeats({ signal })),
           unwrap(client.listActs({ signal })),
           // The prediction fails while the timeplan is incomplete; the list
           // is still shown then.
@@ -447,8 +457,7 @@ export default class CupViewAdminTimeplan extends LitElement {
               error: predictionErrorMessage(errorMessage(error)),
             }),
           ),
-        ],
-      );
+        ]);
       const list = entries;
       const allActs = acts;
       const actCounts = new Map<string, number>();
@@ -464,7 +473,8 @@ export default class CupViewAdminTimeplan extends LitElement {
       this.last = {
         entries: list,
         categories: new Map(categories.map((c) => [c.name, c])),
-        finals: new Map(finals.map((f) => [f.name, f])),
+        finals: new Map(finals.map((f) => [f.id, f])),
+        heats,
         acts: new Map(allActs.map((act) => [act.id, act])),
         actCounts,
         uncategorized,
@@ -602,6 +612,10 @@ export default class CupViewAdminTimeplan extends LitElement {
       .map((f) => f.name);
     const running = data.entries.find((e) => entryStatus(e) === "started");
     const splitHeats = this.heatsOnSeveralDays(data);
+    const unplannedSkips = skippedWithoutPlannedFinal(
+      data.heats,
+      new Set(data.entries.flatMap((e) => (e.final_id ? [e.final_id] : []))),
+    );
     return html`<div class="kpis">
       <span class="kpi"><b>${data.entries.length}</b> Einträge</span>
       ${
@@ -661,15 +675,25 @@ export default class CupViewAdminTimeplan extends LitElement {
         splitHeats.length
           ? html`<span
               class="kpi warn"
-              title=${`Die Kategorien eines Vorlaufs sollten am selben Tag laufen, damit seine Küren zusammen gewertet werden:\n${splitHeats
+              title=${`Die Kategorien einer Vorlaufklasse sollten am selben Tag laufen, damit ihre Küren zusammen gewertet werden:\n${splitHeats
                 .map(
                   (heat) =>
                     `${heat.name}: ${heat.days.map((day) => formatDay(day)).join(", ")}`,
                 )
                 .join("\n")}`}
               ><b>${splitHeats.length}</b>
-              ${splitHeats.length === 1 ? "Vorlauf" : "Vorläufe"} an mehreren
+              ${splitHeats.length === 1 ? "Vorlaufklasse" : "Vorlaufklassen"} an mehreren
               Tagen</span
+            >`
+          : nothing
+      }
+      ${
+        unplannedSkips.length
+          ? html`<span
+              class="kpi warn"
+              title=${`Der Vorlauf entfällt, aber das Finale ist nicht im Zeitplan; die Küren starten deshalb weiter in ihren Kategorien:\n${unplannedSkips.join("\n")}`}
+              ><b>${unplannedSkips.length}</b> Vorlauf entfällt ohne Finale im
+              Zeitplan</span
             >`
           : nothing
       }
@@ -698,8 +722,8 @@ export default class CupViewAdminTimeplan extends LitElement {
     if (block) {
       return blockStarts(block).length;
     }
-    if (entry.final_name) {
-      return finalSlotCount(data.finals.get(entry.final_name));
+    if (entry.final_id) {
+      return finalSlotCount(data.finals.get(entry.final_id));
     }
     return entry.category ? (data.actCounts.get(entry.category) ?? 0) : 0;
   }
@@ -715,7 +739,7 @@ export default class CupViewAdminTimeplan extends LitElement {
       Entry,
       | "kind"
       | "category"
-      | "final_name"
+      | "final_id"
       | "duration_seconds"
       | "einfahrzeit_seconds"
     >,
@@ -757,9 +781,7 @@ export default class CupViewAdminTimeplan extends LitElement {
             : ""),
       };
     }
-    const final = entry.final_name
-      ? data.finals.get(entry.final_name)
-      : undefined;
+    const final = entry.final_id ? data.finals.get(entry.final_id) : undefined;
     const category = entry.category
       ? data.categories.get(entry.category)
       : final;
@@ -972,8 +994,8 @@ export default class CupViewAdminTimeplan extends LitElement {
     const open = this.expanded.has(entry.id);
     const description = entry.category
       ? data.categories.get(entry.category)?.description
-      : entry.final_name
-        ? data.finals.get(entry.final_name)?.description
+      : entry.final_id
+        ? data.finals.get(entry.final_id)?.description
         : undefined;
     const home = entry.category ?? entry.final_name;
     const subtitle = entry.label
@@ -989,7 +1011,7 @@ export default class CupViewAdminTimeplan extends LitElement {
           entry.final_name
             ? open
               ? "Finalplätze verbergen"
-              : "Finalplätze zeigen"
+              : "Finalplätze zeigen und umsortieren"
             : open
               ? "Küren und Pausen verbergen"
               : "Küren und Pausen zeigen und umplanen"
@@ -1007,6 +1029,15 @@ export default class CupViewAdminTimeplan extends LitElement {
           : nothing
       }
       ${subtitle ? html`<span class="muted">${subtitle}</span>` : nothing}
+      ${
+        block?.preliminary_skipped
+          ? html`<span
+              class="chip warn"
+              title="Der Vorlauf dieser Kategorie entfällt: ihre Küren starten direkt im Finale. Der Block bleibt im Zeitplan, braucht aber keine Zeit und erscheint nicht auf Startliste und Info-Board."
+              >Vorlauf entfällt</span
+            >`
+          : nothing
+      }
       ${
         block?.manually_ordered
           ? html`<span
@@ -1154,13 +1185,12 @@ export default class CupViewAdminTimeplan extends LitElement {
         </td>
       </tr>`;
     }
-    if (block.final_name) {
-      return this.renderFinalSlots(data, block);
-    }
+    const final = !!block.final_name;
     const ended = item.status === "Ended";
     const locked = lockedCount(block);
     const editable = !ended && !this.busy;
-    const targets = this.moveTargets(data, entry.id);
+    // A final's starts stay in it.
+    const targets = final ? [] : this.moveTargets(data, entry.id);
     const draft =
       this.breakDraft?.blockId === entry.id ? this.breakDraft : null;
     const drop = this.dropTarget?.blockId === entry.id ? this.dropTarget : null;
@@ -1188,10 +1218,17 @@ export default class CupViewAdminTimeplan extends LitElement {
               ? html`<span class="muted small"
                   >Der Block ist beendet; seine Reihenfolge bleibt.</span
                 >`
-              : html`<span class="muted small"
-                  >Ziehen oder mit den Pfeilen umsortieren; Küren auch in andere
-                  Blöcke.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
-                >`
+              : final
+                ? html`<span class="muted small"
+                    >Finalplätze und Küren, deren Vorlauf entfällt, ziehen oder
+                    mit den Pfeilen umsortieren. Die Finalplätze selbst ändern
+                    sich unter
+                    <a href="/admin-categories">Kategorien → Finals</a>.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
+                  >`
+                : html`<span class="muted small"
+                    >Ziehen oder mit den Pfeilen umsortieren; Küren auch in
+                    andere Blöcke.${locked ? " Gestartete Einträge bleiben, wo sie sind." : ""}</span
+                  >`
           }
           <span class="spacer"></span>
           ${
@@ -1213,7 +1250,11 @@ export default class CupViewAdminTimeplan extends LitElement {
             block.manually_ordered && item.status === "Planned"
               ? html`<button
                   class="btn small"
-                  title="Zurück zur Startreihenfolge der Kategorie: Pausen werden gelöscht, Küren aus anderen Blöcken gehen zurück"
+                  title=${
+                    final
+                      ? "Zurück zur Reihenfolge der Finalplätze, danach die Küren, deren Vorlauf entfällt: Pausen werden gelöscht"
+                      : "Zurück zur Startreihenfolge der Kategorie: Pausen werden gelöscht, Küren aus anderen Blöcken gehen zurück"
+                  }
                   data-block=${entry.id}
                   ?disabled=${this.busy}
                   @click=${this.onResetOrder}
@@ -1234,8 +1275,11 @@ export default class CupViewAdminTimeplan extends LitElement {
           ${
             block.slots.length === 0
               ? html`<li class="empty-hint">
-                  Keine Küren: der Block wird übersprungen. Küren hierher ziehen
-                  oder bei einer Kür „in Block …“ wählen.
+                  ${
+                    block.preliminary_skipped
+                      ? "Vorlauf entfällt: die Küren starten direkt im Finale. Der Block wird übersprungen."
+                      : "Keine Küren: der Block wird übersprungen. Küren hierher ziehen oder bei einer Kür „in Block …“ wählen."
+                  }
                 </li>`
               : nothing
           }
@@ -1255,59 +1299,6 @@ export default class CupViewAdminTimeplan extends LitElement {
                 </li>`
               : nothing
           }
-        </ol>
-      </td>
-    </tr>`;
-  }
-
-  /**
-   * A final's reserved slots, with their acts once the placement is
-   * published: fixed here, changed in the final itself.
-   */
-  private renderFinalSlots(data: Data, block: ActsEntry) {
-    const rows = repeat(block.slots, slotKey, (slot) => {
-      if (!("Finalist" in slot)) {
-        return nothing;
-      }
-      const finalist = slot.Finalist;
-      const status =
-        finalist.status === "Started"
-          ? "läuft"
-          : finalist.status === "Ended"
-            ? "beendet"
-            : "";
-      return html`<li
-        class=${classMap({
-          act: true,
-          locked: true,
-          current: finalist.status === "Started",
-        })}
-      >
-        <span class="material-icon muted" aria-hidden="true">emoji_events</span>
-        <span
-          class="small"
-          title=${`Voraussichtlich ${formatTime(finalist.predicted_start)}, geplant ${formatTime(finalist.planned_start)}`}
-          >${formatTime(finalist.predicted_start)}</span
-        >
-        <span class="slot-who"
-          ><b>${finalist.label}</b>${this.renderPlacedAct(data, finalist)}${
-            status
-              ? html` <span class="muted small">· ${status}</span>`
-              : nothing
-          }</span
-        >
-      </li>`;
-    });
-    return html`<tr class="slots-row">
-      <td colspan="9">
-        <div class="slots-head">
-          <span class="muted small"
-            >Die Finalplätze von „${block.final_name}“ stehen fest; ändern lassen
-            sie sich unter <a href="/admin-categories">Kategorien → Finals</a>.</span
-          >
-        </div>
-        <ol class="slots">
-          ${rows}
         </ol>
       </td>
     </tr>`;
@@ -1339,7 +1330,7 @@ export default class CupViewAdminTimeplan extends LitElement {
           : "";
     return html`<li
       class=${classMap({
-        act: "Act" in slot,
+        act: !("Break" in slot),
         break: "Break" in slot,
         locked,
         current: item.status === "Started",
@@ -1406,7 +1397,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         <span class="muted">${formatDuration(slot.Break.duration_seconds)}</span>`;
     }
     if ("Finalist" in slot) {
-      return html`<b>${slot.Finalist.label}</b>`;
+      return html`<b>${slot.Finalist.label}</b>${this.renderPlacedAct(data, slot.Finalist)}`;
     }
     const act = data.acts.get(slot.Act.id);
     if (!act) {
@@ -1482,8 +1473,12 @@ export default class CupViewAdminTimeplan extends LitElement {
         vertical_align_bottom
       </button>
       ${
-        "Act" in slot
-          ? html`<select
+        "Finalist" in slot
+          ? nothing
+          : "Act" in slot
+            ? targets.length === 0 && entry.final_name
+              ? nothing
+              : html`<select
               class="inline"
               aria-label="In einen anderen Block verschieben"
               title="In einen anderen Block verschieben (ans Ende)"
@@ -1502,7 +1497,7 @@ export default class CupViewAdminTimeplan extends LitElement {
                   </option>`,
               )}
             </select>`
-          : html`<button
+            : html`<button
                 class="icon-btn primary"
                 title="Pause bearbeiten"
                 aria-label="Pause bearbeiten"
@@ -1601,24 +1596,24 @@ export default class CupViewAdminTimeplan extends LitElement {
     );
     const custom = !draft.category;
     const withoutCategory = draft.category === BLOCK;
-    const finalName = draftFinal(draft.category);
+    const finalId = draftFinal(draft.category);
     const category =
-      custom || withoutCategory || finalName ? undefined : draft.category;
+      custom || withoutCategory || finalId ? undefined : draft.category;
     const duration =
       original && !custom
         ? this.entryDuration(data, original, data.predictions.get(original.id))
-        : category || finalName
+        : category || finalId
           ? this.entryDuration(data, {
               kind: "acts",
               category,
-              final_name: finalName,
+              final_id: finalId,
             })
           : null;
     const problems = this.draftProblems(editing, index);
     const defaultWarmup = category
       ? (data.categories.get(category)?.einfahrzeit_seconds ?? 0)
-      : finalName
-        ? (data.finals.get(finalName)?.einfahrzeit_seconds ?? 0)
+      : finalId
+        ? (data.finals.get(finalId)?.einfahrzeit_seconds ?? 0)
         : 0;
     return html`<tr class="editing" @keydown=${this.onEditKeydown}>
       <td class="num muted">${original ? index + 1 : "neu"}</td>
@@ -1663,11 +1658,11 @@ export default class CupViewAdminTimeplan extends LitElement {
                 ? html`<optgroup label="Finals">
                     ${repeat(
                       finals,
-                      (f) => f.name,
+                      (f) => f.id,
                       (f) =>
                         html`<option
-                          value=${FINAL_PREFIX + f.name}
-                          ?selected=${f.name === finalName}
+                          value=${FINAL_PREFIX + f.id}
+                          ?selected=${f.id === finalId}
                         >
                           ${f.name}${f.description ? ` – ${f.description}` : ""}
                         </option>`,
@@ -1684,7 +1679,7 @@ export default class CupViewAdminTimeplan extends LitElement {
             })}
             type="text"
             placeholder=${
-              category || finalName
+              category || finalId
                 ? "Eigener Name (optional)"
                 : withoutCategory
                   ? "Bezeichnung, z. B. Nachstarter"
@@ -1758,7 +1753,7 @@ export default class CupViewAdminTimeplan extends LitElement {
                 title=${`Einfahrzeit des Blocks als m:ss; leer: ${
                   category
                     ? "die der Kategorie"
-                    : finalName
+                    : finalId
                       ? "die des Finales"
                       : "keine"
                 } (${formatDuration(defaultWarmup)})`}
@@ -1877,8 +1872,8 @@ export default class CupViewAdminTimeplan extends LitElement {
         category:
           entry.kind === "custom"
             ? ""
-            : entry.final_name
-              ? FINAL_PREFIX + entry.final_name
+            : entry.final_id
+              ? FINAL_PREFIX + entry.final_id
               : (entry.category ?? BLOCK),
         label: entry.label ?? "",
         duration:
@@ -1970,9 +1965,9 @@ export default class CupViewAdminTimeplan extends LitElement {
     }
 
     const custom = !draft.category;
-    const finalName = draftFinal(draft.category);
+    const finalId = draftFinal(draft.category);
     const category =
-      custom || draft.category === BLOCK || finalName ? null : draft.category;
+      custom || draft.category === BLOCK || finalId ? null : draft.category;
     // edit_timeplan_entry overwrites every field, so the earliest start is
     // sent back exactly as the server returned it unless it was touched.
     const body = {
@@ -1981,7 +1976,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         : (original?.earliest_start_time ?? null),
       kind: custom ? ("custom" as const) : ("acts" as const),
       category,
-      final_name: finalName,
+      final_id: finalId,
       label: draft.label.trim() || null,
       duration_seconds: custom ? parseDuration(draft.duration) : null,
       einfahrzeit_seconds:
@@ -2378,7 +2373,13 @@ export default class CupViewAdminTimeplan extends LitElement {
     if (!dragging || !item || !block || !slot || item.status === "Ended") {
       return null;
     }
-    if ("Break" in slot && blockId !== dragging.blockId) {
+    // Only acts change blocks, and none into or out of a final's.
+    if (
+      blockId !== dragging.blockId &&
+      (!("Act" in slot) ||
+        !!block.final_name ||
+        !!blockOf(this.current?.predictions.get(dragging.blockId))?.final_name)
+    ) {
       return null;
     }
     return Math.max(index, lockedCount(block));

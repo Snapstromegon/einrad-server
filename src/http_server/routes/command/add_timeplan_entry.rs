@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals,
@@ -25,7 +26,7 @@ pub struct AddTimeplanEntryBody {
     category: Option<String>,
     /// A start block running this final instead of a category.
     #[serde(default)]
-    final_name: Option<String>,
+    final_id: Option<Uuid>,
     /// Without one: a start block if a category (or final) is set, otherwise
     /// a custom entry. A start block without either needs a label, e.g.
     /// "Nachstarter".
@@ -72,7 +73,7 @@ pub async fn add_timeplan_entry(
     let fields = EntryFields::new(
         body.kind,
         body.category,
-        body.final_name,
+        body.final_id,
         body.label,
         body.duration_seconds,
         body.einfahrzeit_seconds,
@@ -85,8 +86,8 @@ pub async fn add_timeplan_entry(
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
-    if let Some(final_name) = &fields.final_name {
-        finals::check_plannable(&mut tx, final_name, None)
+    if let Some(final_id) = fields.final_id {
+        finals::check_plannable(&mut tx, final_id, None)
             .await
             .map_err(HttpError::ErrorMessages)?;
     }
@@ -98,7 +99,7 @@ pub async fn add_timeplan_entry(
             duration_seconds,
             label,
             category,
-            final_name,
+            final_id,
             kind,
             einfahrzeit_seconds,
             show_photos,
@@ -112,7 +113,7 @@ pub async fn add_timeplan_entry(
         fields.duration_seconds,
         fields.label,
         fields.category,
-        fields.final_name,
+        fields.final_id,
         fields.kind,
         fields.einfahrzeit_seconds,
         fields.show_photos,

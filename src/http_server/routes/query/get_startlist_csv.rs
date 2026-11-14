@@ -65,7 +65,7 @@ pub async fn get_startlist_csv(
             group_name,
             participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>"
         FROM view_act
-        WHERE category IS NOT NULL
+        WHERE category IS NOT NULL AND withdrawn_at IS NULL
         "#
     )
     .fetch_all(&db)

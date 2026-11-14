@@ -234,7 +234,7 @@ async fn system_status_reflects_open_registration() {
             "can_upload_music": true,
             "can_register_judge": true,
             "jury_registration": true,
-            "moderation_input": true,
+            "moderation_input": false,
             "startlist_published": true,
         })
     );

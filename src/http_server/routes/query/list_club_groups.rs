@@ -87,7 +87,7 @@ pub async fn list_club_groups(
             view_act.id as "id!: Uuid",
             view_act.group_name as "group_name!",
             view_act.act_type as "act_type!: ActType",
-            view_act.category,
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
             view_act.max_age as "max_age: f64",
             view_act.name,
             view_act.song_file,

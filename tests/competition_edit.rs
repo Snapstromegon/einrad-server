@@ -70,7 +70,7 @@ async fn the_settings_show_the_photo_password_and_the_feature_defaults() {
     assert_eq!(body["photos"]["password"], "geheim");
     assert_eq!(
         body["feature_defaults"],
-        json!({ "jury_registration": true, "moderation_input": true })
+        json!({ "jury_registration": true, "moderation_input": false })
     );
     assert_eq!(
         body["competition"]["features"],

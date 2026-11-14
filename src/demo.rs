@@ -21,7 +21,7 @@ use crate::{
     act_type::ActType,
     config::{
         CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
-        JuryCategoryConfig, TimeplanEntryConfig, toml_date, toml_datetime_option,
+        TimeplanEntryConfig, toml_date, toml_datetime_option,
     },
     gender::Gender,
     groups,
@@ -39,8 +39,6 @@ pub struct DemoData {
     pub heats: Vec<HeatConfig>,
     #[serde(default)]
     pub finals: Vec<FinalConfig>,
-    #[serde(default)]
-    pub jury_categories: Vec<JuryCategoryConfig>,
     #[serde(default)]
     pub timeplan: Vec<DemoTimeplanEntry>,
     #[serde(default)]
@@ -121,7 +119,7 @@ pub struct DemoJudge {
     pub trained: bool,
     pub max_deployments: Option<i64>,
     pub note: Option<String>,
-    /// Jury categories (by name) and tasks.
+    /// Jury units (`heat: <name>` or `final: <name>`) and tasks.
     #[serde(default)]
     pub registrations: Vec<DemoJudgeRegistration>,
 }
@@ -129,7 +127,7 @@ pub struct DemoJudge {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DemoJudgeRegistration {
-    pub category: String,
+    pub unit: String,
     pub task: crate::jury::JudgeTask,
 }
 
@@ -297,7 +295,6 @@ impl DemoData {
             heats: self.heats.clone(),
             finals: self.finals.clone(),
             timeplan,
-            jury_categories: self.jury_categories.clone(),
         };
         seed::apply(db, Some(&file), false, data_path).await?;
 
@@ -502,12 +499,15 @@ impl DemoData {
             .await
             .map_err(|e| e.to_string())?;
         let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
-        let categories: HashMap<String, Uuid> = crate::jury::list_categories(&mut *conn)
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|c| (c.name, c.id))
-            .collect();
+        let units: HashMap<String, (crate::jury::JuryUnitKind, Uuid)> = sqlx::query!(
+            r#"SELECT id as "id!: Uuid", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|unit| (crate::jury::unit_label(unit.kind, &unit.name), (unit.kind, unit.id)))
+        .collect();
         for club in &self.clubs {
             if club.judges.is_empty() {
                 continue;
@@ -525,15 +525,14 @@ impl DemoData {
                     .registrations
                     .iter()
                     .map(|r| {
-                        categories
-                            .get(&r.category)
-                            .map(|id| crate::jury::JudgeRegistration {
-                                jury_category_id: *id,
+                        units
+                            .get(&r.unit)
+                            .map(|(kind, id)| crate::jury::JudgeRegistration {
+                                unit_kind: *kind,
+                                unit_id: *id,
                                 task: r.task,
                             })
-                            .ok_or_else(|| {
-                                format!("Judge {name}: unknown jury category {:?}", r.category)
-                            })
+                            .ok_or_else(|| format!("Judge {name}: unknown jury unit {:?}", r.unit))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let fields = crate::jury::JudgeFields {
@@ -953,7 +952,7 @@ mod tests {
             ("final_slots", "SELECT COUNT(*) FROM final_slots"),
             (
                 "planned finals",
-                "SELECT COUNT(*) FROM timeplan WHERE final_name IS NOT NULL",
+                "SELECT COUNT(*) FROM timeplan WHERE final_id IS NOT NULL",
             ),
         ] {
             assert!(count(&db, sql).await > 0, "{table} is empty");
@@ -1028,6 +1027,39 @@ mod tests {
         for song in songs {
             assert!(data_path.join(&song).exists(), "{song}");
         }
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn demo_structure_has_no_loose_ends() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM categories WHERE heat_id IS NULL").await,
+            0,
+            "a category has no heat"
+        );
+        assert_eq!(
+            count(
+                &db,
+                "SELECT COUNT(*) FROM heats WHERE NOT EXISTS (SELECT 1 FROM final_slots WHERE final_slots.heat_id = heats.id)"
+            )
+            .await,
+            0,
+            "a heat feeds no final"
+        );
+        assert_eq!(
+            count(
+                &db,
+                "SELECT COUNT(*) FROM finals WHERE NOT EXISTS (SELECT 1 FROM timeplan WHERE timeplan.final_id = finals.id)"
+            )
+            .await,
+            0,
+            "a final is not in the timeplan"
+        );
         std::fs::remove_dir_all(data_path).unwrap();
     }
 

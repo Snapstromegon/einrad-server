@@ -62,7 +62,8 @@ pub async fn list_acts(
             view_act.act_type as "act_type!: ActType",
             view_act.max_age,
             view_act.participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>",
-            view_act.category,
+            -- Withdrawn acts show no category: they don't start.
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
             (
                 view_act.act_type IN ('group_small', 'group_large')
                 AND EXISTS (
@@ -76,7 +77,8 @@ pub async fn list_acts(
             view_act.song_checked,
             view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool",
             view_act.fee_waiver
-        FROM view_act LEFT JOIN categories ON view_act.category = categories.name
+        FROM view_act LEFT JOIN categories
+            ON view_act.category = categories.name AND view_act.withdrawn_at IS NULL
         ORDER BY categories."order" IS NULL, categories."order", view_act."order" ASC
         "#
     )

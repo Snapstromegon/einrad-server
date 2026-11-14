@@ -27,3 +27,36 @@ export const heatsOnSeveralDays = (
     ].sort();
     return days.length > 1 ? [{ name: heat.name, days }] : [];
   });
+
+/** A heat as far as skipping its Vorlauf cares. */
+export interface HeatSkip {
+  name: string;
+  skip: boolean;
+  /** The finals whose slots it fills (by id); at most one. */
+  finals: { id: string }[];
+}
+
+/**
+ * The skipped heats whose final isn't in the timeplan (#344): their acts
+ * can't start directly in it, so they stay in their categories' blocks.
+ */
+export const skippedWithoutPlannedFinal = (
+  heats: HeatSkip[],
+  /** The ids of the finals that are in the timeplan. */
+  plannedFinals: Set<string>,
+): string[] =>
+  heats
+    .filter(
+      (heat) =>
+        heat.skip && !heat.finals.some((final) => plannedFinals.has(final.id)),
+    )
+    .map((heat) => heat.name);
+
+/**
+ * The categories that belong to no heat (GRP-1): only a hint, so a category
+ * can be created before its heat.
+ */
+export const categoriesWithoutHeat = (
+  categories: { name: string; heat?: string | null }[],
+): string[] =>
+  categories.filter((category) => !category.heat).map((c) => c.name);

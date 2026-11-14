@@ -89,6 +89,7 @@ pub async fn startlist(
             view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
             view_act.category
         FROM view_act JOIN categories ON view_act.category = categories.name
+        WHERE view_act.withdrawn_at IS NULL
         ORDER BY categories."order", view_act."order" ASC
         "#
     )

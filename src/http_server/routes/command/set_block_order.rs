@@ -20,8 +20,13 @@ pub struct SetBlockOrderResponse {}
 /// One slot of a start block.
 #[derive(Debug, Deserialize, ToSchema)]
 pub enum BlockSlotInput {
-    /// An act, from this block or any other (if it hasn't started).
+    /// An act, from this block or any other (if it hasn't started). In a
+    /// final's block: an act of a heat whose Vorlauf is skipped, which
+    /// starts directly in this final.
     Act { act_id: Uuid },
+    /// A final's block only: one of its finalist slots, by heat and number
+    /// ("2. Finalist (E EM 1)").
+    Finalist { heat_id: Uuid, number: i64 },
     /// A break. With `id`: an existing break of this block, whose label and
     /// duration change, also while it runs. Without: a new break.
     Break {
@@ -50,6 +55,10 @@ fn invalid(message: &str) -> HttpError {
 /// out go back to their home block (the first block of their category), to
 /// its end; breaks it leaves out are deleted. Only slots that haven't started
 /// can be moved, also in the running block. Ended blocks can't be changed.
+///
+/// A final's block orders its finalist slots and the acts of its skipped
+/// heats the same way; it takes no other acts, and they go to no other
+/// block. Slots and acts it leaves out follow at its end.
 #[utoipa::path(
     post,
     tags=["command", "timeplan"],
@@ -81,11 +90,8 @@ pub async fn set_block_order(
     if block.kind != EntryKind::Acts {
         return Err(invalid("Nur Startblöcke haben eine Reihenfolge."));
     }
-    if block.final_name.is_some() {
-        return Err(invalid(
-            "Ein Finale hat feste Finalplätze; die ändern sich im Finale selbst.",
-        ));
-    }
+    let final_id = block.final_id;
+    let final_name = block.final_name.as_deref();
     if block.ended_at.is_some() {
         return Err(invalid("Der Block ist schon beendet."));
     }
@@ -99,6 +105,9 @@ pub async fn set_block_order(
             .all(|(slot, input)| match (slot, input) {
                 (Slot::Act(act), BlockSlotInput::Act { act_id }) => act.id == *act_id,
                 (Slot::Break(pause), BlockSlotInput::Break { id, .. }) => Some(pause.id) == *id,
+                (Slot::Finalist(finalist), BlockSlotInput::Finalist { heat_id, number }) => {
+                    finalist.heat_id == *heat_id && finalist.number == *number
+                }
                 _ => false,
             });
     if !kept {
@@ -121,9 +130,10 @@ pub async fn set_block_order(
         .iter()
         .filter_map(|input| match input {
             BlockSlotInput::Break { id, .. } => *id,
-            BlockSlotInput::Act { .. } => None,
+            BlockSlotInput::Act { .. } | BlockSlotInput::Finalist { .. } => None,
         })
         .collect();
+    let mut finalists = HashSet::new();
     for input in &body.slots[started..] {
         match input {
             BlockSlotInput::Act { act_id } => {
@@ -137,8 +147,59 @@ pub async fn set_block_order(
                         act.name
                     )));
                 }
+                match (final_id, timeplan.direct_acts.get(act_id)) {
+                    (Some(id), Some(direct)) if id == *direct => {}
+                    (Some(_), _) => {
+                        return Err(invalid(&format!(
+                            "„{}“ startet nicht direkt im Finale „{}“: ins Finale kommen nur die Küren von Vorlaufklassen, deren Vorlauf entfällt.",
+                            act.name,
+                            final_name.unwrap_or_default()
+                        )));
+                    }
+                    (None, Some(direct)) => {
+                        let direct = crate::finals::name_of(&mut tx, *direct)
+                            .await?
+                            .unwrap_or_default();
+                        return Err(invalid(&format!(
+                            "„{}“ startet direkt im Finale „{direct}“, ihr Vorlauf entfällt.",
+                            act.name
+                        )));
+                    }
+                    (None, None) => {}
+                }
                 if !acts.insert(*act_id) {
                     return Err(invalid("Eine Kür kann nur einmal im Block stehen."));
+                }
+            }
+            BlockSlotInput::Finalist { heat_id, number } => {
+                if final_id.is_none() {
+                    return Err(invalid("Finalplätze stehen nur im Block ihres Finales."));
+                }
+                let heat = block.slots[started..].iter().find_map(|slot| match slot {
+                    Slot::Finalist(f) if f.heat_id == *heat_id && f.number == *number => {
+                        Some(f.group_label.as_str())
+                    }
+                    _ => None,
+                });
+                let open = heat.is_some();
+                // For the message: the heat's code, also if the slot isn't
+                // open.
+                let heat_name = match heat {
+                    Some(code) => code.to_string(),
+                    None => crate::heats::code_of(&mut tx, *heat_id)
+                        .await?
+                        .unwrap_or_default(),
+                };
+                let label = crate::finals::finalist_label(*number, &heat_name);
+                if !open {
+                    return Err(invalid(&format!(
+                        "„{label}“ gibt es in diesem Finale nicht, er hat schon begonnen oder der Vorlauf seiner Vorlaufklasse entfällt."
+                    )));
+                }
+                if !finalists.insert((heat_id, *number)) {
+                    return Err(invalid(&format!(
+                        "„{label}“ kann nur einmal im Block stehen."
+                    )));
                 }
             }
             BlockSlotInput::Break { id: Some(id), .. } => {
@@ -193,14 +254,27 @@ pub async fn set_block_order(
     // Acts without a category at the moment (withdrawn, incomplete groups)
     // aren't shown, so they aren't sent either: they keep their place.
     for slot in &block.slots {
-        if let Slot::Act(act) = slot {
-            sqlx::query!(
-                "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND act_id = ?",
-                block.id,
-                act.id
-            )
-            .execute(&mut *tx)
-            .await?;
+        match slot {
+            Slot::Act(act) => {
+                sqlx::query!(
+                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND act_id = ?",
+                    block.id,
+                    act.id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+            Slot::Finalist(finalist) => {
+                sqlx::query!(
+                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND heat_id = ? AND number = ?",
+                    block.id,
+                    finalist.heat_id,
+                    finalist.number
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+            Slot::Break(_) => {}
         }
     }
     for (position, input) in body.slots.iter().enumerate() {
@@ -216,6 +290,17 @@ pub async fn set_block_order(
                     block.id,
                     position,
                     act_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+            BlockSlotInput::Finalist { heat_id, number } => {
+                sqlx::query!(
+                    "INSERT INTO timeplan_slots (timeplan_id, position, heat_id, number) VALUES (?, ?, ?, ?)",
+                    block.id,
+                    position,
+                    heat_id,
+                    number
                 )
                 .execute(&mut *tx)
                 .await?;

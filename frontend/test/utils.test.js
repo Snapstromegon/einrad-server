@@ -647,9 +647,10 @@ describe("act types and groups", () => {
 
   test("slot groups are formatted by their heats", () => {
     const groups = [
-      { count: 4, heat: "E EM 1" },
-      { count: 4, heat: "E EM 2" },
+      { count: 4, heat: "Einzel männlich – Expert 1", heat_code: "E EM 1" },
+      { count: 4, heat: "Einzel männlich – Expert 2", heat_code: "E EM 2" },
     ];
+    // The heats' codes: the slots' own labels use them, too.
     assert.equal(formatSlotGroups(groups), "4 × E EM 1, 4 × E EM 2");
   });
 
@@ -1042,6 +1043,16 @@ describe("errorMessage", () => {
         message: '"Der Gruppenname „Wirbelwind“ ist bereits vergeben."',
       }),
       "Der Gruppenname „Wirbelwind“ ist bereits vergeben.",
+    );
+  });
+
+  test("shows the German message of a conflict (409)", () => {
+    assert.equal(
+      errorMessage({
+        type: "Conflict",
+        message: "Erst das ändern, dann löschen.",
+      }),
+      "Erst das ändern, dann löschen.",
     );
   });
 

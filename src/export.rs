@@ -5,24 +5,25 @@
 //!
 //! In the file: the competition with its id, the features it sets, the
 //! photos with their password, the logo and break image as SVG or URL, the sponsors, the colors it sets, the
-//! categories with their ages, the heats, the finals, the timeplan
-//! entries and the jury categories. Not in it: a raster image (only SVG fits
+//! categories with their ages, the heats, the finals (both with the jury
+//! settings that differ from the default) and the timeplan entries. Not in it: a raster image (only SVG fits
 //! into the file; the header says so), default colors (an import keeps the
 //! colors, like the logo, unless the file sets them), anything clubs
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
 //! progress, finals placements and the jury plan.
 
-use time::{Date, OffsetDateTime};
+use time::OffsetDateTime;
 
 use crate::{
     act_type::ActType,
     competition::Competition,
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
-        JuryCategoryConfig, SponsorConfig, TimeplanEntryConfig,
+        SponsorConfig, TimeplanEntryConfig,
     },
     finals,
     images::{self, Image, ImageUrl},
+    jury::{JuryUnitKind, UnitSettings},
     logo::{Format, SvgLogo},
     timeplan::EntryKind,
 };
@@ -99,7 +100,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         }
     }
 
-    let categories = sqlx::query!(
+    let categories: Vec<CategoryConfig> = sqlx::query!(
         r#"
         SELECT
             name as "name!", description, act_type as "act_type: ActType",
@@ -124,16 +125,24 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     })
     .collect();
 
+    let group_categories: Vec<String> = categories
+        .iter()
+        .filter(|c| c.act_type.is_group())
+        .map(|c| c.name.clone())
+        .collect();
     // In the order of their first category, empty ones last, as the admin
     // UI lists them.
     let mut heats = Vec::new();
     for row in sqlx::query!(
         r#"
-        SELECT name as "name!", description
+        SELECT
+            id as "id!: uuid::Uuid", name as "name!", code as "code!", description, threshold, skip,
+            jury_registrable as "jury_registrable: bool", jury_deployments,
+            jury_needed_technical, jury_needed_performance, jury_needed_dismounts
         FROM heats
         ORDER BY
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name),
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id) IS NULL,
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id),
             name
         "#
     )
@@ -141,24 +150,47 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     .await?
     {
         let categories = sqlx::query_scalar!(
-            r#"SELECT name as "name!" FROM categories WHERE heat = ? ORDER BY "order", name"#,
-            row.name
+            r#"SELECT name as "name!" FROM categories WHERE heat_id = ? ORDER BY "order", name"#,
+            row.id
         )
         .fetch_all(&mut *conn)
         .await?;
+        // Only a skip that differs from the default (groups skip, others
+        // don't) goes into the file.
+        let is_group = categories
+            .first()
+            .is_some_and(|first| group_categories.contains(first));
+        let jury = UnitSettings {
+            registrable: row.jury_registrable,
+            deployments: row.jury_deployments,
+            needed_technical: row.jury_needed_technical,
+            needed_performance: row.jury_needed_performance,
+            needed_dismounts: row.jury_needed_dismounts,
+        }
+        .for_file(JuryUnitKind::Heat);
         heats.push(HeatConfig {
             name: row.name,
+            code: Some(row.code),
             description: row.description,
             categories,
+            threshold: Some(row.threshold),
+            skip: (row.skip != is_group).then_some(row.skip),
+            jury_registrable: jury[0].map(|v| v != 0),
+            jury_deployments: jury[1],
+            jury_needed_technical: jury[2],
+            jury_needed_performance: jury[3],
+            jury_needed_dismounts: jury[4],
         });
     }
 
     let rows = sqlx::query!(
         r#"
         SELECT
-            name as "name!", description, act_type as "act_type: ActType",
+            id as "id!: uuid::Uuid", name as "name!", code as "code!", description, act_type as "act_type: ActType",
             is_single_male, einfahrzeit_seconds, act_duration_seconds,
-            judge_duration_seconds
+            judge_duration_seconds,
+            jury_registrable as "jury_registrable: bool", jury_deployments,
+            jury_needed_technical, jury_needed_performance, jury_needed_dismounts
         FROM finals ORDER BY "order", name
         "#
     )
@@ -167,27 +199,47 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let mut final_configs = Vec::with_capacity(rows.len());
     for row in rows {
         let heats = sqlx::query_scalar!(
-            r#"SELECT heat as "heat!" FROM final_slots WHERE final_name = ? ORDER BY position"#,
-            row.name
+            r#"
+            SELECT heats.code as "heat!" FROM final_slots
+            JOIN heats ON heats.id = final_slots.heat_id
+            WHERE final_slots.final_id = ? ORDER BY position
+            "#,
+            row.id
         )
         .fetch_all(&mut *conn)
         .await?;
+        let jury = UnitSettings {
+            registrable: row.jury_registrable,
+            deployments: row.jury_deployments,
+            needed_technical: row.jury_needed_technical,
+            needed_performance: row.jury_needed_performance,
+            needed_dismounts: row.jury_needed_dismounts,
+        }
+        .for_file(JuryUnitKind::Final);
         final_configs.push(FinalConfig {
             slots: finals::group_slots(heats.iter().map(String::as_str)),
             name: row.name,
+            code: Some(row.code),
             description: row.description,
             act_type: row.act_type,
             single_male: row.is_single_male,
             einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
             act_duration_minutes: minutes(row.act_duration_seconds),
             judge_duration_minutes: minutes(row.judge_duration_seconds),
+            jury_registrable: jury[0].map(|v| v != 0),
+            jury_deployments: jury[1],
+            jury_needed_technical: jury[2],
+            jury_needed_performance: jury[3],
+            jury_needed_dismounts: jury[4],
         });
     }
 
     let timeplan = sqlx::query!(
         r#"
         SELECT
-            kind as "kind: EntryKind", category, final_name, label, duration_seconds,
+            kind as "kind: EntryKind", category,
+            (SELECT code FROM finals WHERE finals.id = timeplan.final_id) as final_name,
+            label, duration_seconds,
             einfahrzeit_seconds, show_photos, internal,
             earliest_start_time as "earliest_start_time: OffsetDateTime"
         FROM timeplan ORDER BY position, id
@@ -210,27 +262,6 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     })
     .collect();
 
-    let jury_categories = sqlx::query!(
-        r#"
-        SELECT
-            name, deployments, day as "day: Date", needed_technical,
-            needed_performance, needed_dismounts
-        FROM jury_categories ORDER BY sort_order
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(|row| JuryCategoryConfig {
-        name: row.name,
-        deployments: row.deployments,
-        day: row.day,
-        needed_technical: row.needed_technical,
-        needed_performance: row.needed_performance,
-        needed_dismounts: row.needed_dismounts,
-    })
-    .collect();
-
     Ok(Some(Export {
         file: CompetitionFile {
             competition: CompetitionConfig {
@@ -245,7 +276,6 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             heats,
             finals: final_configs,
             timeplan,
-            jury_categories,
         },
         left_out,
     }))

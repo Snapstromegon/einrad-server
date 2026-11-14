@@ -59,6 +59,7 @@ const PAGES: Record<string, readonly (readonly Permission[])[]> = {
   "/admin-acts-overview": [["plan_competition"], ["check_songs"]],
   // The jury lead places the finals there.
   "/admin-categories": [["plan_competition"], ["manage_results"]],
+  "/admin-structure": [["plan_competition"]],
   "/admin-timeplan": [["plan_competition"]],
   "/admin-music-control": [["control_music"]],
   "/admin-awards": [["control_music"]],

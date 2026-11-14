@@ -25,7 +25,7 @@ pub struct AddClubJudgeBody {
     fields: JudgeFields,
 }
 
-/// Register a judge of a club, with the jury categories and tasks they can
+/// Register a judge of a club, with the jury units (heats' Vorlaufs and finals) and tasks they can
 /// do. Clubs can until the judge deadline, admins always.
 #[utoipa::path(
     post,

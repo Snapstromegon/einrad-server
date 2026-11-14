@@ -88,8 +88,8 @@ export default class CupViewAdminCompetition extends LitElement {
                 <h2>Wettkampfdatei exportieren</h2>
                 <p class="muted">
                   Der Wettkampf als Wettkampfdatei, ohne die Daten der Vereine:
-                  Einstellungen, Kategorien, Finals, Zeitplan und
-                  Jury-Kategorien. Der Import nimmt sie unverändert, z. B. für
+                  Einstellungen, Kategorien, Vorlaufklassen, Finals (mit ihren
+                  Jury-Einstellungen) und Zeitplan. Der Import nimmt sie unverändert, z. B. für
                   eine Testinstanz. Logo, Pausenbild und Sponsoren sind als SVG
                   oder URL dabei, hochgeladene Bilder nicht, dazu eigene Farben. Sie enthält das Foto-Passwort: nur
                   über vertrauenswürdige Wege weitergeben.
@@ -142,8 +142,8 @@ export default class CupViewAdminCompetition extends LitElement {
           Eine Wettkampfdatei wie <code>competition.toml</code>.
           ${
             competition
-              ? html`Sie ersetzt die Einstellungen, Kategorien, Finals, den
-                Zeitplan und die Jury-Kategorien. Die Daten der Vereine
+              ? html`Sie ersetzt die Einstellungen, Kategorien, Vorlaufklassen, Finals und den
+                Zeitplan. Die Daten der Vereine
                 bleiben, die ID des Wettkampfs auch. Logo, Pausenbild, Sponsoren und Farben
                 bleiben, außer die Datei setzt sie (<code>logo_svg</code>,
                 <code>logo_url</code>, <code>break_image_svg</code>,
@@ -206,7 +206,7 @@ export default class CupViewAdminCompetition extends LitElement {
           ${
             preview.dropped.judge_registrations.length
               ? html`<p>
-                  Die Jury-Anmeldungen ohne passende Jury-Kategorie gibt es
+                  Die Jury-Anmeldungen ohne passenden Vorlauf oder Finale gibt es
                   nach dem Import als Datei zum Nachtragen.
                 </p>`
               : nothing
@@ -232,9 +232,10 @@ export default class CupViewAdminCompetition extends LitElement {
         <div>
           <p>Wettkampf importiert.</p>
           <p>
-            Einige Jury-Anmeldungen haben keine passende Jury-Kategorie mehr.
-            Trag in der Datei bei jeder Anmeldung die neue Jury-Kategorie ein
-            (<code>jury_category</code>).
+            Einige Jury-Anmeldungen haben keinen passenden Vorlauf oder kein
+            passendes Finale mehr. Trag in der Datei bei jeder Anmeldung den
+            neuen Vorlauf oder das neue Finale ein (<code>jury_unit</code>,
+            z. B. <code>heat: E EW</code> oder <code>final: Finale EW</code>).
           </p>
         </div>
       </div>

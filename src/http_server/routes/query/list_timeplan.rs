@@ -20,7 +20,9 @@ pub struct TimeplanListEntry {
     duration_seconds: Option<i64>,
     label: Option<String>,
     category: Option<String>,
-    /// Start blocks only: the final running here instead of a category.
+    /// Start blocks only: the final running here instead of a category, by
+    /// id and name.
+    final_id: Option<uuid::Uuid>,
     final_name: Option<String>,
     /// Start blocks only: overrides the home category's (or final's)
     /// Einfahrzeit.
@@ -71,7 +73,8 @@ pub async fn list_timeplan(
             duration_seconds,
             CASE WHEN internal AND ?1 THEN ?2 ELSE label END as "label: String",
             category,
-            final_name,
+            final_id as "final_id: uuid::Uuid",
+            (SELECT name FROM finals WHERE finals.id = timeplan.final_id) as final_name,
             einfahrzeit_seconds,
             show_photos,
             internal AND NOT ?1 as "internal!: bool",

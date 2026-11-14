@@ -10,6 +10,7 @@ import { type User, userContext } from "../../contexts/user";
 import { can } from "../../roles";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import { categoriesWithoutHeat } from "../../heats";
 import { actTypeLabels } from "../../utils";
 
 type Heat = schemas.Heat;
@@ -17,9 +18,14 @@ type Category = schemas.Category;
 
 /** The row being edited, with the values as typed. */
 interface HeatDraft {
+  /** The readable name. */
   name: string;
+  /** The short code; empty means the name (a new heat) or stays (an edit). */
+  code: string;
   description: string;
   categories: string[];
+  /** As typed; empty for a new heat means the default (6 or 5). */
+  threshold: string;
 }
 
 interface Editing {
@@ -29,7 +35,7 @@ interface Editing {
 }
 
 /** The columns of the table, for rows spanning all of them. */
-const COLUMNS = 6;
+const COLUMNS = 8;
 
 /** "Einzelkür männlich", "Paarkür", … */
 const disciplineOf = (
@@ -39,19 +45,26 @@ const disciplineOf = (
     ? `${actTypeLabels.single} ${category.is_single_male ? "männlich" : "weiblich"}`
     : actTypeLabels[category.act_type];
 
-const isGroup = (category: Category) =>
-  category.act_type === "group_small" || category.act_type === "group_large";
-
 const emptyDraft = (): HeatDraft => ({
   name: "",
+  code: "",
   description: "",
   categories: [],
+  threshold: "",
 });
 
+/** A threshold as typed: a whole number from 0, or `undefined`. */
+const parseThreshold = (text: string) => {
+  const value = Number(text.trim());
+  return text.trim() !== "" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+};
+
 /**
- * The heats (Vorläufe): groups of categories of one discipline whose best
- * acts fill a final's slots. A category is in at most one heat, group
- * categories in none. Admins add, edit and delete them here; the finals
+ * The heats (Vorlaufklassen): groups of categories of one discipline whose best
+ * acts fill a final's slots. A category is in at most one heat; group
+ * categories get one too, with their Vorlauf skipped. Admins add, edit and delete them here; the finals
  * below name them in their slot groups. Fires `heats-changed` after a
  * change, so the categories and finals reload.
  */
@@ -68,7 +81,11 @@ export default class CupAdminHeats extends LitElement {
       }
 
       input.name {
-        width: 9em;
+        width: 16em;
+      }
+
+      input.code {
+        width: 6em;
       }
 
       .dense td.desc {
@@ -99,6 +116,17 @@ export default class CupAdminHeats extends LitElement {
       }
 
       .categories label {
+        white-space: nowrap;
+      }
+
+      input.threshold {
+        width: 4em;
+      }
+
+      .vorlauf {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
         white-space: nowrap;
       }
     `,
@@ -132,7 +160,7 @@ export default class CupAdminHeats extends LitElement {
   override render() {
     const heats = this.heats.value;
     return html`<div class="toolbar">
-        <h2>Vorläufe</h2>
+        <h2>Vorlaufklassen</h2>
         <span class="muted small"
           >Kategorien einer Disziplin, deren Beste die Finalplätze füllen.</span
         >
@@ -145,11 +173,12 @@ export default class CupAdminHeats extends LitElement {
                 ?disabled=${!heats || this.busy || this.editing !== null}
                 @click=${this.startNew}
               >
-                <span class="material-icon">add</span> Neuer Vorlauf
+                <span class="material-icon">add</span> Neue Vorlaufklasse
               </button>`
             : nothing
         }
       </div>
+      ${this.renderWithoutHeat()}
       ${
         this.error
           ? html`<div class="error-banner" role="alert">
@@ -169,35 +198,55 @@ export default class CupAdminHeats extends LitElement {
         heats
           ? this.renderTable(heats)
           : this.heats.render({
-              pending: () => html`<p class="empty">Lade Vorläufe …</p>`,
+              pending: () => html`<p class="empty">Lade Vorlaufklassen …</p>`,
               error: (error) =>
                 html`<div class="error-banner" role="alert">
-                  Vorläufe konnten nicht geladen werden: ${errorMessage(error)}
+                  Vorlaufklassen konnten nicht geladen werden: ${errorMessage(error)}
                 </div>`,
             })
       }`;
+  }
+
+  /** The hint for categories without a heat (GRP-1). */
+  private renderWithoutHeat() {
+    const names = categoriesWithoutHeat(this.categories.value ?? []);
+    return names.length
+      ? html`<p class="chip warn" role="status">
+          Ohne Vorlaufklasse: ${names.join(", ")}
+        </p>`
+      : nothing;
   }
 
   private renderTable(heats: Heat[]) {
     return html`<table class="dense">
       <thead>
         <tr>
-          <th>Name</th>
+          <th title="Der lesbare Name, wie ihn Jury, Struktur und Editoren zeigen">
+            Name
+          </th>
+          <th title="Das Kürzel für enge Stellen, z. B. „1. Finalist (E EM 1)“, und der Verweis in Wettkampfdateien">
+            Kürzel
+          </th>
           <th>Beschreibung</th>
           <th>Disziplin</th>
           <th title="Die Kategorien, deren Küren zusammen gewertet werden">
             Kategorien
           </th>
-          <th title="Die Finals, deren Plätze dieser Vorlauf füllt">Finals</th>
+          <th title="Die Finals, deren Plätze diese Vorlaufklasse füllt">Finals</th>
+          <th
+            title="Gemeldete Küren (ohne abgemeldete) und Mindestzahl für einen Vorlauf; mit weniger Küren starten sie direkt im Finale"
+          >
+            Vorlauf
+          </th>
           <th class="actions" aria-label="Aktionen"></th>
         </tr>
       </thead>
       <tbody>
         ${repeat(
           heats,
-          (heat) => heat.name,
+          (heat) => heat.id,
           (heat) =>
-            this.editing?.original?.name === heat.name
+            this.editing?.original?.id === heat.id
               ? this.renderEditRow(this.editing.draft, heat)
               : this.renderRow(heat),
         )}
@@ -209,7 +258,7 @@ export default class CupAdminHeats extends LitElement {
         ${
           heats.length === 0 && !this.editing
             ? html`<tr>
-              <td colspan=${COLUMNS} class="empty">Noch keine Vorläufe.</td>
+              <td colspan=${COLUMNS} class="empty">Noch keine Vorlaufklassen.</td>
             </tr>`
             : nothing
         }
@@ -221,6 +270,7 @@ export default class CupAdminHeats extends LitElement {
     const locked = this.busy || this.editing !== null;
     return html`<tr>
       <td><b>${heat.name}</b></td>
+      <td><code>${heat.code}</code></td>
       <td class="desc">${heat.description ?? ""}</td>
       <td>
         ${
@@ -246,10 +296,11 @@ export default class CupAdminHeats extends LitElement {
       <td>
         ${
           heat.finals.length
-            ? heat.finals.join(", ")
+            ? heat.finals.map((f) => f.name).join(", ")
             : html`<span class="muted">keins</span>`
         }
       </td>
+      <td>${this.renderVorlauf(heat)}</td>
       <td class="actions">
         ${
           can(this.user, "plan_competition")
@@ -257,7 +308,7 @@ export default class CupAdminHeats extends LitElement {
                   class="icon-btn primary"
                   title=${this.editing ? "Erst speichern oder abbrechen" : "Bearbeiten"}
                   aria-label="Bearbeiten"
-                  data-name=${heat.name}
+                  data-id=${heat.id}
                   ?disabled=${locked}
                   @click=${this.onEdit}
                 >
@@ -271,7 +322,7 @@ export default class CupAdminHeats extends LitElement {
                       : "Löschen"
                   }
                   aria-label="Löschen"
-                  data-name=${heat.name}
+                  data-id=${heat.id}
                   ?disabled=${locked || heat.finals.length > 0}
                   @click=${this.onDelete}
                 >
@@ -283,17 +334,76 @@ export default class CupAdminHeats extends LitElement {
     </tr>`;
   }
 
+  /**
+   * The acts against the threshold, the suggestion to skip the Vorlauf
+   * (the organizer decides) and the switch.
+   */
+  private renderVorlauf(heat: Heat) {
+    const canPlan = can(this.user, "plan_competition");
+    const suggestion = heat.skip_suggested
+      ? `Nur ${heat.act_count} von mindestens ${heat.threshold} Küren: Vorschlag, den Vorlauf entfallen zu lassen`
+      : `${heat.act_count} Küren, mindestens ${heat.threshold} für einen Vorlauf`;
+    return html`<div class="vorlauf small">
+      <span title=${suggestion}
+        >${heat.act_count} / mind. ${heat.threshold} Küren</span
+      >
+      ${
+        heat.skip_suggested && !heat.skip
+          ? html`<span class="chip warn" title=${suggestion}
+              >Vorschlag: entfallen lassen</span
+            >`
+          : nothing
+      }
+      ${
+        heat.skip && !heat.skip_suggested
+          ? html`<span
+              class="chip info"
+              title="Genug Küren für einen Vorlauf; er entfällt trotzdem"
+              >genug Küren</span
+            >`
+          : nothing
+      }
+      <label
+        title=${
+          heat.skip
+            ? "Der Vorlauf entfällt: die Küren starten direkt im Finale, die Startblöcke der Kategorien bleiben im Zeitplan"
+            : "Den Vorlauf entfallen lassen: die Küren starten direkt im Finale"
+        }
+        ><input
+          type="checkbox"
+          data-id=${heat.id}
+          .checked=${heat.skip}
+          ?disabled=${!canPlan || this.busy || this.editing !== null}
+          @change=${this.onSkipToggle}
+        />
+        Vorlauf entfällt</label
+      >
+    </div>`;
+  }
+
   private renderEditRow(draft: HeatDraft, heat: Heat | null) {
     return html`<tr class="editing" @keydown=${this.onEditKeydown}>
       <td>
         <input
           class=${classMap({ inline: true, name: true, invalid: !draft.name.trim() })}
           type="text"
-          placeholder="z. B. E EM 1"
+          placeholder="z. B. Einzel männlich – Expert 1 (U17–U21)"
           aria-label="Name"
           required
           data-field="name"
           .value=${draft.name}
+          @input=${this.onDraftInput}
+        />
+      </td>
+      <td>
+        <input
+          class="inline code"
+          type="text"
+          placeholder=${heat ? heat.code : "z. B. E EM 1"}
+          title="Das Kürzel; leer: bei einer neuen Vorlaufklasse der Name, beim Bearbeiten bleibt es"
+          aria-label="Kürzel"
+          data-field="code"
+          .value=${draft.code}
           @input=${this.onDraftInput}
         />
       </td>
@@ -310,7 +420,27 @@ export default class CupAdminHeats extends LitElement {
       </td>
       <td></td>
       <td>${this.renderCategoryPicker(draft, heat)}</td>
-      <td>${heat?.finals.join(", ") ?? ""}</td>
+      <td>${heat?.finals.map((f) => f.name).join(", ") ?? ""}</td>
+      <td>
+        <input
+          class=${classMap({
+            inline: true,
+            threshold: true,
+            invalid:
+              draft.threshold.trim() !== "" &&
+              parseThreshold(draft.threshold) === undefined,
+          })}
+          type="number"
+          min="0"
+          step="1"
+          placeholder=${heat ? "" : "5/6"}
+          title="Mindestzahl an Küren für einen Vorlauf; leer bei einer neuen Vorlaufklasse: 6 für Junior Expert (bis U15), sonst 5"
+          aria-label="Mindestzahl Küren für einen Vorlauf"
+          data-field="threshold"
+          .value=${draft.threshold}
+          @input=${this.onDraftInput}
+        />
+      </td>
       <td class="actions">
         <button
           class="icon-btn ok"
@@ -335,7 +465,7 @@ export default class CupAdminHeats extends LitElement {
   }
 
   /**
-   * Checkboxes for the single and pair categories. Once one is checked, only
+   * Checkboxes for the categories. Once one is checked, only
    * those of its discipline can join; categories of other heats show which
    * heat they're in.
    */
@@ -344,7 +474,7 @@ export default class CupAdminHeats extends LitElement {
     if (!all) {
       return html`<span class="muted small">Lade Kategorien …</span>`;
     }
-    const categories = all.filter((category) => !isGroup(category));
+    const categories = all;
     const first = all.find((c) => draft.categories.includes(c.name));
     return html`<div
       class="categories small"
@@ -356,7 +486,7 @@ export default class CupAdminHeats extends LitElement {
         (category) => category.name,
         (category) => {
           const other =
-            category.heat && category.heat !== heat?.name
+            category.heat_id && category.heat_id !== heat?.id
               ? category.heat
               : null;
           const otherDiscipline =
@@ -368,7 +498,7 @@ export default class CupAdminHeats extends LitElement {
           return html`<label
             title=${
               other
-                ? `Gehört zum Vorlauf „${other}“`
+                ? `Gehört zur Vorlaufklasse „${other}“`
                 : otherDiscipline
                   ? "Andere Disziplin als die gewählten Kategorien"
                   : (category.description ?? category.name)
@@ -389,8 +519,8 @@ export default class CupAdminHeats extends LitElement {
     </div>`;
   }
 
-  private heatByName(name: string | undefined) {
-    return this.heats.value?.find((heat) => heat.name === name);
+  private heatById(id: string | undefined) {
+    return this.heats.value?.find((heat) => heat.id === id);
   }
 
   private clearError() {
@@ -403,7 +533,7 @@ export default class CupAdminHeats extends LitElement {
   }
 
   private onEdit(e: Event) {
-    const heat = this.heatByName((e.currentTarget as HTMLElement).dataset.name);
+    const heat = this.heatById((e.currentTarget as HTMLElement).dataset.id);
     if (!heat) {
       return;
     }
@@ -412,8 +542,10 @@ export default class CupAdminHeats extends LitElement {
       original: heat,
       draft: {
         name: heat.name,
+        code: heat.code,
         description: heat.description ?? "",
         categories: [...heat.categories],
+        threshold: String(heat.threshold),
       },
     };
   }
@@ -446,7 +578,11 @@ export default class CupAdminHeats extends LitElement {
       return;
     }
     const target = e.currentTarget as HTMLInputElement;
-    const field = target.dataset.field as "name" | "description";
+    const field = target.dataset.field as
+      | "name"
+      | "code"
+      | "description"
+      | "threshold";
     this.editing = {
       ...this.editing,
       draft: { ...this.editing.draft, [field]: target.value },
@@ -473,9 +609,19 @@ export default class CupAdminHeats extends LitElement {
       this.error = "Bitte einen Namen eingeben.";
       return;
     }
+    const threshold = parseThreshold(draft.threshold);
+    if (
+      threshold === undefined &&
+      (original !== null || draft.threshold.trim() !== "")
+    ) {
+      this.error =
+        "Bitte als Mindestzahl an Küren eine ganze Zahl ab 0 eingeben.";
+      return;
+    }
     const fields = {
       description: draft.description.trim() || null,
       categories: draft.categories,
+      threshold: threshold ?? null,
     };
     await this.command("Speichern fehlgeschlagen", async () => {
       if (original) {
@@ -483,29 +629,59 @@ export default class CupAdminHeats extends LitElement {
           client.editHeat({
             body: {
               ...fields,
-              name: original.name,
+              id: original.id,
               new_name: draft.name.trim(),
+              new_code: draft.code.trim() || null,
             },
           }),
         );
       } else {
         await unwrap(
-          client.addHeat({ body: { ...fields, name: draft.name.trim() } }),
+          client.addHeat({
+            body: {
+              ...fields,
+              name: draft.name.trim(),
+              code: draft.code.trim() || null,
+            },
+          }),
         );
       }
       this.editing = null;
     });
   }
 
+  private async onSkipToggle(e: Event) {
+    const target = e.currentTarget as HTMLInputElement;
+    const heat = this.heatById(target.dataset.id);
+    if (!heat || this.busy) {
+      target.checked = heat?.skip ?? false;
+      return;
+    }
+    const skip = target.checked;
+    await this.command(
+      "Umschalten fehlgeschlagen",
+      async () =>
+        await unwrap(client.setHeatSkip({ body: { id: heat.id, skip } })),
+    );
+    // A refused switch shows the stored state again: the binding wouldn't,
+    // as its value didn't change.
+    if (this.error) {
+      target.checked = heat.skip;
+    }
+  }
+
   private async onDelete(e: Event) {
-    const heat = this.heatByName((e.currentTarget as HTMLElement).dataset.name);
-    if (!heat || this.busy || !confirm(`Vorlauf „${heat.name}“ löschen?`)) {
+    const heat = this.heatById((e.currentTarget as HTMLElement).dataset.id);
+    if (
+      !heat ||
+      this.busy ||
+      !confirm(`Vorlaufklasse „${heat.name}“ löschen?`)
+    ) {
       return;
     }
     await this.command(
       "Löschen fehlgeschlagen",
-      async () =>
-        await unwrap(client.deleteHeat({ body: { name: heat.name } })),
+      async () => await unwrap(client.deleteHeat({ body: { id: heat.id } })),
     );
   }
 

@@ -63,6 +63,15 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
             .await;
         assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     }
+    // A heat whose Vorlauf is skipped.
+    let response = app
+        .post(
+            "/api/command/set_heat_skip",
+            json!({ "id": app.heat_id("E EW").await, "skip": true }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
     let file = export(&app, &admin).await;
     assert!(!file.contains("RSV Exportverein"), "{file}");
@@ -84,6 +93,9 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
         "{file}"
     );
     assert!(file.contains("heat = \"E EW\""), "{file}");
+    // With their thresholds, and whether the Vorlauf is skipped.
+    assert!(file.contains("threshold = 6"), "{file}");
+    assert!(file.contains("threshold = 5\nskip = true"), "{file}");
     assert!(!file.contains("label = \"U"), "{file}");
     CompetitionFile::parse(&file).unwrap();
 
@@ -97,6 +109,74 @@ async fn an_export_imports_into_a_fresh_database_and_exports_the_same() {
 
     // The exported file changes nothing in the database it came from.
     assert_eq!(import(&app, &admin, &file).await["outcome"], "unchanged");
+}
+
+#[tokio::test]
+async fn an_export_writes_name_and_code_and_refers_to_the_code() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let heat = app.heat_id("JE EW").await;
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": heat, "new_name": "Einzel weiblich – Junior Expert (U11–U15)",
+                "description": null, "categories": ["EWU11", "EWU13", "EWU15"],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let slot_groups = json!([
+        { "heat_id": heat, "count": 2 },
+        { "heat_id": app.heat_id("E EW").await, "count": 1 },
+    ]);
+    let response = app
+        .post(
+            "/api/command/edit_final",
+            json!({
+                "id": app.final_id("Finale EW").await, "new_name": "Finale Einzel weiblich",
+                "description": null, "act_type": "single", "is_single_male": false,
+                "einfahrzeit_seconds": 300, "act_duration_seconds": 180,
+                "judge_duration_seconds": 120, "slot_groups": slot_groups,
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    // Planned, unless the fixture's timeplan has it already.
+    if app.get("/api/query/list_finals", None).await.body[0]["timeplan_id"].is_null() {
+        let response = app
+            .post(
+                "/api/command/add_timeplan_entry",
+                json!({ "final_id": app.final_id("Finale EW").await }),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+
+    let file = export(&app, &admin).await;
+    assert!(
+        file.contains(
+            "[[heats]]\nname = \"Einzel weiblich – Junior Expert (U11–U15)\"\ncode = \"JE EW\""
+        ),
+        "{file}"
+    );
+    assert!(
+        file.contains("[[finals]]\nname = \"Finale Einzel weiblich\"\ncode = \"Finale EW\""),
+        "{file}"
+    );
+    // References use the code.
+    assert!(file.contains("heat = \"JE EW\""), "{file}");
+    assert!(file.contains("final = \"Finale EW\""), "{file}");
+    CompetitionFile::parse(&file).unwrap();
+
+    let fresh = TestApp::without_competition(common::in_memory_migrated().await).await;
+    let fresh_admin = fresh.create_admin().await;
+    import(&fresh, &fresh_admin, &file).await;
+    assert_eq!(export(&fresh, &fresh_admin).await, file);
 }
 
 #[tokio::test]
@@ -117,20 +197,20 @@ async fn only_admins_export() {
     }
 }
 
-/// A replace that drops Max Müller's registration for "Kleingruppe
-/// Expert"; returns the remap file's content.
+/// A replace that drops Max Müller's registration for the final "Finale
+/// EW"; returns the remap file's content.
 async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let categories = app
-        .get("/api/query/list_jury_categories", Some(admin))
+    let units = app
+        .get("/api/query/list_jury_units", Some(admin))
         .await
         .body;
-    let category = categories
+    let unit = units
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["name"] == "Kleingruppe Expert")
-        .unwrap()["id"]
+        .find(|u| u["name"] == "Finale EW")
+        .unwrap()
         .clone();
     let response = app
         .post(
@@ -143,15 +223,15 @@ async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
                 "is_trained": true,
                 "max_deployments": null,
                 "note": null,
-                "registrations": [{ "jury_category_id": category, "task": "technical" }],
+                "registrations": [{ "unit_kind": unit["kind"], "unit_id": unit["id"], "task": "technical" }],
             }),
             Some(&owner),
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let file = COMPETITION.replacen(
-        "[[jury_categories]]\nname = \"Kleingruppe Expert\"",
-        "[[jury_categories]]\nname = \"Kleingruppe Expert (neu)\"",
+        "[[finals]]\nname = \"Finale EW\"",
+        "[[finals]]\nname = \"Finale EW (neu)\"",
         1,
     );
     let body = import(app, admin, &file).await;
@@ -161,10 +241,10 @@ async fn replace_dropping_a_registration(app: &TestApp, admin: &str) -> String {
 async fn registrations(app: &TestApp) -> Vec<(String, String, String)> {
     sqlx::query_as(
         r#"
-        SELECT judge.lastname, jury_categories.name, judge_registration.task
+        SELECT judge.lastname, view_jury_unit.name, judge_registration.task
         FROM judge_registration
         JOIN judge ON judge.id = judge_registration.judge_id
-        JOIN jury_categories ON jury_categories.id = judge_registration.jury_category_id
+        JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
         "#,
     )
     .fetch_all(&app.db)
@@ -201,15 +281,12 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
     assert_eq!(result["registered"], 0);
     assert_eq!(result["unfilled"].as_array().unwrap().len(), 1);
 
-    let unknown = remap.replace("jury_category = \"\"", "jury_category = \"Gibt es nicht\"");
+    let unknown = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Gibt es nicht\"");
     let result = apply(unknown).await;
-    assert_eq!(result["not_found"][0]["problem"], "jury_category_not_found");
+    assert_eq!(result["not_found"][0]["problem"], "jury_unit_not_found");
 
     let stranger = remap
-        .replace(
-            "jury_category = \"\"",
-            "jury_category = \"Kleingruppe Expert (neu)\"",
-        )
+        .replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"")
         .replace("Müller", "Unbekannt");
     let result = apply(stranger).await;
     assert_eq!(result["not_found"][0]["problem"], "judge_not_found");
@@ -218,10 +295,7 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
         "Unbekannt"
     );
 
-    let filled = remap.replace(
-        "jury_category = \"\"",
-        "jury_category = \"Kleingruppe Expert (neu)\"",
-    );
+    let filled = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"");
     let result = apply(filled.clone()).await;
     assert_eq!(result["registered"], 1, "{result:?}");
     assert_eq!(result["not_found"], json!([]));
@@ -229,13 +303,65 @@ async fn a_filled_in_remap_file_registers_the_judges_again() {
         registrations(&app).await,
         vec![(
             "Müller".to_string(),
-            "Kleingruppe Expert (neu)".to_string(),
+            "Finale EW (neu)".to_string(),
             "technical".to_string()
         )]
     );
     // Applying it twice changes nothing.
     assert_eq!(apply(filled).await["registered"], 1);
     assert_eq!(registrations(&app).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_remap_file_does_not_register_for_a_jury_unit_that_takes_no_registrations() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let remap = replace_dropping_a_registration(&app, &admin).await;
+    // D6: the jury lead switched registrations for the final off.
+    let units = app
+        .get("/api/query/list_jury_units", Some(&admin))
+        .await
+        .body;
+    let unit = units
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["name"] == "Finale EW (neu)")
+        .unwrap()
+        .clone();
+    let response = app
+        .post(
+            "/api/command/edit_jury_unit",
+            json!({
+                "kind": unit["kind"],
+                "id": unit["id"],
+                "registrable": false,
+                "deployments": unit["deployments"],
+                "needed_technical": unit["needed_technical"],
+                "needed_performance": unit["needed_performance"],
+                "needed_dismounts": unit["needed_dismounts"],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+
+    let filled = remap.replace("jury_unit = \"\"", "jury_unit = \"final: Finale EW (neu)\"");
+    let response = app
+        .post(
+            "/api/command/apply_jury_remap",
+            json!({ "file": filled }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(response.body["registered"], 0);
+    assert_eq!(
+        response.body["not_found"][0]["problem"],
+        "jury_unit_not_registrable"
+    );
+    assert_eq!(registrations(&app).await, vec![]);
 }
 
 #[tokio::test]

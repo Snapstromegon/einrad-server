@@ -13,11 +13,11 @@ use std::{
 
 use axum::http::StatusCode;
 use common::{PASSWORD, TestApp, email_for};
-use futures_util::{SinkExt, StreamExt};
 use einrad_server::player::{
     PlaybackState, PlayerStatus, ToPlayer,
     client::{self, Options, Songs},
 };
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::{
     net::TcpStream,

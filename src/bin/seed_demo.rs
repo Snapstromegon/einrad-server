@@ -6,11 +6,11 @@
 use std::{path::PathBuf, str::FromStr};
 
 use clap::Parser;
-use eyre::eyre;
 use einrad_server::{
     config::{ConfigFile, DEFAULT_DATA_PATH, DEFAULT_DATABASE_URL},
     demo::DemoData,
 };
+use eyre::eyre;
 use sqlx::{migrate, sqlite::SqliteConnectOptions};
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;

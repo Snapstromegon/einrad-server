@@ -2,6 +2,7 @@ use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals::{self, FinalFields},
@@ -15,15 +16,19 @@ pub struct AddFinalResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddFinalBody {
-    /// Unique, e.g. "Finale 1 Einzel männlich".
+    /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
     name: String,
+    /// The short code, unique, for tight spaces and references in files,
+    /// e.g. "E EM". Without: the name.
+    #[serde(default)]
+    code: Option<String>,
     #[serde(flatten)]
     fields: FinalFields,
 }
 
 /// Add a final: reserved slots for the best riders of the heats.
 ///
-/// It isn't planned yet; add a timeplan entry with its `final_name` for that.
+/// It isn't planned yet; add a timeplan entry with its `final_id` for that.
 #[utoipa::path(
     post,
     tags=["command", "final"],
@@ -32,6 +37,7 @@ pub struct AddFinalBody {
     responses(
         (status=200, content_type="application/json", body=AddFinalResponse),
         (status=403, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -43,32 +49,28 @@ pub async fn add_final(
     Json(body): Json<AddFinalBody>,
 ) -> Result<Json<AddFinalResponse>, HttpError> {
     let name = finals::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
+    let code = crate::heats::normalize_code(body.code.as_deref(), &name);
     let fields = body.fields.normalize().map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    let taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?) as "taken!: bool""#,
-        name
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if taken {
-        return Err(HttpError::ErrorMessages(format!(
-            "Ein Finale „{name}“ gibt es schon."
-        )));
-    }
+    finals::check_free(&mut tx, None, &name, &code)
+        .await
+        .map_err(HttpError::Conflict)?;
 
     info!("Adding final {name:?}");
+    let id = Uuid::new_v4();
     sqlx::query!(
         r#"
         INSERT INTO finals (
-            name, description, act_type, is_single_male, "order",
+            id, name, code, description, act_type, is_single_male, "order",
             einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
         )
-        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), ?, ?, ?)
         "#,
+        id,
         name,
+        code,
         fields.description,
         fields.act_type,
         fields.is_single_male,
@@ -80,13 +82,14 @@ pub async fn add_final(
     .await?;
     finals::check_heats(
         &mut tx,
+        id,
         fields.act_type,
         fields.is_single_male,
         &fields.slot_groups,
     )
     .await
     .map_err(HttpError::ErrorMessages)?;
-    finals::replace_slots(&mut tx, &name, &fields.slot_groups).await?;
+    finals::replace_slots(&mut tx, id, &fields.slot_groups).await?;
 
     tx.commit().await?;
     Ok(Json(AddFinalResponse {}))

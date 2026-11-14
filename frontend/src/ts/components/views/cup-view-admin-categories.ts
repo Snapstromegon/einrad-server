@@ -495,9 +495,9 @@ export default class CupViewAdminCategories extends LitElement {
             Männlich
           </th>
           <th
-            title="Der Vorlauf, in dem die Kategorie gewertet wird; zuordnen unter „Vorläufe“"
+            title="Die Vorlaufklasse, in der die Kategorie gewertet wird; zuordnen unter „Vorlaufklassen“"
           >
-            Vorlauf
+            Vorlaufklasse
           </th>
           <th
             class="num"
@@ -723,7 +723,7 @@ export default class CupViewAdminCategories extends LitElement {
         <select
           class="inline"
           aria-label="Typ"
-          title=${heat ? `Im Vorlauf „${heat}“ bleibt der Typ` : nothing}
+          title=${heat ? `In der Vorlaufklasse „${heat}“ bleibt der Typ` : nothing}
           ?disabled=${!!heat}
           data-field="act_type"
           @change=${this.onDraftInput}
@@ -747,7 +747,7 @@ export default class CupViewAdminCategories extends LitElement {
           aria-label="Männlich"
           title=${
             heat
-              ? `Im Vorlauf „${heat}“ bleibt das Geschlecht`
+              ? `In der Vorlaufklasse „${heat}“ bleibt das Geschlecht`
               : single
                 ? "Männlich"
                 : "nur für Einzelküren"
@@ -1136,7 +1136,7 @@ export default class CupViewAdminCategories extends LitElement {
           earliest_start_time: start,
           kind: next.kind,
           category: next.category ?? null,
-          final_name: next.final_name ?? null,
+          final_id: next.final_id ?? null,
           label: next.label ?? null,
           duration_seconds: next.duration_seconds ?? null,
           einfahrzeit_seconds: next.einfahrzeit_seconds ?? null,

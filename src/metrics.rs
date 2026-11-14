@@ -356,7 +356,9 @@ impl Metrics {
         let by_category = sqlx::query!(
             r#"
             SELECT category as "category!", COUNT(*) as "count!: i64"
-            FROM view_act WHERE category IS NOT NULL GROUP BY category
+            FROM view_act
+            WHERE category IS NOT NULL AND withdrawn_at IS NULL
+            GROUP BY category
             "#
         )
         .fetch_all(db)

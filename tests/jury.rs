@@ -1,5 +1,6 @@
 //! Integration tests for the jury registration (#225): the feature flag, the
-//! jury rules, jury categories, judges, the obligation and the Juryplan.
+//! jury rules, jury units (heats and finals), judges, the obligation and the
+//! Juryplan.
 
 mod common;
 
@@ -73,7 +74,7 @@ async fn the_competitions_feature_applies_on_the_next_request() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let admin = app.create_admin().await;
-    let categories = "/api/query/list_jury_categories";
+    let categories = "/api/query/list_jury_units";
     assert_eq!(
         app.get(categories, Some(&admin)).await.status,
         StatusCode::NOT_FOUND
@@ -113,28 +114,27 @@ async fn the_competition_can_turn_off_what_the_build_default_turns_on() {
     common::set_jury_registration(&app.db, Some(false)).await;
     assert_eq!(system_status(&app, None).await["jury_registration"], false);
     assert_eq!(
-        app.get("/api/query/list_jury_categories", Some(&admin))
+        app.get("/api/query/list_jury_units", Some(&admin))
             .await
             .status,
         StatusCode::NOT_FOUND
     );
 }
 
-// ---------- Jury categories (#227) ----------
+// ---------- Jury units (#227, #347) ----------
 
-async fn jury_categories(app: &TestApp, cookie: &str) -> Vec<Value> {
-    let response = app
-        .get("/api/query/list_jury_categories", Some(cookie))
-        .await;
+async fn jury_units(app: &TestApp, cookie: &str) -> Vec<Value> {
+    let response = app.get("/api/query/list_jury_units", Some(cookie)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     response.body.as_array().unwrap().clone()
 }
 
-fn category_body(name: &str, deployments: i64, day: Option<&str>) -> Value {
+fn unit_body(unit: &Value, deployments: i64) -> Value {
     json!({
-        "name": name,
+        "kind": unit["kind"],
+        "id": unit["id"],
+        "registrable": true,
         "deployments": deployments,
-        "day": day,
         "needed_technical": 5,
         "needed_performance": 5,
         "needed_dismounts": 3,
@@ -142,133 +142,160 @@ fn category_body(name: &str, deployments: i64, day: Option<&str>) -> Value {
 }
 
 #[tokio::test]
-async fn jury_categories_are_seeded_from_the_config_in_order() {
+async fn every_heat_and_final_is_a_jury_unit_in_timeplan_order() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
-    let categories = jury_categories(&app, &owner).await;
-    let summary: Vec<Value> = categories
+    let units = jury_units(&app, &owner).await;
+    let summary: Vec<Value> = units
         .iter()
-        .map(|c| {
+        .map(|u| {
             json!([
-                c["name"],
-                c["deployments"],
-                c["day"],
-                c["needed_technical"],
-                c["needed_performance"],
-                c["needed_dismounts"],
+                u["kind"],
+                u["name"],
+                u["deployments"],
+                u["day"],
+                u["registrable"],
+                u["needed_technical"],
+                u["needed_performance"],
+                u["needed_dismounts"],
             ])
         })
         .collect();
+    // The heats run in the timeplan on the first day, the final isn't
+    // planned yet: no day, and it comes last.
     assert_eq!(
         summary,
         vec![
-            json!(["Einzel W – Junior Expert Vorlauf", 2, null, 5, 5, 3]),
-            json!(["Finale 1 EW", 1, "2027-06-06", 5, 5, 3]),
-            json!(["Kleingruppe Expert", 1, null, 3, 3, 2]),
+            json!(["heat", "JE EW", 2, "2027-06-05", true, 5, 5, 3]),
+            json!(["heat", "E EW", 2, "2027-06-05", true, 5, 5, 3]),
+            json!(["final", "Finale EW", 1, null, true, 3, 3, 2]),
         ]
     );
 
-    let anonymous = app.get("/api/query/list_jury_categories", None).await;
+    let anonymous = app.get("/api/query/list_jury_units", None).await;
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
-async fn seeding_keeps_jury_categories_changed_by_admins() {
+async fn units_say_their_discipline_and_the_final_a_heat_feeds() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
-    let admin = app.create_admin().await;
-    let first = jury_categories(&app, &admin).await[0]["id"].clone();
-    let response = app
-        .post(
-            "/api/command/delete_jury_category",
-            json!({ "id": first }),
-            Some(&admin),
-        )
-        .await;
-    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-
-    common::seed_db(&app.db, &common::open_registration()).await;
-    assert_eq!(jury_categories(&app, &admin).await.len(), 2);
+    let (owner, _) = app.create_club_owner("Owner", "RSV").await;
+    // A heat that feeds no final, one that has no categories yet.
+    sqlx::query("INSERT INTO heats (id, name, code) VALUES (x'aa000000000000000000000000000001', 'Paare', 'PA'), (x'aa000000000000000000000000000002', 'Leer', 'LE')")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE categories SET heat_id = x'aa000000000000000000000000000001' WHERE name = 'PU11'",
+    )
+    .execute(&app.db)
+    .await
+    .unwrap();
+    let units = jury_units(&app, &owner).await;
+    let final_id = units.iter().find(|u| u["kind"] == "final").unwrap()["id"].clone();
+    let summary: Vec<Value> = units
+        .iter()
+        .map(|u| json!([u["name"], u["act_type"], u["final_id"]]))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            json!(["JE EW", "single", final_id]),
+            json!(["E EW", "single", final_id]),
+            json!(["Paare", "pair", null]),
+            json!(["Leer", null, null]),
+            json!(["Finale EW", "single", null]),
+        ]
+    );
 }
 
 #[tokio::test]
-async fn admins_manage_jury_categories() {
+async fn the_day_of_a_unit_follows_the_timeplan() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    // E EW (EWU17) starts on the second day, JE EW (EWU11) on the first.
+    sqlx::query(
+        "UPDATE timeplan SET earliest_start_time = '2027-06-06T09:00:00+02:00' WHERE category = 'EWU17'",
+    )
+    .execute(&app.db)
+    .await
+    .unwrap();
+    // The final's block on the second day, too.
+    sqlx::query(
+        "INSERT INTO timeplan (kind, final_id, position, earliest_start_time) \
+         VALUES ('acts', (SELECT id FROM finals WHERE name = 'Finale EW'), \
+         (SELECT MAX(position) + 1 FROM timeplan), '2027-06-06T15:00:00+02:00')",
+    )
+    .execute(&app.db)
+    .await
+    .unwrap();
+    let units = jury_units(&app, &admin).await;
+    let days: Vec<Value> = units.iter().map(|u| json!([u["name"], u["day"]])).collect();
+    assert_eq!(
+        days,
+        vec![
+            json!(["JE EW", "2027-06-05"]),
+            json!(["E EW", "2027-06-06"]),
+            json!(["Finale EW", "2027-06-06"]),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_jury_lead_changes_the_settings_of_a_unit() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
     let (owner, _) = app.create_club_owner("Owner", "RSV").await;
+    let units = jury_units(&app, &admin).await;
+    let heat = &units[0];
 
-    let body = category_body("Paar – Expert 1 Vorlauf", 2, Some("2027-06-05"));
     let forbidden = app
-        .post("/api/command/add_jury_category", body.clone(), Some(&owner))
+        .post(
+            "/api/command/edit_jury_unit",
+            unit_body(heat, 3),
+            Some(&owner),
+        )
         .await;
     assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
-    let added = app
-        .post("/api/command/add_jury_category", body, Some(&admin))
-        .await;
-    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
-    let id = added.body["id"].clone();
 
-    let mut edit = category_body("Paar – Expert 1 Vorlauf", 4, None);
-    edit["id"] = id.clone();
+    let mut body = unit_body(heat, 3);
+    body["needed_technical"] = json!(7);
     let edited = app
-        .post("/api/command/edit_jury_category", edit, Some(&admin))
+        .post("/api/command/edit_jury_unit", body, Some(&admin))
         .await;
     assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
+    let changed = &jury_units(&app, &admin).await[0];
+    assert_eq!(changed["deployments"], 3);
+    assert_eq!(changed["needed_technical"], 7);
 
-    // New ones go to the end; the order can be set as a whole.
-    let mut ids: Vec<Value> = jury_categories(&app, &admin)
-        .await
-        .iter()
-        .map(|c| c["id"].clone())
-        .collect();
-    assert_eq!(ids.last(), Some(&id));
-    ids.reverse();
-    let reordered = app
+    // Switched off, nobody can register for it.
+    let mut off = unit_body(heat, 3);
+    off["registrable"] = json!(false);
+    app.post("/api/command/edit_jury_unit", off, Some(&admin))
+        .await;
+    let changed = &jury_units(&app, &admin).await[0];
+    assert_eq!(changed["registrable"], false);
+    assert_eq!(changed["registrable_setting"], false);
+
+    // Negative numbers and unknown units are refused.
+    let negative = app
         .post(
-            "/api/command/set_jury_category_order",
-            json!({ "ids": ids }),
+            "/api/command/edit_jury_unit",
+            unit_body(heat, -1),
             Some(&admin),
         )
         .await;
-    assert_eq!(reordered.status, StatusCode::OK, "{:?}", reordered.body);
-    let categories = jury_categories(&app, &admin).await;
-    assert_eq!(categories[0]["id"], id);
-    assert_eq!(categories[0]["deployments"], 4);
-    assert_eq!(categories[0]["day"], Value::Null);
-
-    // The order must name every category exactly once.
-    let partial = app
-        .post(
-            "/api/command/set_jury_category_order",
-            json!({ "ids": [id] }),
-            Some(&admin),
-        )
+    assert!(!negative.status.is_success());
+    let mut unknown = unit_body(heat, 2);
+    unknown["id"] = json!(Uuid::new_v4());
+    let unknown = app
+        .post("/api/command/edit_jury_unit", unknown, Some(&admin))
         .await;
-    assert!(!partial.status.is_success());
-}
-
-#[tokio::test]
-async fn jury_categories_are_validated() {
-    let db = common::in_memory_migrated().await;
-    let app = TestApp::new(db).await;
-    let admin = app.create_admin().await;
-    for body in [
-        // The event runs from 2027-06-05 to 2027-06-06.
-        category_body("Zu früh", 2, Some("2027-06-04")),
-        category_body("Zu spät", 2, Some("2027-06-07")),
-        category_body("  ", 2, None),
-        category_body("Negativ", -1, None),
-        // Names are unique.
-        category_body("Finale 1 EW", 1, None),
-    ] {
-        let response = app
-            .post("/api/command/add_jury_category", body.clone(), Some(&admin))
-            .await;
-        assert!(!response.status.is_success(), "{body}: {:?}", response.body);
-    }
-    assert_eq!(jury_categories(&app, &admin).await.len(), 3);
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -276,24 +303,24 @@ async fn jury_endpoints_dont_exist_without_the_flag() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
     let admin = app.create_admin().await;
-    let list = app
-        .get("/api/query/list_jury_categories", Some(&admin))
-        .await;
+    let list = app.get("/api/query/list_jury_units", Some(&admin)).await;
     assert_eq!(list.status, StatusCode::NOT_FOUND);
-    let add = app
+    let edit = app
         .post(
-            "/api/command/add_jury_category",
-            category_body("Neu", 2, None),
+            "/api/command/edit_jury_unit",
+            json!({
+                "kind": "heat", "id": Uuid::new_v4(), "registrable": true, "deployments": 2,
+                "needed_technical": 5, "needed_performance": 5, "needed_dismounts": 3,
+            }),
             Some(&admin),
         )
         .await;
-    assert_eq!(add.status, StatusCode::NOT_FOUND);
+    assert_eq!(edit.status, StatusCode::NOT_FOUND);
 }
 
 // ---------- Judges (#228) ----------
 
-/// Body for `add_club_judge`; `registrations` are (jury category index in
-/// the seeded order, task).
+/// Body for `add_club_judge`; `registrations` are (jury unit, task).
 fn judge_body(
     club_id: Uuid,
     firstname: &str,
@@ -311,7 +338,7 @@ fn judge_body(
         "note": null,
         "registrations": registrations
             .iter()
-            .map(|(category, task)| json!({ "jury_category_id": category, "task": task }))
+            .map(|(unit, task)| json!({ "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task }))
             .collect::<Vec<_>>(),
     })
 }
@@ -319,12 +346,10 @@ fn judge_body(
 /// Born so that the judge is 30 on the first competition day.
 const ADULT: &str = "1997-01-01T00:00:00.000Z";
 
+/// The jury units: the heats "JE EW" and "E EW" (2 deployments each), then
+/// the final "Finale EW" (1).
 async fn category_ids(app: &TestApp, cookie: &str) -> Vec<Value> {
-    jury_categories(app, cookie)
-        .await
-        .iter()
-        .map(|c| c["id"].clone())
-        .collect()
+    jury_units(app, cookie).await
 }
 
 async fn add_judge(app: &TestApp, cookie: &str, body: Value) -> TestResponse {
@@ -390,7 +415,7 @@ async fn clubs_add_edit_and_delete_judges() {
     assert_eq!(anna["note"], Value::Null);
     assert_eq!(
         anna["registrations"],
-        json!([{ "jury_category_id": ids[2], "task": "dismounts" }])
+        json!([{ "unit_kind": ids[2]["kind"], "unit_id": ids[2]["id"], "task": "dismounts", "flagged": false }])
     );
 
     let deleted = app
@@ -511,9 +536,12 @@ async fn judges_are_validated() {
                 "Unbekannt",
                 ADULT,
                 true,
-                &[(&json!(Uuid::new_v4()), "technical")],
+                &[(
+                    &json!({ "kind": "heat", "id": Uuid::new_v4() }),
+                    "technical",
+                )],
             ),
-            "unknown category",
+            "unknown unit",
         ),
     ] {
         let response = add_judge(&app, &owner, body).await;
@@ -581,40 +609,6 @@ async fn judges_are_validated() {
 }
 
 #[tokio::test]
-async fn jury_categories_with_registered_judges_cannot_be_deleted() {
-    let db = common::in_memory_migrated().await;
-    let app = TestApp::new(db).await;
-    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
-    let admin = app.create_admin().await;
-    let ids = category_ids(&app, &owner).await;
-    let added = add_judge(
-        &app,
-        &owner,
-        judge_body(club_id, "Anna", ADULT, true, &[(&ids[0], "technical")]),
-    )
-    .await;
-    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
-
-    let delete = |id: &Value| json!({ "id": id });
-    let refused = app
-        .post(
-            "/api/command/delete_jury_category",
-            delete(&ids[0]),
-            Some(&admin),
-        )
-        .await;
-    assert!(!refused.status.is_success(), "{:?}", refused.body);
-    let allowed = app
-        .post(
-            "/api/command/delete_jury_category",
-            delete(&ids[1]),
-            Some(&admin),
-        )
-        .await;
-    assert_eq!(allowed.status, StatusCode::OK, "{:?}", allowed.body);
-}
-
-#[tokio::test]
 async fn judge_endpoints_dont_exist_without_the_flag() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::without_jury_registration(db).await;
@@ -675,7 +669,7 @@ async fn clubs_owe_a_fee_for_missing_einsaetze() {
         json!({ "start_fees": 45.0, "jury_fee": 56.0, "total": 101.0, "waived": 0.0 })
     );
 
-    // A heat (2) and a final (1); several tasks in one category count once.
+    // A heat (2) and a final (1); several tasks in one unit count once.
     let anna = judge_body(
         club_id,
         "Anna",
@@ -684,7 +678,7 @@ async fn clubs_owe_a_fee_for_missing_einsaetze() {
         &[
             (&ids[0], "technical"),
             (&ids[0], "performance"),
-            (&ids[1], "technical"),
+            (&ids[2], "technical"),
         ],
     );
     assert_eq!(add_judge(&app, &owner, anna).await.status, StatusCode::OK);
@@ -707,7 +701,7 @@ async fn clubs_owe_a_fee_for_missing_einsaetze() {
     assert_eq!(jury["missing"], 3);
     assert_eq!(jury["fee"], 21.0);
 
-    // Per judge: what their categories are worth, and what counts of it.
+    // Per judge: what their units are worth, and what counts of it.
     let judges = club_judges(&app, &owner, club_id).await;
     let per_judge: Vec<Value> = judges
         .iter()
@@ -776,7 +770,7 @@ async fn dismount_registrations_do_not_credit_mandatory_einsaetze() {
                 judge["counted_deployments"],
             ]))
             .collect::<Vec<_>>(),
-        vec![json!(["Anna", 4, 1]), json!(["Dina", 2, 0])]
+        vec![json!(["Anna", 5, 1]), json!(["Dina", 2, 0])]
     );
 }
 
@@ -864,26 +858,24 @@ async fn kueren_count_like_the_start_fee() {
 }
 
 #[tokio::test]
-async fn changing_a_categorys_einsaetze_changes_every_club() {
+async fn changing_a_units_einsaetze_changes_every_club() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let (owner, club_id) = club_with_singles(&app, 1).await;
     let admin = app.create_admin().await;
-    let categories = jury_categories(&app, &admin).await;
-    let anna = judge_body(
-        club_id,
-        "Anna",
-        ADULT,
-        true,
-        &[(&categories[0]["id"], "technical")],
-    );
+    let units = jury_units(&app, &admin).await;
+    let anna = judge_body(club_id, "Anna", ADULT, true, &[(&units[0], "technical")]);
     assert_eq!(add_judge(&app, &owner, anna).await.status, StatusCode::OK);
     assert_eq!(club(&app, &owner).await["jury"]["registered"], 2);
 
-    let mut edit = category_body("Einzel W – Junior Expert Vorlauf", 4, None);
-    edit["id"] = categories[0]["id"].clone();
-    app.post("/api/command/edit_jury_category", edit, Some(&admin))
+    let edited = app
+        .post(
+            "/api/command/edit_jury_unit",
+            unit_body(&units[0], 4),
+            Some(&admin),
+        )
         .await;
+    assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
     let jury = club(&app, &owner).await["jury"].clone();
     assert_eq!(jury["registered"], 4);
     assert_eq!(jury["fee"], 0.0);
@@ -910,8 +902,8 @@ async fn plan(app: &TestApp, cookie: &str, club_id: Option<Uuid>) -> TestRespons
     app.get(&uri, Some(cookie)).await
 }
 
-fn assignment(judge: &Value, category: &Value, task: &str) -> Value {
-    json!({ "judge_id": judge, "jury_category_id": category, "task": task })
+fn assignment(judge: &Value, unit: &Value, task: &str) -> Value {
+    json!({ "judge_id": judge, "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task })
 }
 
 #[tokio::test]
@@ -1000,7 +992,7 @@ async fn admins_assign_judges_and_publish_the_plan() {
     let removed = app
         .post(
             "/api/command/unassign_judge",
-            json!({ "judge_id": anna, "jury_category_id": ids[0] }),
+            json!({ "judge_id": anna, "unit_id": ids[0]["id"] }),
             Some(&admin),
         )
         .await;
@@ -1060,7 +1052,7 @@ async fn assignments_follow_the_jury_rules() {
         .await;
     assert_eq!(counter.status, StatusCode::OK, "{:?}", counter.body);
 
-    // One task per judge and category.
+    // One task per judge and unit.
     app.post(
         "/api/command/assign_judge",
         assignment(&anna, &ids[0], "technical"),
@@ -1076,11 +1068,11 @@ async fn assignments_follow_the_jury_rules() {
         .await;
     assert!(!second.status.is_success());
 
-    // A category with assignments can't be deleted; a judge can.
+    // A heat with assignments can't be deleted; a judge can.
     let refused = app
         .post(
-            "/api/command/delete_jury_category",
-            json!({ "id": ids[0] }),
+            "/api/command/delete_heat",
+            json!({ "id": ids[0]["id"] }),
             Some(&admin),
         )
         .await;

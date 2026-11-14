@@ -8,8 +8,8 @@ use std::{net::SocketAddr, time::Duration};
 
 use axum::http::StatusCode;
 use common::TestApp;
-use futures_util::{SinkExt, StreamExt};
 use einrad_server::player::Timing;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::{
     net::TcpStream,
@@ -1526,7 +1526,7 @@ async fn a_published_final_plays_the_songs_of_its_placed_acts() {
         "duration_seconds": null,
         "label": null,
         "category": null,
-        "final_name": "Finale EW",
+        "final_id": app.final_id("Finale EW").await,
     });
     let response = app
         .post("/api/command/add_timeplan_entry", entry, Some(&admin))
@@ -1538,7 +1538,7 @@ async fn a_published_final_plays_the_songs_of_its_placed_acts() {
         .post(
             "/api/command/set_final_placement",
             json!({
-                "name": "Finale EW",
+                "id": app.final_id("Finale EW").await,
                 "slots": [
                     { "slot_id": slots[0]["id"], "act_id": berta },
                     { "slot_id": slots[1]["id"], "act_id": anna },
@@ -1560,7 +1560,7 @@ async fn a_published_final_plays_the_songs_of_its_placed_acts() {
     let response = app
         .post(
             "/api/command/set_final_published",
-            json!({ "name": "Finale EW", "published": true }),
+            json!({ "id": app.final_id("Finale EW").await, "published": true }),
             Some(&admin),
         )
         .await;

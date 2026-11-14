@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use axum::{Extension, Json};
 use tracing::instrument;
+use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -11,8 +12,21 @@ use crate::{
 };
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct Heat {
+pub struct HeatFinal {
+    id: Uuid,
+    /// The readable name.
     name: String,
+    /// The short code.
+    code: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct Heat {
+    id: Uuid,
+    /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
+    name: String,
+    /// The short code, unique, e.g. "E EM 1".
+    code: String,
     description: Option<String>,
     /// Its categories, in category order. Empty until the admin assigns
     /// them.
@@ -21,8 +35,18 @@ pub struct Heat {
     act_type: Option<ActType>,
     /// Whether its categories are singles male; `None` without categories.
     is_single_male: Option<bool>,
-    /// The finals whose slots it fills, by name.
-    finals: Vec<String>,
+    /// The finals whose slots it fills; at most one.
+    finals: Vec<HeatFinal>,
+    /// The fewest acts it needs for its Vorlauf.
+    threshold: i64,
+    /// Whether its Vorlauf is skipped: its acts start directly in its final.
+    skip: bool,
+    /// Its acts at the moment, without withdrawn ones.
+    act_count: i64,
+    /// Whether the tool suggests skipping its Vorlauf: it has fewer acts than
+    /// its threshold; never for groups, which start in their final. The
+    /// organizer decides.
+    skip_suggested: bool,
 }
 
 /// List the heats: groups of categories of one discipline whose best acts
@@ -44,12 +68,12 @@ pub async fn list_heats(
     let db = db.get().await.clone();
     // One read transaction, so the heats and their categories match.
     let mut tx = db.begin().await?;
-    let mut categories: HashMap<String, Vec<(String, Discipline)>> = HashMap::new();
+    let mut categories: HashMap<Uuid, Vec<(String, Discipline)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT heat as "heat!", name as "name!", act_type as "act_type: ActType", is_single_male
+        SELECT heat_id as "heat_id!: Uuid", name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories
-        WHERE heat IS NOT NULL
+        WHERE heat_id IS NOT NULL
         ORDER BY "order", name
         "#
     )
@@ -57,30 +81,45 @@ pub async fn list_heats(
     .await?
     {
         categories
-            .entry(row.heat)
+            .entry(row.heat_id)
             .or_default()
             .push((row.name, Discipline::new(row.act_type, row.is_single_male)));
     }
-    let mut finals: HashMap<String, Vec<String>> = HashMap::new();
+    let mut finals: HashMap<Uuid, Vec<HeatFinal>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT DISTINCT heat as "heat!", final_name
+        SELECT DISTINCT final_slots.heat_id as "heat_id!: Uuid", finals.id as "final_id!: Uuid", finals.name as "final_name!", finals.code as "final_code!"
         FROM final_slots
-        ORDER BY final_name
+        JOIN finals ON finals.id = final_slots.final_id
+        ORDER BY finals.name
         "#
     )
     .fetch_all(&mut *tx)
     .await?
     {
-        finals.entry(row.heat).or_default().push(row.final_name);
+        finals.entry(row.heat_id).or_default().push(HeatFinal {
+            id: row.final_id,
+            name: row.final_name,
+            code: row.final_code,
+        });
     }
     let rows = sqlx::query!(
         r#"
-        SELECT name as "name!", description
+        SELECT
+            id as "id!: Uuid",
+            name as "name!",
+            code as "code!",
+            description,
+            threshold,
+            skip,
+            (
+                SELECT COUNT(*) FROM view_act
+                WHERE withdrawn_at IS NULL AND category IN (SELECT name FROM categories WHERE heat_id = heats.id)
+            ) as "act_count!: i64"
         FROM heats
         ORDER BY
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name) IS NULL,
-            (SELECT MIN("order") FROM categories WHERE heat = heats.name),
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id) IS NULL,
+            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id),
             name
         "#
     )
@@ -91,15 +130,22 @@ pub async fn list_heats(
     Ok(Json(
         rows.into_iter()
             .map(|row| {
-                let categories = categories.remove(&row.name).unwrap_or_default();
+                let categories = categories.remove(&row.id).unwrap_or_default();
                 let discipline = categories.first().map(|(_, d)| *d);
                 Heat {
-                    finals: finals.remove(&row.name).unwrap_or_default(),
+                    finals: finals.remove(&row.id).unwrap_or_default(),
+                    id: row.id,
                     categories: categories.into_iter().map(|(name, _)| name).collect(),
                     act_type: discipline.map(|d| d.act_type),
                     is_single_male: discipline.map(|d| d.single_male),
                     name: row.name,
+                    code: row.code,
                     description: row.description,
+                    threshold: row.threshold,
+                    skip: row.skip,
+                    act_count: row.act_count,
+                    skip_suggested: !discipline.is_some_and(|d| d.is_group())
+                        && row.act_count < row.threshold,
                 }
             })
             .collect(),

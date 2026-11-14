@@ -24,22 +24,6 @@ reference = "Startgeld"
 # The Jury-Konzept's rules are the defaults.
 [competition.jury]
 
-# Seeded into an empty table, in this order.
-[[jury_categories]]
-name = "Einzel W – Junior Expert Vorlauf"
-
-[[jury_categories]]
-name = "Finale 1 EW"
-deployments = 1
-day = 2027-06-06
-
-[[jury_categories]]
-name = "Kleingruppe Expert"
-deployments = 1
-needed_technical = 3
-needed_performance = 3
-needed_dismounts = 2
-
 [[categories]]
 name = "EMU11"
 description = "Einzel Männlich U11"
@@ -461,6 +445,10 @@ einfahrzeit_minutes = 5
 act_duration_minutes = 3
 judge_duration_minutes = 2
 slots = [{ heat = "JE EW", count = 2 }, { heat = "E EW", count = 1 }]
+# Fewer judges than the default, to see the jury unit settings.
+jury_needed_technical = 3
+jury_needed_performance = 3
+jury_needed_dismounts = 2
 
 [[timeplan]]
 category = "EMU11"

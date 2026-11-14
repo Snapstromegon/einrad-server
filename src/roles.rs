@@ -113,7 +113,7 @@ permissions! {
     ViewClubContacts,
     /// Every rider with their club and starts, without birthdates.
     ViewRiders,
-    /// Jury categories, judges, the Juryplan and credited deployments.
+    /// Jury units, judges, the Juryplan and credited deployments.
     ManageJury,
     /// Finals placements and publishing them.
     ManageResults,

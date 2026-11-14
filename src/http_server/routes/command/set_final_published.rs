@@ -4,6 +4,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     finals,
@@ -19,7 +20,7 @@ pub struct SetFinalPublishedResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFinalPublishedBody {
     /// The final.
-    name: String,
+    id: Uuid,
     published: bool,
 }
 
@@ -52,19 +53,19 @@ pub async fn set_final_published(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
 
-    if !body.published && finals::has_started(&mut tx, &body.name).await? {
+    if !body.published && finals::has_started(&mut tx, body.id).await? {
         return Err(HttpError::ErrorMessages(
             "Das Finale hat schon begonnen, seine Platzierung bleibt veröffentlicht.".to_string(),
         ));
     }
     info!(
-        "Setting the placement of final {:?} published: {}",
-        body.name, body.published
+        "Setting the placement of final {} published: {}",
+        body.id, body.published
     );
     let result = sqlx::query!(
-        "UPDATE finals SET placement_published = ? WHERE name = ?",
+        "UPDATE finals SET placement_published = ? WHERE id = ?",
         body.published,
-        body.name
+        body.id
     )
     .execute(&mut *tx)
     .await?;
