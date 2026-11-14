@@ -32,6 +32,18 @@ _Avoid_: Partner, sponsor logo (for the entry)
 **Image source**:
 Where the logo, break image or a sponsor's logo comes from: an inline SVG, an upload, or a URL the server downloads at startup and on "Bilder aktualisieren". The server serves its local copy and keeps the last good one if a download fails (ADR 0010).
 
+**ID**:
+The identity of an entity (a category, heat, final, club, rider, act and so on): a UUIDv7 the server assigns when it is created, which never changes and which everything else refers to. It is not shown to people and not written in competition files (ADR 0018).
+_Avoid_: Key, number (for the identity)
+
+**Name**:
+The text people read for an entity, e.g. a category's or a heat's. It is editable, unique where the domain needs it, and never what other things refer to; renaming changes nothing else (ADR 0017, ADR 0018).
+_Avoid_: ID, key (for the name)
+
+**Code**:
+The short, editable form of a heat's or final's name, e.g. "E EM 1", for tight spaces and for references in competition files. Like a name, it is not the entity's identity (ADR 0017, ADR 0018).
+_Avoid_: ID, key (for the code)
+
 **System config**:
 The settings of the server itself (address, database, SMTP, secrets), from the config file, environment variables and CLI flags; separate from the competition, which lives in the database.
 _Avoid_: Config (for the competition), settings (for the competition's)
@@ -333,6 +345,7 @@ An award for each rider of the first three places of a final, and for each group
 
 ## Relationships
 
+- Every entity has one **ID**, which never changes; its **Name** and **Code** can be edited without touching anything that refers to it.
 - A member of the **Organizer team** holds one or more **Roles**; the same user can also be a **Club contact**, and neither widens the other.
 - A **Club** has **Riders**, registers **Acts** and **Judges**, and owes an **Amount due**.
 - A **Club mail** gives each selected **Club** its own mail, to its **Club contact** and **Club representative**; addresses the organizer types in get one each, with the data of the club they're assigned to.
