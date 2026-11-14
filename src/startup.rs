@@ -8,6 +8,8 @@ use eyre::eyre;
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 
+use db_sqlite::SqliteRepo;
+
 use crate::{
     config::Settings,
     http_server::{HttpServer, HttpServerOptions},
@@ -76,6 +78,7 @@ pub async fn build(
     ));
 
     let db = ReloadableSqlite::new(db, settings.database_url);
+    let repo = SqliteRepo::new(db.clone()).into_handle();
     // Songs uploaded while the server was down or before normalization existed.
     normalize::resume(&db, &settings.data_path).await?;
 
@@ -99,6 +102,7 @@ pub async fn build(
             competition_file_id: report.file_id.clone(),
         },
         db,
+        repo,
         jwt.clone(),
         Arc::new(mailer),
         player_hub,

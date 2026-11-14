@@ -1,12 +1,12 @@
 use crate::ids::UserId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::{Role, permit},
 };
 
@@ -39,7 +39,7 @@ pub struct SetUserRolesBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_user_roles(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Granted<permit::ManageUsers>,
     Json(body): Json<SetUserRolesBody>,
 ) -> Result<Json<SetUserRolesResponse>, HttpError> {
@@ -47,30 +47,9 @@ pub async fn set_user_roles(
     if auth.user_id == body.user_id && !keeps_admin {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-
-    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM users WHERE id = $1")
-        .bind(body.user_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
-    exists.ok_or(HttpError::NotFound)?;
-
-    sqlx::query("DELETE FROM user_roles WHERE user_id = $1")
-        .bind(body.user_id)
-        .execute(&mut *transaction)
-        .await?;
-    for role in &body.roles {
-        sqlx::query(
-            "INSERT INTO user_roles (user_id, role) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(body.user_id)
-        .bind(role)
-        .execute(&mut *transaction)
-        .await?;
+    if !db.set_roles(body.user_id, &body.roles).await? {
+        return Err(HttpError::NotFound);
     }
-
-    transaction.commit().await?;
     info!("Set the roles of user {} to {:?}", body.user_id, body.roles);
     Ok(Json(SetUserRolesResponse {}))
 }

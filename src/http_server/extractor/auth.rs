@@ -7,12 +7,12 @@ use axum::{
     response::IntoResponse,
 };
 use axum_extra::extract::CookieJar;
+use db_core::DbHandle;
 use tracing::error;
 
 use crate::{
     http_server::HttpError,
     jwt::{JWTClaims, JWTConfig},
-    reloadable_sqlite::ReloadableSqlite,
     roles::{self, Permission, Permit, Role},
 };
 
@@ -136,31 +136,20 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for Auth {
             )
             .map_err(|_| Error::JwtInvalid)?;
             let user_id = token_data.claims.sub();
-            let db = parts.extensions.get::<ReloadableSqlite>().unwrap();
-            let user = sqlx::query!(
-                r#"
-                SELECT email, name, club_id as "club_id: ClubId", email_verified FROM users WHERE id = $1
-                "#,
-                user_id,
-            )
-            .fetch_optional(&db.get().await.clone())
-            .await
-            .map_err(|e| {
-                error!("Couldn't load the user: {e}");
-                Error::Database
-            })?
-            .ok_or(Error::UserNotFound)?;
-            let roles = roles::roles_of(&db.get().await.clone(), user_id)
+            let db = parts.extensions.get::<DbHandle>().unwrap();
+            let user = db
+                .find_session_user(user_id)
                 .await
                 .map_err(|e| {
-                    error!("Couldn't load the user's roles: {e}");
+                    error!("Couldn't load the user: {e}");
                     Error::Database
-                })?;
+                })?
+                .ok_or(Error::UserNotFound)?;
             Ok(Some(Auth {
                 user_id,
                 email: user.email,
                 name: user.name,
-                roles,
+                roles: user.roles,
                 club_id: user.club_id,
                 email_verified: user.email_verified,
             }))

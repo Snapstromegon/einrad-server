@@ -1,4 +1,4 @@
-pub use db_core::ids;
+pub use db_core::{ids, roles};
 pub use db_sqlite::{db_backup, db_restore, reloadable_sqlite};
 
 pub mod act_type;
@@ -29,7 +29,6 @@ pub mod people;
 pub mod photos;
 pub mod player;
 pub mod rider_registration;
-pub mod roles;
 pub mod seed;
 pub mod setup;
 pub mod startup;

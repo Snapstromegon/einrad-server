@@ -1,20 +1,7 @@
-use crate::ids::{ActId, CategoryId, ClubId, RiderId, UserId};
-use crate::{
-    act_type::ActType,
-    normalize::NormalizationStatus,
-    roles::{Permission, Role},
-};
+use crate::ids::{ActId, CategoryId, ClubId, RiderId};
+use crate::{act_type::ActType, normalize::NormalizationStatus, roles::Permission};
 
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct User {
-    pub id: UserId,
-    pub name: String,
-    pub email: String,
-    pub email_verified: bool,
-    /// Sorted.
-    pub roles: Vec<Role>,
-    pub club_id: Option<ClubId>,
-}
+pub use db_core::users::User;
 
 /// The logged-in user with what their roles allow.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]

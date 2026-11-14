@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use clap::Parser;
+use db_sqlite::SqliteRepo;
 use einrad_server::{
     admin_user::insert_admin_user,
     config::{
@@ -88,7 +89,13 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     }
     if let Some(admin) = &admin {
         info!("Inserting admin user with email: {}", admin.email);
-        insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
+        insert_admin_user(
+            &SqliteRepo::from_pool(db.clone()),
+            &admin.name,
+            &admin.email,
+            &admin.password,
+        )
+        .await?;
     }
 
     if let Some(reason) = setup::pending_reason(&settings, &db).await? {

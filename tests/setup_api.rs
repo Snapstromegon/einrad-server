@@ -14,6 +14,7 @@ use axum::{
     http::{Method, Request, StatusCode},
 };
 use common::{TempDir, in_memory_migrated};
+use db_sqlite::SqliteRepo;
 use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
     setup::{SetupEnv, SetupState, TOKEN_FILE_NAME, pending_reason, router},
@@ -749,7 +750,7 @@ async fn a_broken_competition_file_fails_the_early_check() {
 async fn an_admin_from_the_config_is_inserted_even_without_the_rest() {
     let db = in_memory_migrated().await;
     let inserted = einrad_server::admin_user::insert_admin_user(
-        &db,
+        &SqliteRepo::from_pool(db.clone()),
         "Max Müller",
         "max@example.org",
         PASSWORD,
@@ -757,9 +758,13 @@ async fn an_admin_from_the_config_is_inserted_even_without_the_rest() {
     .await
     .unwrap();
     assert!(inserted);
-    assert!(einrad_server::admin_user::admin_exists(&db).await.unwrap());
+    assert!(
+        einrad_server::admin_user::admin_exists(&SqliteRepo::from_pool(db.clone()))
+            .await
+            .unwrap()
+    );
     let again = einrad_server::admin_user::insert_admin_user(
-        &db,
+        &SqliteRepo::from_pool(db.clone()),
         "Erika Beispiel",
         "erika@example.org",
         PASSWORD,

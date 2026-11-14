@@ -9,6 +9,7 @@ pub mod query;
 
 use axum::{Extension, Router, extract::Request, http::HeaderName, middleware, routing::get};
 use axum_embed::{FallbackBehavior, ServeEmbed};
+use db_core::DbHandle;
 use rust_embed::RustEmbed;
 use std::sync::Arc;
 use tower::ServiceBuilder;
@@ -124,6 +125,7 @@ fn status_description(status: &str) -> &'static str {
 pub fn get_api_router(
     http_options: Arc<HttpServerOptions>,
     db: ReloadableSqlite,
+    repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
     player_hub: Arc<PlayerHub>,
@@ -150,6 +152,7 @@ pub fn get_api_router(
         .route("/metrics", get(metrics::metrics_handler))
         .merge(SwaggerUi::new("/swagger").url("/openapi.json", openapi))
         .layer(Extension(db))
+        .layer(Extension(repo))
         .layer(Extension(mailer))
         .layer(Extension(jwt_config))
         .layer(Extension(http_options))
@@ -166,6 +169,7 @@ pub fn get_api_openapi() -> OpenApi {
 pub fn get_router(
     http_options: Arc<HttpServerOptions>,
     db: ReloadableSqlite,
+    repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
     player_hub: Arc<PlayerHub>,
@@ -211,6 +215,7 @@ pub fn get_router(
         .merge(get_api_router(
             http_options,
             db,
+            repo,
             mailer,
             jwt_config,
             player_hub,

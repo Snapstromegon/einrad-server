@@ -2,37 +2,23 @@
 //! first-run setup (ADR 0011).
 
 use crate::ids::UserId;
+use db_core::{Db, DbError};
 use password_auth::generate_hash;
-use sqlx::SqlitePool;
-
-use crate::roles::Role;
 
 /// Whether the database has an admin.
 ///
 /// # Errors
 /// If the database can't be read.
-pub async fn admin_exists(db: &SqlitePool) -> sqlx::Result<bool> {
-    let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
-        Role::Admin
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(count > 0)
+pub async fn admin_exists(db: &dyn Db) -> Result<bool, DbError> {
+    db.admin_exists().await
 }
 
 /// Whether a user with this email exists.
 ///
 /// # Errors
 /// If the database can't be read.
-pub async fn email_in_use(db: &SqlitePool, email: &str) -> sqlx::Result<bool> {
-    let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM users WHERE email = $1"#,
-        email
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(count > 0)
+pub async fn email_in_use(db: &dyn Db, email: &str) -> Result<bool, DbError> {
+    db.email_in_use(email).await
 }
 
 /// Inserts an admin with a verified email, unless the database already has
@@ -41,12 +27,12 @@ pub async fn email_in_use(db: &SqlitePool, email: &str) -> sqlx::Result<bool> {
 /// # Errors
 /// If the database can't be written.
 pub async fn insert_admin_user(
-    db: &SqlitePool,
+    db: &dyn Db,
     name: &str,
     email: &str,
     password: &str,
-) -> sqlx::Result<bool> {
-    if admin_exists(db).await? {
+) -> Result<bool, DbError> {
+    if db.admin_exists().await? {
         return Ok(false);
     }
     insert_admin_with_hash(db, name, email, &generate_hash(password)).await
@@ -58,11 +44,11 @@ pub async fn insert_admin_user(
 /// # Errors
 /// If the database can't be written, e.g. the email is taken.
 pub async fn insert_admin_with_hash(
-    db: &SqlitePool,
+    db: &dyn Db,
     name: &str,
     email: &str,
     hash: &str,
-) -> sqlx::Result<bool> {
+) -> Result<bool, DbError> {
     Ok(create_admin_with_hash(db, name, email, hash)
         .await?
         .is_some())
@@ -74,38 +60,10 @@ pub async fn insert_admin_with_hash(
 /// # Errors
 /// If the database can't be written, e.g. the email is taken.
 pub async fn create_admin_with_hash(
-    db: &SqlitePool,
+    db: &dyn Db,
     name: &str,
     email: &str,
     hash: &str,
-) -> sqlx::Result<Option<UserId>> {
-    let mut tx = db.begin().await?;
-    let admins = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
-        Role::Admin
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if admins > 0 {
-        return Ok(None);
-    }
-    let id = UserId::new();
-    sqlx::query!(
-        "INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, $2, true, $3, $4)",
-        id,
-        email,
-        name,
-        hash
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO user_roles (user_id, role) VALUES ($1, $2)",
-        id,
-        Role::Admin,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Some(id))
+) -> Result<Option<UserId>, DbError> {
+    db.create_admin(name, email, hash).await
 }

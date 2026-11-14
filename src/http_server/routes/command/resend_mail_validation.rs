@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     mailer::Mailer,
-    reloadable_sqlite::ReloadableSqlite,
     templates::VerifyMail,
 };
 use askama::Template;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use url::Url;
@@ -34,46 +33,26 @@ pub struct ResendMailValidationBody {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(mailer))]
+#[instrument(skip(mailer, db))]
 #[axum::debug_handler]
 pub async fn resend_mail_validation(
     Extension(mailer): Extension<Arc<Mailer>>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     Json(_body): Json<ResendMailValidationBody>,
 ) -> Result<Json<ResendMailValidationResponse>, HttpError> {
-    let db = db.get().await.clone();
-    // Drop the previous verification tokens
-    sqlx::query!(
-        r#"
-        DELETE FROM mail_verification WHERE user_id = $1
-        "#,
-        auth.user_id
-    )
-    .execute(&db)
-    .await?;
-    // Create a token for email verification
+    // Create a token for email verification; the previous ones are dropped
     let email_token = Uuid::new_v4();
-    let now = time::OffsetDateTime::now_utc();
-    sqlx::query!(
-        r#"
-        INSERT INTO mail_verification (id, user_id, created_at)
-        VALUES ($1, $2, $3)
-        "#,
-        email_token,
-        auth.user_id,
-        now
-    )
-    .execute(&db)
-    .await?;
+    db.replace_verification_token(auth.user_id, email_token)
+        .await?;
 
     let verify_link = Url::parse(&http_options.base_url)
         .expect("Invalid Base URL")
         .join(&format!("/verify_email?token={}", email_token))
         .expect("Invalid URL")
         .to_string();
-    let event_name = Competition::event_name(&db).await?;
+    let event_name = db.event_name().await?;
     mailer
         .send_text(
             &auth.email,

@@ -1,10 +1,9 @@
-use crate::ids::UserId;
 use crate::{
     http_server::{ClientError, HttpError},
-    reloadable_sqlite::ReloadableSqlite,
     utils::check_password,
 };
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use password_auth::generate_hash;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -36,40 +35,15 @@ pub struct PasswordResetBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn reset_password(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Json(body): Json<PasswordResetBody>,
 ) -> Result<Json<PasswordResetResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let user = sqlx::query!(
-        r#"
-        SELECT user_id as "user_id!: UserId" FROM password_resets WHERE id = $1
-        "#,
-        body.token
-    )
-    .fetch_optional(&db)
-    .await?;
-    if let Some(user) = user {
+    let user_id = db.find_password_reset(body.token).await?;
+    if let Some(user_id) = user_id {
         check_password(&body.new_password).map_err(HttpError::ErrorMessages)?;
-        // Update the password
+        // Update the password; the reset tokens go with it
         let password_hash = generate_hash(body.new_password);
-        sqlx::query!(
-            r#"
-            UPDATE users SET password = $1 WHERE id = $2
-            "#,
-            password_hash,
-            user.user_id
-        )
-        .execute(&db)
-        .await?;
-        // Drop the previous verification tokens
-        sqlx::query!(
-            r#"
-            DELETE FROM password_resets WHERE user_id = $1
-            "#,
-            user.user_id
-        )
-        .execute(&db)
-        .await?;
+        db.set_password(user_id, &password_hash).await?;
         Ok(Json(PasswordResetResponse {}))
     } else {
         Err(HttpError::NotFound)

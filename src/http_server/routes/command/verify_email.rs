@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::ids::UserId;
 use axum::{Extension, Json};
 use axum_extra::extract::CookieJar;
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -11,7 +12,6 @@ use uuid::Uuid;
 use crate::{
     http_server::{ClientError, HttpError},
     jwt::JWTConfig,
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -39,46 +39,21 @@ pub struct VerifyMailBody {
 #[instrument(skip(db, jwt_config))]
 #[axum::debug_handler]
 pub async fn verify_email(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Extension(jwt_config): Extension<Arc<JWTConfig>>,
     cookies: CookieJar,
     Json(body): Json<VerifyMailBody>,
 ) -> Result<(CookieJar, Json<VerifyMailResponse>), HttpError> {
     info!("Verifying email");
-    let db = db.get().await.clone();
-    let user = sqlx::query!(
-        r#"
-        SELECT user_id as "user_id!: UserId" FROM mail_verification WHERE id = $1
-        "#,
-        body.token
-    )
-    .fetch_optional(&db)
-    .await?;
-    info!("User ID: {:?}", user);
-    if let Some(user) = user {
-        sqlx::query!(
-            r#"UPDATE users SET email_verified = true WHERE id = $1"#,
-            user.user_id
-        )
-        .execute(&db)
-        .await?;
-        sqlx::query!(
-            r#"DELETE FROM mail_verification WHERE user_id = $1"#,
-            user.user_id
-        )
-        .execute(&db)
-        .await?;
-        info!("Found user: {:?}", user);
+    let user_id = db.verify_email(body.token).await?;
+    info!("User ID: {:?}", user_id);
+    if let Some(user_id) = user_id {
         Ok((
-            jwt_config
-                .add_jwt_cookie(cookies, user.user_id)
-                .map_err(|e| {
-                    tracing::error!("Failed to add JWT cookie: {:?}", e);
-                    HttpError::InvalidCredentials
-                })?,
-            Json(VerifyMailResponse {
-                user_id: user.user_id,
-            }),
+            jwt_config.add_jwt_cookie(cookies, user_id).map_err(|e| {
+                tracing::error!("Failed to add JWT cookie: {:?}", e);
+                HttpError::InvalidCredentials
+            })?,
+            Json(VerifyMailResponse { user_id }),
         ))
     } else {
         Err(HttpError::NotFound)

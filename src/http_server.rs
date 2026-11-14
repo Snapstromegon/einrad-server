@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{Json, response::IntoResponse};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::info;
 
@@ -26,6 +27,8 @@ pub enum HttpError {
     InternalServerError,
     #[error("Database error: {0}")]
     DBError(#[from] sqlx::Error),
+    #[error("Database error: {0}")]
+    Db(#[from] db_core::DbError),
     #[error("Mail error: {0}")]
     MailError(#[from] crate::mailer::MailError),
     #[error("{0}")]
@@ -75,6 +78,7 @@ impl From<HttpError> for ClientError {
             HttpError::NotFoundMessage(e) => ClientError::NotFoundMessage(e),
             HttpError::InternalServerError => ClientError::InternalServerError,
             HttpError::DBError(e) => ClientError::Generic(format!("Database error: {:?}", e)),
+            HttpError::Db(e) => ClientError::Generic(format!("Database error: {:?}", e)),
             HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
             HttpError::ErrorMessages(e) => ClientError::Generic(format!("{e:?}")),
             HttpError::Conflict(e) => ClientError::Conflict(e),
@@ -117,6 +121,7 @@ pub struct HttpServerOptions {
 
 pub struct HttpServer {
     db: ReloadableSqlite,
+    repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt: Arc<JWTConfig>,
     options: Arc<HttpServerOptions>,
@@ -128,6 +133,7 @@ impl HttpServer {
     pub fn new(
         options: HttpServerOptions,
         db: ReloadableSqlite,
+        repo: DbHandle,
         jwt: Arc<JWTConfig>,
         mailer: Arc<Mailer>,
         player_hub: Arc<PlayerHub>,
@@ -135,6 +141,7 @@ impl HttpServer {
     ) -> Self {
         Self {
             db,
+            repo,
             mailer,
             options: Arc::new(options),
             jwt,
@@ -148,6 +155,7 @@ impl HttpServer {
         routes::get_router(
             self.options.clone(),
             self.db.clone(),
+            self.repo.clone(),
             self.mailer.clone(),
             self.jwt.clone(),
             self.player_hub.clone(),

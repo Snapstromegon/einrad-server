@@ -1,15 +1,13 @@
 use std::sync::Arc;
 
-use crate::ids::UserId;
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions},
     mailer::Mailer,
-    reloadable_sqlite::ReloadableSqlite,
     templates::PasswordResetMail,
 };
 use askama::Template;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use url::Url;
@@ -37,53 +35,26 @@ pub struct RequestPasswordResetBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(mailer))]
+#[instrument(skip(mailer, db))]
 #[axum::debug_handler]
 pub async fn request_password_reset(
     Extension(mailer): Extension<Arc<Mailer>>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Json(body): Json<RequestPasswordResetBody>,
 ) -> Result<Json<RequestPasswordResetResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let user = sqlx::query!(
-        r#"
-        SELECT id as "id!: UserId", name FROM users WHERE email = $1
-        "#,
-        body.email
-    )
-    .fetch_optional(&db)
-    .await?;
+    let user = db.find_user_by_email(&body.email).await?;
     if let Some(user) = user {
-        // Drop the previous verification tokens
-        sqlx::query!(
-            r#"
-            DELETE FROM password_resets WHERE user_id = $1
-            "#,
-            user.id
-        )
-        .execute(&db)
-        .await?;
-        // Create a token for password reset
+        // Create a token for password reset; the previous ones are dropped
         let reset_token = Uuid::new_v4();
-        let now = time::OffsetDateTime::now_utc();
-        sqlx::query!(
-            r#"
-            INSERT INTO password_resets (id, user_id, created_at)
-            VALUES ($1, $2, $3)
-            "#,
-            reset_token,
-            user.id,
-            now
-        )
-        .execute(&db)
-        .await?;
+        db.replace_password_reset_token(user.id, reset_token)
+            .await?;
         let reset_link = Url::parse(&http_options.base_url)
             .expect("Invalid Base URL")
             .join(&format!("/reset_password?token={}", reset_token))
             .expect("Invalid URL")
             .to_string();
-        let event_name = Competition::event_name(&db).await?;
+        let event_name = db.event_name().await?;
         mailer
             .send_text(
                 &body.email,

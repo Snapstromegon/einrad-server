@@ -5,12 +5,24 @@
 
 use std::sync::Arc;
 
+pub mod auth;
 pub mod ids;
+pub mod roles;
+pub mod settings;
+pub mod users;
 
-/// What every database backend provides. The per-domain repository traits
-/// (#238) become supertraits of this one.
+pub use auth::AuthRepo;
+pub use settings::SettingsRepo;
+pub use users::UsersRepo;
+
+/// What every database backend provides: the per-domain repository traits
+/// (#238) as supertraits, plus the backend's own housekeeping.
+///
+/// The traits speak in domain types. They never expose a transaction, a pool
+/// or a driver type: one method is one unit of work, and the implementation
+/// decides how to make it atomic.
 #[async_trait::async_trait]
-pub trait Db: Send + Sync + 'static {
+pub trait Db: AuthRepo + UsersRepo + SettingsRepo + Send + Sync + 'static {
     /// Reopens the database after its file was replaced from the outside. A
     /// no-op for backends that have no file.
     async fn reload(&self) -> Result<(), DbError> {

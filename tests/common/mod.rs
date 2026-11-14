@@ -21,6 +21,7 @@ use axum::{
     body::Body,
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
+use db_sqlite::SqliteRepo;
 use einrad_server::ids::{ActId, CategoryId, ClubId, FinalId, HeatId, RiderId, UserId};
 use einrad_server::{
     config::CompetitionFile,
@@ -321,11 +322,13 @@ impl TestApp {
             competition_file_id: competition_file_id.map(Into::into),
         };
         let reloadable = ReloadableSqlite::new(db.clone(), db_url.to_string());
+        let repo = SqliteRepo::new(reloadable.clone()).into_handle();
         let player_hub = PlayerHub::new(reloadable.clone());
         let photos = Photos::new().unwrap();
         let router = get_api_router(
             Arc::new(options),
             reloadable,
+            repo,
             Arc::new(mailer),
             jwt.clone(),
             player_hub.clone(),
