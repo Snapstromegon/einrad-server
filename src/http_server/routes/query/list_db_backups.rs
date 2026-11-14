@@ -1,12 +1,11 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    db_backup,
-    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::db_backups::db_file},
-    reloadable_sqlite::ReloadableSqlite,
+    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::db_backups::backups},
     roles::permit,
 };
 
@@ -33,35 +32,22 @@ pub struct DbBackup {
         (status=403, content_type="application/json", body=ClientError),
         (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
+        (status=501, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_db_backups(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageBackups>,
 ) -> Result<Json<Vec<DbBackup>>, HttpError> {
-    let db_path = db_file(&db)?;
-    let mut backups = Vec::new();
-    for path in db_backup::list_backups(&db_path)? {
-        let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let Some(created) = db_backup::parse_backup_name(&db_path, filename) else {
-            continue;
-        };
-        let Ok(metadata) = std::fs::metadata(&path) else {
-            continue;
-        };
-        backups.push(DbBackup {
-            filename: filename.to_string(),
-            created_at: created
-                .format(time::macros::format_description!(
-                    "[year]-[month]-[day]T[hour]:[minute]:[second]"
-                ))
-                .expect("valid timestamp"),
-            size_bytes: metadata.len(),
-        });
-    }
-    backups.reverse();
+    let backups = backups(&repo)?
+        .list()?
+        .into_iter()
+        .map(|backup| DbBackup {
+            filename: backup.filename,
+            created_at: backup.created_at,
+            size_bytes: backup.size_bytes,
+        })
+        .collect();
     Ok(Json(backups))
 }

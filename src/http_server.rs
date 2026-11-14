@@ -5,10 +5,7 @@ use db_core::DbHandle;
 use serde::Serialize;
 use tracing::info;
 
-use crate::{
-    jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub,
-    reloadable_sqlite::ReloadableSqlite,
-};
+use crate::{jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub};
 
 pub mod extractor;
 pub mod routes;
@@ -26,8 +23,6 @@ pub enum HttpError {
     #[error("Internal server error")]
     InternalServerError,
     #[error("Database error: {0}")]
-    DBError(#[from] sqlx::Error),
-    #[error("Database error: {0}")]
     Db(#[from] db_core::DbError),
     #[error("Mail error: {0}")]
     MailError(#[from] crate::mailer::MailError),
@@ -39,6 +34,9 @@ pub enum HttpError {
     Conflict(String),
     #[error("Invalid credentials")]
     InvalidCredentials,
+    /// The backend can't do this (501), with a German message.
+    #[error("{0}")]
+    NotImplemented(String),
     #[error("Status code: {0}")]
     StatusCode(axum::http::StatusCode),
 }
@@ -77,6 +75,9 @@ pub enum ClientError {
     InternalServerError,
     #[error("Invalid credentials")]
     InvalidCredentials,
+    /// The database backend doesn't offer this; the message is German.
+    #[error("{0}")]
+    NotImplemented(String),
     #[error("{0}")]
     Generic(String),
     /// The request clashes with the current state; the message is German.
@@ -93,12 +94,12 @@ impl From<HttpError> for ClientError {
             HttpError::NotFound => ClientError::NotFound,
             HttpError::NotFoundMessage(e) => ClientError::NotFoundMessage(e),
             HttpError::InternalServerError => ClientError::InternalServerError,
-            HttpError::DBError(e) => ClientError::Generic(format!("Database error: {:?}", e)),
             HttpError::Db(e) => ClientError::Generic(format!("Database error: {:?}", e)),
             HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
             HttpError::ErrorMessages(e) => ClientError::Generic(format!("{e:?}")),
             HttpError::Conflict(e) => ClientError::Conflict(e),
             HttpError::InvalidCredentials => ClientError::InvalidCredentials,
+            HttpError::NotImplemented(e) => ClientError::NotImplemented(e),
             HttpError::StatusCode(code) => ClientError::StatusCode(code.as_u16()),
         }
     }
@@ -113,6 +114,7 @@ impl IntoResponse for ClientError {
                 Self::Generic(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Self::Conflict(_) => axum::http::StatusCode::CONFLICT,
                 Self::InvalidCredentials => axum::http::StatusCode::UNAUTHORIZED,
+                Self::NotImplemented(_) => axum::http::StatusCode::NOT_IMPLEMENTED,
                 Self::StatusCode(code) => axum::http::StatusCode::from_u16(*code).unwrap(),
             },
             Json(self),
@@ -136,7 +138,6 @@ pub struct HttpServerOptions {
 }
 
 pub struct HttpServer {
-    db: ReloadableSqlite,
     repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt: Arc<JWTConfig>,
@@ -148,7 +149,6 @@ pub struct HttpServer {
 impl HttpServer {
     pub fn new(
         options: HttpServerOptions,
-        db: ReloadableSqlite,
         repo: DbHandle,
         jwt: Arc<JWTConfig>,
         mailer: Arc<Mailer>,
@@ -156,7 +156,6 @@ impl HttpServer {
         photos: Arc<Photos>,
     ) -> Self {
         Self {
-            db,
             repo,
             mailer,
             options: Arc::new(options),
@@ -170,7 +169,6 @@ impl HttpServer {
     pub fn router(&self) -> axum::Router {
         routes::get_router(
             self.options.clone(),
-            self.db.clone(),
             self.repo.clone(),
             self.mailer.clone(),
             self.jwt.clone(),
@@ -258,7 +256,10 @@ mod tests {
 
     #[tokio::test]
     async fn database_errors_become_generic_500() {
-        let (status, body) = response_parts(HttpError::DBError(sqlx::Error::RowNotFound)).await;
+        let (status, body) = response_parts(HttpError::Db(db_core::DbError::Sqlx(
+            sqlx::Error::RowNotFound,
+        )))
+        .await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["type"], "Generic");
         assert!(

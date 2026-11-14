@@ -65,7 +65,6 @@ pub async fn build(
         ),
     }
 
-    let db = sqlite.reloadable();
     let repo = sqlite.into_handle();
     info!("Build JWT config");
     let jwt_algorithm = jsonwebtoken::Algorithm::HS512;
@@ -101,7 +100,6 @@ pub async fn build(
             metrics_token: settings.metrics_token,
             competition_file_id: report.file_id.clone(),
         },
-        db,
         repo,
         jwt.clone(),
         Arc::new(mailer),

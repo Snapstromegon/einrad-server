@@ -1,17 +1,16 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    db_backup, db_restore,
     http_server::{
         ClientError, HttpError, HttpServerOptions, extractor::auth::Granted,
-        routes::db_backups::db_file,
+        routes::db_backups::backups,
     },
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -29,7 +28,7 @@ pub struct CheckDbBackupResponse {
     /// needs `force` and applies them.
     pub pending_migrations: Vec<String>,
     /// Acts whose song file isn't in the data directory.
-    pub missing_songs: Vec<db_restore::MissingSong>,
+    pub missing_songs: Vec<db_core::acts::MissingSong>,
 }
 
 /// Check a backup before restoring it: blocking problems, pending
@@ -48,26 +47,22 @@ pub struct CheckDbBackupResponse {
         (status=404, content_type="application/json", body=ClientError),
         (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
+        (status=501, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, options))]
+#[instrument(skip(repo, options))]
 pub async fn check_db_backup(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
     _: Granted<permit::ManageBackups>,
     Query(query): Query<CheckDbBackupQuery>,
 ) -> Result<Json<CheckDbBackupResponse>, HttpError> {
-    let path = db_backup::resolve_backup(&db_file(&db)?, &query.filename)?;
-    let check = db_restore::check_backup(&path, &db_sqlite::MIGRATOR).await;
-    // Songs can only be listed from a readable database.
-    let missing_songs = if check.blocking.is_empty() {
-        db_restore::missing_songs_in_backup(&path, &options.data_path).await?
-    } else {
-        vec![]
-    };
+    let check = backups(&repo)?
+        .check(&query.filename, &options.data_path)
+        .await?;
     Ok(Json(CheckDbBackupResponse {
         blocking: check.blocking,
         pending_migrations: check.pending_migrations,
-        missing_songs,
+        missing_songs: check.missing_songs,
     }))
 }

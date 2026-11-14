@@ -33,7 +33,6 @@ use crate::{
     metrics,
     photos::Photos,
     player::{self, PlayerHub},
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 use super::HttpServerOptions;
@@ -124,7 +123,6 @@ fn status_description(status: &str) -> &'static str {
 
 pub fn get_api_router(
     http_options: Arc<HttpServerOptions>,
-    db: ReloadableSqlite,
     repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
@@ -151,7 +149,6 @@ pub fn get_api_router(
         .route_layer(middleware::from_fn(metrics::track_http))
         .route("/metrics", get(metrics::metrics_handler))
         .merge(SwaggerUi::new("/swagger").url("/openapi.json", openapi))
-        .layer(Extension(db))
         .layer(Extension(repo))
         .layer(Extension(mailer))
         .layer(Extension(jwt_config))
@@ -168,7 +165,6 @@ pub fn get_api_openapi() -> OpenApi {
 
 pub fn get_router(
     http_options: Arc<HttpServerOptions>,
-    db: ReloadableSqlite,
     repo: DbHandle,
     mailer: Arc<Mailer>,
     jwt_config: Arc<JWTConfig>,
@@ -214,7 +210,6 @@ pub fn get_router(
         .nest_service("/songs", ServeDir::new(http_options.data_path.clone()))
         .merge(get_api_router(
             http_options,
-            db,
             repo,
             mailer,
             jwt_config,

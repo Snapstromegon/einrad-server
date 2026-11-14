@@ -335,7 +335,6 @@ impl TestApp {
         let photos = Photos::new().unwrap();
         let router = get_api_router(
             Arc::new(options),
-            reloadable,
             repo.clone(),
             Arc::new(mailer),
             jwt.clone(),

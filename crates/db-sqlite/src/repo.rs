@@ -13,6 +13,7 @@ use crate::reloadable_sqlite::ReloadableSqlite;
 
 mod acts;
 mod auth;
+mod backups;
 mod bookings;
 mod categories;
 mod check_in;
@@ -58,13 +59,6 @@ impl SqliteRepo {
         Self::from_pool(crate::reloadable_sqlite::in_memory_migrated().await)
     }
 
-    /// The reloadable pool behind the repo, for the backup routes until they
-    /// move to the backup capability.
-    #[must_use]
-    pub fn reloadable(&self) -> ReloadableSqlite {
-        self.db.clone()
-    }
-
     /// The repo as the handle the application passes around.
     #[must_use]
     pub fn into_handle(self) -> DbHandle {
@@ -86,5 +80,9 @@ impl SqliteRepo {
 impl Db for SqliteRepo {
     async fn reload(&self) -> Result<(), DbError> {
         Ok(self.db.reload().await?)
+    }
+
+    fn backups(&self) -> Option<&dyn db_core::backups::Backups> {
+        Some(self)
     }
 }

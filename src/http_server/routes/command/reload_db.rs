@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -11,7 +12,6 @@ use crate::{
         extractor::auth::{Auth, Granted},
     },
     metrics::constant_time_eq,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -40,10 +40,10 @@ pub struct Upload {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn reload_db(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     // A login is needed even with the token.
     _: Auth,
     user_manager: Option<Granted<permit::ManageUsers>>,
@@ -61,7 +61,7 @@ pub async fn reload_db(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
 
-    db.reload().await?;
+    repo.reload().await?;
 
     Ok(Json(ReloadDBResponse {}))
 }

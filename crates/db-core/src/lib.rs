@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub mod act_type;
 pub mod acts;
 pub mod auth;
+pub mod backups;
 pub mod bookings;
 pub mod branding;
 pub mod categories;
@@ -93,6 +94,12 @@ pub trait Db:
     /// no-op for backends that have no file.
     async fn reload(&self) -> Result<(), DbError> {
         Ok(())
+    }
+
+    /// File backups and restores, for backends that keep their data in a
+    /// file; `None` where there is nothing to back up that way.
+    fn backups(&self) -> Option<&dyn backups::Backups> {
+        None
     }
 }
 

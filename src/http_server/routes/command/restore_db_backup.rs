@@ -7,17 +7,15 @@ use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
 
 use crate::{
-    db_backup,
-    db_restore::{self, MissingSong, RestoreError},
     http_server::{
         ClientError, HttpError, HttpServerOptions, extractor::auth::Granted,
-        routes::db_backups::db_file,
+        routes::db_backups::backups,
     },
     normalize,
     player::PlayerHub,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
+use db_core::{acts::MissingSong, backups::BackupsError};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RestoreDbBackupResponse {
@@ -56,55 +54,31 @@ pub struct RestoreDbBackupBody {
         (status=404, content_type="application/json", body=ClientError),
         (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
+        (status=501, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, repo, options, player_hub))]
+#[instrument(skip(repo, options, player_hub))]
 pub async fn restore_db_backup(
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(repo): Extension<DbHandle>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
     auth: Granted<permit::ManageBackups>,
     Json(body): Json<RestoreDbBackupBody>,
 ) -> Result<Json<RestoreDbBackupResponse>, HttpError> {
-    let path = db_backup::resolve_backup(&db_file(&db)?, &body.filename)?;
+    let backups = backups(&repo)?;
+    backups.backup_path(&body.filename)?;
     if player_hub.is_playing() {
         return Err(HttpError::Conflict("Wiedergabe zuerst stoppen.".into()));
     }
-    let restored =
-        match db_restore::restore(&db, &path, body.force, || player_hub.is_playing()).await {
-            Ok(restored) => restored,
-            Err(RestoreError::Blocking(reasons)) => {
-                return Err(HttpError::Conflict(format!(
-                    "Das Backup kann nicht wiederhergestellt werden: {}",
-                    reasons.join(" ")
-                )));
-            }
-            Err(RestoreError::Playing) => {
-                return Err(HttpError::Conflict("Wiedergabe zuerst stoppen.".into()));
-            }
-            Err(RestoreError::PendingMigrations(names)) => {
-                return Err(HttpError::Conflict(format!(
-                    "Das Backup hat einen älteren Stand. Beim Wiederherstellen werden diese \
-                 Migrationen angewendet (Bestätigung nötig): {}",
-                    names.join(", ")
-                )));
-            }
-            Err(RestoreError::RolledBack(cause)) => {
+    let restored = backups
+        .restore(&body.filename, body.force, &|| player_hub.is_playing())
+        .await
+        .inspect_err(|e| {
+            if let BackupsError::RolledBack(cause) = e {
                 warn!("Restoring {} failed, rolled back: {cause}", body.filename);
-                return Err(HttpError::Conflict(
-                    "Die Wiederherstellung ist fehlgeschlagen. Der vorherige Stand wurde wieder \
-                 eingesetzt."
-                        .into(),
-                ));
             }
-            Err(e) => return Err(e.into()),
-        };
-    let snapshot_filename = restored
-        .snapshot
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        })?;
+    let snapshot_filename = restored.snapshot;
 
     player_hub.reset_after_restore().await;
     if let Err(e) = normalize::requeue_missing(&repo, &options.data_path).await {
