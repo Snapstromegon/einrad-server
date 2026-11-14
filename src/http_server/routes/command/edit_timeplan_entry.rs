@@ -1,14 +1,14 @@
 use crate::ids::{CategoryId, FinalId};
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    timeplan::{EntryFields, EntryKind, Slot, load},
+    timeplan::{EntryFields, EntryKind},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -59,10 +59,10 @@ pub struct EditTimeplanEntryBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_timeplan_entry(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<EditTimeplanEntryBody>,
 ) -> Result<Json<EditTimeplanEntryResponse>, HttpError> {
@@ -80,68 +80,8 @@ pub async fn edit_timeplan_entry(
             .with_internal(body.internal)
     })
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    if let Some(final_id) = fields.final_id {
-        db_sqlite::structure::check_final_plannable(&mut tx, final_id, Some(body.id))
-            .await
-            .map_err(HttpError::ErrorMessages)?;
-    }
-    // A final's block holds only the final's slots.
-    let drops_slots = fields.kind == EntryKind::Custom || fields.final_id.is_some();
-
-    // Acts that leave the block go back to their home blocks, which mustn't
-    // be over: all of them when it becomes a custom entry or a final's block,
-    // those of its old category when that changes.
-    let timeplan = load(&mut tx).await?;
-    if let Some(block) = timeplan.entries.iter().find(|e| e.id == body.id) {
-        let leaving =
-            block.slots.iter().filter_map(Slot::act).filter(|act| {
-                drops_slots || (fields.category_id != block.category_id && !act.stored)
-            });
-        timeplan
-            .check_way_home(leaving, Some(block.id))
-            .map_err(HttpError::ErrorMessages)?;
-    }
-
-    let updated = sqlx::query!(
-        r#"
-        UPDATE timeplan
-        SET
-            earliest_start_time = $1,
-            duration_seconds = $2,
-            label = $3,
-            category_id = $4,
-            final_id = $5,
-            kind = $6,
-            einfahrzeit_seconds = $7,
-            show_photos = $8,
-            internal = $9
-        WHERE id = $10
-        "#,
-        body.earliest_start_time,
-        fields.duration_seconds,
-        fields.label,
-        fields.category_id,
-        fields.final_id,
-        fields.kind,
-        fields.einfahrzeit_seconds,
-        fields.show_photos,
-        fields.internal,
-        body.id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    if updated.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    if drops_slots {
-        // Its acts go back to their home blocks.
-        sqlx::query!("DELETE FROM timeplan_slots WHERE timeplan_id = $1", body.id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    tx.commit().await?;
+    repo.edit_timeplan_entry(body.id, &fields, body.earliest_start_time.as_deref())
+        .await?;
 
     Ok(Json(EditTimeplanEntryResponse {}))
 }

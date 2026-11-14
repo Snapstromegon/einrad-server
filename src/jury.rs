@@ -252,7 +252,10 @@ impl JuryUnitFields {
 /// Loads the jury units in the order of the timeplan: by the first block of
 /// the heat's categories or of the final; units the timeplan doesn't run
 /// last, by name. The day is the planned day of that block.
-pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpError> {
+pub async fn list_units(
+    db: &sqlx::SqlitePool,
+    repo: &dyn db_core::Db,
+) -> Result<Vec<JuryUnit>, HttpError> {
     let mut conn = db.acquire().await?;
     let rows = sqlx::query!(
         r#"
@@ -296,7 +299,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     // Where each unit first runs: the position and planned day of its block.
     // Without a timeplan (or without a start time for its first block) there
     // are no days.
-    let blocks = match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
+    let blocks = match predict_timeplan::predict(repo, Audience::OrganizerTeam).await {
         Ok(plan) => plan.items,
         Err(e) => {
             tracing::warn!("No days for the jury units, the timeplan can't be predicted: {e:?}");

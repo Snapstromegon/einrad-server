@@ -40,7 +40,8 @@ use crate::ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId};
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqliteConnection;
+
+use crate::{DbError, clubs::RegistrationError};
 use time::OffsetDateTime;
 
 /// The kind of a timeplan entry, stored as text in `timeplan.kind`.
@@ -338,6 +339,9 @@ impl Slot {
     }
 }
 
+/// The label an internal timeplan entry has for the public.
+pub const INTERNAL_PUBLIC_LABEL: &str = "Pause";
+
 /// A timeplan entry with its content and live state.
 #[derive(Debug)]
 pub struct Entry {
@@ -496,650 +500,287 @@ pub enum Audience {
 }
 
 /// The label an internal timeplan entry has for the public.
-pub const INTERNAL_PUBLIC_LABEL: &str = "Pause";
-
-/// Loads the whole timeplan for the organizer team (see [`load_for`]).
-pub async fn load(db: &mut SqliteConnection) -> sqlx::Result<Timeplan> {
-    load_for(db, Audience::OrganizerTeam).await
+/// A timeplan entry as the list shows it, without its content.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct TimeplanListEntry {
+    pub id: i64,
+    pub kind: EntryKind,
+    #[serde(with = "time::serde::iso8601::option")]
+    pub earliest_start_time: Option<OffsetDateTime>,
+    pub duration_seconds: Option<i64>,
+    pub label: Option<String>,
+    /// Start blocks only: the home category, by id and name.
+    pub category_id: Option<CategoryId>,
+    pub category: Option<String>,
+    /// Start blocks only: the final running here instead of a category, by
+    /// id and name.
+    pub final_id: Option<FinalId>,
+    pub final_name: Option<String>,
+    /// Start blocks only: overrides the home category's (or final's)
+    /// Einfahrzeit.
+    pub einfahrzeit_seconds: Option<i64>,
+    /// Custom entries: photos next to the clock on the info board.
+    pub show_photos: bool,
+    /// Custom entries: an internal timeplan entry. Only the organizer team
+    /// gets it as it is; everyone else gets a "Pause" of the same length.
+    pub internal: bool,
+    /// Start blocks only: the order was edited by hand (`set_block_order`),
+    /// so the category's start order no longer applies to it.
+    pub manually_ordered: bool,
+    #[serde(with = "time::serde::iso8601::option")]
+    pub started_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::iso8601::option")]
+    pub ended_at: Option<OffsetDateTime>,
 }
 
-/// Loads the timeplan in order, with every block's slots, emptiness and
-/// effective warm-ups, as `audience` may see it.
-pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Result<Timeplan> {
-    let public = audience == Audience::Public;
-    let mut category_order: HashMap<CategoryId, i64> = HashMap::new();
-    let categories: HashMap<CategoryId, CategoryInfo> = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: CategoryId",
-            name as "name!",
-            description,
-            "order",
-            einfahrzeit_seconds,
-            act_duration_seconds,
-            judge_duration_seconds
-        FROM categories
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    .into_iter()
-    .map(|row| {
-        category_order.insert(row.id, row.order.unwrap_or(i64::MAX));
-        (
-            row.id,
-            CategoryInfo {
-                description: row.description.unwrap_or_else(|| row.name.clone()),
-                einfahrzeit_seconds: row.einfahrzeit_seconds,
-                act_duration_seconds: row.act_duration_seconds,
-                judge_duration_seconds: row.judge_duration_seconds,
-            },
-        )
-    })
-    .collect();
+/// One slot of a start block, as sent to `set_block_order`.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub enum BlockSlotInput {
+    /// An act, from this block or any other (if it hasn't started). In a
+    /// final's block: an act of a heat whose Vorlauf is skipped, which
+    /// starts directly in this final.
+    Act { act_id: ActId },
+    /// A final's block only: one of its finalist slots, by heat and number
+    /// ("2. Finalist (E EM 1)").
+    Finalist { heat_id: HeatId, number: i64 },
+    /// A break. With `id`: an existing break of this block, whose label and
+    /// duration change, also while it runs. Without: a new break.
+    Break {
+        id: Option<i64>,
+        label: String,
+        duration_seconds: i64,
+    },
+}
 
-    let finals: HashMap<FinalId, CategoryInfo> = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: FinalId",
-            name as "name!",
-            einfahrzeit_seconds,
-            act_duration_seconds,
-            judge_duration_seconds
-        FROM finals
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    .into_iter()
-    .map(|row| {
-        (
-            row.id,
-            CategoryInfo {
-                // A final shows its readable name.
-                description: row.name,
-                einfahrzeit_seconds: row.einfahrzeit_seconds,
-                act_duration_seconds: row.act_duration_seconds,
-                judge_duration_seconds: row.judge_duration_seconds,
-            },
-        )
-    })
-    .collect();
-    let acts_in_order: Vec<ActSlot> = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: ActId",
-            name,
-            category_id as "category_id!: CategoryId",
-            category as "category!",
-            started_at as "started_at: OffsetDateTime",
-            ended_at as "ended_at: OffsetDateTime",
-            music_started_at as "music_started_at: OffsetDateTime"
-        FROM view_act
-        WHERE category_id IS NOT NULL AND withdrawn_at IS NULL
-        ORDER BY "order" NULLS FIRST
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    .into_iter()
-    .map(|row| ActSlot {
-        id: row.id,
-        name: row.name,
-        category_id: row.category_id,
-        category: row.category,
-        started_at: row.started_at,
-        ended_at: row.ended_at,
-        music_started_at: row.music_started_at,
-        stored: false,
-    })
-    .collect();
-    let acts: HashMap<ActId, ActSlot> = acts_in_order
+fn invalid(message: &str) -> RegistrationError {
+    RegistrationError::Rejected(message.to_string())
+}
+
+/// Checks a new order of block `timeplan_id` against the loaded timeplan.
+/// `heat_codes` has the short codes of the heats named by finalist inputs
+/// (for messages). Pure: the backend loads, checks, then writes.
+pub fn check_block_order(
+    timeplan: &Timeplan,
+    timeplan_id: i64,
+    slots: &[BlockSlotInput],
+    heat_codes: &HashMap<HeatId, String>,
+) -> Result<(), RegistrationError> {
+    let block = timeplan
+        .entries
         .iter()
-        .map(|act| (act.id, act.clone()))
-        .collect();
-
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!",
-            kind as "kind: EntryKind",
-            earliest_start_time as "earliest_start_time: OffsetDateTime",
-            duration_seconds,
-            CASE WHEN internal AND ?1 THEN ?2 ELSE label END as "label: String",
-            category_id as "category_id: CategoryId",
-            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
-            final_id as "final_id: FinalId",
-            (SELECT name FROM finals WHERE finals.id = timeplan.final_id) as final_name,
-            einfahrzeit_seconds,
-            show_photos,
-            internal AND NOT ?1 as "internal!: bool",
-            started_at as "started_at: OffsetDateTime",
-            ended_at as "ended_at: OffsetDateTime"
-        FROM timeplan
-        ORDER BY position, id
-        "#,
-        public,
-        INTERNAL_PUBLIC_LABEL,
-    )
-    .fetch_all(&mut *db)
-    .await?;
-
-    // Skipped heats whose final is planned: their acts start directly in
-    // it, by category. A heat fills at most one final; should old data have
-    // more, the first in final order counts.
-    let planned_finals: HashSet<FinalId> = rows
-        .iter()
-        .filter(|row| row.kind == EntryKind::Acts)
-        .filter_map(|row| row.final_id)
-        .collect();
-    let mut direct_final: HashMap<CategoryId, FinalId> = HashMap::new();
-    let mut skipped_heats: HashSet<HeatId> = HashSet::new();
-    for row in sqlx::query!(
-        r#"
-        SELECT
-            heats.id as "heat_id!: HeatId",
-            categories.id as "category_id?: CategoryId",
-            (
-                SELECT final_slots.final_id
-                FROM final_slots JOIN finals ON finals.id = final_slots.final_id
-                WHERE final_slots.heat_id = heats.id
-                ORDER BY finals."order", finals.name
-                LIMIT 1
-            ) as "final_id?: FinalId"
-        FROM heats LEFT JOIN categories ON categories.heat_id = heats.id
-        WHERE heats.skip
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    {
-        let Some(final_id) = row.final_id.filter(|id| planned_finals.contains(id)) else {
-            continue;
-        };
-        skipped_heats.insert(row.heat_id);
-        if let Some(category_id) = row.category_id {
-            direct_final.insert(category_id, final_id);
-        }
+        .find(|e| e.id == timeplan_id)
+        .ok_or(RegistrationError::NotFound)?;
+    if block.kind != EntryKind::Acts {
+        return Err(invalid("Nur Startblöcke haben eine Reihenfolge."));
     }
-    let direct_acts: HashMap<ActId, FinalId> = acts_in_order
-        .iter()
-        .filter_map(|act| Some((act.id, *direct_final.get(&act.category_id)?)))
-        .collect();
+    let final_id = block.final_id;
+    let final_name = block.final_name.as_deref();
+    if block.ended_at.is_some() {
+        return Err(invalid("Der Block ist schon beendet."));
+    }
 
-    // The finalist slots of each final, without those of skipped heats.
-    let mut finalists: HashMap<FinalId, Vec<FinalistSlot>> = HashMap::new();
-    for row in sqlx::query!(
-        r#"
-        SELECT
-            final_slots.id as "id!: FinalSlotId",
-            final_slots.final_id as "final_id!: FinalId",
-            finals.name as "final_name!",
-            final_slots.heat_id as "heat_id!: HeatId",
-            heats.code as "heat!",
-            number,
-            act_id as "act_id: ActId",
-            finals.placement_published,
-            final_slots.started_at as "started_at: OffsetDateTime",
-            final_slots.ended_at as "ended_at: OffsetDateTime",
-            final_slots.music_started_at as "music_started_at: OffsetDateTime"
-        FROM final_slots
-        JOIN finals ON finals.id = final_slots.final_id
-        JOIN heats ON heats.id = final_slots.heat_id
-        ORDER BY finals.name, position
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    {
-        // A withdrawn act has no category at the moment: the slot shows as
-        // open.
-        if skipped_heats.contains(&row.heat_id) {
-            continue;
-        }
-        let act = row
-            .act_id
-            .filter(|_| row.placement_published)
-            .and_then(|id| acts.get(&id))
-            .cloned();
-        finalists
-            .entry(row.final_id)
-            .or_default()
-            .push(FinalistSlot {
-                id: row.id,
-                final_id: row.final_id,
-                final_name: row.final_name,
-                heat_id: row.heat_id,
-                group_label: row.heat,
-                number: row.number,
-                act,
-                started_at: row.started_at,
-                ended_at: row.ended_at,
-                music_started_at: row.music_started_at,
+    // The started slots come first (see the module docs) and stay.
+    let started = block.slots.iter().take_while(|s| s.is_started()).count();
+    let kept = slots.len() >= started
+        && block.slots[..started]
+            .iter()
+            .zip(slots)
+            .all(|(slot, input)| match (slot, input) {
+                (Slot::Act(act), BlockSlotInput::Act { act_id }) => act.id == *act_id,
+                (Slot::Break(pause), BlockSlotInput::Break { id, .. }) => Some(pause.id) == *id,
+                (Slot::Finalist(finalist), BlockSlotInput::Finalist { heat_id, number }) => {
+                    finalist.heat_id == *heat_id && finalist.number == *number
+                }
+                _ => false,
             });
+    if !kept {
+        return Err(invalid(
+            "Gestartete und beendete Einträge bleiben am Anfang des Blocks, wie sie sind.",
+        ));
     }
 
-    let mut stored: HashMap<i64, Vec<Slot>> = HashMap::new();
-    // Acts in a block's slots, also those hidden at the moment: they never
-    // show up in their home block on top.
-    let mut placed: HashSet<ActId> = HashSet::new();
-    // The direct acts and finalist slots a final's block stores.
-    let mut placed_in_final: HashSet<FinalSlotId> = HashSet::new();
-    let mut placed_direct: HashSet<ActId> = HashSet::new();
-    // The start blocks, with the final running in them.
-    let act_blocks: HashMap<i64, Option<FinalId>> = rows
+    let own_breaks = own_breaks(block);
+    let mut acts = HashSet::new();
+    // The started breaks can't come again later.
+    let mut breaks: HashSet<i64> = slots[..started]
         .iter()
-        .filter(|row| row.kind == EntryKind::Acts)
-        .map(|row| (row.id, row.final_id))
+        .filter_map(|input| match input {
+            BlockSlotInput::Break { id, .. } => *id,
+            BlockSlotInput::Act { .. } | BlockSlotInput::Finalist { .. } => None,
+        })
         .collect();
-    for row in sqlx::query!(
-        r#"
-        SELECT
-            id as "id!",
-            timeplan_id,
-            act_id as "act_id: ActId",
+    let mut finalists = HashSet::new();
+    for input in &slots[started..] {
+        match input {
+            BlockSlotInput::Act { act_id } => {
+                let act = timeplan
+                    .acts
+                    .get(act_id)
+                    .ok_or_else(|| invalid("Unbekannte Kür oder Kür ohne Kategorie."))?;
+                if act.started_at.is_some() {
+                    return Err(invalid(&format!(
+                        "„{}“ hat schon begonnen und bleibt, wo sie ist.",
+                        act.name
+                    )));
+                }
+                match (final_id, timeplan.direct_acts.get(act_id)) {
+                    (Some(id), Some(direct)) if id == *direct => {}
+                    (Some(_), _) => {
+                        return Err(invalid(&format!(
+                            "„{}“ startet nicht direkt im Finale „{}“: ins Finale kommen nur die Küren von Vorlaufklassen, deren Vorlauf entfällt.",
+                            act.name,
+                            final_name.unwrap_or_default()
+                        )));
+                    }
+                    (None, Some(direct)) => {
+                        let direct = timeplan
+                            .finals
+                            .get(direct)
+                            .map(|f| f.description.as_str())
+                            .unwrap_or_default();
+                        return Err(invalid(&format!(
+                            "„{}“ startet direkt im Finale „{direct}“, ihr Vorlauf entfällt.",
+                            act.name
+                        )));
+                    }
+                    (None, None) => {}
+                }
+                if !acts.insert(*act_id) {
+                    return Err(invalid("Eine Kür kann nur einmal im Block stehen."));
+                }
+            }
+            BlockSlotInput::Finalist { heat_id, number } => {
+                if final_id.is_none() {
+                    return Err(invalid("Finalplätze stehen nur im Block ihres Finales."));
+                }
+                let heat = block.slots[started..].iter().find_map(|slot| match slot {
+                    Slot::Finalist(f) if f.heat_id == *heat_id && f.number == *number => {
+                        Some(f.group_label.as_str())
+                    }
+                    _ => None,
+                });
+                let open = heat.is_some();
+                // For the message: the heat's code, also if the slot isn't
+                // open.
+                let heat_name = match heat {
+                    Some(code) => code.to_string(),
+                    None => heat_codes.get(heat_id).cloned().unwrap_or_default(),
+                };
+                let label = crate::finals::finalist_label(*number, &heat_name);
+                if !open {
+                    return Err(invalid(&format!(
+                        "„{label}“ gibt es in diesem Finale nicht, er hat schon begonnen oder der Vorlauf seiner Vorlaufklasse entfällt."
+                    )));
+                }
+                if !finalists.insert((heat_id, *number)) {
+                    return Err(invalid(&format!(
+                        "„{label}“ kann nur einmal im Block stehen."
+                    )));
+                }
+            }
+            BlockSlotInput::Break { id: Some(id), .. } => {
+                if !own_breaks.contains(id) || !breaks.insert(*id) {
+                    return Err(invalid("Unbekannte Pause."));
+                }
+            }
+            BlockSlotInput::Break { id: None, .. } => {}
+        }
+    }
+    for input in slots {
+        if let BlockSlotInput::Break {
             label,
             duration_seconds,
-            started_at as "started_at: OffsetDateTime",
-            ended_at as "ended_at: OffsetDateTime",
-            heat_id as "heat_id: HeatId",
-            number
-        FROM timeplan_slots
-        ORDER BY timeplan_id, position, id
-        "#
-    )
-    .fetch_all(&mut *db)
-    .await?
-    {
-        let Some(&final_id) = act_blocks.get(&row.timeplan_id) else {
-            continue;
-        };
-        let slots = stored.entry(row.timeplan_id).or_default();
-        match (row.act_id, row.heat_id, row.number) {
-            // In a final's block: only its direct acts. Elsewhere: no
-            // direct act, it runs in its final.
-            (Some(act_id), _, _) => match (final_id, direct_acts.get(&act_id)) {
-                (Some(id), Some(direct)) if id == *direct => {
-                    placed_direct.insert(act_id);
-                    slots.push(Slot::Act(ActSlot {
-                        stored: true,
-                        ..acts[&act_id].clone()
-                    }));
-                }
-                (None, None) => {
-                    placed.insert(act_id);
-                    if let Some(act) = acts.get(&act_id) {
-                        slots.push(Slot::Act(ActSlot {
-                            stored: true,
-                            ..act.clone()
-                        }));
-                    }
-                }
-                _ => {}
-            },
-            // A final's slot, by heat and number; gone or unused ones are
-            // left out.
-            (None, Some(heat_id), Some(number)) => {
-                let finalist = final_id
-                    .and_then(|id| finalists.get(&id))
-                    .and_then(|slots| {
-                        slots
-                            .iter()
-                            .find(|slot| slot.heat_id == heat_id && slot.number == number)
-                    })
-                    .filter(|slot| placed_in_final.insert(slot.id));
-                if let Some(finalist) = finalist {
-                    slots.push(Slot::Finalist(finalist.clone()));
-                }
+            ..
+        } = input
+        {
+            if label.trim().is_empty() {
+                return Err(invalid("Eine Pause braucht eine Bezeichnung."));
             }
-            _ => slots.push(Slot::Break(BreakSlot {
-                id: row.id,
-                label: row.label.unwrap_or_default(),
-                duration_seconds: row.duration_seconds.unwrap_or(0),
-                started_at: row.started_at,
-                ended_at: row.ended_at,
-            })),
+            if *duration_seconds <= 0 {
+                return Err(invalid("Eine Pause braucht eine Dauer."));
+            }
         }
     }
 
-    let homes = home_blocks(rows.iter().filter_map(|row| {
-        (row.kind == EntryKind::Acts).then_some((
-            row.id,
-            row.category_id?,
-            row.started_at.is_some(),
-        ))
-    }));
-    let mut entries: Vec<Entry> = Vec::with_capacity(rows.len());
-    for row in &rows {
-        let manually_ordered = stored.contains_key(&row.id);
-        let mut slots = stored.remove(&row.id).unwrap_or_default();
-        let mut einfahrzeit_seconds = 0;
-        let mut preliminary_skipped = false;
-        if row.kind == EntryKind::Acts {
-            // A final's block holds its stored slots, then its other
-            // finalist slots, then the other acts of its skipped heats, by
-            // category.
-            if let Some(final_id) = row.final_id {
-                slots.extend(
-                    finalists
-                        .remove(&final_id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|slot| !placed_in_final.contains(&slot.id))
-                        .map(Slot::Finalist),
-                );
-                let mut direct: Vec<&ActSlot> = acts_in_order
-                    .iter()
-                    .filter(|act| {
-                        direct_acts.get(&act.id) == Some(&final_id)
-                            && !placed_direct.contains(&act.id)
-                    })
-                    .collect();
-                direct.sort_by_key(|act| category_order.get(&act.category_id));
-                slots.extend(direct.into_iter().cloned().map(Slot::Act));
-                einfahrzeit_seconds = finals.get(&final_id).map_or(0, |f| f.einfahrzeit_seconds);
-            }
-            if let Some(home) = row.category_id {
-                preliminary_skipped = direct_final.contains_key(&home);
-                if homes.get(&home) == Some(&row.id) {
-                    slots.extend(
-                        acts_in_order
-                            .iter()
-                            .filter(|act| {
-                                act.category_id == home
-                                    && !placed.contains(&act.id)
-                                    && !direct_acts.contains_key(&act.id)
-                            })
-                            .cloned()
-                            .map(Slot::Act),
-                    );
-                }
-                einfahrzeit_seconds = categories.get(&home).map_or(0, |c| c.einfahrzeit_seconds);
-            }
-            einfahrzeit_seconds = row.einfahrzeit_seconds.unwrap_or(einfahrzeit_seconds);
-            // Stable: started slots first, then the others, each in their
-            // planned order. Not by start time: that would trust the clock
-            // (and imported data) more than the plan.
-            slots.sort_by_key(|slot| !slot.is_started());
-        }
-        entries.push(Entry {
-            id: row.id,
-            kind: row.kind,
-            earliest_start_time: row.earliest_start_time,
-            duration_seconds: row.duration_seconds,
-            label: row.label.clone(),
-            category_id: row.category_id,
-            category: row.category.clone(),
-            final_id: row.final_id,
-            final_name: row.final_name.clone(),
-            einfahrzeit_override: row.einfahrzeit_seconds,
-            show_photos: row.show_photos,
-            internal: row.internal,
-            started_at: row.started_at,
-            ended_at: row.ended_at,
-            slots,
-            manually_ordered,
-            preliminary_skipped,
-            einfahrzeit_seconds,
-            warmup_seconds: 0,
-        });
-    }
+    // Acts left out go back to their home block, which mustn't be over.
+    let left_out = block.slots.iter().filter_map(|slot| match slot {
+        Slot::Act(act) if !acts.contains(&act.id) => Some(act),
+        _ => None,
+    });
+    timeplan
+        .check_way_home(left_out, None)
+        .map_err(RegistrationError::Rejected)
+}
 
-    let blocks: Vec<Block> = entries
+/// The ids of a block's own breaks.
+pub fn own_breaks(block: &Entry) -> HashSet<i64> {
+    block
+        .slots
         .iter()
-        .map(|entry| match entry.kind {
-            // A block without a category (e.g. "Nachstarter") warms up only
-            // if it has an own Einfahrzeit; a shared warm-up waiting for the
-            // next category passes it by.
-            EntryKind::Acts
-                if entry.category_id.is_none()
-                    && entry.final_id.is_none()
-                    && entry.einfahrzeit_override.is_none() =>
-            {
-                Block::Acts {
-                    einfahrzeit_seconds: 0,
-                    empty: true,
-                }
-            }
-            EntryKind::Acts => Block::Acts {
-                einfahrzeit_seconds: entry.einfahrzeit_seconds,
-                empty: entry.is_empty(),
-            },
-            EntryKind::Custom => Block::Custom,
+        .filter_map(|slot| match slot {
+            Slot::Break(pause) => Some(pause.id),
+            Slot::Act(_) | Slot::Finalist(_) => None,
         })
-        .collect();
-    for (entry, warmup) in entries.iter_mut().zip(effective_warmups(&blocks)) {
-        entry.warmup_seconds = warmup;
-    }
-
-    let block_of_act = entries
-        .iter()
-        .flat_map(|entry| {
-            entry
-                .slots
-                .iter()
-                .filter_map(move |slot| slot.act().map(|act| (act.id, entry.id)))
-        })
-        .collect();
-
-    Ok(Timeplan {
-        entries,
-        categories,
-        finals,
-        acts,
-        block_of_act,
-        direct_acts,
-    })
+        .collect()
 }
 
-/// The ids of the timeplan entries in order.
-pub async fn entry_ids(db: &mut SqliteConnection) -> sqlx::Result<Vec<i64>> {
-    sqlx::query_scalar!(r#"SELECT id as "id!" FROM timeplan ORDER BY position, id"#)
-        .fetch_all(db)
-        .await
-}
+/// The live timeplan and its entries (#238). Every method is one unit of
+/// work; "Weiter" and "Zurück" read and write in one transaction, so two
+/// operators can't both act on the same state.
+#[async_trait::async_trait]
+pub trait TimeplanRepo: Send + Sync {
+    /// The whole timeplan with every block's content, read consistently, as
+    /// `audience` may see it.
+    async fn load_timeplan(&self, audience: Audience) -> Result<Timeplan, DbError>;
 
-/// Numbers the entries `1..` in the given order.
-pub async fn set_entry_order(db: &mut SqliteConnection, ids: &[i64]) -> sqlx::Result<()> {
-    for (position, id) in (1_i64..).zip(ids) {
-        sqlx::query!(
-            "UPDATE timeplan SET position = $1 WHERE id = $2",
-            position,
-            id
-        )
-        .execute(&mut *db)
-        .await?;
-    }
-    Ok(())
-}
+    /// The entries in order, without their content.
+    async fn list_timeplan(&self, audience: Audience) -> Result<Vec<TimeplanListEntry>, DbError>;
 
-/// Swaps an entry with the one before it (`up`) or after it. Returns
-/// whether there was one.
-pub async fn swap_with_neighbour(
-    db: &mut SqliteConnection,
-    id: i64,
-    up: bool,
-) -> sqlx::Result<bool> {
-    let mut ids = entry_ids(&mut *db).await?;
-    let Some(index) = ids.iter().position(|&e| e == id) else {
-        return Ok(false);
-    };
-    let other = if up {
-        index.checked_sub(1)
-    } else {
-        Some(index + 1).filter(|&i| i < ids.len())
-    };
-    let Some(other) = other else {
-        return Ok(false);
-    };
-    ids.swap(index, other);
-    set_entry_order(db, &ids).await?;
-    Ok(true)
-}
+    /// Adds an entry at the end, or after entry `after_id` (`NotFound` if
+    /// there is none). A final must exist and run in no other block.
+    async fn add_timeplan_entry(
+        &self,
+        fields: &EntryFields,
+        earliest_start_time: Option<&str>,
+        after_id: Option<i64>,
+    ) -> Result<i64, RegistrationError>;
 
-/// The database's current time, like `datetime('now')` but with
-/// milliseconds. One step of the live timeplan writes the same time
-/// everywhere, so "ended in the same step" can be told from the times; two
-/// steps (separate write transactions) don't share a millisecond.
-pub async fn now(db: &mut SqliteConnection) -> sqlx::Result<String> {
-    sqlx::query_scalar!(r#"SELECT strftime('%Y-%m-%d %H:%M:%f', 'now') as "now!: String""#)
-        .fetch_one(db)
-        .await
-}
+    /// Overwrites an entry. Acts leaving its block must be able to go back
+    /// to a home block that hasn't ended. `NotFound` for an unknown entry.
+    async fn edit_timeplan_entry(
+        &self,
+        id: i64,
+        fields: &EntryFields,
+        earliest_start_time: Option<&str>,
+    ) -> Result<(), RegistrationError>;
 
-/// Starts a slot at `now` (see [`now`]).
-pub async fn start_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sqlx::Result<()> {
-    match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET started_at = $1 WHERE id = $2", now, act.id)
-                .execute(db)
-                .await?;
-        }
-        Slot::Break(pause) => {
-            sqlx::query!(
-                "UPDATE timeplan_slots SET started_at = $1 WHERE id = $2",
-                now,
-                pause.id
-            )
-            .execute(db)
-            .await?;
-        }
-        Slot::Finalist(finalist) => {
-            sqlx::query!(
-                "UPDATE final_slots SET started_at = $1 WHERE id = $2",
-                now,
-                finalist.id
-            )
-            .execute(db)
-            .await?;
-        }
-    }
-    Ok(())
-}
+    /// Deletes an entry; its acts go back to their home blocks.
+    async fn delete_timeplan_entry(&self, id: i64) -> Result<(), RegistrationError>;
 
-/// Ends a running slot at `now` (see [`now`]).
-pub async fn end_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sqlx::Result<()> {
-    match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = $1 WHERE id = $2", now, act.id)
-                .execute(db)
-                .await?;
-        }
-        Slot::Break(pause) => {
-            sqlx::query!(
-                "UPDATE timeplan_slots SET ended_at = $1 WHERE id = $2",
-                now,
-                pause.id
-            )
-            .execute(db)
-            .await?;
-        }
-        Slot::Finalist(finalist) => {
-            sqlx::query!(
-                "UPDATE final_slots SET ended_at = $1 WHERE id = $2",
-                now,
-                finalist.id
-            )
-            .execute(db)
-            .await?;
-        }
-    }
-    Ok(())
-}
+    /// Swaps an entry with its previous (`up`) or next one. `false` if there
+    /// is no such neighbour.
+    async fn move_timeplan_entry(&self, id: i64, up: bool) -> Result<bool, DbError>;
 
-/// Puts a running slot back to planned. An act (or finalist) forgets its
-/// music start.
-pub async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result<()> {
-    match slot {
-        Slot::Act(act) => {
-            sqlx::query!(
-                "UPDATE acts SET started_at = NULL, music_started_at = NULL WHERE id = $1",
-                act.id
-            )
-            .execute(db)
-            .await?;
-        }
-        Slot::Break(pause) => {
-            sqlx::query!(
-                "UPDATE timeplan_slots SET started_at = NULL WHERE id = $1",
-                pause.id
-            )
-            .execute(db)
-            .await?;
-        }
-        Slot::Finalist(finalist) => {
-            sqlx::query!(
-                "UPDATE final_slots SET started_at = NULL, music_started_at = NULL WHERE id = $1",
-                finalist.id
-            )
-            .execute(db)
-            .await?;
-        }
-    }
-    Ok(())
-}
+    /// Sets which acts and breaks run in a start block, in which order.
+    async fn set_block_order(
+        &self,
+        timeplan_id: i64,
+        slots: &[BlockSlotInput],
+    ) -> Result<(), RegistrationError>;
 
-/// Makes an ended slot run again.
-pub async fn reopen_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result<()> {
-    match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = NULL WHERE id = $1", act.id)
-                .execute(db)
-                .await?;
-        }
-        Slot::Break(pause) => {
-            sqlx::query!(
-                "UPDATE timeplan_slots SET ended_at = NULL WHERE id = $1",
-                pause.id
-            )
-            .execute(db)
-            .await?;
-        }
-        Slot::Finalist(finalist) => {
-            sqlx::query!(
-                "UPDATE final_slots SET ended_at = NULL WHERE id = $1",
-                finalist.id
-            )
-            .execute(db)
-            .await?;
-        }
-    }
-    Ok(())
-}
+    /// Puts a start block back to category order.
+    async fn reset_block_order(&self, timeplan_id: i64) -> Result<(), RegistrationError>;
 
-/// Records that the music of a running act started `seconds_ago`, unless it
-/// did before: the act timer counts from the first start, not from pressing
-/// "Weiter". The act may also run in a final's slot, placed there and
-/// published. Returns whether it was recorded.
-pub async fn mark_music_started(
-    db: &sqlx::SqlitePool,
-    act_id: ActId,
-    seconds_ago: f64,
-) -> sqlx::Result<bool> {
-    let mut tx = crate::reloadable_sqlite::begin_write(db).await?;
-    let act = sqlx::query!(
-        r#"
-        UPDATE acts SET music_started_at = datetime(julianday('now') - $1 / 86400.0)
-        WHERE id = $2 AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
-        "#,
-        seconds_ago,
-        act_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    let finalist = sqlx::query!(
-        r#"
-        UPDATE final_slots SET music_started_at = datetime(julianday('now') - $1 / 86400.0)
-        WHERE act_id = $2 AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
-            AND final_id IN (SELECT id FROM finals WHERE placement_published)
-        "#,
-        seconds_ago,
-        act_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(act.rows_affected() + finalist.rows_affected() > 0)
+    /// One step forward in the live timeplan. Returns whether an act (or
+    /// finalist) was ended in it, so the caller can stop the music.
+    async fn timeplan_forward(&self) -> Result<bool, DbError>;
+
+    /// Undoes the last forward step.
+    async fn timeplan_backward(&self) -> Result<(), DbError>;
+
+    /// Records that the music of a running act started `seconds_ago`, unless
+    /// it did before. Returns whether it was recorded.
+    async fn mark_music_started(&self, act_id: ActId, seconds_ago: f64) -> Result<bool, DbError>;
 }
 
 #[cfg(test)]

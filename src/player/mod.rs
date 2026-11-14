@@ -24,19 +24,16 @@ use std::{
     time::Duration,
 };
 
+use db_core::{DbError, DbHandle};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::routes::{
-        http_types::ActParticipant,
-        query::predict_timeplan::{TimeplanItemStatus, predict},
-    },
+    http_server::routes::query::predict_timeplan::{TimeplanItemStatus, predict},
     normalize::NormalizationStatus,
-    reloadable_sqlite::ReloadableSqlite,
-    timeplan::{Audience, mark_music_started},
+    timeplan::Audience,
 };
 
 #[cfg(feature = "local-audio")]
@@ -383,15 +380,15 @@ struct Inner {
 
 /// The shared state of remote playback; see the module docs.
 pub struct PlayerHub {
-    db: ReloadableSqlite,
+    repo: DbHandle,
     inner: Mutex<Inner>,
     controllers: broadcast::Sender<HubState>,
 }
 
 impl PlayerHub {
-    pub fn new(db: ReloadableSqlite) -> Arc<Self> {
+    pub fn new(repo: DbHandle) -> Arc<Self> {
         Arc::new(Self {
-            db,
+            repo,
             inner: Mutex::new(Inner {
                 players: vec![],
                 active: None,
@@ -695,10 +692,9 @@ impl PlayerHub {
     /// Records the music start of `act_id` in the background, as `status`
     /// can't wait for the database.
     fn music_started(&self, act_id: ActId, seconds_ago: f64) {
-        let db = self.db.clone();
+        let repo = self.repo.clone();
         tokio::spawn(async move {
-            let db = db.get().await.clone();
-            match mark_music_started(&db, act_id, seconds_ago).await {
+            match repo.mark_music_started(act_id, seconds_ago).await {
                 Ok(true) => info!("Music of act {act_id} started"),
                 Ok(false) => {}
                 Err(e) => warn!("Couldn't record the music start of act {act_id}: {e}"),
@@ -984,17 +980,17 @@ impl PlayerHub {
     /// moved; never starts it. While the active player plays or is paused
     /// mid-song, the new song waits until it is stopped or over. Also sends
     /// the songs coming up.
-    pub async fn cue_from_timeplan(&self) -> Result<(), sqlx::Error> {
+    pub async fn cue_from_timeplan(&self) -> Result<(), DbError> {
         self.cue_next(false).await
     }
 
     /// Like [`Self::cue_from_timeplan`] after an act ended: the active player
     /// stops its music first, so the next song needn't wait.
-    pub async fn stop_and_cue_from_timeplan(&self) -> Result<(), sqlx::Error> {
+    pub async fn stop_and_cue_from_timeplan(&self) -> Result<(), DbError> {
         self.cue_next(true).await
     }
 
-    async fn cue_next(&self, stop: bool) -> Result<(), sqlx::Error> {
+    async fn cue_next(&self, stop: bool) -> Result<(), DbError> {
         if stop {
             self.forward(ToPlayer::Stop);
         }
@@ -1043,7 +1039,7 @@ impl PlayerHub {
     /// The songs of the running act (if any) and the acts after it, as many
     /// as the players load in advance. The original where a controller chose
     /// it, otherwise the normalized copy.
-    async fn upcoming_songs(&self) -> Result<Vec<Song>, sqlx::Error> {
+    async fn upcoming_songs(&self) -> Result<Vec<Song>, DbError> {
         let acts = self.upcoming_acts().await?;
         let originals = self.lock().originals.clone();
         let mut songs = vec![];
@@ -1057,9 +1053,8 @@ impl PlayerHub {
 
     /// The running act (if any) and the acts after it, in timeplan order.
     /// Acts placed in a published final play there again.
-    async fn upcoming_acts(&self) -> Result<Vec<ActId>, sqlx::Error> {
-        let db = self.db.get().await.clone();
-        let Ok(timeplan) = predict(&db, Audience::OrganizerTeam).await else {
+    async fn upcoming_acts(&self) -> Result<Vec<ActId>, DbError> {
+        let Ok(timeplan) = predict(self.repo.as_ref(), Audience::OrganizerTeam).await else {
             // An incomplete timeplan has no order to follow.
             return Ok(vec![]);
         };
@@ -1075,24 +1070,8 @@ impl PlayerHub {
 
     /// The song of an act: the normalized copy once it's ready, unless the
     /// original is wanted. `None` without music.
-    async fn song(&self, act_id: ActId, original: bool) -> Result<Option<Song>, sqlx::Error> {
-        let db = self.db.get().await.clone();
-        let Some(act) = sqlx::query!(
-            r#"
-            SELECT
-                name,
-                group_name,
-                song_file,
-                song_file_normalized,
-                normalization_status as "normalization_status: NormalizationStatus",
-                participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>"
-            FROM view_act WHERE id = $1
-            "#,
-            act_id
-        )
-        .fetch_optional(&db)
-        .await?
-        else {
+    async fn song(&self, act_id: ActId, original: bool) -> Result<Option<Song>, DbError> {
+        let Some(act) = self.repo.find_act(act_id).await? else {
             return Ok(None);
         };
         let normalized = act
@@ -1135,7 +1114,7 @@ mod tests {
     use super::*;
 
     fn hub(db: sqlx::SqlitePool) -> Arc<PlayerHub> {
-        PlayerHub::new(ReloadableSqlite::new(db, String::new()))
+        PlayerHub::new(db_sqlite::SqliteRepo::from_pool(db).into_handle())
     }
 
     /// Registers a new web player.

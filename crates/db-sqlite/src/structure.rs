@@ -82,8 +82,7 @@ pub(crate) async fn heat_name_of(
 }
 
 /// The short code of a heat, or `None` if there is none with that id.
-/// *Transitional*: the timeplan handlers label slots with it.
-pub async fn heat_code_of(
+pub(crate) async fn heat_code_of(
     conn: &mut SqliteConnection,
     heat_id: HeatId,
 ) -> sqlx::Result<Option<String>> {
@@ -426,8 +425,7 @@ pub(crate) async fn final_has_started(
 }
 
 /// The name of a final, or `None` if there is none with that id.
-/// *Transitional*: the timeplan handlers label blocks with it.
-pub async fn final_name_of(
+pub(crate) async fn final_name_of(
     conn: &mut SqliteConnection,
     final_id: FinalId,
 ) -> sqlx::Result<Option<String>> {
@@ -441,8 +439,7 @@ pub async fn final_name_of(
 
 /// Checks that a final exists and runs in no timeplan block other than
 /// `except` (the block being edited). The message is German.
-/// *Transitional*: the timeplan handlers check it before they add a block.
-pub async fn check_final_plannable(
+pub(crate) async fn check_final_plannable(
     conn: &mut SqliteConnection,
     final_id: FinalId,
     except: Option<i64>,

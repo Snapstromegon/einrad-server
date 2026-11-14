@@ -28,6 +28,7 @@ pub mod riders;
 pub mod roles;
 pub mod settings;
 pub mod structure;
+pub mod timeplan;
 pub mod users;
 
 pub use acts::ActsRepo;
@@ -42,6 +43,7 @@ pub use groups::GroupsRepo;
 pub use heats_finals::HeatsFinalsRepo;
 pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
+pub use timeplan::TimeplanRepo;
 pub use users::UsersRepo;
 
 /// What every database backend provides: the per-domain repository traits
@@ -65,6 +67,7 @@ pub trait Db:
     + CategoriesRepo
     + HeatsFinalsRepo
     + ActsRepo
+    + TimeplanRepo
     + Send
     + Sync
     + 'static

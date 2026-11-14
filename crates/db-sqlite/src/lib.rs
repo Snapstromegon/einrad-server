@@ -11,6 +11,7 @@ mod registration;
 pub mod reloadable_sqlite;
 mod repo;
 pub mod structure;
+mod timeplan;
 
 pub use repo::SqliteRepo;
 

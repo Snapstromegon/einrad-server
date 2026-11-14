@@ -1,13 +1,12 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    timeplan::{Slot, load},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -34,38 +33,14 @@ pub struct DeleteTimeplanEntryBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn delete_timeplan_entry(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteTimeplanEntryBody>,
 ) -> Result<Json<DeleteTimeplanEntryResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    // Its acts go back to their home blocks, which mustn't be over.
-    let timeplan = load(&mut tx).await?;
-    if let Some(block) = timeplan.entries.iter().find(|e| e.id == body.id) {
-        timeplan
-            .check_way_home(block.slots.iter().filter_map(Slot::act), Some(block.id))
-            .map_err(HttpError::ErrorMessages)?;
-    }
-
-    let result = sqlx::query!(
-        r#"
-        DELETE FROM timeplan
-        WHERE id = $1
-        "#,
-        body.id,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    tx.commit().await?;
+    repo.delete_timeplan_entry(body.id).await?;
 
     Ok(Json(DeleteTimeplanEntryResponse {}))
 }

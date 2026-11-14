@@ -83,7 +83,7 @@ pub async fn build(
     normalize::resume(&repo, &settings.data_path).await?;
 
     let photos = Photos::new().map_err(|e| eyre!(e))?;
-    let player_hub = PlayerHub::new(db.clone());
+    let player_hub = PlayerHub::new(repo.clone());
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
     }

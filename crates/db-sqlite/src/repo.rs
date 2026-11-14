@@ -23,6 +23,7 @@ mod groups;
 mod heats_finals;
 mod riders;
 mod settings;
+mod timeplan;
 mod users;
 
 /// The SQLite backend. A cheap clone: it shares the [`ReloadableSqlite`], so

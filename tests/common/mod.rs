@@ -324,7 +324,7 @@ impl TestApp {
         };
         let reloadable = ReloadableSqlite::new(db.clone(), db_url.to_string());
         let repo = SqliteRepo::new(reloadable.clone()).into_handle();
-        let player_hub = PlayerHub::new(reloadable.clone());
+        let player_hub = PlayerHub::new(repo.clone());
         let photos = Photos::new().unwrap();
         let router = get_api_router(
             Arc::new(options),
