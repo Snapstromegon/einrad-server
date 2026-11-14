@@ -12,6 +12,7 @@
 //! `crate::finals`); the final's categories are those of its heats. Clubs
 //! never see or pick a heat: it follows from the category.
 
+use crate::http_server::HttpError;
 use crate::ids::{CategoryId, HeatId};
 use sqlx::SqliteConnection;
 
@@ -302,19 +303,21 @@ pub fn normalize_categories(categories: &[String]) -> Vec<String> {
 }
 
 /// The names of the categories with these IDs, in the order given and
-/// without repeats. An ID no category has gives a German message.
+/// without repeats. An ID no category has is a 404 with a German message
+/// naming it.
 pub async fn category_names(
     conn: &mut SqliteConnection,
     ids: &[CategoryId],
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, HttpError> {
     let mut names: Vec<String> = vec![];
     for id in ids {
         let name =
             sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories WHERE id = ?"#, id)
                 .fetch_optional(&mut *conn)
-                .await
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "Eine Kategorie gibt es nicht (mehr).".to_string())?;
+                .await?
+                .ok_or_else(|| {
+                    HttpError::NotFoundMessage(format!("Die Kategorie {id} gibt es nicht (mehr)."))
+                })?;
         if !names.contains(&name) {
             names.push(name);
         }

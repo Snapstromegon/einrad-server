@@ -64,9 +64,7 @@ pub async fn add_heat(
         .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
-    let categories = heats::category_names(&mut tx, &body.category_ids)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
+    let categories = heats::category_names(&mut tx, &body.category_ids).await?;
 
     heats::check_free(&mut tx, None, &name, &code)
         .await

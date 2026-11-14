@@ -66,9 +66,7 @@ pub async fn edit_heat(
         .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
-    let categories = heats::category_names(&mut tx, &body.category_ids)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
+    let categories = heats::category_names(&mut tx, &body.category_ids).await?;
 
     let Some(name) = heats::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));

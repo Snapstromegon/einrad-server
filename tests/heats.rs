@@ -630,14 +630,6 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     for (body, message) in [
         (heat_body(" ", &[]), "Namen"),
         (heat_body("JE EW", &[]), "gibt es schon"),
-        (
-            json!({
-                "name": "X",
-                "description": null,
-                "category_ids": [uuid::Uuid::now_v7()],
-            }),
-            "gibt es nicht",
-        ),
         // One act type and gender.
         (heat_body("X", &["EMU17", "EWU19"]), "EWU19"),
         (heat_body("X", &["PU17", "EWU19"]), "EWU19"),
@@ -667,6 +659,49 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
         )
         .await;
     rejected(&response, "„JE EW“");
+}
+
+#[tokio::test]
+async fn an_unknown_category_answers_404_naming_its_id() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let unknown = uuid::Uuid::now_v7();
+
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            json!({ "name": "X", "description": null, "category_ids": [unknown] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    rejected(&response, &format!("Die Kategorie {unknown} gibt es nicht"));
+
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": app.heat_id("E EW").await,
+                "new_name": "E EW",
+                "description": null,
+                "category_ids": [unknown],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    rejected(&response, &format!("Die Kategorie {unknown} gibt es nicht"));
+    assert_eq!(names(&list_heats(&app).await), ["JE EW", "E EW"]);
 }
 
 #[tokio::test]
