@@ -18,6 +18,8 @@ pub mod club_mails;
 pub mod clubs;
 pub mod colors;
 pub mod competition;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod fee_waivers;
 pub mod fees;
 pub mod finals;

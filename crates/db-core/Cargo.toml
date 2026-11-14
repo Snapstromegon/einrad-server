@@ -3,6 +3,10 @@ name = "db-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Backend-agnostic tests over `&dyn Db`, see `conformance`.
+conformance = []
+
 [dependencies]
 async-trait = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

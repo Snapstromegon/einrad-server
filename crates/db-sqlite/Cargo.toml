@@ -15,3 +15,6 @@ time = { workspace = true }
 tokio = { workspace = true }
 utoipa = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+db-core = { workspace = true, features = ["conformance"] }
