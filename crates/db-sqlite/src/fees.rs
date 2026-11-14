@@ -1,27 +1,19 @@
-//! The fee rules: what clubs owe. Pool-level helpers behind
-//! [`db_core::FeesRepo`] and the club mails.
+//! The fee facts: counts and rows of riders, acts, judges and waivers, which
+//! the pure rules of [`db_core::fees`] turn into what clubs owe. Pool-level
+//! helpers behind [`db_core::FeesRepo`] and the club mails.
 
 use std::collections::{HashMap, HashSet};
 
 use db_core::{
-    fees::{AmountDue, ClubFees},
-    ids::ClubId,
-    jury::{JuryObligation, counted_deployments, required_deployments},
+    act_type::ActType,
+    fees::{ClubFees, FeeFacts, FeeRules, RiderFeeFacts, club_fees},
+    ids::{ClubId, JudgeId, JuryUnitId},
+    jury::{
+        JudgeFacts, JudgeTask, JuryActFacts, JuryClubFacts, JuryFacts, JuryFeeRules,
+        UnitRegistration,
+    },
 };
 use sqlx::{SqliteConnection, SqlitePool};
-
-/// The fee rules of the current competition.
-struct FeeRules {
-    fee_per_start: f64,
-    max_fee_per_rider: Option<f64>,
-    /// Only with the jury rules configured.
-    jury: Option<JuryFeeRules>,
-}
-
-struct JuryFeeRules {
-    deployments_per_two_acts: i64,
-    missing_deployment_fee: f64,
-}
 
 /// The current competition's fee rules; `None` without a competition.
 async fn fee_rules(db: &SqlitePool) -> sqlx::Result<Option<FeeRules>> {
@@ -37,17 +29,19 @@ async fn fee_rules(db: &SqlitePool) -> sqlx::Result<Option<FeeRules>> {
         }))
 }
 
-/// The fees per club, of all clubs or only of `club_id`. The jury fee only
-/// applies while the jury registration is on and the competition has jury
-/// rules.
+/// The fees per club, of all clubs or only of `club_id`: loads the facts and
+/// leaves the arithmetic to [`club_fees`].
 pub(crate) async fn fees(
     db: &SqlitePool,
     jury_registration: bool,
     club_id: Option<ClubId>,
 ) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
     let rules = fee_rules(db).await?;
-    let start_fees = start_fees_by_club(db, rules.as_ref(), club_id, true).await?;
-    let unwaived_start_fees = start_fees_by_club(db, rules.as_ref(), club_id, false).await?;
+    let riders = if rules.is_some() {
+        rider_facts(db, club_id).await?
+    } else {
+        Vec::new()
+    };
     let waived_clubs: HashSet<ClubId> = sqlx::query_scalar!(
         r#"
         SELECT id as "id!: ClubId" FROM clubs
@@ -59,183 +53,186 @@ pub(crate) async fn fees(
     .await?
     .into_iter()
     .collect();
-    let obligations = match rules.as_ref().and_then(|r| r.jury.as_ref()) {
-        Some(rules) if jury_registration => {
+    let jury = match rules.as_ref().and_then(|r| r.jury_rules(jury_registration)) {
+        Some(_) => {
             let mut conn = db.acquire().await?;
-            obligations(&mut conn, rules, club_id).await?
+            jury_facts(&mut conn, club_id).await?
         }
-        _ => HashMap::new(),
+        None => JuryFacts::default(),
     };
-    let clubs: HashSet<ClubId> = unwaived_start_fees
-        .keys()
-        .chain(obligations.keys())
-        .copied()
-        .collect();
-    Ok(clubs
-        .into_iter()
-        .map(|id| {
-            let start_fees = start_fees.get(&id).copied().unwrap_or(0.0);
-            let unwaived = unwaived_start_fees.get(&id).copied().unwrap_or(0.0);
-            let jury = obligations.get(&id).copied();
-            // A waived club keeps its obligation, only the fee is gone.
-            let obligation_fee = jury.map_or(0.0, |jury| jury.fee);
-            let jury_fee = if waived_clubs.contains(&id) {
-                0.0
-            } else {
-                obligation_fee
-            };
-            let fees = ClubFees {
-                amount_due: AmountDue {
-                    start_fees,
-                    jury_fee,
-                    total: start_fees + jury_fee,
-                    waived: unwaived - start_fees + obligation_fee - jury_fee,
-                },
-                jury,
-            };
-            (id, fees)
-        })
-        .collect())
+    Ok(club_fees(
+        &FeeFacts {
+            rules,
+            riders,
+            waived_clubs,
+            jury,
+        },
+        jury_registration,
+    ))
 }
 
-/// Start fees per club. Each start in an act counts, and a pair request (a
-/// rider waiting for a partner) counts as one; the rider's club pays, at
-/// most the cap per rider. With `waivers`, a waived club or rider pays
-/// nothing and a waived act's start doesn't count. The
-/// same rule as `getRiderPrice` in the frontend, which still prices single
-/// riders in the forms.
-async fn start_fees_by_club(
-    db: &SqlitePool,
-    rules: Option<&FeeRules>,
-    club_id: Option<ClubId>,
-    waivers: bool,
-) -> sqlx::Result<HashMap<ClubId, f64>> {
-    let Some(rules) = rules else {
-        return Ok(HashMap::new());
-    };
-    let riders = sqlx::query!(
+/// Per rider: the acts they are in (and how many of those are waived), the
+/// pair request, and the waivers of the rider and their club.
+async fn rider_facts(db: &SqlitePool, club_id: Option<ClubId>) -> sqlx::Result<Vec<RiderFeeFacts>> {
+    Ok(sqlx::query!(
         r#"
         SELECT
             rider.club_id as "club_id!: ClubId",
-            CASE WHEN ?2 AND (
-                rider.fee_waiver IS NOT NULL
-                OR (SELECT fee_waiver FROM clubs WHERE clubs.id = rider.club_id) IS NOT NULL
-            ) THEN 0 ELSE MAX(
-                0,
-                (SELECT COUNT(*) FROM act_participants WHERE act_participants.rider_id = rider.id)
-                + EXISTS (SELECT 1 FROM pair_requests WHERE pair_requests.rider_id = rider.id)
-                - (
-                    SELECT COUNT(*) FROM act_participants
-                    JOIN acts ON acts.id = act_participants.act_id
-                    WHERE act_participants.rider_id = rider.id
-                        AND ?2 AND acts.fee_waiver IS NOT NULL
-                )
-            ) END as "starts!: i64"
+            rider.fee_waiver IS NOT NULL as "waived!: bool",
+            (SELECT fee_waiver FROM clubs WHERE clubs.id = rider.club_id) IS NOT NULL
+                as "club_waived!: bool",
+            (SELECT COUNT(*) FROM act_participants WHERE act_participants.rider_id = rider.id)
+                as "participations!: i64",
+            EXISTS (SELECT 1 FROM pair_requests WHERE pair_requests.rider_id = rider.id)
+                as "pair_request!: bool",
+            (
+                SELECT COUNT(*) FROM act_participants
+                JOIN acts ON acts.id = act_participants.act_id
+                WHERE act_participants.rider_id = rider.id AND acts.fee_waiver IS NOT NULL
+            ) as "waived_participations!: i64"
         FROM rider
         WHERE ?1 IS NULL OR rider.club_id = ?1
         "#,
-        club_id,
-        waivers
+        club_id
     )
     .fetch_all(db)
-    .await?;
-    let mut fees = HashMap::new();
-    for rider in riders {
-        let fee = rider.starts as f64 * rules.fee_per_start;
-        let fee = rules.max_fee_per_rider.map_or(fee, |max| fee.min(max));
-        *fees.entry(rider.club_id).or_insert(0.0) += fee;
-    }
-    Ok(fees)
+    .await?
+    .into_iter()
+    .map(|row| RiderFeeFacts {
+        club_id: row.club_id,
+        waived: row.waived,
+        club_waived: row.club_waived,
+        participations: row.participations,
+        pair_request: row.pair_request,
+        waived_participations: row.waived_participations,
+    })
+    .collect())
 }
 
-/// The jury obligation of every club, or only of `club_id`.
-///
-/// An act counts when it starts: it has a category, it's a
-/// group with regular riders (also an incomplete one), or it was withdrawn
-/// without the fee being waived. Fee waivers of starting acts, riders and
-/// clubs don't lower it. It counts for its owner club: the
-/// group's creator, or the club of a single's or pair's riders. A trained
-/// judge counts the deployments of every jury unit they registered for
-/// as a technical or performance judge (once per unit), at most
-/// `max_deployments`. Dismount-only registrations do not count.
-async fn obligations(
+/// The clubs (all, or `club_id`), all acts and the judges of those clubs with
+/// their unit registrations.
+async fn jury_facts(
     conn: &mut SqliteConnection,
-    rules: &JuryFeeRules,
     club_id: Option<ClubId>,
-) -> sqlx::Result<HashMap<ClubId, JuryObligation>> {
+) -> sqlx::Result<JuryFacts> {
     let clubs = sqlx::query!(
         r#"
-        SELECT
-            clubs.id as "id!: ClubId",
-            clubs.jury_deployments_override,
-            (
-                SELECT COUNT(*) FROM view_act AS a
-                WHERE NOT (a.withdrawn_at IS NOT NULL AND a.fee_waiver IS NOT NULL)
-                    AND (
-                        a.category IS NOT NULL
-                        OR a.withdrawn_at IS NOT NULL
-                        -- Incomplete groups pay start fees, too.
-                        OR (a.act_type IN ('group_small', 'group_large') AND a.regular_count > 0)
-                    )
-                    AND COALESCE(
-                        a.owner_club_id,
-                        (
-                            -- A pair across clubs (only admins link those)
-                            -- counts for one of them.
-                            SELECT MIN(s.club_id) FROM act_participants p
-                            JOIN rider s ON s.id = p.rider_id
-                            WHERE p.act_id = a.id AND NOT p.is_replacement
-                        )
-                    ) = clubs.id
-            ) as "acts!: i64"
+        SELECT id as "id!: ClubId", jury_deployments_override
         FROM clubs
-        WHERE ?1 IS NULL OR clubs.id = ?1
+        WHERE ?1 IS NULL OR id = ?1
         "#,
         club_id
     )
     .fetch_all(&mut *conn)
-    .await?;
-    let judges = sqlx::query!(
+    .await?
+    .into_iter()
+    .map(|row| JuryClubFacts {
+        club_id: row.id,
+        deployments_override: row.jury_deployments_override,
+    })
+    .collect();
+
+    let mut participant_clubs: HashMap<_, Vec<ClubId>> = HashMap::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT p.act_id as "act_id!", s.club_id as "club_id!: ClubId"
+        FROM act_participants p JOIN rider s ON s.id = p.rider_id
+        WHERE NOT p.is_replacement
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    {
+        participant_clubs
+            .entry(row.act_id)
+            .or_default()
+            .push(row.club_id);
+    }
+    let acts = sqlx::query!(
         r#"
         SELECT
-            judge.club_id as "club_id!: ClubId",
-            judge.max_deployments,
-            (
-                SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
-                WHERE c.id IN (
-                    SELECT unit_id FROM judge_registration
-                    WHERE judge_id = judge.id AND task != 'dismounts'
-                )
-            ) as "deployments!: i64"
+            id as "id!",
+            withdrawn_at IS NOT NULL as "withdrawn!: bool",
+            fee_waiver IS NOT NULL as "fee_waived!: bool",
+            category IS NOT NULL as "has_category!: bool",
+            act_type as "act_type!: ActType",
+            regular_count as "regular_count!: i64",
+            owner_club_id as "owner_club: ClubId"
+        FROM view_act
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|row| JuryActFacts {
+        withdrawn: row.withdrawn,
+        fee_waived: row.fee_waived,
+        has_category: row.has_category,
+        act_type: row.act_type,
+        regular_count: row.regular_count,
+        owner_club: row.owner_club,
+        participant_clubs: participant_clubs.remove(&row.id).unwrap_or_default(),
+    })
+    .collect();
+
+    let mut registrations = judge_registrations(&mut *conn, club_id).await?;
+    let judges = sqlx::query!(
+        r#"
+        SELECT id as "id!: JudgeId", club_id as "club_id!: ClubId", is_trained, max_deployments
         FROM judge
-        WHERE judge.is_trained AND (?1 IS NULL OR judge.club_id = ?1)
+        WHERE ?1 IS NULL OR club_id = ?1
         "#,
         club_id
     )
     .fetch_all(&mut *conn)
-    .await?;
-    let mut registered: HashMap<ClubId, i64> = HashMap::new();
-    for judge in judges {
-        let deployments = counted_deployments(true, judge.deployments, judge.max_deployments);
-        *registered.entry(judge.club_id).or_default() += deployments;
+    .await?
+    .into_iter()
+    .map(|row| JudgeFacts {
+        club_id: row.club_id,
+        is_trained: row.is_trained,
+        max_deployments: row.max_deployments,
+        registrations: registrations.remove(&row.id).unwrap_or_default(),
+    })
+    .collect();
+    Ok(JuryFacts {
+        clubs,
+        acts,
+        judges,
+    })
+}
+
+/// The unit registrations of the judges of `club_id` (all clubs without),
+/// with what each unit counts for.
+pub(crate) async fn judge_registrations(
+    conn: &mut SqliteConnection,
+    club_id: Option<ClubId>,
+) -> sqlx::Result<HashMap<JudgeId, Vec<UnitRegistration>>> {
+    let mut registrations: HashMap<JudgeId, Vec<UnitRegistration>> = HashMap::new();
+    for row in sqlx::query!(
+        r#"
+        SELECT
+            r.judge_id as "judge_id!: JudgeId",
+            r.unit_id as "unit_id!: JuryUnitId",
+            r.task as "task!: JudgeTask",
+            u.deployments as "deployments!: i64"
+        FROM judge_registration r
+        JOIN view_jury_unit u ON u.id = r.unit_id
+        JOIN judge ON judge.id = r.judge_id
+        WHERE ?1 IS NULL OR judge.club_id = ?1
+        "#,
+        club_id
+    )
+    .fetch_all(conn)
+    .await?
+    {
+        registrations
+            .entry(row.judge_id)
+            .or_default()
+            .push(UnitRegistration {
+                unit_id: row.unit_id,
+                task: row.task,
+                deployments: row.deployments,
+            });
     }
-    Ok(clubs
-        .into_iter()
-        .map(|club| {
-            let required = required_deployments(club.acts, rules.deployments_per_two_acts);
-            let registered = registered.get(&club.id).copied().unwrap_or(0);
-            let credited = club.jury_deployments_override.unwrap_or(registered);
-            let missing = (required - credited).max(0);
-            let obligation = JuryObligation {
-                acts: club.acts,
-                required,
-                registered,
-                credited_override: club.jury_deployments_override,
-                credited,
-                missing,
-                fee: missing as f64 * rules.missing_deployment_fee,
-            };
-            (club.id, obligation)
-        })
-        .collect())
+    Ok(registrations)
 }

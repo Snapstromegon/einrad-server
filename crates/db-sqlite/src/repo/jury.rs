@@ -8,10 +8,11 @@ use db_core::{
     clubs::{Actor, RegistrationError},
     ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId},
     jury::{
-        ClubJudge, JudgeAgeRule, JudgeFields, JudgeTask, JuryAssignment, JuryUnitCategory,
-        JuryUnitFeed, JuryUnitFields, JuryUnitFinalType, JuryUnitKind, JuryUnitRow, JuryUnitRows,
-        ListedRegistration, NOT_REGISTRABLE_MESSAGE, RemapOutcome, RemapProblem, RemapRegistration,
-        UnmappedRegistration, counted_deployments, parse_unit_label, unit_columns,
+        ClubJudge, JudgeAgeRule, JudgeFacts, JudgeFields, JudgeTask, JuryAssignment,
+        JuryUnitCategory, JuryUnitFeed, JuryUnitFields, JuryUnitFinalType, JuryUnitKind,
+        JuryUnitRow, JuryUnitRows, ListedRegistration, RemapOutcome, RemapProblem,
+        RemapRegistration, UnmappedRegistration, already_assigned_message, check_plan_publishable,
+        check_task_assignable, check_unit_registration, parse_unit_label, unit_columns,
     },
     people,
 };
@@ -20,10 +21,6 @@ use time::OffsetDateTime;
 
 use super::SqliteRepo;
 use crate::registration::{club_access, judge_access, map_duplicate};
-
-fn not_registrable() -> RegistrationError {
-    RegistrationError::Rejected(NOT_REGISTRABLE_MESSAGE.to_string())
-}
 
 /// Whether judges can register for the heat or final now; `None` for an
 /// unknown unit.
@@ -141,11 +138,15 @@ async fn save_judge(
     )
     .execute(&mut *conn)
     .await?;
-    if !fields.is_trained {
-        // Untrained people only count dismounts, also in the Juryplan.
+    // Untrained people only count dismounts, also in the Juryplan.
+    for task in JudgeTask::ALL
+        .into_iter()
+        .filter(|task| !task.assignable_to(fields.is_trained))
+    {
         sqlx::query!(
-            "DELETE FROM jury_assignments WHERE judge_id = $1 AND task != 'dismounts'",
-            judge_id
+            "DELETE FROM jury_assignments WHERE judge_id = $1 AND task = $2",
+            judge_id,
+            task
         )
         .execute(&mut *conn)
         .await?;
@@ -153,25 +154,13 @@ async fn save_judge(
     for registration in &fields.registrations {
         let registrable =
             unit_is_registrable(conn, registration.unit_kind, registration.unit_id).await?;
-        match registrable {
-            None => {
-                return Err(RegistrationError::Rejected(
-                    "Eine gewählte Vorlaufklasse oder ein gewähltes Finale gibt es nicht mehr. Bitte neu laden."
-                        .to_string(),
-                ));
-            }
-            // Only what the judge already has there may stay, per task.
-            Some(false)
-                if !existing.contains(&(
-                    registration.unit_kind,
-                    registration.unit_id,
-                    registration.task,
-                )) =>
-            {
-                return Err(not_registrable());
-            }
-            Some(_) => {}
-        }
+        // Only what the judge already has there may stay, per task.
+        let already_registered = existing.contains(&(
+            registration.unit_kind,
+            registration.unit_id,
+            registration.task,
+        ));
+        check_unit_registration(registrable, already_registered)?;
         let (heat_id, final_id) = unit_columns(registration.unit_kind, registration.unit_id);
         sqlx::query!(
             "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)",
@@ -331,6 +320,7 @@ impl JuryRepo for SqliteRepo {
                     task: row.task,
                 });
         }
+        let mut unit_registrations = crate::fees::judge_registrations(&mut conn, club_id).await?;
         let judges = sqlx::query!(
             r#"
             SELECT
@@ -342,21 +332,7 @@ impl JuryRepo for SqliteRepo {
                 judge.birthdate as "birthdate: OffsetDateTime",
                 judge.is_trained,
                 judge.max_deployments,
-                judge.note,
-                (
-                    SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
-                    WHERE c.id IN (
-                        SELECT unit_id FROM judge_registration
-                        WHERE judge_id = judge.id
-                    )
-                ) as "registered_deployments!: i64",
-                (
-                    SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
-                    WHERE c.id IN (
-                        SELECT unit_id FROM judge_registration
-                        WHERE judge_id = judge.id AND task != 'dismounts'
-                    )
-                ) as "countable_deployments!: i64"
+                judge.note
             FROM judge
             JOIN clubs ON clubs.id = judge.club_id
             WHERE ?1 IS NULL OR judge.club_id = ?1
@@ -368,24 +344,28 @@ impl JuryRepo for SqliteRepo {
         .await?;
         Ok(judges
             .into_iter()
-            .map(|row| ClubJudge {
-                registrations: registrations.remove(&row.id).unwrap_or_default(),
-                unmapped_registrations: unmapped.remove(&row.id).unwrap_or_default(),
-                id: row.id,
-                club_id: row.club_id,
-                club_name: row.club_name,
-                firstname: row.firstname,
-                lastname: row.lastname,
-                birthdate: row.birthdate,
-                is_trained: row.is_trained,
-                max_deployments: row.max_deployments,
-                note: row.note,
-                registered_deployments: row.registered_deployments,
-                counted_deployments: counted_deployments(
-                    row.is_trained,
-                    row.countable_deployments,
-                    row.max_deployments,
-                ),
+            .map(|row| {
+                let facts = JudgeFacts {
+                    club_id: row.club_id,
+                    is_trained: row.is_trained,
+                    max_deployments: row.max_deployments,
+                    registrations: unit_registrations.remove(&row.id).unwrap_or_default(),
+                };
+                ClubJudge {
+                    registrations: registrations.remove(&row.id).unwrap_or_default(),
+                    unmapped_registrations: unmapped.remove(&row.id).unwrap_or_default(),
+                    id: row.id,
+                    club_id: row.club_id,
+                    club_name: row.club_name,
+                    firstname: row.firstname,
+                    lastname: row.lastname,
+                    birthdate: row.birthdate,
+                    is_trained: row.is_trained,
+                    max_deployments: row.max_deployments,
+                    note: row.note,
+                    registered_deployments: facts.registered_deployments(),
+                    counted_deployments: facts.counted_deployments(),
+                }
             })
             .collect())
     }
@@ -484,11 +464,7 @@ impl JuryRepo for SqliteRepo {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(RegistrationError::NotFound)?;
-        if !is_trained && assignment.task != JudgeTask::Dismounts {
-            return Err(RegistrationError::Rejected(
-                "Nicht geschulte Personen können nur Abstiege zählen.".to_string(),
-            ));
-        }
+        check_task_assignable(is_trained, assignment.task)?;
         let (heat_id, final_id) = unit_columns(assignment.unit_kind, assignment.unit_id);
         let result = sqlx::query!(
             "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)",
@@ -505,9 +481,8 @@ impl JuryRepo for SqliteRepo {
                 if e.as_database_error()
                     .is_some_and(|e| e.is_unique_violation()) =>
             {
-                return Err(RegistrationError::Rejected(
-                    "Die JurorIn ist hier schon eingeteilt.".to_string(),
-                ));
+                // A unique constraint: only the database detects it.
+                return Err(RegistrationError::Rejected(already_assigned_message()));
             }
             Err(e)
                 if e.as_database_error()
@@ -593,8 +568,8 @@ impl JuryRepo for SqliteRepo {
         let mut tx = self.begin_write().await?;
         match unit_is_registrable(&mut tx, to_kind, to_id).await? {
             None => return Err(RegistrationError::NotFound),
-            Some(false) if from_id != to_id => return Err(not_registrable()),
-            Some(_) => {}
+            // Moving within a unit changes nothing.
+            registrable => check_unit_registration(registrable, from_id == to_id)?,
         }
         if from_id == to_id {
             return Ok(());
@@ -647,8 +622,7 @@ impl JuryRepo for SqliteRepo {
         if let Some((kind, unit_id)) = unit {
             match unit_is_registrable(&mut tx, kind, unit_id).await? {
                 None => return Err(RegistrationError::NotFound),
-                Some(false) => return Err(not_registrable()),
-                Some(true) => {}
+                registrable => check_unit_registration(registrable, false)?,
             }
             let (heat_id, final_id) = unit_columns(kind, unit_id);
             sqlx::query!(
@@ -766,17 +740,9 @@ impl JuryRepo for SqliteRepo {
         now: OffsetDateTime,
     ) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
-        if published && let Some(competition) = crate::competition::current(&mut *tx).await? {
+        if let Some(competition) = crate::competition::current(&mut *tx).await? {
             // The jury's own deadline only counts with the jury rules.
-            let end = competition.judge_registration_end();
-            if now <= end {
-                return Err(RegistrationError::Rejected(format!(
-                    "Der Juryplan kann erst nach dem Ende der Jury-Anmeldung ({:02}.{:02}.{}) veröffentlicht werden.",
-                    end.day(),
-                    u8::from(end.month()),
-                    end.year()
-                )));
-            }
+            check_plan_publishable(published, competition.judge_registration_end(), now)?;
         }
         let published_at = published.then_some(now);
         sqlx::query!(

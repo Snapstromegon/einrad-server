@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use db_core::{
     DbError, GroupsRepo,
     act_type::ActType,
     clubs::{Actor, RegistrationError},
     groups::{
-        ClubGroup, ClubGroupMember, GroupMember, GroupSummary, ensure_group_type,
-        group_name_sort_key, normalize_group_name,
+        ClubGroup, ClubGroupMember, GroupMember, GroupSummary, check_group_deletable,
+        check_group_members, ensure_group_type, group_name_sort_key, normalize_group_name,
     },
     ids::{ActId, CategoryId, ClubId, RiderId},
 };
@@ -88,26 +88,19 @@ impl GroupsRepo for SqliteRepo {
         let group = load_group(&mut tx, act).await?;
         group_owner_access(&mut tx, actor, &group).await?;
 
-        if !actor.manage_registrations {
-            let other_club_riders = sqlx::query_scalar!(
-                r#"
+        let foreign_riders = sqlx::query_scalar!(
+            r#"
             SELECT COUNT(*) as "count!: i64"
             FROM act_participants
             JOIN rider ON rider.id = act_participants.rider_id
             WHERE act_participants.act_id = $1 AND rider.club_id IS NOT $2
             "#,
-                group.id,
-                group.owner_club_id,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if other_club_riders > 0 {
-                return Err(RegistrationError::Rejected(format!(
-                    "Die Gruppe „{}“ kann nicht gelöscht werden, solange noch FahrerInnen anderer Vereine in ihr angemeldet sind.",
-                    group.group_name
-                )));
-            }
-        }
+            group.id,
+            group.owner_club_id,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        check_group_deletable(actor, &group.group_name, foreign_riders)?;
 
         info!("Deleting group {:?} ({})", group.group_name, group.id);
         sqlx::query!("DELETE FROM act_participants WHERE act_id = $1", group.id)
@@ -133,26 +126,17 @@ impl GroupsRepo for SqliteRepo {
         club_access(&mut tx, actor, club).await?;
         let group = load_group(&mut tx, act).await?;
 
-        let mut seen = HashSet::new();
+        let mut riders = Vec::with_capacity(members.len());
         for member in members {
-            if !seen.insert(member.rider_id) {
-                return Err(RegistrationError::Rejected(
-                    "Jede FahrerIn kann nur einmal in der Gruppe angemeldet werden.".to_string(),
-                ));
-            }
             let club_id = sqlx::query_scalar!(
                 r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = $1"#,
                 member.rider_id
             )
             .fetch_optional(&mut *tx)
             .await?;
-            if club_id != Some(club) {
-                return Err(RegistrationError::Rejected(
-                    "Ein Verein kann nur seine eigenen FahrerInnen zu einer Gruppe hinzufügen."
-                        .to_string(),
-                ));
-            }
+            riders.push((member.rider_id, club_id));
         }
+        check_group_members(club, &riders)?;
 
         info!(
             "Setting {} riders of club {club} in group {:?}",

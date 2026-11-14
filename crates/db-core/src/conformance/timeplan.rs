@@ -52,8 +52,15 @@ fn competition() -> Competition {
 
 /// A competition without any planning yet.
 async fn create_competition(db: &dyn Db) {
+    create_competition_with(db, |_| {}).await;
+}
+
+/// Like [`create_competition`], with its settings changed by `change`.
+pub(super) async fn create_competition_with(db: &dyn Db, change: impl FnOnce(&mut Competition)) {
+    let mut competition = competition();
+    change(&mut competition);
     let plan = CompetitionPlan {
-        competition: competition(),
+        competition,
         primary_color: Branding::Keep,
         secondary_color: Branding::Keep,
         logo: ImagePlan::Keep,

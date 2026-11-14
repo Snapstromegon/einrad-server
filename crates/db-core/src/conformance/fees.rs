@@ -1,0 +1,437 @@
+//! Fees, fee waivers, the jury obligation and group rules through the
+//! trait. The unit tests of `crate::fees`, `crate::jury` and `crate::groups`
+//! cover the arithmetic and every edge; these check that a backend loads
+//! the facts the pure functions need.
+
+use time::macros::datetime;
+
+use super::{World, timeplan::create_competition_with};
+use crate::{
+    Db,
+    act_type::ActType,
+    bookings,
+    categories::CategoryFields,
+    clubs::{Actor, RegistrationError},
+    competition::JuryRules,
+    fee_waivers::Target,
+    fees::ClubFees,
+    gender::Gender,
+    groups::GroupMember,
+    heats::NewHeat,
+    ids::{ClubId, RiderId},
+    jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryAssignment, JuryUnitKind},
+    riders::NewRider,
+};
+
+fn message<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> String {
+    match result {
+        Err(RegistrationError::Rejected(message)) => message,
+        other => panic!("expected a rejection, got {other:?}"),
+    }
+}
+
+async fn rider(db: &dyn Db, actor: &Actor, club: ClubId, firstname: &str) -> RiderId {
+    db.add_rider(
+        actor,
+        &NewRider {
+            club_id: club,
+            firstname: firstname.into(),
+            lastname: "Muster".into(),
+            birthdate: datetime!(2012-05-01 0:00 UTC),
+            gender: Gender::Female,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+async fn category(db: &dyn Db) -> crate::ids::CategoryId {
+    db.add_category(&CategoryFields {
+        name: "EM".into(),
+        description: None,
+        min_age: None,
+        under_age: None,
+        act_type: ActType::Single,
+        is_single_male: false,
+        einfahrzeit_seconds: 0,
+        act_duration_seconds: 120,
+        judge_duration_seconds: 60,
+    })
+    .await
+    .unwrap()
+    .0
+}
+
+fn treasurer<'a>(w: &World, roles: &'a [crate::roles::Role]) -> bookings::Actor<'a> {
+    bookings::Actor {
+        user_id: w.organizer.user_id,
+        name: "Erika Musterfrau",
+        roles,
+    }
+}
+
+async fn fees(db: &dyn Db, club: ClubId, jury_registration: bool) -> ClubFees {
+    db.fees_of_club(jury_registration, club).await.unwrap()
+}
+
+/// Start fees: every start counts (single, pair request, groups), at most
+/// the cap per rider; waivers of a rider, an act and a club drop starts and
+/// show up as what was waived; revoking them charges again. A blank reason
+/// is refused.
+pub async fn fees_and_amount_due(db: &dyn Db) {
+    let w = World::seed(db).await;
+    create_competition_with(db, |c| {
+        c.fee_per_start = 10.0;
+        c.max_fee_per_rider = Some(25.0);
+    })
+    .await;
+    category(db).await;
+    // Without riders nobody owes anything.
+    assert!(db.fees_by_club(true).await.unwrap().is_empty());
+
+    let anna = rider(db, &w.owner_a, w.club_a, "Anna").await;
+    let berta = rider(db, &w.owner_a, w.club_a, "Berta").await;
+    let dora = rider(db, &w.owner_a, w.club_a, "Dora").await;
+    let carla = rider(db, &w.owner_b, w.club_b, "Carla").await;
+    db.set_single(&w.owner_a, anna, true).await.unwrap();
+    db.set_single(&w.owner_a, berta, true).await.unwrap();
+    db.request_pair(&w.owner_a, berta, None).await.unwrap();
+    db.set_single(&w.owner_b, carla, true).await.unwrap();
+    // Dora: a pair request and two groups, three starts, capped.
+    db.request_pair(&w.owner_a, dora, None).await.unwrap();
+    let small = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+        .await
+        .unwrap();
+    let large = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupLarge, "Sturm")
+        .await
+        .unwrap();
+    for group in [small, large] {
+        db.set_group_members(
+            &w.owner_a,
+            w.club_a,
+            group,
+            &[GroupMember {
+                rider_id: dora,
+                is_replacement: false,
+            }],
+        )
+        .await
+        .unwrap();
+    }
+
+    let due = |fees: &ClubFees| {
+        let a = fees.amount_due;
+        (a.start_fees, a.jury_fee, a.total, a.waived)
+    };
+    // 10 + 20 + capped 25.
+    assert_eq!(due(&fees(db, w.club_a, true).await), (55.0, 0.0, 55.0, 0.0));
+    assert_eq!(due(&fees(db, w.club_b, true).await), (10.0, 0.0, 10.0, 0.0));
+    // No jury rules: no obligation either way.
+    assert!(fees(db, w.club_a, true).await.jury.is_none());
+    let all = db.fees_by_club(false).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[&w.club_a], fees(db, w.club_a, false).await);
+
+    let roles = [];
+    let actor = treasurer(&w, &roles);
+    assert!(
+        message(
+            db.set_fee_waiver(&actor, Target::Rider(anna), Some("  \t"))
+                .await
+        )
+        .contains("Grund")
+    );
+    assert!(matches!(
+        db.set_fee_waiver(&actor, Target::Rider(RiderId::new()), Some("Härtefall"))
+            .await,
+        Err(RegistrationError::NotFound)
+    ));
+    // A waived rider pays nothing.
+    db.set_fee_waiver(&actor, Target::Rider(anna), Some("  Härtefall "))
+        .await
+        .unwrap();
+    assert_eq!(
+        due(&fees(db, w.club_a, true).await),
+        (45.0, 0.0, 45.0, 10.0)
+    );
+    // A waived act drops its start; the cap now leaves 2 starts = 20.
+    db.set_fee_waiver(&actor, Target::Act(large), Some("Sponsor"))
+        .await
+        .unwrap();
+    assert_eq!(
+        due(&fees(db, w.club_a, true).await),
+        (40.0, 0.0, 40.0, 15.0)
+    );
+    // A waived club pays nothing at all.
+    db.set_fee_waiver(&actor, Target::Club(w.club_b), Some("Gast"))
+        .await
+        .unwrap();
+    assert_eq!(due(&fees(db, w.club_b, true).await), (0.0, 0.0, 0.0, 10.0));
+    // Revoking charges again.
+    for target in [
+        Target::Rider(anna),
+        Target::Act(large),
+        Target::Club(w.club_b),
+    ] {
+        db.set_fee_waiver(&actor, target, None).await.unwrap();
+    }
+    assert_eq!(due(&fees(db, w.club_a, true).await), (55.0, 0.0, 55.0, 0.0));
+    assert_eq!(due(&fees(db, w.club_b, true).await), (10.0, 0.0, 10.0, 0.0));
+}
+
+/// The jury obligation: started Küren of the club, two per round of
+/// deployments; trained judges count their technical and performance
+/// registrations once per unit; untrained people count none and only take
+/// dismounts; an override credits instead; the fee follows the jury
+/// registration and is waived with the club.
+pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
+    let w = World::seed(db).await;
+    create_competition_with(db, |c| {
+        c.fee_per_start = 10.0;
+        c.jury = Some(JuryRules {
+            min_age: 16,
+            deployments_per_two_acts: 4,
+            missing_deployment_fee: 25.0,
+            registration_end: None,
+        });
+    })
+    .await;
+    let category = category(db).await;
+    for firstname in ["Anna", "Berta", "Carla"] {
+        let id = rider(db, &w.owner_a, w.club_a, firstname).await;
+        db.set_single(&w.owner_a, id, true).await.unwrap();
+    }
+    db.add_heat(&NewHeat {
+        name: "Vorlauf EM".into(),
+        code: "EM".into(),
+        description: None,
+        category_ids: vec![category],
+        threshold: None,
+    })
+    .await
+    .unwrap();
+    let heat = db.jury_unit_rows().await.unwrap().units[0].id;
+    let registration = |task| JudgeRegistration {
+        unit_kind: JuryUnitKind::Heat,
+        unit_id: heat,
+        task,
+    };
+    let judge = |name: &str, is_trained, max_deployments, tasks: &[JudgeTask]| JudgeFields {
+        firstname: name.into(),
+        lastname: "Juror".into(),
+        birthdate: datetime!(1990-01-01 0:00 UTC),
+        is_trained,
+        max_deployments,
+        note: None,
+        registrations: tasks.iter().copied().map(registration).collect(),
+    };
+    let trained = db
+        .add_judge(
+            &w.owner_a,
+            w.club_a,
+            judge(
+                "Tina",
+                true,
+                None,
+                &[JudgeTask::Technical, JudgeTask::Performance],
+            ),
+        )
+        .await
+        .unwrap();
+    // Untrained people and dismount-only registrations count nothing; a
+    // maximum of 1 caps Cleo.
+    db.add_judge(
+        &w.owner_a,
+        w.club_a,
+        judge("Ulla", false, None, &[JudgeTask::Dismounts]),
+    )
+    .await
+    .unwrap();
+    db.add_judge(
+        &w.owner_a,
+        w.club_a,
+        judge("Dana", true, None, &[JudgeTask::Dismounts]),
+    )
+    .await
+    .unwrap();
+    db.add_judge(
+        &w.owner_a,
+        w.club_a,
+        judge("Cleo", true, Some(1), &[JudgeTask::Technical]),
+    )
+    .await
+    .unwrap();
+
+    // 3 acts: two rounds of 4 deployments; the heat counts 2.
+    let with = fees(db, w.club_a, true).await;
+    let jury = with.jury.unwrap();
+    assert_eq!(
+        (jury.acts, jury.required, jury.registered, jury.credited),
+        (3, 8, 3, 3)
+    );
+    assert_eq!((jury.missing, jury.fee), (5, 125.0));
+    assert_eq!(with.amount_due.jury_fee, 125.0);
+    assert_eq!(with.amount_due.total, 30.0 + 125.0);
+    // Club B has no acts: an obligation of 0.
+    let b = fees(db, w.club_b, true).await.jury.unwrap();
+    assert_eq!((b.acts, b.required, b.missing, b.fee), (0, 0, 0, 0.0));
+    // Without the jury registration there is no jury fee and no obligation.
+    let off = fees(db, w.club_a, false).await;
+    assert!(off.jury.is_none());
+    assert_eq!(off.amount_due.total, 30.0);
+
+    let judges = db.list_judges(Some(w.club_a)).await.unwrap();
+    let counted = |name: &str| {
+        let j = judges.iter().find(|j| j.firstname == name).unwrap();
+        (j.registered_deployments, j.counted_deployments)
+    };
+    assert_eq!(counted("Tina"), (2, 2));
+    assert_eq!(counted("Ulla"), (2, 0));
+    assert_eq!(counted("Dana"), (2, 0));
+    assert_eq!(counted("Cleo"), (2, 1));
+
+    // Untrained people only count dismounts.
+    let ulla = judges.iter().find(|j| j.firstname == "Ulla").unwrap().id;
+    let assign = |judge_id, task| JuryAssignment {
+        judge_id,
+        unit_kind: JuryUnitKind::Heat,
+        unit_id: heat,
+        task,
+    };
+    assert_eq!(
+        message(db.assign_judge(&assign(ulla, JudgeTask::Performance)).await),
+        "Nicht geschulte Personen können nur Abstiege zählen."
+    );
+    db.assign_judge(&assign(ulla, JudgeTask::Dismounts))
+        .await
+        .unwrap();
+    db.assign_judge(&assign(trained, JudgeTask::Technical))
+        .await
+        .unwrap();
+    assert_eq!(
+        message(
+            db.assign_judge(&assign(trained, JudgeTask::Technical))
+                .await
+        ),
+        "Die JurorIn ist hier schon eingeteilt."
+    );
+
+    // An admin's credit replaces the registered deployments.
+    db.set_jury_deployments_override(w.club_a, Some(8))
+        .await
+        .unwrap();
+    let jury = fees(db, w.club_a, true).await.jury.unwrap();
+    assert_eq!(
+        (
+            jury.credited_override,
+            jury.credited,
+            jury.missing,
+            jury.fee
+        ),
+        (Some(8), 8, 0, 0.0)
+    );
+    db.set_jury_deployments_override(w.club_a, Some(0))
+        .await
+        .unwrap();
+    assert_eq!(fees(db, w.club_a, true).await.jury.unwrap().missing, 8);
+    db.set_jury_deployments_override(w.club_a, None)
+        .await
+        .unwrap();
+
+    // A waived club keeps its obligation but owes no jury fee.
+    let roles = [];
+    db.set_fee_waiver(&treasurer(&w, &roles), Target::Club(w.club_a), Some("Gast"))
+        .await
+        .unwrap();
+    let waived = fees(db, w.club_a, true).await;
+    assert_eq!(waived.jury.unwrap().missing, 5);
+    assert_eq!(
+        (
+            waived.amount_due.jury_fee,
+            waived.amount_due.total,
+            waived.amount_due.waived
+        ),
+        (0.0, 0.0, 155.0)
+    );
+}
+
+/// Groups: only the owner club deletes one, and not while riders of other
+/// clubs are in it (the organizer may); a club sets only its own riders,
+/// each once; names are unique ignoring case.
+pub async fn group_delete_and_member_rules(db: &dyn Db) {
+    let w = World::seed(db).await;
+    let anna = rider(db, &w.owner_a, w.club_a, "Anna").await;
+    let carla = rider(db, &w.owner_b, w.club_b, "Carla").await;
+    let group = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+        .await
+        .unwrap();
+    assert_eq!(
+        message(
+            db.create_group(&w.owner_b, w.club_b, ActType::GroupLarge, "wirbel")
+                .await
+        ),
+        "Der Gruppenname „wirbel“ ist bereits vergeben."
+    );
+    let member = |rider_id| GroupMember {
+        rider_id,
+        is_replacement: false,
+    };
+    // Own riders only, each once.
+    assert!(
+        message(
+            db.set_group_members(&w.owner_a, w.club_a, group, &[member(carla)])
+                .await
+        )
+        .contains("eigenen FahrerInnen")
+    );
+    assert!(
+        message(
+            db.set_group_members(&w.owner_a, w.club_a, group, &[member(anna), member(anna)])
+                .await
+        )
+        .contains("nur einmal")
+    );
+    assert!(matches!(
+        db.set_group_members(&w.owner_a, w.club_a, group, &[member(RiderId::new())])
+            .await,
+        Err(RegistrationError::Rejected(_))
+    ));
+    db.set_group_members(&w.owner_a, w.club_a, group, &[member(anna)])
+        .await
+        .unwrap();
+    db.set_group_members(&w.owner_b, w.club_b, group, &[member(carla)])
+        .await
+        .unwrap();
+
+    assert!(
+        message(db.delete_group(&w.owner_a, group).await)
+            .contains("Die Gruppe „Wirbel“ kann nicht gelöscht werden")
+    );
+    assert!(matches!(
+        db.delete_group(&w.owner_b, group).await,
+        Err(RegistrationError::Forbidden)
+    ));
+    // The other club's riders leave, then the owner may delete.
+    db.set_group_members(&w.owner_b, w.club_b, group, &[])
+        .await
+        .unwrap();
+    db.delete_group(&w.owner_a, group).await.unwrap();
+    assert!(db.list_groups().await.unwrap().is_empty());
+
+    // The organizer deletes a group with foreign riders.
+    let group = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Sturm")
+        .await
+        .unwrap();
+    db.set_group_members(&w.owner_b, w.club_b, group, &[member(carla)])
+        .await
+        .unwrap();
+    db.delete_group(&w.organizer, group).await.unwrap();
+    assert!(matches!(
+        db.delete_group(&w.organizer, group).await,
+        Err(RegistrationError::NotFound)
+    ));
+}

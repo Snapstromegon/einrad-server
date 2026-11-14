@@ -69,3 +69,38 @@ pub struct FeeWaiver {
     pub clubs: Vec<WaiverClub>,
     pub reason: String,
 }
+
+/// The reason of a waiver as stored: trimmed. `None` revokes the waiver; a
+/// reason that is blank is refused, since a waiver is always in full and
+/// with a reason.
+pub fn check_waiver_reason(
+    reason: Option<&str>,
+) -> Result<Option<&str>, crate::clubs::RegistrationError> {
+    match reason.map(str::trim) {
+        Some("") => Err(crate::clubs::RegistrationError::Rejected(
+            "Bitte einen Grund angeben, warum die Gebühr erlassen wird.".to_string(),
+        )),
+        reason => Ok(reason),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clubs::RegistrationError;
+
+    #[test]
+    fn a_waiver_reason_is_trimmed_and_never_blank() {
+        assert!(matches!(check_waiver_reason(None), Ok(None)));
+        assert!(matches!(
+            check_waiver_reason(Some("  Härtefall \n")),
+            Ok(Some("Härtefall"))
+        ));
+        for blank in ["", "   ", "\t\n"] {
+            assert!(matches!(
+                check_waiver_reason(Some(blank)),
+                Err(RegistrationError::Rejected(m)) if m.contains("Grund")
+            ));
+        }
+    }
+}

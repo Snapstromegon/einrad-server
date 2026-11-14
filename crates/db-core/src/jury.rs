@@ -68,6 +68,221 @@ pub struct JuryObligation {
     pub fee: f64,
 }
 
+/// An act as the jury obligation sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JuryActFacts {
+    pub withdrawn: bool,
+    /// The act has a fee waiver.
+    pub fee_waived: bool,
+    pub has_category: bool,
+    pub act_type: ActType,
+    /// Riders without the replacements.
+    pub regular_count: i64,
+    /// The group's creator.
+    pub owner_club: Option<ClubId>,
+    /// The clubs of the regular riders.
+    pub participant_clubs: Vec<ClubId>,
+}
+
+impl JuryActFacts {
+    /// An act counts when it starts: it has a category, it's a group with
+    /// regular riders (also an incomplete one), or it was withdrawn without
+    /// the fee being waived. Fee waivers of starting acts don't lower the
+    /// obligation, only a withdrawn act with a waived fee doesn't count.
+    #[must_use]
+    pub fn counts(&self) -> bool {
+        !(self.withdrawn && self.fee_waived)
+            && (self.has_category
+                || self.withdrawn
+                // Incomplete groups pay start fees, too.
+                || (self.act_type.is_group() && self.regular_count > 0))
+    }
+
+    /// The club the act counts for: the group's creator, or the club of a
+    /// single's or pair's riders. A pair across clubs (only admins link
+    /// those) counts for one of them, the lowest.
+    #[must_use]
+    pub fn counting_club(&self) -> Option<ClubId> {
+        self.owner_club
+            .or_else(|| self.participant_clubs.iter().min().copied())
+    }
+}
+
+/// A judge's registration for a jury unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitRegistration {
+    pub unit_id: JuryUnitId,
+    pub task: JudgeTask,
+    /// The deployments the unit counts for.
+    pub deployments: i64,
+}
+
+/// A judge as the jury obligation sees them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JudgeFacts {
+    pub club_id: ClubId,
+    pub is_trained: bool,
+    pub max_deployments: Option<i64>,
+    pub registrations: Vec<UnitRegistration>,
+}
+
+impl JudgeFacts {
+    /// The deployments of the units the judge registered for, whatever the
+    /// task (once per unit).
+    #[must_use]
+    pub fn registered_deployments(&self) -> i64 {
+        self.sum_units(|_| true)
+    }
+
+    /// Of those, the deployments of units with a technical or performance
+    /// registration (once per unit): dismount-only ones don't count.
+    #[must_use]
+    pub fn countable_deployments(&self) -> i64 {
+        self.sum_units(|r| r.task.counts_for_deployments())
+    }
+
+    /// The deployments the judge counts for their club: the countable ones,
+    /// at most their maximum; untrained people count none.
+    #[must_use]
+    pub fn counted_deployments(&self) -> i64 {
+        counted_deployments(
+            self.is_trained,
+            self.countable_deployments(),
+            self.max_deployments,
+        )
+    }
+
+    fn sum_units(&self, filter: impl Fn(&UnitRegistration) -> bool) -> i64 {
+        let mut seen = std::collections::HashSet::new();
+        self.registrations
+            .iter()
+            .filter(|r| filter(r) && seen.insert(r.unit_id))
+            .map(|r| r.deployments)
+            .sum()
+    }
+}
+
+/// A club as the jury obligation sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JuryClubFacts {
+    pub club_id: ClubId,
+    /// What an admin credits instead of the registered deployments.
+    pub deployments_override: Option<i64>,
+}
+
+/// What the backend loads to work out jury obligations.
+#[derive(Debug, Clone, Default)]
+pub struct JuryFacts {
+    pub clubs: Vec<JuryClubFacts>,
+    pub acts: Vec<JuryActFacts>,
+    pub judges: Vec<JudgeFacts>,
+}
+
+/// The jury rules of the competition's fees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JuryFeeRules {
+    pub deployments_per_two_acts: i64,
+    pub missing_deployment_fee: f64,
+}
+
+/// The jury obligation of every club in `facts`.
+///
+/// Fee waivers of starting acts, riders and clubs don't lower it. Missing
+/// deployments cost `missing_deployment_fee` each; an admin's override
+/// replaces the registered deployments.
+#[must_use]
+pub fn jury_obligations(
+    rules: &JuryFeeRules,
+    facts: &JuryFacts,
+) -> std::collections::HashMap<ClubId, JuryObligation> {
+    let mut acts: std::collections::HashMap<ClubId, i64> = std::collections::HashMap::new();
+    for act in facts.acts.iter().filter(|act| act.counts()) {
+        if let Some(club) = act.counting_club() {
+            *acts.entry(club).or_default() += 1;
+        }
+    }
+    let mut registered: std::collections::HashMap<ClubId, i64> = std::collections::HashMap::new();
+    for judge in &facts.judges {
+        *registered.entry(judge.club_id).or_default() += judge.counted_deployments();
+    }
+    facts
+        .clubs
+        .iter()
+        .map(|club| {
+            let acts = acts.get(&club.club_id).copied().unwrap_or(0);
+            let required = required_deployments(acts, rules.deployments_per_two_acts);
+            let registered = registered.get(&club.club_id).copied().unwrap_or(0);
+            let credited = club.deployments_override.unwrap_or(registered);
+            let missing = (required - credited).max(0);
+            let obligation = JuryObligation {
+                acts,
+                required,
+                registered,
+                credited_override: club.deployments_override,
+                credited,
+                missing,
+                fee: missing as f64 * rules.missing_deployment_fee,
+            };
+            (club.club_id, obligation)
+        })
+        .collect()
+}
+
+/// Untrained people only count dismounts, also in the Juryplan.
+pub fn check_task_assignable(is_trained: bool, task: JudgeTask) -> Result<(), RegistrationError> {
+    if task.assignable_to(is_trained) {
+        Ok(())
+    } else {
+        Err(RegistrationError::Rejected(
+            "Nicht geschulte Personen können nur Abstiege zählen.".to_string(),
+        ))
+    }
+}
+
+/// A judge registers for a unit that exists; for one that takes no
+/// registrations only what they already have there (per task) may stay.
+/// `registrable` is `None` for an unknown unit.
+pub fn check_unit_registration(
+    registrable: Option<bool>,
+    already_registered: bool,
+) -> Result<(), RegistrationError> {
+    match registrable {
+        None => Err(RegistrationError::Rejected(
+            "Eine gewählte Vorlaufklasse oder ein gewähltes Finale gibt es nicht mehr. Bitte neu laden."
+                .to_string(),
+        )),
+        Some(false) if !already_registered => Err(RegistrationError::Rejected(
+            NOT_REGISTRABLE_MESSAGE.to_string(),
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+/// The message for a judge who is already assigned to a unit and task
+/// (a unique constraint only the database detects).
+#[must_use]
+pub fn already_assigned_message() -> String {
+    "Die JurorIn ist hier schon eingeteilt.".to_string()
+}
+
+/// The Juryplan is published only after the jury registration ended;
+/// unpublishing is always fine. `end` is the end of the jury registration.
+pub fn check_plan_publishable(
+    published: bool,
+    end: OffsetDateTime,
+    now: OffsetDateTime,
+) -> Result<(), RegistrationError> {
+    if published && now <= end {
+        return Err(RegistrationError::Rejected(format!(
+            "Der Juryplan kann erst nach dem Ende der Jury-Anmeldung ({:02}.{:02}.{}) veröffentlicht werden.",
+            end.day(),
+            u8::from(end.month()),
+            end.year()
+        )));
+    }
+    Ok(())
+}
+
 /// Which kind of jury unit: a heat's Vorlauf or a final.
 #[derive(
     Debug,
@@ -291,6 +506,29 @@ pub enum JudgeTask {
     Performance,
     /// Abstiege: counting dismounts, also open to untrained people.
     Dismounts,
+}
+
+impl JudgeTask {
+    /// Every task.
+    pub const ALL: [JudgeTask; 3] = [
+        JudgeTask::Technical,
+        JudgeTask::Performance,
+        JudgeTask::Dismounts,
+    ];
+
+    /// Whether a judge with this registration counts deployments for their
+    /// club: technical and performance do, dismount-only don't.
+    #[must_use]
+    pub fn counts_for_deployments(self) -> bool {
+        self != JudgeTask::Dismounts
+    }
+
+    /// Whether a judge can be assigned to the task: untrained people only
+    /// count dismounts.
+    #[must_use]
+    pub fn assignable_to(self, is_trained: bool) -> bool {
+        is_trained || self == JudgeTask::Dismounts
+    }
 }
 
 /// A judge's task in a jury unit, as a club registers it.
@@ -650,4 +888,239 @@ pub trait JuryRepo {
         published: bool,
         now: OffsetDateTime,
     ) -> Result<(), RegistrationError>;
+}
+
+#[cfg(test)]
+mod obligation_tests {
+    use time::macros::datetime;
+
+    use super::*;
+
+    fn act(owner: Option<ClubId>, riders: &[ClubId]) -> JuryActFacts {
+        JuryActFacts {
+            withdrawn: false,
+            fee_waived: false,
+            has_category: true,
+            act_type: ActType::Single,
+            regular_count: riders.len() as i64,
+            owner_club: owner,
+            participant_clubs: riders.to_vec(),
+        }
+    }
+
+    fn judge(
+        club: ClubId,
+        trained: bool,
+        max: Option<i64>,
+        regs: &[(JuryUnitId, JudgeTask, i64)],
+    ) -> JudgeFacts {
+        JudgeFacts {
+            club_id: club,
+            is_trained: trained,
+            max_deployments: max,
+            registrations: regs
+                .iter()
+                .map(|&(unit_id, task, deployments)| UnitRegistration {
+                    unit_id,
+                    task,
+                    deployments,
+                })
+                .collect(),
+        }
+    }
+
+    const RULES: JuryFeeRules = JuryFeeRules {
+        deployments_per_two_acts: 4,
+        missing_deployment_fee: 25.0,
+    };
+
+    fn club(id: ClubId, deployments_override: Option<i64>) -> JuryClubFacts {
+        JuryClubFacts {
+            club_id: id,
+            deployments_override,
+        }
+    }
+
+    #[test]
+    fn which_acts_count() {
+        let c = ClubId::new();
+        assert!(act(None, &[c]).counts());
+        let mut uncategorized = act(None, &[c]);
+        uncategorized.has_category = false;
+        assert!(!uncategorized.counts());
+        // Withdrawn counts, unless its fee was waived.
+        let mut withdrawn = uncategorized.clone();
+        withdrawn.withdrawn = true;
+        assert!(withdrawn.counts());
+        withdrawn.fee_waived = true;
+        assert!(!withdrawn.counts());
+        // A waiver on a starting act doesn't lower the obligation.
+        let mut waived = act(None, &[c]);
+        waived.fee_waived = true;
+        assert!(waived.counts());
+        // Incomplete groups count with regular riders only.
+        let mut group = uncategorized.clone();
+        group.act_type = ActType::GroupSmall;
+        assert!(group.counts());
+        group.regular_count = 0;
+        assert!(!group.counts());
+        // Pairs and singles without category don't, however many riders.
+        let mut pair = uncategorized;
+        pair.act_type = ActType::Pair;
+        assert!(!pair.counts());
+    }
+
+    #[test]
+    fn an_act_counts_for_its_owner_or_the_lowest_rider_club() {
+        let (a, b) = (ClubId::new(), ClubId::new());
+        assert_eq!(act(Some(a), &[b]).counting_club(), Some(a));
+        assert_eq!(act(None, &[b, a]).counting_club(), Some(a.min(b)));
+        assert_eq!(act(None, &[]).counting_club(), None);
+    }
+
+    #[test]
+    fn deployments_count_once_per_unit_and_only_for_trained_judges() {
+        let c = ClubId::new();
+        let (u1, u2) = (
+            JuryUnitId(uuid::Uuid::now_v7()),
+            JuryUnitId(uuid::Uuid::now_v7()),
+        );
+        use JudgeTask::*;
+        // Technical and performance in one unit count once; dismounts never.
+        let j = judge(
+            c,
+            true,
+            None,
+            &[(u1, Technical, 2), (u1, Performance, 2), (u2, Dismounts, 1)],
+        );
+        assert_eq!(j.counted_deployments(), 2);
+        // The registered ones include dismounts.
+        assert_eq!(j.registered_deployments(), 3);
+        let j = judge(c, true, None, &[(u1, Technical, 2), (u2, Performance, 1)]);
+        assert_eq!(j.counted_deployments(), 3);
+        // The maximum caps it.
+        assert_eq!(
+            judge(
+                c,
+                true,
+                Some(1),
+                &[(u1, Technical, 2), (u2, Performance, 1)]
+            )
+            .counted_deployments(),
+            1
+        );
+        assert_eq!(
+            judge(c, true, Some(0), &[(u1, Technical, 2)]).counted_deployments(),
+            0
+        );
+        // Untrained people count none.
+        assert_eq!(
+            judge(c, false, None, &[(u1, Technical, 2)]).counted_deployments(),
+            0
+        );
+        assert_eq!(judge(c, true, None, &[]).counted_deployments(), 0);
+    }
+
+    #[test]
+    fn obligations_of_clubs_without_acts_or_judges() {
+        let c = ClubId::new();
+        let facts = JuryFacts {
+            clubs: vec![club(c, None)],
+            ..Default::default()
+        };
+        let o = jury_obligations(&RULES, &facts)[&c];
+        assert_eq!(
+            (o.acts, o.required, o.registered, o.credited, o.missing),
+            (0, 0, 0, 0, 0)
+        );
+        assert_eq!(o.fee, 0.0);
+        assert_eq!(o.credited_override, None);
+    }
+
+    #[test]
+    fn obligations_count_acts_in_pairs_rounded_up() {
+        let (a, b) = (ClubId::new(), ClubId::new());
+        let u = JuryUnitId(uuid::Uuid::now_v7());
+        let facts = JuryFacts {
+            clubs: vec![club(a, None), club(b, None)],
+            acts: vec![
+                act(None, &[a]),
+                act(None, &[a]),
+                act(None, &[a]),
+                act(Some(b), &[a]),
+            ],
+            judges: vec![judge(a, true, None, &[(u, JudgeTask::Technical, 3)])],
+        };
+        let all = jury_obligations(&RULES, &facts);
+        // Club a: 3 acts -> 2 started pairs -> 8 required, 3 registered.
+        let (oa, ob) = (all[&a], all[&b]);
+        assert_eq!(
+            (oa.acts, oa.required, oa.registered, oa.missing),
+            (3, 8, 3, 5)
+        );
+        assert_eq!(oa.fee, 125.0);
+        // Club b: the group it created counts for it, not for its rider's club.
+        assert_eq!((ob.acts, ob.required, ob.missing, ob.fee), (1, 4, 4, 100.0));
+    }
+
+    #[test]
+    fn an_override_replaces_the_registered_deployments_and_never_goes_negative() {
+        let c = ClubId::new();
+        let u = JuryUnitId(uuid::Uuid::now_v7());
+        let mut facts = JuryFacts {
+            clubs: vec![club(c, Some(3))],
+            acts: vec![act(None, &[c])],
+            judges: vec![judge(c, true, None, &[(u, JudgeTask::Technical, 9)])],
+        };
+        let o = jury_obligations(&RULES, &facts)[&c];
+        assert_eq!(
+            (o.registered, o.credited_override, o.credited, o.missing),
+            (9, Some(3), 3, 1)
+        );
+        assert_eq!(o.fee, 25.0);
+        facts.clubs[0].deployments_override = Some(0);
+        assert_eq!(jury_obligations(&RULES, &facts)[&c].missing, 4);
+        facts.clubs[0].deployments_override = Some(99);
+        let o = jury_obligations(&RULES, &facts)[&c];
+        assert_eq!((o.missing, o.fee), (0, 0.0));
+    }
+
+    #[test]
+    fn untrained_judges_only_take_dismounts() {
+        for task in JudgeTask::ALL {
+            assert!(check_task_assignable(true, task).is_ok());
+            assert_eq!(
+                check_task_assignable(false, task).is_ok(),
+                task == JudgeTask::Dismounts
+            );
+        }
+        assert!(matches!(
+            check_task_assignable(false, JudgeTask::Technical),
+            Err(RegistrationError::Rejected(m)) if m == "Nicht geschulte Personen können nur Abstiege zählen."
+        ));
+    }
+
+    #[test]
+    fn unit_registration_rules() {
+        assert!(check_unit_registration(Some(true), false).is_ok());
+        assert!(check_unit_registration(Some(false), true).is_ok());
+        assert!(matches!(
+            check_unit_registration(Some(false), false),
+            Err(RegistrationError::Rejected(m)) if m == NOT_REGISTRABLE_MESSAGE
+        ));
+        assert!(matches!(
+            check_unit_registration(None, true),
+            Err(RegistrationError::Rejected(m)) if m.contains("Bitte neu laden")
+        ));
+    }
+
+    #[test]
+    fn the_plan_is_published_after_the_registration_ended() {
+        let end = datetime!(2027-03-05 21:59 UTC);
+        assert!(check_plan_publishable(false, end, end).is_ok());
+        assert!(check_plan_publishable(true, end, datetime!(2027-03-05 22:00 UTC)).is_ok());
+        // The end itself still counts as registration time.
+        let early = check_plan_publishable(true, end, end);
+        assert!(matches!(early, Err(RegistrationError::Rejected(m)) if m.contains("(05.03.2027)")));
+    }
 }

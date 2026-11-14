@@ -25,9 +25,11 @@ use crate::{
 };
 
 mod access;
+mod fees;
 mod registration;
 mod timeplan;
 pub use access::*;
+pub use fees::*;
 pub use registration::*;
 pub use timeplan::*;
 
@@ -115,6 +117,9 @@ macro_rules! conformance_list {
             timeplan_forward_and_backward,
             timeplan_entries_move_and_insert,
             timeplan_started_block_keeps_its_order,
+            fees_and_amount_due,
+            jury_obligation_counts_acts_and_judges,
+            group_delete_and_member_rules,
         }
     };
 }
