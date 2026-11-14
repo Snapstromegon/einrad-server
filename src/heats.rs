@@ -12,8 +12,8 @@
 //! `crate::finals`); the final's categories are those of its heats. Clubs
 //! never see or pick a heat: it follows from the category.
 
+use crate::ids::{CategoryId, HeatId};
 use sqlx::SqliteConnection;
-use uuid::Uuid;
 
 use crate::act_type::ActType;
 
@@ -191,7 +191,7 @@ pub async fn default_threshold_of(
 
 /// Whether an act of the heat, or its final (a slot or its block), has
 /// started: then its Vorlauf can no longer be skipped or restored (Q5).
-pub async fn has_started(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<bool> {
+pub async fn has_started(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::Result<bool> {
     sqlx::query_scalar!(
         r#"
         SELECT
@@ -220,14 +220,14 @@ pub async fn has_started(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Re
 }
 
 /// The name of a heat, or `None` if there is none with that id.
-pub async fn name_of(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<Option<String>> {
+pub async fn name_of(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar!(r#"SELECT name as "name!" FROM heats WHERE id = ?"#, heat_id)
         .fetch_optional(conn)
         .await
 }
 
 /// The short code of a heat, or `None` if there is none with that id.
-pub async fn code_of(conn: &mut SqliteConnection, heat_id: Uuid) -> sqlx::Result<Option<String>> {
+pub async fn code_of(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, heat_id)
         .fetch_optional(conn)
         .await
@@ -247,7 +247,7 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
 /// message is German.
 pub async fn check_free(
     conn: &mut SqliteConnection,
-    except: Option<Uuid>,
+    except: Option<HeatId>,
     name: &str,
     code: &str,
 ) -> Result<(), String> {
@@ -305,7 +305,7 @@ pub fn normalize_categories(categories: &[String]) -> Vec<String> {
 /// without repeats. An ID no category has gives a German message.
 pub async fn category_names(
     conn: &mut SqliteConnection,
-    ids: &[Uuid],
+    ids: &[CategoryId],
 ) -> Result<Vec<String>, String> {
     let mut names: Vec<String> = vec![];
     for id in ids {
@@ -347,7 +347,7 @@ pub async fn categories(conn: &mut SqliteConnection) -> sqlx::Result<Vec<Categor
 /// The discipline of a heat, from its categories; `None` if it has none.
 pub async fn discipline(
     conn: &mut SqliteConnection,
-    heat_id: Uuid,
+    heat_id: HeatId,
 ) -> sqlx::Result<Option<Discipline>> {
     Ok(sqlx::query!(
         r#"
@@ -365,7 +365,7 @@ pub async fn discipline(
 /// The finals whose slots a heat fills, with their disciplines, by name.
 pub async fn finals_of(
     conn: &mut SqliteConnection,
-    heat_id: Uuid,
+    heat_id: HeatId,
 ) -> sqlx::Result<Vec<(String, Discipline)>> {
     Ok(sqlx::query!(
         r#"
@@ -387,7 +387,7 @@ pub async fn finals_of(
 /// it. The caller checks them first (see [`check`]).
 pub async fn set_categories(
     conn: &mut SqliteConnection,
-    heat_id: Uuid,
+    heat_id: HeatId,
     categories: &[String],
 ) -> sqlx::Result<()> {
     sqlx::query!(
@@ -412,7 +412,7 @@ pub async fn set_categories(
 /// keep the discipline of the finals it fills. The message is German.
 pub async fn check_categories(
     conn: &mut SqliteConnection,
-    heat_id: Uuid,
+    heat_id: HeatId,
     categories: &[String],
 ) -> Result<(), String> {
     let heat = name_of(&mut *conn, heat_id)

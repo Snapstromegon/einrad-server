@@ -164,6 +164,7 @@ async fn the_migration_maps_jury_categories_only_where_the_match_is_unambiguous(
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
 use einrad_server::config::CompetitionFile;
+use einrad_server::ids::ClubId;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -185,7 +186,7 @@ async fn unit(app: &TestApp, cookie: &str, name: &str) -> Value {
         .unwrap_or_else(|| panic!("no jury unit {name}"))
 }
 
-fn judge_body(club_id: Uuid, firstname: &str, registrations: &[(&Value, &str)]) -> Value {
+fn judge_body(club_id: ClubId, firstname: &str, registrations: &[(&Value, &str)]) -> Value {
     json!({
         "club_id": club_id,
         "firstname": firstname,
@@ -206,7 +207,7 @@ async fn add_judge(app: &TestApp, cookie: &str, body: Value) -> TestResponse {
         .await
 }
 
-async fn judges(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn judges(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_judges?club_id={club_id}"),

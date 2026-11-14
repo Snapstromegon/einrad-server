@@ -1,8 +1,8 @@
+use crate::ids::{ActId, ClubId, RiderId};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     bookings::Actor,
@@ -19,11 +19,11 @@ pub struct SetFeeWaivedResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFeeWaivedBody {
     /// All the club's fees: start fees and jury fee.
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
     /// All the rider's starts.
-    rider_id: Option<Uuid>,
+    rider_id: Option<RiderId>,
     /// The act's start, for every rider.
-    act_id: Option<Uuid>,
+    act_id: Option<ActId>,
     /// Why the fees are waived, e.g. "Veranstalter"; `null` charges them
     /// again.
     reason: Option<String>,

@@ -6,6 +6,7 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 use common::{TempDir, TestApp};
+use einrad_server::ids::ActId;
 use einrad_server::player::{PlaybackState, PlayerKind, PlayerStatus};
 use serde_json::{Value, json};
 use sqlx::{Connection, SqliteConnection};
@@ -327,7 +328,7 @@ async fn only_admins_can_restore_check_and_manage_missing_songs() {
         app.create_user_with_roles("Max Müller", &["treasurer"])
             .await,
     );
-    let act = Uuid::now_v7();
+    let act = ActId::new();
 
     for cookie in [Some(treasurer.as_str()), None] {
         let expected = if cookie.is_some() {
@@ -386,7 +387,7 @@ async fn only_admins_can_restore_check_and_manage_missing_songs() {
 }
 
 /// Sets the song columns of an act directly.
-async fn set_song(app: &TestApp, act: Uuid, file: &str, name: &str, normalized: Option<&str>) {
+async fn set_song(app: &TestApp, act: ActId, file: &str, name: &str, normalized: Option<&str>) {
     sqlx::query(
         "UPDATE acts SET song_file = ?, song_file_name = ?, song_file_normalized = ?, \
          normalization_status = 'done' WHERE id = ?",

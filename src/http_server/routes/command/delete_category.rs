@@ -1,8 +1,8 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -15,7 +15,7 @@ pub struct DeleteCategoryResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteCategoryBody {
-    category_id: Uuid,
+    category_id: CategoryId,
 }
 
 /// Delete a category.

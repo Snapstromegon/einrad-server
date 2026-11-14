@@ -1,8 +1,8 @@
+use crate::ids::{CategoryId, FinalId, HeatId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatFinal {
-    id: Uuid,
+    id: FinalId,
     /// The readable name.
     name: String,
     /// The short code.
@@ -22,7 +22,7 @@ pub struct HeatFinal {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Heat {
-    id: Uuid,
+    id: HeatId,
     /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
     name: String,
     /// The short code, unique, e.g. "E EM 1".
@@ -32,7 +32,7 @@ pub struct Heat {
     /// them.
     categories: Vec<String>,
     /// The same categories by id, in the same order.
-    category_ids: Vec<Uuid>,
+    category_ids: Vec<CategoryId>,
     /// The act type its categories share; `None` without categories.
     act_type: Option<ActType>,
     /// Whether its categories are singles male; `None` without categories.
@@ -70,10 +70,10 @@ pub async fn list_heats(
     let db = db.get().await.clone();
     // One read transaction, so the heats and their categories match.
     let mut tx = db.begin().await?;
-    let mut categories: HashMap<Uuid, Vec<(Uuid, String, Discipline)>> = HashMap::new();
+    let mut categories: HashMap<HeatId, Vec<(CategoryId, String, Discipline)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT heat_id as "heat_id!: Uuid", id as "id!: Uuid", name as "name!", act_type as "act_type: ActType", is_single_male
+        SELECT heat_id as "heat_id!: HeatId", id as "id!: CategoryId", name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories
         WHERE heat_id IS NOT NULL
         ORDER BY "order", name
@@ -87,10 +87,10 @@ pub async fn list_heats(
             .or_default()
             .push((row.id, row.name, Discipline::new(row.act_type, row.is_single_male)));
     }
-    let mut finals: HashMap<Uuid, Vec<HeatFinal>> = HashMap::new();
+    let mut finals: HashMap<HeatId, Vec<HeatFinal>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT DISTINCT final_slots.heat_id as "heat_id!: Uuid", finals.id as "final_id!: Uuid", finals.name as "final_name!", finals.code as "final_code!"
+        SELECT DISTINCT final_slots.heat_id as "heat_id!: HeatId", finals.id as "final_id!: FinalId", finals.name as "final_name!", finals.code as "final_code!"
         FROM final_slots
         JOIN finals ON finals.id = final_slots.final_id
         ORDER BY finals.name
@@ -108,7 +108,7 @@ pub async fn list_heats(
     let rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: HeatId",
             name as "name!",
             code as "code!",
             description,

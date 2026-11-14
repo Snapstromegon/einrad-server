@@ -5,6 +5,7 @@
 //! of a completion and the content of a config that couldn't be written (for
 //! the user to save by hand).
 
+use crate::ids::UserId;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -784,7 +785,7 @@ pub async fn complete(
 /// the new admin's session cookie, signed with the new secret.
 async fn hand_over(
     state: &SetupState,
-    admin_id: Option<uuid::Uuid>,
+    admin_id: Option<UserId>,
 ) -> Result<Option<CookieJar>, String> {
     let env = &state.env;
     let file = env.load_file()?;

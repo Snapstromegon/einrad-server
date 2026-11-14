@@ -1,8 +1,8 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -16,7 +16,7 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddCategoryResponse {
     /// The new category's ID.
-    category_id: Uuid,
+    category_id: CategoryId,
     /// Gaps and overlaps between the categories' birthday bounds, derived
     /// from the determining day, as the import reports them.
     warnings: Vec<String>,
@@ -64,7 +64,7 @@ pub async fn add_category(
     let mut transaction = begin_write(&db).await?;
     check_ages(&mut transaction, &body.name, body.min_age, body.under_age).await?;
 
-    let category_id = Uuid::now_v7();
+    let category_id = CategoryId::new();
     sqlx::query!(
         r#"
         INSERT INTO categories (

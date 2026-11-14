@@ -4,10 +4,11 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, closed_registration, rider_body};
+use einrad_server::ids::{ClubId, RiderId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-async fn list_riders(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_riders(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_riders?club_id={club_id}"),
@@ -18,7 +19,7 @@ async fn list_riders(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-async fn list_acts(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_acts(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_acts?club_id={club_id}"),
@@ -233,7 +234,7 @@ async fn adding_rider_requires_login() {
     let response = app
         .post(
             "/api/command/add_rider",
-            rider_body(Uuid::now_v7(), "Anna", true, false),
+            rider_body(ClubId::new(), "Anna", true, false),
             None,
         )
         .await;
@@ -241,7 +242,7 @@ async fn adding_rider_requires_login() {
 }
 
 /// Body for `edit_rider`; without a gender, an edit keeps the stored one.
-fn edit_body(rider_id: Uuid, firstname: &str) -> Value {
+fn edit_body(rider_id: RiderId, firstname: &str) -> Value {
     json!({
         "rider_id": rider_id,
         "firstname": firstname,
@@ -250,7 +251,7 @@ fn edit_body(rider_id: Uuid, firstname: &str) -> Value {
     })
 }
 
-async fn list_pair_requests(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_pair_requests(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_pair_requests?club_id={club_id}"),
@@ -273,8 +274,8 @@ fn participants(act: &Value) -> Vec<String> {
     ids
 }
 
-fn ids(riders: &[Uuid]) -> Vec<String> {
-    let mut ids: Vec<String> = riders.iter().map(Uuid::to_string).collect();
+fn ids(riders: &[RiderId]) -> Vec<String> {
+    let mut ids: Vec<String> = riders.iter().map(ToString::to_string).collect();
     ids.sort();
     ids
 }
@@ -479,7 +480,7 @@ async fn edit_rider_is_forbidden_outside_registration_period() {
     let response = app
         .post(
             "/api/command/edit_rider",
-            edit_body(Uuid::now_v7(), "Anna"),
+            edit_body(RiderId::new(), "Anna"),
             Some(&owner),
         )
         .await;
@@ -633,7 +634,7 @@ async fn only_the_club_and_admins_change_its_riders() {
     // Unknown riders.
     for uri in ["/api/command/delete_rider", "/api/command/edit_rider"] {
         let response = app
-            .post(uri, edit_body(Uuid::now_v7(), "Niemand"), Some(&admin))
+            .post(uri, edit_body(RiderId::new(), "Niemand"), Some(&admin))
             .await;
         assert_eq!(response.status, StatusCode::NOT_FOUND, "{uri}");
     }
@@ -753,7 +754,7 @@ async fn club_code_is_stable_across_renames() {
     assert_eq!(code(&after.body), first);
 }
 
-fn find(riders: &[Value], id: Uuid) -> &Value {
+fn find(riders: &[Value], id: RiderId) -> &Value {
     riders.iter().find(|s| s["id"] == id.to_string()).unwrap()
 }
 

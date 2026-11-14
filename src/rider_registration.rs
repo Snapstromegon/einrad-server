@@ -9,9 +9,9 @@
 //! The operations take a connection and expect the caller to run them in one
 //! write transaction (`begin_write`), together with its own checks.
 
+use crate::ids::{ActId, ClubId, RiderId};
 use axum::http::StatusCode;
 use sqlx::SqliteConnection;
-use uuid::Uuid;
 
 use crate::{act_type::ActType, gender::Gender, http_server::HttpError};
 
@@ -19,7 +19,7 @@ use crate::{act_type::ActType, gender::Gender, http_server::HttpError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Starts {
     /// The rider's single act.
-    pub single: Option<Uuid>,
+    pub single: Option<ActId>,
     pub pair: Pair,
 }
 
@@ -33,8 +33,8 @@ pub enum Pair {
     },
     /// In a pair act with `partner`.
     Linked {
-        act_id: Uuid,
-        partner: Option<Uuid>,
+        act_id: ActId,
+        partner: Option<RiderId>,
     },
 }
 
@@ -47,13 +47,13 @@ pub enum PartnerClubs {
 }
 
 /// The rider's single and pair starts.
-pub async fn starts(conn: &mut SqliteConnection, rider: Uuid) -> sqlx::Result<Starts> {
+pub async fn starts(conn: &mut SqliteConnection, rider: RiderId) -> sqlx::Result<Starts> {
     let single = act_of(conn, rider, ActType::Single).await?;
     let pair = match act_of(conn, rider, ActType::Pair).await? {
         Some(act_id) => Pair::Linked {
             act_id,
             partner: sqlx::query_scalar!(
-                r#"SELECT rider_id as "rider_id!: Uuid" FROM act_participants WHERE act_id = ? AND rider_id != ?"#,
+                r#"SELECT rider_id as "rider_id!: RiderId" FROM act_participants WHERE act_id = ? AND rider_id != ?"#,
                 act_id,
                 rider,
             )
@@ -78,7 +78,7 @@ pub async fn starts(conn: &mut SqliteConnection, rider: Uuid) -> sqlx::Result<St
 /// which decides Einzel weiblich or männlich.
 pub async fn set_single(
     conn: &mut SqliteConnection,
-    rider: Uuid,
+    rider: RiderId,
     single: bool,
 ) -> Result<(), HttpError> {
     let act_id = act_of(conn, rider, ActType::Single).await?;
@@ -103,9 +103,9 @@ pub async fn set_single(
 /// Fails if the rider already is in a pair.
 pub async fn request_pair(
     conn: &mut SqliteConnection,
-    rider: Uuid,
+    rider: RiderId,
     partner_name: Option<&str>,
-) -> Result<Option<Uuid>, HttpError> {
+) -> Result<Option<RiderId>, HttpError> {
     let rider = Rider::load(conn, rider).await?;
     ensure_not_in_pair(conn, &rider).await?;
     let partner_name = partner_name.map(str::trim).filter(|name| !name.is_empty());
@@ -128,7 +128,7 @@ pub async fn request_pair(
     };
     let candidates = sqlx::query_scalar!(
         r#"
-        SELECT rider.id as "id!: Uuid"
+        SELECT rider.id as "id!: RiderId"
         FROM pair_requests JOIN rider ON rider.id = pair_requests.rider_id
         WHERE rider.club_id = ?
             AND rider.id != ?
@@ -153,10 +153,10 @@ pub async fn request_pair(
 /// them already is in a pair.
 pub async fn link_pair(
     conn: &mut SqliteConnection,
-    rider: Uuid,
-    partner: Uuid,
+    rider: RiderId,
+    partner: RiderId,
     clubs: PartnerClubs,
-) -> Result<Uuid, HttpError> {
+) -> Result<ActId, HttpError> {
     if rider == partner {
         return Err(same_person());
     }
@@ -176,7 +176,7 @@ pub async fn link_pair(
 /// Takes the rider out of the pair competition: their pair request goes, or
 /// their pair act is dissolved and the partner is left with a pair request
 /// without a name.
-pub async fn leave_pair(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), HttpError> {
+pub async fn leave_pair(conn: &mut SqliteConnection, rider: RiderId) -> Result<(), HttpError> {
     match starts(conn, rider).await?.pair {
         Pair::None => {}
         Pair::Requested { .. } => {
@@ -201,7 +201,7 @@ pub async fn leave_pair(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), 
 
 /// Dissolves a pair act: both riders leave the pair competition, nobody is
 /// left waiting for a partner (unlike [`leave_pair`]).
-pub async fn dissolve_pair(conn: &mut SqliteConnection, act_id: Uuid) -> Result<(), HttpError> {
+pub async fn dissolve_pair(conn: &mut SqliteConnection, act_id: ActId) -> Result<(), HttpError> {
     let act_type = sqlx::query_scalar!(
         r#"SELECT act_type as "act_type!: ActType" FROM acts WHERE id = ?"#,
         act_id
@@ -222,9 +222,9 @@ pub async fn dissolve_pair(conn: &mut SqliteConnection, act_id: Uuid) -> Result<
 /// their pair request is fulfilled by the pair act.
 pub async fn replace_rider(
     conn: &mut SqliteConnection,
-    act_id: Uuid,
-    old: Uuid,
-    new: Uuid,
+    act_id: ActId,
+    old: RiderId,
+    new: RiderId,
 ) -> Result<(), HttpError> {
     let act_type = sqlx::query_scalar!(
         r#"SELECT act_type as "act_type!: ActType" FROM acts WHERE id = ?"#,
@@ -274,7 +274,7 @@ pub async fn replace_rider(
 
 /// Deletes the rider with their single; their pair is dissolved (see
 /// [`leave_pair`]) and their groups keep the other riders.
-pub async fn delete_rider(conn: &mut SqliteConnection, rider: Uuid) -> Result<(), HttpError> {
+pub async fn delete_rider(conn: &mut SqliteConnection, rider: RiderId) -> Result<(), HttpError> {
     set_single(conn, rider, false).await?;
     leave_pair(conn, rider).await?;
     // Groups stay with their other riders and keep their type.
@@ -289,19 +289,19 @@ pub async fn delete_rider(conn: &mut SqliteConnection, rider: Uuid) -> Result<()
 
 /// What the rules need to know about a rider.
 struct Rider {
-    id: Uuid,
-    club_id: Uuid,
+    id: RiderId,
+    club_id: ClubId,
     name: String,
     gender: Option<Gender>,
 }
 
 impl Rider {
     /// Fails with 404 for an unknown rider.
-    async fn load(conn: &mut SqliteConnection, id: Uuid) -> Result<Rider, HttpError> {
+    async fn load(conn: &mut SqliteConnection, id: RiderId) -> Result<Rider, HttpError> {
         let row = sqlx::query!(
             r#"
             SELECT
-                club_id as "club_id!: Uuid",
+                club_id as "club_id!: ClubId",
                 concat_ws(' ', firstname, lastname) as "name!: String",
                 gender as "gender: Gender"
             FROM rider WHERE id = ?
@@ -344,7 +344,11 @@ async fn ensure_not_in_pair(conn: &mut SqliteConnection, rider: &Rider) -> Resul
 }
 
 /// The pair act of two riders without one; their pair requests are fulfilled.
-async fn link(conn: &mut SqliteConnection, rider: Uuid, partner: Uuid) -> sqlx::Result<Uuid> {
+async fn link(
+    conn: &mut SqliteConnection,
+    rider: RiderId,
+    partner: RiderId,
+) -> sqlx::Result<ActId> {
     sqlx::query!(
         "DELETE FROM pair_requests WHERE rider_id IN (?, ?)",
         rider,
@@ -358,12 +362,12 @@ async fn link(conn: &mut SqliteConnection, rider: Uuid, partner: Uuid) -> sqlx::
 /// The rider's act of a single or pair type.
 async fn act_of(
     conn: &mut SqliteConnection,
-    rider: Uuid,
+    rider: RiderId,
     act_type: ActType,
-) -> sqlx::Result<Option<Uuid>> {
+) -> sqlx::Result<Option<ActId>> {
     sqlx::query_scalar!(
         r#"
-        SELECT act_id as "act_id!: Uuid"
+        SELECT act_id as "act_id!: ActId"
         FROM act_participants JOIN acts ON acts.id = act_participants.act_id
         WHERE act_participants.rider_id = ? AND acts.act_type = ?
         "#,
@@ -377,9 +381,9 @@ async fn act_of(
 async fn insert_act(
     conn: &mut SqliteConnection,
     act_type: ActType,
-    riders: &[Uuid],
-) -> sqlx::Result<Uuid> {
-    let id = Uuid::now_v7();
+    riders: &[RiderId],
+) -> sqlx::Result<ActId> {
+    let id = ActId::new();
     sqlx::query!(
         "INSERT INTO acts (id, name, act_type) VALUES (?, '', ?)",
         id,
@@ -400,7 +404,7 @@ async fn insert_act(
 }
 
 /// Deletes the act; its participants go with it.
-async fn delete_act(conn: &mut SqliteConnection, act_id: Uuid) -> sqlx::Result<()> {
+async fn delete_act(conn: &mut SqliteConnection, act_id: ActId) -> sqlx::Result<()> {
     sqlx::query!("DELETE FROM acts WHERE id = ?", act_id)
         .execute(&mut *conn)
         .await?;
@@ -410,10 +414,11 @@ async fn delete_act(conn: &mut SqliteConnection, act_id: Uuid) -> sqlx::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ids::UserId;
     use sqlx::SqlitePool;
 
-    async fn insert_club(db: &SqlitePool, name: &str) -> Uuid {
-        let owner_id = Uuid::now_v7();
+    async fn insert_club(db: &SqlitePool, name: &str) -> ClubId {
+        let owner_id = UserId::new();
         sqlx::query(
             "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, 'x')",
         )
@@ -423,7 +428,7 @@ mod tests {
         .execute(db)
         .await
         .unwrap();
-        let club_id = Uuid::now_v7();
+        let club_id = ClubId::new();
         sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES (?, ?, ?)")
             .bind(club_id)
             .bind(name)
@@ -435,9 +440,9 @@ mod tests {
     }
 
     /// A rider without starts, named `{firstname} {lastname}`.
-    async fn insert_rider(db: &SqlitePool, club_id: Uuid, name: &str) -> Uuid {
+    async fn insert_rider(db: &SqlitePool, club_id: ClubId, name: &str) -> RiderId {
         let (firstname, lastname) = name.split_once(' ').unwrap();
-        let id = Uuid::now_v7();
+        let id = RiderId::new();
         sqlx::query(
             "INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender) VALUES (?, ?, ?, ?, '2012-05-01T00:00:00Z', 'female')",
         )
@@ -451,7 +456,7 @@ mod tests {
         id
     }
 
-    async fn pair_of(db: &SqlitePool, rider: Uuid) -> Pair {
+    async fn pair_of(db: &SqlitePool, rider: RiderId) -> Pair {
         starts(&mut db.acquire().await.unwrap(), rider)
             .await
             .unwrap()

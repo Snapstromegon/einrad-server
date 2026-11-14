@@ -1,10 +1,10 @@
+use crate::ids::{ActId, ClubId, RiderId};
 use std::collections::HashSet;
 
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::{ensure_club_access, get_group, type_conflict_message},
@@ -23,15 +23,15 @@ pub struct SetClubGroupMembersResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ClubGroupMemberInput {
-    rider_id: Uuid,
+    rider_id: RiderId,
     /// Replacement riders (Ersatzfahrer) don't count towards the group size.
     is_replacement: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetClubGroupMembersBody {
-    club_id: Uuid,
-    act_id: Uuid,
+    club_id: ClubId,
+    act_id: ActId,
     /// All riders of this club in the group. Riders of other clubs are kept.
     /// An empty list means the club leaves the group.
     members: Vec<ClubGroupMemberInput>,
@@ -82,7 +82,7 @@ pub async fn set_club_group_members(
             ));
         }
         let club_id = sqlx::query_scalar!(
-            r#"SELECT club_id as "club_id!: Uuid" FROM rider WHERE id = ?"#,
+            r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = ?"#,
             member.rider_id
         )
         .fetch_optional(&mut *transaction)

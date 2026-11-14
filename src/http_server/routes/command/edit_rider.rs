@@ -1,8 +1,8 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     gender::Gender,
@@ -18,7 +18,7 @@ pub struct EditRiderResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditRiderBody {
-    rider_id: Uuid,
+    rider_id: RiderId,
     firstname: String,
     lastname: String,
     #[serde(with = "time::serde::iso8601")]
@@ -68,7 +68,7 @@ pub async fn edit_rider(
         club_id,
         &body.firstname,
         &body.lastname,
-        Some(body.rider_id),
+        Some(body.rider_id.0),
     )
     .await?;
 

@@ -5,6 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::TestApp;
+use einrad_server::ids::CategoryId;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -24,7 +25,7 @@ fn category_body(name: &str) -> Value {
 
 /// A body for `edit_category` that sends the ID and keeps the category's
 /// ages and discipline (EWU13 is in a heat), as the frontend does.
-async fn edit_body(app: &TestApp, category_id: Uuid, new_name: &str) -> Value {
+async fn edit_body(app: &TestApp, category_id: CategoryId, new_name: &str) -> Value {
     let list = app.get("/api/query/list_categories", None).await;
     let current = list
         .body
@@ -61,8 +62,8 @@ async fn a_new_category_gets_a_v7_id_and_the_list_shows_it() {
         )
         .await;
     assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
-    let id: Uuid = added.body["category_id"].as_str().unwrap().parse().unwrap();
-    assert_eq!(id.get_version_num(), 7);
+    let id: CategoryId = added.body["category_id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(id.0.get_version_num(), 7);
 
     let list = app.get("/api/query/list_categories", None).await;
     let found = list
@@ -106,10 +107,11 @@ async fn renaming_a_category_keeps_its_timeplan_startlist_and_riders() {
 
     // Same ID, new name; no category of the old name is left.
     assert_eq!(app.category_id("EWU13 neu").await, id);
-    let old: Option<Uuid> = sqlx::query_scalar("SELECT id FROM categories WHERE name = 'EWU13'")
-        .fetch_optional(&app.db)
-        .await
-        .unwrap();
+    let old: Option<CategoryId> =
+        sqlx::query_scalar("SELECT id FROM categories WHERE name = 'EWU13'")
+            .fetch_optional(&app.db)
+            .await
+            .unwrap();
     assert_eq!(old, None);
 
     // The timeplan entry still points at it.
@@ -168,7 +170,7 @@ async fn a_rename_to_a_taken_name_is_refused_and_an_unknown_id_is_a_404() {
     let unknown = app
         .post(
             "/api/command/edit_category",
-            edit_body(&app, Uuid::now_v7(), "Egal").await,
+            edit_body(&app, CategoryId::new(), "Egal").await,
             Some(&admin),
         )
         .await;

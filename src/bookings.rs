@@ -6,11 +6,11 @@
 //! writes one log entry with the booking before and after, in the same
 //! transaction.
 
+use crate::ids::{BookingId, ClubId, UserId};
 use std::collections::HashMap;
 
 use sqlx::{Sqlite, SqliteConnection};
 use time::{Date, OffsetDateTime};
-use uuid::Uuid;
 
 use crate::{fee_waivers::FeeWaiver, http_server::extractor::auth::Auth, roles::Role};
 
@@ -34,7 +34,7 @@ pub struct Booking {
     pub date: Date,
     pub note: String,
     /// The club this booking is a payment of; `null` if unassigned or ignored.
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
     /// The club's name; in the log, the name at the time of the change.
     pub club_name: Option<String>,
     /// Has nothing to do with the event, e.g. account fees.
@@ -43,14 +43,14 @@ pub struct Booking {
 
 impl Booking {
     /// The booking `id`, if it exists.
-    pub async fn load(tx: &mut SqliteConnection, id: Uuid) -> sqlx::Result<Option<Self>> {
+    pub async fn load(tx: &mut SqliteConnection, id: BookingId) -> sqlx::Result<Option<Self>> {
         let row = sqlx::query!(
             r#"
             SELECT
                 bookings.amount,
                 bookings.date as "date: Date",
                 bookings.note,
-                bookings.club_id as "club_id: Uuid",
+                bookings.club_id as "club_id: ClubId",
                 clubs.name as "club_name?: String",
                 bookings.ignored
             FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id
@@ -82,7 +82,7 @@ pub struct BookingInput {
     #[serde(default)]
     pub note: String,
     /// The club this booking is a payment of; `null` if unassigned or ignored.
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
     /// Has nothing to do with the event; then without a club.
     #[serde(default)]
     pub ignored: bool,
@@ -159,7 +159,7 @@ impl BookingAction {
 /// Who changes a booking: the user and their roles at the time.
 #[derive(Debug, Clone)]
 pub struct Actor<'a> {
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub name: &'a str,
     pub roles: &'a [Role],
 }
@@ -179,7 +179,7 @@ impl<'a> Actor<'a> {
 /// `after`.
 pub async fn log_change(
     tx: &mut SqliteConnection,
-    id: Uuid,
+    id: BookingId,
     actor: &Actor<'_>,
     action: BookingAction,
     before: Option<&Booking>,
@@ -244,11 +244,11 @@ pub async fn log_waiver(
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct BookingLogEntry {
     /// `null` for a waiver.
-    pub booking_id: Option<Uuid>,
+    pub booking_id: Option<BookingId>,
     #[serde(with = "time::serde::rfc3339")]
     pub at: OffsetDateTime,
     /// `null` for changes without a user, like the migration's.
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<UserId>,
     pub user_name: Option<String>,
     /// The user's roles at the time.
     pub roles: Vec<Role>,
@@ -265,7 +265,7 @@ impl BookingLogEntry {
     /// Whether the booking was a payment of `club_id` before or after, or
     /// the waiver changes the club's fees.
     #[must_use]
-    pub fn concerns_club(&self, club_id: Uuid) -> bool {
+    pub fn concerns_club(&self, club_id: ClubId) -> bool {
         [&self.before, &self.after]
             .into_iter()
             .flatten()
@@ -285,9 +285,9 @@ where
     let rows = sqlx::query!(
         r#"
         SELECT
-            booking_id as "booking_id: Uuid",
+            booking_id as "booking_id: BookingId",
             at as "at: OffsetDateTime",
-            user_id as "user_id: Uuid",
+            user_id as "user_id: UserId",
             user_name,
             roles,
             action as "action: BookingAction",
@@ -329,13 +329,13 @@ where
 
 /// What every club has paid: the sum of its payments. Clubs without payments
 /// are missing.
-pub async fn paid_by_club<'e, E>(db: E) -> sqlx::Result<HashMap<Uuid, f64>>
+pub async fn paid_by_club<'e, E>(db: E) -> sqlx::Result<HashMap<ClubId, f64>>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     let rows = sqlx::query!(
         r#"
-        SELECT club_id as "club_id!: Uuid", SUM(amount) as "paid!: f64"
+        SELECT club_id as "club_id!: ClubId", SUM(amount) as "paid!: f64"
         FROM bookings
         WHERE club_id IS NOT NULL
         GROUP BY club_id
@@ -352,7 +352,7 @@ where
 /// One payment of a club, as the club sees it.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Payment {
-    pub id: Uuid,
+    pub id: BookingId,
     /// Negative for a refund.
     pub amount: f64,
     #[serde(with = "iso_date")]
@@ -361,14 +361,14 @@ pub struct Payment {
 }
 
 /// The payments of `club_id`, oldest first.
-pub async fn payments_of_club<'e, E>(db: E, club_id: Uuid) -> sqlx::Result<Vec<Payment>>
+pub async fn payments_of_club<'e, E>(db: E, club_id: ClubId) -> sqlx::Result<Vec<Payment>>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
     sqlx::query_as!(
         Payment,
         r#"
-        SELECT id as "id!: Uuid", amount, date as "date: Date", note
+        SELECT id as "id!: BookingId", amount, date as "date: Date", note
         FROM bookings
         WHERE club_id = ?
         ORDER BY date, rowid
@@ -384,7 +384,7 @@ mod tests {
     use super::*;
     use time::macros::date;
 
-    fn booking(amount: f64, club_id: Option<Uuid>, ignored: bool) -> Booking {
+    fn booking(amount: f64, club_id: Option<ClubId>, ignored: bool) -> Booking {
         Booking {
             amount,
             date: date!(2027 - 03 - 01),
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn an_edit_of_only_the_assignment_is_named_after_it() {
-        let club = Some(Uuid::now_v7());
+        let club = Some(ClubId::new());
         let unassigned = booking(45.0, None, false);
         let assigned = booking(45.0, club, false);
         let ignored = booking(45.0, None, true);

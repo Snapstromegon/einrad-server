@@ -1,8 +1,8 @@
+use crate::ids::{CategoryId, HeatId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use super::add_heat::normalize_description;
 use crate::{
@@ -18,14 +18,14 @@ pub struct EditHeatResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditHeatBody {
     /// The heat to edit.
-    id: Uuid,
+    id: HeatId,
     new_name: String,
     /// The new short code; without, it stays.
     #[serde(default)]
     new_code: Option<String>,
     description: Option<String>,
     /// See `AddHeatBody::categories`; the ones left out leave the heat.
-    category_ids: Vec<Uuid>,
+    category_ids: Vec<CategoryId>,
     /// The fewest acts it needs for its Vorlauf; without, it stays.
     #[serde(default)]
     threshold: Option<i64>,

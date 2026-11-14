@@ -1,8 +1,8 @@
+use crate::ids::{CategoryId, FinalId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals,
@@ -25,10 +25,10 @@ pub struct AddTimeplanEntryBody {
     label: Option<String>,
     /// The start block's home category.
     #[serde(default)]
-    category_id: Option<Uuid>,
+    category_id: Option<CategoryId>,
     /// A start block running this final instead of a category.
     #[serde(default)]
-    final_id: Option<Uuid>,
+    final_id: Option<FinalId>,
     /// Without one: a start block if a category (or final) is set, otherwise
     /// a custom entry. A start block without either needs a label, e.g.
     /// "Nachstarter".

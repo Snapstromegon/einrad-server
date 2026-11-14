@@ -1,8 +1,8 @@
+use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -88,7 +88,7 @@ pub async fn apply_jury_remap(
         }
         let judges = sqlx::query_scalar!(
             r#"
-            SELECT judge.id as "id!: Uuid" FROM judge
+            SELECT judge.id as "id!: JudgeId" FROM judge
             JOIN clubs ON clubs.id = judge.club_id
             WHERE clubs.name = ? AND judge.firstname = ? AND judge.lastname = ?
             "#,
@@ -107,7 +107,7 @@ pub async fn apply_jury_remap(
         };
         let unit = match jury::parse_unit_label(label) {
             Some((kind, name)) => sqlx::query!(
-                r#"SELECT id as "id!: Uuid" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+                r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
                 kind,
                 name
             )

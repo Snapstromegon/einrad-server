@@ -1,3 +1,4 @@
+use crate::ids::UserId;
 use crate::{
     http_server::{ClientError, HttpError},
     reloadable_sqlite::ReloadableSqlite,
@@ -41,7 +42,7 @@ pub async fn reset_password(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT user_id as "user_id!: Uuid" FROM password_resets WHERE id = ?
+        SELECT user_id as "user_id!: UserId" FROM password_resets WHERE id = ?
         "#,
         body.token
     )

@@ -1,7 +1,7 @@
+use crate::ids::{BookingId, ClubId};
 use axum::{Extension, Json};
 use time::Date;
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -13,14 +13,14 @@ time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ListedBooking {
-    id: Uuid,
+    id: BookingId,
     /// Negative for money going out, e.g. a refund.
     amount: f64,
     #[serde(with = "iso_date")]
     date: Date,
     note: String,
     /// The club this booking is a payment of; `null` if unassigned or ignored.
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
     club_name: Option<String>,
     ignored: bool,
 }
@@ -48,11 +48,11 @@ pub async fn list_bookings(
         ListedBooking,
         r#"
         SELECT
-            bookings.id as "id!: Uuid",
+            bookings.id as "id!: BookingId",
             bookings.amount,
             bookings.date as "date: Date",
             bookings.note,
-            bookings.club_id as "club_id: Uuid",
+            bookings.club_id as "club_id: ClubId",
             clubs.name as "club_name?: String",
             bookings.ignored
         FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id

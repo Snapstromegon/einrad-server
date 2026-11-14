@@ -1,6 +1,6 @@
+use crate::ids::{ActId, CategoryId, ClubId};
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -48,12 +48,12 @@ pub async fn list_acts(
         DBAct,
         r#"
         SELECT
-            view_act.id as "id!: Uuid",
+            view_act.id as "id!: ActId",
             view_act."order" as "act_order",
             categories."order" as "category_order?",
             view_act.name,
             view_act.group_name,
-            view_act.owner_club_id as "owner_club_id: Uuid",
+            view_act.owner_club_id as "owner_club_id: ClubId",
             view_act.song_file,
             view_act.description,
             view_act.song_file_name,
@@ -63,7 +63,7 @@ pub async fn list_acts(
             view_act.max_age,
             view_act.participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>",
             -- Withdrawn acts show no category: they don't start.
-            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: Uuid",
+            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: CategoryId",
             CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category?: String",
             (
                 view_act.act_type IN ('group_small', 'group_large')

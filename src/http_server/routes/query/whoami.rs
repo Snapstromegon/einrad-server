@@ -1,6 +1,6 @@
+use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{
@@ -28,7 +28,7 @@ pub async fn whoami(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", name, email, email_verified, club_id as "club_id: Uuid" FROM users WHERE id = ?
+        SELECT id as "id!: UserId", name, email, email_verified, club_id as "club_id: ClubId" FROM users WHERE id = ?
         "#,
         auth.user_id
     )

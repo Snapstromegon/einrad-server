@@ -1,8 +1,8 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{HttpError, extractor::auth::Auth},
@@ -13,12 +13,12 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RenameClubResponse {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RenameClubBody {
-    club_id: Uuid,
+    club_id: ClubId,
     name: String,
 }
 

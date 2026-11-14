@@ -1,8 +1,8 @@
+use crate::ids::FinalId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals::{self, FinalFields},
@@ -59,7 +59,7 @@ pub async fn add_final(
         .map_err(HttpError::Conflict)?;
 
     info!("Adding final {name:?}");
-    let id = Uuid::now_v7();
+    let id = FinalId::new();
     sqlx::query!(
         r#"
         INSERT INTO finals (

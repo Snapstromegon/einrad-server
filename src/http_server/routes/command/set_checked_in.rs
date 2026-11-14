@@ -1,3 +1,4 @@
+use crate::ids::RiderId;
 use std::collections::HashSet;
 
 use axum::{Extension, Json, http::StatusCode};
@@ -5,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -23,7 +23,7 @@ pub struct SetCheckedInResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetCheckedInBody {
-    rider_ids: Vec<Uuid>,
+    rider_ids: Vec<RiderId>,
     checked_in: bool,
 }
 
@@ -59,7 +59,7 @@ pub async fn set_checked_in(
         body.rider_ids.len(),
         checked_in_at
     );
-    let rider_ids: HashSet<Uuid> = body.rider_ids.into_iter().collect();
+    let rider_ids: HashSet<RiderId> = body.rider_ids.into_iter().collect();
     for rider_id in rider_ids {
         let result = if let Some(checked_in_at) = checked_in_at {
             sqlx::query!(

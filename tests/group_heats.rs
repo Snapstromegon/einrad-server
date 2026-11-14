@@ -5,8 +5,8 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::HeatId;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 fn ok(response: &TestResponse) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
@@ -38,7 +38,7 @@ fn heat_body(name: &str, categories: &[&str]) -> Value {
     json!({ "name": name, "description": null, "categories": categories })
 }
 
-fn final_body(name: &str, act_type: &str, heat_id: Uuid) -> Value {
+fn final_body(name: &str, act_type: &str, heat_id: HeatId) -> Value {
     json!({
         "name": name,
         "description": null,

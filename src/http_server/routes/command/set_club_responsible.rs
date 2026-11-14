@@ -1,8 +1,8 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_club_access,
@@ -13,12 +13,12 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetClubResponsibleResponse {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetClubResponsibleBody {
-    club_id: Uuid,
+    club_id: ClubId,
     /// Empty or missing (together with `email`) means the club's owner.
     name: Option<String>,
     email: Option<String>,

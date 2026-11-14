@@ -6,6 +6,7 @@
 //! purpose with `--replace-competition` or the admin UI's import. See
 //! [`apply`] and [`preview`].
 
+use crate::ids::{CategoryId, FinalId, HeatId, JudgeId, JuryUnitId};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -13,7 +14,6 @@ use std::{
 
 use time::{Date, Month, OffsetDateTime, macros::format_description};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -1314,7 +1314,7 @@ async fn write(
     let registrations = sqlx::query!(
         r#"
         SELECT
-            judge.id as "judge_id!: Uuid",
+            judge.id as "judge_id!: JudgeId",
             clubs.name as "club!",
             judge.firstname as "firstname!",
             judge.lastname as "lastname!",
@@ -1394,7 +1394,7 @@ async fn write(
         }
         for (index, category) in resolved.iter().enumerate() {
             let order = index as i64 + 1;
-            let category_id = Uuid::now_v7();
+            let category_id = CategoryId::new();
             sqlx::query!(
                 r#"
                 INSERT INTO categories (
@@ -1426,7 +1426,7 @@ async fn write(
 
     let heats = resolve_heats(&file.heats, categories)?;
     // The file names heats and finals; the database refers to them by id.
-    let mut heat_ids: HashMap<String, Uuid> = HashMap::new();
+    let mut heat_ids: HashMap<String, HeatId> = HashMap::new();
     for heat in &heats {
         if heat.categories.is_empty() {
             warn!(
@@ -1434,7 +1434,7 @@ async fn write(
                 heat.name
             );
         }
-        let heat_id = Uuid::now_v7();
+        let heat_id = HeatId::new();
         heat_ids.insert(heat.code.clone(), heat_id);
         sqlx::query!(
             r#"
@@ -1478,7 +1478,7 @@ async fn write(
     if !finals.is_empty() {
         let resolved = resolve_finals(finals, &heats)?;
         for (order, item) in (1_i64..).zip(&resolved) {
-            let final_id = Uuid::now_v7();
+            let final_id = FinalId::new();
             sqlx::query!(
                 r#"
                 INSERT INTO finals (
@@ -1549,7 +1549,7 @@ async fn write(
             let final_id = match &entry.final_name {
                 Some(name) => Some(
                     sqlx::query_scalar!(
-                        r#"SELECT id as "id: Uuid" FROM finals WHERE code = ?"#,
+                        r#"SELECT id as "id: FinalId" FROM finals WHERE code = ?"#,
                         name
                     )
                     .fetch_one(&mut *conn)
@@ -1589,7 +1589,7 @@ async fn write(
 
     for registration in registrations {
         let unit = sqlx::query_scalar!(
-            r#"SELECT id as "id!: Uuid" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+            r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
             registration.unit_kind,
             registration.unit_name
         )

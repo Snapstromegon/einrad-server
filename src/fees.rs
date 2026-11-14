@@ -3,9 +3,8 @@
 //! The one place the fee rules live in the backend; the club queries, the
 //! payment QR code (through them) and `/metrics` all use it.
 
+use crate::ids::ClubId;
 use std::collections::HashMap;
-
-use uuid::Uuid;
 
 use crate::{
     competition::Competition,
@@ -38,7 +37,7 @@ pub async fn fees_by_club(
     db: &sqlx::SqlitePool,
     competition: Option<&Competition>,
     jury_registration: bool,
-) -> sqlx::Result<HashMap<Uuid, ClubFees>> {
+) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
     fees(db, competition, jury_registration, None).await
 }
 
@@ -47,7 +46,7 @@ pub async fn fees_of_club(
     db: &sqlx::SqlitePool,
     competition: Option<&Competition>,
     jury_registration: bool,
-    club_id: Uuid,
+    club_id: ClubId,
 ) -> sqlx::Result<ClubFees> {
     Ok(fees(db, competition, jury_registration, Some(club_id))
         .await?
@@ -62,13 +61,13 @@ async fn fees(
     db: &sqlx::SqlitePool,
     competition: Option<&Competition>,
     jury_registration: bool,
-    club_id: Option<Uuid>,
-) -> sqlx::Result<HashMap<Uuid, ClubFees>> {
+    club_id: Option<ClubId>,
+) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
     let start_fees = start_fees_by_club(db, competition, club_id, true).await?;
     let unwaived_start_fees = start_fees_by_club(db, competition, club_id, false).await?;
-    let waived_clubs: std::collections::HashSet<Uuid> = sqlx::query_scalar!(
+    let waived_clubs: std::collections::HashSet<ClubId> = sqlx::query_scalar!(
         r#"
-        SELECT id as "id!: Uuid" FROM clubs
+        SELECT id as "id!: ClubId" FROM clubs
         WHERE fee_waiver IS NOT NULL AND (?1 IS NULL OR id = ?1)
         "#,
         club_id
@@ -84,7 +83,7 @@ async fn fees(
         }
         _ => HashMap::new(),
     };
-    let clubs: std::collections::HashSet<Uuid> = unwaived_start_fees
+    let clubs: std::collections::HashSet<ClubId> = unwaived_start_fees
         .keys()
         .chain(obligations.keys())
         .copied()
@@ -125,16 +124,16 @@ async fn fees(
 async fn start_fees_by_club(
     db: &sqlx::SqlitePool,
     competition: Option<&Competition>,
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
     waivers: bool,
-) -> sqlx::Result<HashMap<Uuid, f64>> {
+) -> sqlx::Result<HashMap<ClubId, f64>> {
     let Some(competition) = competition else {
         return Ok(HashMap::new());
     };
     let riders = sqlx::query!(
         r#"
         SELECT
-            rider.club_id as "club_id!: Uuid",
+            rider.club_id as "club_id!: ClubId",
             CASE WHEN ?2 AND (
                 rider.fee_waiver IS NOT NULL
                 OR (SELECT fee_waiver FROM clubs WHERE clubs.id = rider.club_id) IS NOT NULL

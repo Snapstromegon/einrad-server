@@ -1,8 +1,8 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -25,7 +25,7 @@ pub struct EditCategoryResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditCategoryBody {
     /// The category to edit.
-    category_id: Uuid,
+    category_id: CategoryId,
     new_name: String,
     description: Option<String>,
     /// See `AddCategoryBody::min_age`.

@@ -1,6 +1,6 @@
+use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted, routes::http_types::User},
@@ -29,7 +29,7 @@ pub async fn list_users(
     let mut roles = roles::all_roles(&db).await?;
     let users = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", club_id as "club_id: Uuid", name, email, email_verified FROM users
+        SELECT id as "id!: UserId", club_id as "club_id: ClubId", name, email, email_verified FROM users
         "#
     )
     .fetch_all(&db)

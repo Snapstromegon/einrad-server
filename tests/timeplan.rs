@@ -4,9 +4,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
+use einrad_server::ids::{ActId, ClubId, RiderId};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
-use uuid::Uuid;
 
 /// Format sent by the admin frontend.
 const START: &str = "2026-04-19T09:00:00Z";
@@ -605,11 +605,11 @@ async fn act_timer_starts_with_the_first_music_start() {
 async fn single(
     app: &TestApp,
     owner: &str,
-    club_id: Uuid,
+    club_id: ClubId,
     name: &str,
     male: bool,
     born: &str,
-) -> Uuid {
+) -> ActId {
     let mut body = rider_body(club_id, name, true, false);
     body["single_male"] = json!(male);
     body["single_female"] = json!(!male);
@@ -653,7 +653,7 @@ fn slot_states(item: &Value) -> Vec<String> {
         .collect()
 }
 
-fn act(id: Uuid) -> Value {
+fn act(id: ActId) -> Value {
     json!({ "Act": { "act_id": id } })
 }
 
@@ -690,7 +690,7 @@ fn slot(item: &Value, index: usize) -> Value {
 }
 
 /// Sets the default order of acts as the acts overview does.
-async fn set_act_order(app: &TestApp, admin: &str, acts: &[Uuid]) {
+async fn set_act_order(app: &TestApp, admin: &str, acts: &[ActId]) {
     for (order, act_id) in acts.iter().enumerate() {
         let response = app
             .post(
@@ -1193,11 +1193,12 @@ async fn late_acts_join_their_home_block_and_deleted_acts_leave() {
         [a2, a1, a3].map(|id| id.to_string()).to_vec()
     );
 
-    let rider: Uuid = sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = ?")
-        .bind(a1)
-        .fetch_one(&app.db)
-        .await
-        .unwrap();
+    let rider: RiderId =
+        sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = ?")
+            .bind(a1)
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
     let response = app
         .post(
             "/api/command/delete_rider",
@@ -1312,7 +1313,7 @@ async fn set_block_order_rejects_invalid_orders() {
 
     let custom = set_order(&app, &admin, blocks[1], vec![act(a1)]).await;
     rejected(&custom, "Startblöcke");
-    let unknown = set_order(&app, &admin, blocks[2], vec![act(Uuid::new_v4())]).await;
+    let unknown = set_order(&app, &admin, blocks[2], vec![act(ActId::new())]).await;
     rejected(&unknown, "Unbekannte Kür");
     let twice = set_order(&app, &admin, blocks[0], vec![act(a1), act(a1)]).await;
     rejected(&twice, "nur einmal");

@@ -1,8 +1,8 @@
+use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_act_access,
@@ -17,7 +17,7 @@ pub struct DissolvePairResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DissolvePairBody {
-    act_id: Uuid,
+    act_id: ActId,
 }
 
 /// Dissolves a pair act: both riders leave the pair competition, nobody is

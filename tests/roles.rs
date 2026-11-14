@@ -5,8 +5,8 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, email_for, rider_body};
+use einrad_server::ids::UserId;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 /// The migration that replaced `users.is_admin` with roles.
 const ROLES_MIGRATION: i64 = 20261023190000;
@@ -27,8 +27,8 @@ async fn admins_from_before_roles_become_admins() {
     let db = common::in_memory().await;
     let migrator = sqlx::migrate!();
     migrator.run_to(ROLES_MIGRATION - 1, &db).await.unwrap();
-    let admin = Uuid::now_v7();
-    let user = Uuid::now_v7();
+    let admin = UserId::new();
+    let user = UserId::new();
     for (id, name, is_admin) in [(admin, "Admin", true), (user, "Alex", false)] {
         sqlx::query(
             "INSERT INTO users (id, email, email_verified, name, password, is_admin) VALUES (?, ?, true, ?, 'x', ?)",

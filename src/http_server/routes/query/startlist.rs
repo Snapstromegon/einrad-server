@@ -1,6 +1,6 @@
+use crate::ids::{ActId, CategoryId, RiderId};
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -12,7 +12,7 @@ use crate::{
 pub struct StartlistActParticipant {
     firstname: String,
     lastname: String,
-    id: Uuid,
+    id: RiderId,
     club_name: String,
     /// Replacement riders (Ersatzfahrer) of a group.
     is_replacement: bool,
@@ -20,13 +20,13 @@ pub struct StartlistActParticipant {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct StartlistAct {
-    id: Uuid,
+    id: ActId,
     name: String,
     /// Group acts only.
     group_name: Option<String>,
     act_type: ActType,
     participants: Vec<StartlistActParticipant>,
-    category_id: Option<Uuid>,
+    category_id: Option<CategoryId>,
     category: Option<String>,
     act_order: Option<i64>,
     category_order: Option<i64>,
@@ -53,12 +53,12 @@ pub async fn startlist(
     Extension(db): Extension<ReloadableSqlite>,
 ) -> Result<Json<Vec<StartlistAct>>, HttpError> {
     pub struct DBStartlistAct {
-        id: Uuid,
+        id: ActId,
         name: String,
         group_name: Option<String>,
         act_type: ActType,
         participants: sqlx::types::Json<Vec<StartlistActParticipant>>,
-        category_id: Option<Uuid>,
+        category_id: Option<CategoryId>,
         category: Option<String>,
         act_order: Option<i64>,
         category_order: Option<i64>,
@@ -83,14 +83,14 @@ pub async fn startlist(
         DBStartlistAct,
         r#"
         SELECT
-            view_act.id as "id!: Uuid",
+            view_act.id as "id!: ActId",
             view_act."order" as "act_order",
             categories."order" as "category_order",
             view_act.name,
             view_act.group_name,
             view_act.act_type as "act_type!: ActType",
             view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
-            view_act.category_id as "category_id: Uuid",
+            view_act.category_id as "category_id: CategoryId",
             view_act.category
         FROM view_act JOIN categories ON view_act.category_id = categories.id
         WHERE view_act.withdrawn_at IS NULL

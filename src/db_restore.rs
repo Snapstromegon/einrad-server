@@ -4,6 +4,7 @@
 //! the pool's write lock: pre-restore snapshot, close, atomic rename, reopen,
 //! migrate; any failure after the close puts the snapshot back.
 
+use crate::ids::ActId;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,7 +16,6 @@ use sqlx::{
 use thiserror::Error;
 use time::PrimitiveDateTime;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     db_backup::{self, BackupError},
@@ -34,7 +34,7 @@ pub struct BackupCheck {
 /// An act whose song file isn't in the data directory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct MissingSong {
-    pub act_id: Uuid,
+    pub act_id: ActId,
     /// The act's name, or the group's.
     pub name: String,
     /// The act's club(s), if known.
@@ -176,7 +176,7 @@ pub async fn missing_songs(
     pool: &SqlitePool,
     data_path: &Path,
 ) -> Result<Vec<MissingSong>, sqlx::Error> {
-    type Row = (Uuid, String, Option<String>, Option<String>, String);
+    type Row = (ActId, String, Option<String>, Option<String>, String);
     let rich = sqlx::query_as::<_, Row>(
         r#"
         SELECT acts.id, COALESCE(acts.group_name, acts.name),
@@ -197,7 +197,7 @@ pub async fn missing_songs(
     .await;
     let rows = match rich {
         Ok(rows) => rows,
-        Err(_) => sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
+        Err(_) => sqlx::query_as::<_, (ActId, String, Option<String>, String)>(
             "SELECT id, COALESCE(group_name, name), song_file_name, song_file \
              FROM acts WHERE song_file IS NOT NULL ORDER BY COALESCE(group_name, name)",
         )
@@ -356,6 +356,7 @@ async fn swap_in_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ids::UserId;
     use sqlx::migrate::{Migration, MigrationType};
     use time::macros::datetime;
 
@@ -364,7 +365,7 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("db-restore-{}", Uuid::now_v7()));
+            let dir = std::env::temp_dir().join(format!("db-restore-{}", uuid::Uuid::now_v7()));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
@@ -383,7 +384,7 @@ mod tests {
     }
 
     async fn add_admin(pool: &SqlitePool, name: &str) {
-        let id = Uuid::now_v7();
+        let id = UserId::new();
         sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, 'x')")
             .bind(id)
             .bind(format!("{id}@example.org"))

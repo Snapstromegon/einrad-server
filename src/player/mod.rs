@@ -17,6 +17,7 @@
 //! demand: on the active player through the hub, or by a music control in
 //! its own browser.
 
+use crate::ids::{ActId, PlayerId, QueueEntryId};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
@@ -27,7 +28,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::routes::{
@@ -85,7 +85,7 @@ impl Default for Timing {
 /// A song as the players load it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Song {
-    pub act_id: Uuid,
+    pub act_id: ActId,
     /// The file in the data directory.
     pub file: String,
     /// Where web players load it from, e.g. `/songs/<file>`.
@@ -130,7 +130,7 @@ impl PlaybackState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Playback {
     /// The act whose song is loaded, if any.
-    pub act_id: Option<Uuid>,
+    pub act_id: Option<ActId>,
     /// The original upload instead of the normalized copy.
     pub original: bool,
     pub state: PlaybackState,
@@ -194,7 +194,7 @@ pub enum PlayerKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct PlayerInfo {
-    pub id: Uuid,
+    pub id: PlayerId,
     pub name: String,
     pub kind: PlayerKind,
     /// False while the connection is lost: the player stays for a while in
@@ -206,8 +206,8 @@ pub struct PlayerInfo {
 /// A song in the award ceremony queue.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct QueueEntry {
-    pub id: Uuid,
-    pub act_id: Uuid,
+    pub id: QueueEntryId,
+    pub act_id: ActId,
     /// The original upload instead of the normalized copy.
     pub original: bool,
     /// The act, e.g. "Sternenstaub – Anna Muster".
@@ -220,7 +220,7 @@ pub struct QueueEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct HubState {
     pub players: Vec<PlayerInfo>,
-    pub active_player: Option<Uuid>,
+    pub active_player: Option<PlayerId>,
     /// The song on the active player.
     pub cue: Option<Song>,
     /// The next song from the timeplan, waiting until the active player stops
@@ -230,7 +230,7 @@ pub struct HubState {
     pub volume: f64,
     /// The acts whose original upload plays instead of the normalized copy,
     /// as cued last by a controller.
-    pub original_acts: Vec<Uuid>,
+    pub original_acts: Vec<ActId>,
     /// The award ceremony queue, in order.
     pub queue: Vec<QueueEntry>,
 }
@@ -241,12 +241,12 @@ pub struct HubState {
 pub enum ControllerMessage {
     /// `None` plays in the music control's own browser again.
     SelectPlayer {
-        player_id: Option<Uuid>,
+        player_id: Option<PlayerId>,
     },
     /// Also remembers the choice of the original for the act: the timeplan
     /// cues and the songs coming up use it.
     Cue {
-        act_id: Uuid,
+        act_id: ActId,
         original: bool,
     },
     Play,
@@ -257,7 +257,7 @@ pub enum ControllerMessage {
     /// come back; if it was the active one, nothing plays remotely. If it
     /// does come back, it's a new player.
     RemovePlayer {
-        player_id: Uuid,
+        player_id: PlayerId,
     },
     Seek {
         position: f64,
@@ -271,26 +271,26 @@ pub enum ControllerMessage {
     LocalPlayback(Playback),
     /// Adds an act's song to the end of the award ceremony queue.
     QueueAdd {
-        act_id: Uuid,
+        act_id: ActId,
         original: bool,
     },
     QueueRemove {
-        id: Uuid,
+        id: QueueEntryId,
     },
     /// Moves an entry to position `to` (0 is the first).
     QueueMove {
-        id: Uuid,
+        id: QueueEntryId,
         to: usize,
     },
     /// Plays the entry on the active player: loads and starts it, stopping
     /// what plays.
     QueuePlay {
-        id: Uuid,
+        id: QueueEntryId,
     },
     /// Marks the entry as played, e.g. after the music control played it in
     /// its own browser.
     QueuePlayed {
-        id: Uuid,
+        id: QueueEntryId,
     },
     QueueClear,
 }
@@ -342,7 +342,7 @@ pub enum ToPlayer {
 
 /// A player's connection, from [`PlayerHub::register`].
 pub struct PlayerConnection {
-    pub id: Uuid,
+    pub id: PlayerId,
     /// Tells this connection apart from a later one of the same player.
     pub serial: u64,
     /// The player's commands. Ends when a newer connection of the same
@@ -362,17 +362,17 @@ struct PlayerEntry {
 
 struct Inner {
     players: Vec<PlayerEntry>,
-    active: Option<Uuid>,
+    active: Option<PlayerId>,
     cue: Option<Song>,
     pending_cue: Option<Song>,
     volume: f64,
     /// `None` until worked out for the first player or timeplan step.
     prefetch: Option<Vec<Song>>,
     /// Acts whose original upload plays instead of the normalized copy.
-    originals: BTreeSet<Uuid>,
+    originals: BTreeSet<ActId>,
     /// The act whose song the active player was told to play, the song's
     /// position and the time then; see [`PlayerHub::track_music_start`].
-    music_start: Option<(Uuid, f64, std::time::Instant)>,
+    music_start: Option<(ActId, f64, std::time::Instant)>,
     /// What each music control plays in its own browser, by connection, and
     /// when it said so.
     local_playback: BTreeMap<u64, (Playback, std::time::Instant)>,
@@ -494,7 +494,7 @@ impl PlayerHub {
     /// or one of a player of another kind, gets a fresh id.
     pub async fn register(
         &self,
-        id: Option<Uuid>,
+        id: Option<PlayerId>,
         name: String,
         kind: PlayerKind,
     ) -> PlayerConnection {
@@ -522,8 +522,8 @@ impl PlayerHub {
             }
             None => {
                 let id = id
-                    .filter(|id| !id.is_nil() && !inner.players.iter().any(|p| p.info.id == *id))
-                    .unwrap_or_else(Uuid::now_v7);
+                    .filter(|id| !id.0.is_nil() && !inner.players.iter().any(|p| p.info.id == *id))
+                    .unwrap_or_default();
                 info!("Player {name:?} ({kind:?}) connected");
                 inner.players.push(PlayerEntry {
                     info: PlayerInfo {
@@ -566,7 +566,7 @@ impl PlayerHub {
     /// The connection `serial` of a player closed: the player stays, marked
     /// disconnected, and is removed if it isn't back within the reconnect
     /// grace. Nothing happens if a newer connection took over already.
-    pub fn disconnected(self: &Arc<Self>, id: Uuid, serial: u64) {
+    pub fn disconnected(self: &Arc<Self>, id: PlayerId, serial: u64) {
         let grace = {
             let mut inner = self.lock();
             let Some(player) = inner
@@ -592,7 +592,7 @@ impl PlayerHub {
 
     /// Removes a player that is still disconnected since its connection
     /// `serial` closed.
-    fn remove_if_gone(&self, id: Uuid, serial: u64) {
+    fn remove_if_gone(&self, id: PlayerId, serial: u64) {
         let mut inner = self.lock();
         let gone = inner
             .players
@@ -607,13 +607,13 @@ impl PlayerHub {
 
     /// Removes a player at once, e.g. the server player without a sound
     /// card; if it was the active one, nothing plays remotely.
-    pub fn unregister(&self, id: Uuid) {
+    pub fn unregister(&self, id: PlayerId) {
         let mut inner = self.lock();
         Self::remove(&mut inner, id);
         self.publish(&inner);
     }
 
-    fn remove(inner: &mut Inner, id: Uuid) {
+    fn remove(inner: &mut Inner, id: PlayerId) {
         inner.players.retain(|p| p.info.id != id);
         if inner.active == Some(id) {
             warn!("The active player is gone");
@@ -633,7 +633,7 @@ impl PlayerHub {
     /// Records a player's status. A cue waiting for the song to finish is
     /// sent once the active player stopped: not while it plays, is paused
     /// mid-song or loads.
-    pub fn status(&self, id: Uuid, status: PlayerStatus) {
+    pub fn status(&self, id: PlayerId, status: PlayerStatus) {
         let mut inner = self.lock();
         let Some(player) = inner.players.iter_mut().find(|p| p.info.id == id) else {
             return;
@@ -660,7 +660,7 @@ impl PlayerHub {
     /// to, maybe still loading, so the start counts once the position moves,
     /// dated back by how far it moved, but never before "playing" (e.g. after
     /// a seek).
-    fn track_music_start(&self, inner: &mut Inner, id: Uuid, was_playing: bool) {
+    fn track_music_start(&self, inner: &mut Inner, id: PlayerId, was_playing: bool) {
         let Some(status) = inner
             .players
             .iter()
@@ -694,7 +694,7 @@ impl PlayerHub {
 
     /// Records the music start of `act_id` in the background, as `status`
     /// can't wait for the database.
-    fn music_started(&self, act_id: Uuid, seconds_ago: f64) {
+    fn music_started(&self, act_id: ActId, seconds_ago: f64) {
         let db = self.db.clone();
         tokio::spawn(async move {
             let db = db.get().await.clone();
@@ -880,7 +880,7 @@ impl PlayerHub {
                     .ok_or("Für diese Kür gibt es keine Musik.")?;
                 let mut inner = self.lock();
                 inner.queue.push(QueueEntry {
-                    id: Uuid::now_v7(),
+                    id: QueueEntryId::new(),
                     act_id,
                     original,
                     label: song.label,
@@ -954,7 +954,7 @@ impl PlayerHub {
         Ok(())
     }
 
-    fn mark_played(inner: &mut Inner, id: Uuid) {
+    fn mark_played(inner: &mut Inner, id: QueueEntryId) {
         if let Some(entry) = inner.queue.iter_mut().find(|entry| entry.id == id) {
             entry.played = true;
         }
@@ -1057,7 +1057,7 @@ impl PlayerHub {
 
     /// The running act (if any) and the acts after it, in timeplan order.
     /// Acts placed in a published final play there again.
-    async fn upcoming_acts(&self) -> Result<Vec<Uuid>, sqlx::Error> {
+    async fn upcoming_acts(&self) -> Result<Vec<ActId>, sqlx::Error> {
         let db = self.db.get().await.clone();
         let Ok(timeplan) = predict(&db, Audience::OrganizerTeam).await else {
             // An incomplete timeplan has no order to follow.
@@ -1075,7 +1075,7 @@ impl PlayerHub {
 
     /// The song of an act: the normalized copy once it's ready, unless the
     /// original is wanted. `None` without music.
-    async fn song(&self, act_id: Uuid, original: bool) -> Result<Option<Song>, sqlx::Error> {
+    async fn song(&self, act_id: ActId, original: bool) -> Result<Option<Song>, sqlx::Error> {
         let db = self.db.get().await.clone();
         let Some(act) = sqlx::query!(
             r#"
@@ -1130,6 +1130,7 @@ impl PlayerHub {
 #[cfg(test)]
 mod tests {
     use tokio::sync::mpsc::error::TryRecvError;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -1138,12 +1139,12 @@ mod tests {
     }
 
     /// Registers a new web player.
-    async fn connect(hub: &PlayerHub, name: &str) -> (Uuid, mpsc::UnboundedReceiver<ToPlayer>) {
+    async fn connect(hub: &PlayerHub, name: &str) -> (PlayerId, mpsc::UnboundedReceiver<ToPlayer>) {
         let connection = hub.register(None, name.into(), PlayerKind::Web).await;
         (connection.id, connection.commands)
     }
 
-    async fn select(hub: &PlayerHub, id: Uuid) {
+    async fn select(hub: &PlayerHub, id: PlayerId) {
         hub.command(ControllerMessage::SelectPlayer {
             player_id: Some(id),
         })
@@ -1189,7 +1190,7 @@ mod tests {
 
     fn song(act: u128) -> Song {
         Song {
-            act_id: Uuid::from_u128(act),
+            act_id: ActId(Uuid::from_u128(act)),
             file: format!("{act}.mp3"),
             url: format!("/songs/{act}.mp3"),
             label: "Kür".into(),
@@ -1352,15 +1353,15 @@ mod tests {
     async fn players_keep_valid_ids_of_their_kind() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
-        let chosen = Uuid::now_v7();
+        let chosen = PlayerId::new();
         let player = hub
             .register(Some(chosen), "A".into(), PlayerKind::Web)
             .await;
         assert_eq!(player.id, chosen);
         let nil = hub
-            .register(Some(Uuid::nil()), "B".into(), PlayerKind::Web)
+            .register(Some(PlayerId(Uuid::nil())), "B".into(), PlayerKind::Web)
             .await;
-        assert_ne!(nil.id, Uuid::nil());
+        assert_ne!(nil.id, PlayerId(Uuid::nil()));
 
         // A web player can't take over the server player.
         let server = hub
@@ -1452,7 +1453,7 @@ mod tests {
         assert_eq!(hub.playback(), Playback::IDLE);
 
         let local = Playback {
-            act_id: Some(Uuid::from_u128(2)),
+            act_id: Some(ActId(Uuid::from_u128(2))),
             original: true,
             state: PlaybackState::Paused,
             position: 12.0,
@@ -1477,7 +1478,7 @@ mod tests {
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
         let playback = hub.playback();
-        assert_eq!(playback.act_id, Some(Uuid::from_u128(1)));
+        assert_eq!(playback.act_id, Some(ActId(Uuid::from_u128(1))));
         assert_eq!(playback.state, PlaybackState::Playing);
         assert!((30.1..31.0).contains(&playback.position), "{playback:?}");
     }
@@ -1487,7 +1488,7 @@ mod tests {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let hub = hub(db);
         let report = |state, position| Playback {
-            act_id: Some(Uuid::from_u128(2)),
+            act_id: Some(ActId(Uuid::from_u128(2))),
             original: false,
             state,
             position,
@@ -1724,7 +1725,7 @@ mod tests {
     #[tokio::test]
     async fn starting_the_cued_song_records_the_music_start() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let act = Uuid::from_u128(1);
+        let act = ActId(Uuid::from_u128(1));
         sqlx::query(
             "INSERT INTO acts (id, name, act_type, started_at) VALUES (?, '', 'single', datetime('now'))",
         )

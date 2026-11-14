@@ -1,8 +1,8 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -15,7 +15,7 @@ pub struct MoveCategoryUpResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MoveCategoryUpBody {
-    category_id: Uuid,
+    category_id: CategoryId,
 }
 
 /// Move a category up by swapping order with the previous category.
@@ -87,7 +87,7 @@ pub async fn move_category_up(
     // Find the previous category (the one with the largest order less than current)
     let prev_entry = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", "order" FROM categories 
+        SELECT id as "id!: CategoryId", "order" FROM categories 
         WHERE "order" < $1 
         ORDER BY "order" DESC 
         LIMIT 1

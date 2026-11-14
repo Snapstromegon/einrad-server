@@ -1,8 +1,8 @@
+use crate::ids::BookingId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     bookings::{self, Actor, Booking, BookingAction, BookingInput},
@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateBookingResponse {
-    id: Uuid,
+    id: BookingId,
 }
 
 /// Record a booking: a payment of a club (a refund when negative), an
@@ -51,7 +51,7 @@ pub async fn create_booking(
     {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
-    let id = Uuid::now_v7();
+    let id = BookingId::new();
     info!(
         "Booking {id}: {} € for club {:?}",
         input.amount, input.club_id

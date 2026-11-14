@@ -1,8 +1,8 @@
+use crate::ids::{CategoryId, HeatId};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     heats,
@@ -26,7 +26,7 @@ pub struct AddHeatBody {
     /// All of one act type and gender, none in another heat, group
     /// categories included. May be empty. A heat of groups starts with its
     /// Vorlauf skipped.
-    category_ids: Vec<Uuid>,
+    category_ids: Vec<CategoryId>,
     /// The fewest acts it needs for its Vorlauf. Without: 6 if all its
     /// categories are U15 or younger (Junior Expert), otherwise 5.
     #[serde(default)]
@@ -77,7 +77,7 @@ pub async fn add_heat(
     };
 
     info!("Adding heat {name:?}");
-    let id = Uuid::now_v7();
+    let id = HeatId::new();
     sqlx::query!(
         "INSERT INTO heats (id, name, code, description, threshold) VALUES (?, ?, ?, ?, ?)",
         id,

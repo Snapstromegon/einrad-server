@@ -4,6 +4,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{BASE_URL, PASSWORD, TestApp, closed_registration, email_for, mailpit::FROM_ADDRESS};
+use einrad_server::ids::UserId;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -335,7 +336,7 @@ async fn whoami_requires_valid_jwt() {
 async fn jwt_for_deleted_user_is_rejected() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
-    let cookie = app.cookie_for(Uuid::now_v7());
+    let cookie = app.cookie_for(UserId::new());
 
     let response = app.get("/api/query/whoami", Some(&cookie)).await;
 

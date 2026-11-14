@@ -4,6 +4,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::FinalId;
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Iso8601};
 use uuid::Uuid;
@@ -56,7 +57,7 @@ async fn replace_timeplan(app: &TestApp, admin: &str, entries: &[Value]) {
     }
 }
 
-fn final_entry(final_id: Uuid, earliest_start_time: Option<&str>) -> Value {
+fn final_entry(final_id: FinalId, earliest_start_time: Option<&str>) -> Value {
     json!({
         "earliest_start_time": earliest_start_time,
         "duration_seconds": null,
@@ -359,7 +360,7 @@ async fn a_final_runs_in_one_block_with_its_slots() {
     let response = app
         .post(
             "/api/command/add_timeplan_entry",
-            final_entry(Uuid::new_v4(), None),
+            final_entry(FinalId::new(), None),
             Some(&admin),
         )
         .await;

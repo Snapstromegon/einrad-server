@@ -16,6 +16,7 @@ pub mod gender;
 pub mod groups;
 pub mod heats;
 pub mod http_server;
+pub mod ids;
 pub mod image_fetch;
 pub mod images;
 pub mod jury;

@@ -5,8 +5,8 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, rider_body};
+use einrad_server::ids::ActId;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 async fn structure(app: &TestApp, cookie: &str) -> Value {
     let response = app.get("/api/query/get_structure", Some(cookie)).await;
@@ -54,7 +54,7 @@ async fn post_ok(app: &TestApp, admin: &str, command: &str, body: Value) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 }
 
-async fn set_act_order(app: &TestApp, admin: &str, act_id: Uuid, order: i64) {
+async fn set_act_order(app: &TestApp, admin: &str, act_id: ActId, order: i64) {
     let response = app
         .post(
             "/api/command/set_act_order",

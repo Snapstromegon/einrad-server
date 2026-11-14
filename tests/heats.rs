@@ -5,6 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::HeatId;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -351,7 +352,7 @@ fn heat_body(name: &str, categories: &[&str]) -> Value {
     json!({ "name": name, "description": null, "categories": categories })
 }
 
-fn edit_body(id: Uuid, new_name: &str, categories: &[&str]) -> Value {
+fn edit_body(id: HeatId, new_name: &str, categories: &[&str]) -> Value {
     json!({
         "id": id,
         "new_name": new_name,

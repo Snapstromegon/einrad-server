@@ -21,6 +21,7 @@ use axum::{
     body::Body,
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
+use einrad_server::ids::{ActId, CategoryId, ClubId, FinalId, HeatId, RiderId, UserId};
 use einrad_server::{
     config::CompetitionFile,
     http_server::{HttpServerOptions, routes::get_api_router},
@@ -188,7 +189,7 @@ pub async fn set_registration_status(db: &SqlitePool, status: &StatusOptions) {
 impl TestApp {
     /// The id of the heat with the code `name`: the admin API addresses
     /// heats by it.
-    pub async fn heat_id(&self, name: &str) -> Uuid {
+    pub async fn heat_id(&self, name: &str) -> HeatId {
         sqlx::query_scalar("SELECT id FROM heats WHERE code = ?")
             .bind(name)
             .fetch_one(&self.db)
@@ -198,7 +199,7 @@ impl TestApp {
 
     /// The id of the final with the code `name`: the admin API addresses
     /// finals by it.
-    pub async fn final_id(&self, name: &str) -> Uuid {
+    pub async fn final_id(&self, name: &str) -> FinalId {
         sqlx::query_scalar("SELECT id FROM finals WHERE code = ?")
             .bind(name)
             .fetch_one(&self.db)
@@ -512,7 +513,7 @@ impl TestApp {
 
     /// The id of the category called `name`: the admin API addresses
     /// categories by it (#356).
-    pub async fn category_id(&self, name: &str) -> Uuid {
+    pub async fn category_id(&self, name: &str) -> CategoryId {
         sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
             .bind(name)
             .fetch_one(&self.db)
@@ -549,13 +550,13 @@ impl TestApp {
                         if name.is_empty() {
                             continue;
                         }
-                        let id: Uuid =
+                        let id: CategoryId =
                             sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
                                 .bind(name)
                                 .fetch_optional(&self.db)
                                 .await
                                 .unwrap()
-                                .unwrap_or_else(Uuid::now_v7);
+                                .unwrap_or_else(CategoryId::new);
                         ids.push(id);
                     }
                     object.insert("category_ids".into(), json!(ids));
@@ -566,12 +567,13 @@ impl TestApp {
                     && let Some(name) = object.remove("name")
                 {
                     // A name no category has gives an ID no category has.
-                    let id: Uuid = sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
-                        .bind(name.as_str().unwrap())
-                        .fetch_optional(&self.db)
-                        .await
-                        .unwrap()
-                        .unwrap_or_else(Uuid::now_v7);
+                    let id: CategoryId =
+                        sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
+                            .bind(name.as_str().unwrap())
+                            .fetch_optional(&self.db)
+                            .await
+                            .unwrap()
+                            .unwrap_or_else(CategoryId::new);
                     object.insert("category_id".into(), json!(id));
                 }
             }
@@ -581,14 +583,14 @@ impl TestApp {
     }
 
     /// Inserts a verified user directly into the database.
-    pub async fn create_user(&self, name: &str, is_admin: bool) -> Uuid {
+    pub async fn create_user(&self, name: &str, is_admin: bool) -> UserId {
         let roles: &[&str] = if is_admin { &["admin"] } else { &[] };
         self.create_user_with_roles(name, roles).await
     }
 
     /// Creates a user holding `roles`, e.g. `["treasurer"]`.
-    pub async fn create_user_with_roles(&self, name: &str, roles: &[&str]) -> Uuid {
-        let id = Uuid::now_v7();
+    pub async fn create_user_with_roles(&self, name: &str, roles: &[&str]) -> UserId {
+        let id = UserId::new();
         sqlx::query(
             "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, ?)",
         )
@@ -611,7 +613,7 @@ impl TestApp {
     }
 
     /// Returns a `Cookie` header value authenticating as `user_id`.
-    pub fn cookie_for(&self, user_id: Uuid) -> String {
+    pub fn cookie_for(&self, user_id: UserId) -> String {
         format!("jwt={}", self.jwt.create_user_token(user_id).unwrap())
     }
 
@@ -621,7 +623,7 @@ impl TestApp {
     }
 
     /// Creates a user owning a freshly created club. Returns `(cookie, club_id)`.
-    pub async fn create_club_owner(&self, name: &str, club_name: &str) -> (String, Uuid) {
+    pub async fn create_club_owner(&self, name: &str, club_name: &str) -> (String, ClubId) {
         let cookie = self.cookie_for(self.create_user(name, false).await);
         let response = self
             .post(
@@ -639,7 +641,7 @@ impl TestApp {
     /// `add_rider`, then the starts (`single_male` / `single_female`, `pair`
     /// with `partner_id` or `partner_name`) with the start commands. A single
     /// gives the gender (Einzel männlich or weiblich).
-    pub async fn add_rider(&self, cookie: &str, body: Value) -> Uuid {
+    pub async fn add_rider(&self, cookie: &str, body: Value) -> RiderId {
         let flag = |key: &str| body[key].as_bool().unwrap_or(false);
         let gender = if flag("single_male") {
             json!("male")
@@ -662,7 +664,7 @@ impl TestApp {
             )
             .await;
         assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-        let rider_id: Uuid = response.body["rider_id"].as_str().unwrap().parse().unwrap();
+        let rider_id: RiderId = response.body["rider_id"].as_str().unwrap().parse().unwrap();
         if flag("single_male") || flag("single_female") {
             self.start_command(
                 cookie,
@@ -710,7 +712,7 @@ impl TestApp {
     }
 
     /// Adds a single rider and returns the id of their generated act.
-    pub async fn add_single_act(&self, cookie: &str, club_id: Uuid, firstname: &str) -> Uuid {
+    pub async fn add_single_act(&self, cookie: &str, club_id: ClubId, firstname: &str) -> ActId {
         let rider_id = self
             .add_rider(cookie, rider_body(club_id, firstname, true, false))
             .await;
@@ -718,7 +720,7 @@ impl TestApp {
     }
 
     /// Returns the id of the (single) act the rider participates in.
-    pub async fn act_of(&self, rider_id: Uuid) -> Uuid {
+    pub async fn act_of(&self, rider_id: RiderId) -> ActId {
         sqlx::query_scalar("SELECT act_id FROM act_participants WHERE rider_id = ?")
             .bind(rider_id)
             .fetch_one(&self.db)
@@ -728,7 +730,7 @@ impl TestApp {
 
     /// Returns the id of the act of `act_type` the rider takes part in.
     /// Unlike [`TestApp::act_of`] this stays unambiguous for riders in groups.
-    pub async fn act_of_type(&self, rider_id: Uuid, act_type: &str) -> Uuid {
+    pub async fn act_of_type(&self, rider_id: RiderId, act_type: &str) -> ActId {
         sqlx::query_scalar(
             "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
         )
@@ -744,10 +746,10 @@ impl TestApp {
     pub async fn add_riders(
         &self,
         cookie: &str,
-        club_id: Uuid,
+        club_id: ClubId,
         prefix: &str,
         count: usize,
-    ) -> Vec<Uuid> {
+    ) -> Vec<RiderId> {
         let mut ids = Vec::with_capacity(count);
         for i in 1..=count {
             let body = rider_body(club_id, &format!("{prefix}{i}"), false, false);
@@ -758,14 +760,19 @@ impl TestApp {
 
     /// Creates a small group (Kleingruppe) owned by `club_id` and returns its
     /// act id.
-    pub async fn create_group(&self, cookie: &str, club_id: Uuid, group_name: &str) -> Uuid {
+    pub async fn create_group(&self, cookie: &str, club_id: ClubId, group_name: &str) -> ActId {
         self.create_group_of_type(cookie, club_id, group_name, "group_small")
             .await
     }
 
     /// Creates a large group (Großgruppe) owned by `club_id` and returns its
     /// act id.
-    pub async fn create_large_group(&self, cookie: &str, club_id: Uuid, group_name: &str) -> Uuid {
+    pub async fn create_large_group(
+        &self,
+        cookie: &str,
+        club_id: ClubId,
+        group_name: &str,
+    ) -> ActId {
         self.create_group_of_type(cookie, club_id, group_name, "group_large")
             .await
     }
@@ -774,10 +781,10 @@ impl TestApp {
     pub async fn create_group_of_type(
         &self,
         cookie: &str,
-        club_id: Uuid,
+        club_id: ClubId,
         group_name: &str,
         act_type: &str,
-    ) -> Uuid {
+    ) -> ActId {
         let response = self
             .post(
                 "/api/command/create_club_group",
@@ -794,10 +801,10 @@ impl TestApp {
     pub async fn set_group_members(
         &self,
         cookie: &str,
-        club_id: Uuid,
-        act_id: Uuid,
-        regular: &[Uuid],
-        replacements: &[Uuid],
+        club_id: ClubId,
+        act_id: ActId,
+        regular: &[RiderId],
+        replacements: &[RiderId],
     ) -> TestResponse {
         let members: Vec<Value> = regular
             .iter()
@@ -846,7 +853,7 @@ pub fn email_for(name: &str) -> String {
 /// Body for [`TestApp::add_rider`]: the rider and their starts. The
 /// birthdate places single female riders in the seeded `EWU13` category (12
 /// years old on the determining day 2027-06-01).
-pub fn rider_body(club_id: Uuid, firstname: &str, single: bool, pair: bool) -> Value {
+pub fn rider_body(club_id: ClubId, firstname: &str, single: bool, pair: bool) -> Value {
     json!({
         "gender": "female",
         "club_id": club_id,

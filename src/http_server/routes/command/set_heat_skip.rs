@@ -1,10 +1,10 @@
+use crate::ids::HeatId;
 use std::sync::Arc;
 
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     heats,
@@ -20,7 +20,7 @@ pub struct SetHeatSkipResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetHeatSkipBody {
     /// The heat.
-    id: Uuid,
+    id: HeatId,
     /// Skip its Vorlauf (its acts start directly in its final) or run it.
     skip: bool,
 }

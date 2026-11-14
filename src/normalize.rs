@@ -11,6 +11,7 @@ use std::{
     process::Stdio,
 };
 
+use crate::ids::ActId;
 use serde::{Deserialize, Serialize};
 use tokio::{process::Command, sync::Semaphore};
 use tracing::{error, info, warn};
@@ -40,7 +41,7 @@ pub enum NormalizationStatus {
 
 /// The file name of a new normalized copy. It is new for every upload, so a
 /// job for an older upload can't overwrite the copy of a newer one.
-pub fn normalized_file_name(act_id: Uuid) -> String {
+pub fn normalized_file_name(act_id: ActId) -> String {
     format!("{act_id}.{}.normalized.mp3", Uuid::now_v7())
 }
 
@@ -49,7 +50,7 @@ pub fn normalized_file_name(act_id: Uuid) -> String {
 pub fn spawn(
     db: ReloadableSqlite,
     data_path: PathBuf,
-    act_id: Uuid,
+    act_id: ActId,
     source: String,
     target: String,
 ) {
@@ -98,7 +99,7 @@ pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()>
     let pool = db.get().await.clone();
     let acts = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", song_file as "song_file!"
+        SELECT id as "id!: ActId", song_file as "song_file!"
         FROM acts
         WHERE song_file IS NOT NULL
             AND (normalization_status IS NULL OR normalization_status = 'pending')
@@ -135,7 +136,7 @@ pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()>
 /// aren't part of a backup). Returns how many were queued.
 pub async fn requeue_missing(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<usize> {
     let pool = db.get().await.clone();
-    let acts: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
+    let acts: Vec<(ActId, String, Option<String>)> = sqlx::query_as(
         "SELECT id, song_file, song_file_normalized FROM acts WHERE song_file IS NOT NULL",
     )
     .fetch_all(&pool)

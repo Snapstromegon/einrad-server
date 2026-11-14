@@ -5,9 +5,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, rider_body};
+use einrad_server::ids::ClubId;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 /// The last migration before the categories store ages.
 const BEFORE_AGES: i64 = 20261109130000;
@@ -163,7 +163,7 @@ async fn reverting_the_migration_writes_the_derived_birthday_bounds() {
 async fn single_category(
     app: &TestApp,
     cookie: &str,
-    club_id: Uuid,
+    club_id: ClubId,
     name: &str,
     birthdate: &str,
 ) -> Value {

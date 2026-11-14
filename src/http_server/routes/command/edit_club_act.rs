@@ -1,10 +1,10 @@
+use crate::ids::ActId;
 use std::sync::Arc;
 
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     competition::{Competition, Features},
@@ -19,7 +19,7 @@ pub struct EditClubActResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditClubActBody {
-    id: Uuid,
+    id: ActId,
     name: String,
     description: Option<String>,
 }

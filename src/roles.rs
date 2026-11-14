@@ -6,10 +6,10 @@
 //! `Granted<permit::ManagePayments>`. Club-side access doesn't go through
 //! roles; it follows the user's club and a group's owner club.
 
+use crate::ids::UserId;
 use std::collections::HashMap;
 
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 /// What a user may do on the organizer side.
 #[derive(
@@ -204,7 +204,7 @@ pub fn permissions_of(roles: &[Role]) -> Vec<Permission> {
 }
 
 /// A user's roles, sorted.
-pub async fn roles_of(db: &SqlitePool, user_id: Uuid) -> sqlx::Result<Vec<Role>> {
+pub async fn roles_of(db: &SqlitePool, user_id: UserId) -> sqlx::Result<Vec<Role>> {
     let mut roles = sqlx::query_scalar!(
         r#"SELECT role as "role: Role" FROM user_roles WHERE user_id = ?"#,
         user_id
@@ -216,12 +216,13 @@ pub async fn roles_of(db: &SqlitePool, user_id: Uuid) -> sqlx::Result<Vec<Role>>
 }
 
 /// Every user's roles, sorted; users without roles are missing.
-pub async fn all_roles(db: &SqlitePool) -> sqlx::Result<HashMap<Uuid, Vec<Role>>> {
-    let rows =
-        sqlx::query!(r#"SELECT user_id as "user_id: Uuid", role as "role: Role" FROM user_roles"#)
-            .fetch_all(db)
-            .await?;
-    let mut roles: HashMap<Uuid, Vec<Role>> = HashMap::new();
+pub async fn all_roles(db: &SqlitePool) -> sqlx::Result<HashMap<UserId, Vec<Role>>> {
+    let rows = sqlx::query!(
+        r#"SELECT user_id as "user_id: UserId", role as "role: Role" FROM user_roles"#
+    )
+    .fetch_all(db)
+    .await?;
+    let mut roles: HashMap<UserId, Vec<Role>> = HashMap::new();
     for row in rows {
         roles.entry(row.user_id).or_default().push(row.role);
     }
