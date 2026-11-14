@@ -19,7 +19,7 @@ async fn texts(db: &sqlx::SqlitePool, sql: &'static str) -> Vec<String> {
 #[tokio::test]
 async fn the_migration_maps_jury_categories_only_where_the_match_is_unambiguous() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE_JURY_UNITS, &db).await.unwrap();
     exec(
         &db,

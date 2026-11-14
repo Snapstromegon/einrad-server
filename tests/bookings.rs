@@ -248,7 +248,7 @@ async fn a_club_sees_only_its_own_payments() {
 #[tokio::test]
 async fn the_migration_turns_paid_totals_into_bookings() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!();
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BOOKINGS_MIGRATION - 1, &db).await.unwrap();
     let owner = UserId::new();
     sqlx::query(

@@ -71,7 +71,7 @@ async fn thresholds(db: &SqlitePool) -> Vec<(String, i64, bool)> {
 #[tokio::test]
 async fn the_migration_gives_junior_expert_heats_6_and_others_5() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(HEATS, &db).await.unwrap();
     for heat in ["JE EM", "E EM", "Gemischt", "Leer"] {
         sqlx::query("INSERT INTO heats (name) VALUES ($1)")

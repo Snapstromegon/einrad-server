@@ -1,0 +1,15 @@
+[package]
+name = "db-sqlite"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+db-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "time", "uuid", "migrate", "macros"] }
+thiserror = { workspace = true }
+tracing = "0.1.44"
+time = { workspace = true }
+tokio = { workspace = true }
+utoipa = { workspace = true }
+uuid = { workspace = true }

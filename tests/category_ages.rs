@@ -14,10 +14,7 @@ const BEFORE_AGES: i64 = 20261109130000;
 
 async fn migrated_before_ages() -> SqlitePool {
     let db = common::in_memory().await;
-    sqlx::migrate!("./migrations")
-        .run_to(BEFORE_AGES, &db)
-        .await
-        .unwrap();
+    db_sqlite::MIGRATOR.run_to(BEFORE_AGES, &db).await.unwrap();
     sqlx::query(
         "INSERT INTO competition (id, name, location, start_date, end_date, determining_day, \
          registration_start, registration_end, music_upload_end, fee_per_start) \
@@ -72,7 +69,7 @@ async fn the_migration_turns_stored_birthday_bounds_into_ages() {
     )
     .await;
 
-    sqlx::migrate!("./migrations").run(&db).await.unwrap();
+    db_sqlite::MIGRATOR.run(&db).await.unwrap();
 
     assert_eq!(
         stored_ages(&db).await,
@@ -111,7 +108,7 @@ async fn the_migration_stops_at_a_birthday_bound_off_the_determining_day() {
     // and until then its schema lock fails every other connection with
     // "database schema is locked" (the in-memory database is a shared cache).
     let mut conn = db.acquire().await.unwrap();
-    let error = sqlx::migrate!("./migrations")
+    let error = db_sqlite::MIGRATOR
         .run(&mut *conn)
         .await
         .unwrap_err()
@@ -138,7 +135,7 @@ async fn reverting_the_migration_writes_the_derived_birthday_bounds() {
     )
     .await;
     insert_dated(&db, "EW70+", None, Some("1957-06-01T00:00:00Z")).await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run(&db).await.unwrap();
 
     migrator.undo(&db, BEFORE_AGES).await.unwrap();

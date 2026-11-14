@@ -11,7 +11,6 @@ use einrad_server::{
     startup,
 };
 use eyre::eyre;
-use sqlx::migrate;
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
@@ -66,7 +65,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
 
     info!("Running database migrations");
     match sqlx::sqlite::SqliteConnectOptions::from_str(&bootstrap.database_url)?.get_filename() {
-        path if path.as_os_str() == ":memory:" => migrate!("./migrations").run(&db).await?,
+        path if path.as_os_str() == ":memory:" => db_sqlite::MIGRATOR.run(&db).await?,
         path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
     }
 

@@ -395,7 +395,7 @@ const FEE_WAIVERS_MIGRATION: i64 = 20261026120000;
 #[tokio::test]
 async fn the_migration_keeps_waived_acts_with_a_reason() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!();
+    let migrator = &db_sqlite::MIGRATOR;
     migrator
         .run_to(FEE_WAIVERS_MIGRATION - 1, &db)
         .await

@@ -4,7 +4,7 @@
 //! the pool's write lock: pre-restore snapshot, close, atomic rename, reopen,
 //! migrate; any failure after the close puts the snapshot back.
 
-use crate::ids::ActId;
+use db_core::ids::ActId;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -257,7 +257,7 @@ pub async fn restore(
         db,
         backup,
         force,
-        &sqlx::migrate!("./migrations"),
+        &crate::MIGRATOR,
         db_backup::now_local(),
         is_playing,
     )
@@ -412,7 +412,7 @@ async fn swap_in_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::UserId;
+    use db_core::ids::UserId;
     use sqlx::migrate::{Migration, MigrationType};
     use time::macros::datetime;
 
@@ -457,7 +457,7 @@ mod tests {
 
     /// The embedded migrations plus one that fails.
     fn failing_migrator() -> Migrator {
-        let full = sqlx::migrate!("./migrations");
+        let full = &crate::MIGRATOR;
         let mut migrations = full.migrations.to_vec();
         migrations.push(Migration::new(
             99_991_231_000_000,
@@ -477,7 +477,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
@@ -505,7 +505,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
@@ -544,7 +544,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
