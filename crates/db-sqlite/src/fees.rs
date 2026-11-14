@@ -25,38 +25,16 @@ struct JuryFeeRules {
 
 /// The current competition's fee rules; `None` without a competition.
 async fn fee_rules(db: &SqlitePool) -> sqlx::Result<Option<FeeRules>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            fee_per_start,
-            max_fee_per_rider,
-            jury_min_age,
-            jury_deployments_per_two_acts,
-            jury_missing_deployment_fee
-        FROM competition
-        ORDER BY start_date DESC
-        LIMIT 1
-        "#
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| FeeRules {
-        fee_per_start: row.fee_per_start,
-        max_fee_per_rider: row.max_fee_per_rider,
-        jury: match (
-            row.jury_min_age,
-            row.jury_deployments_per_two_acts,
-            row.jury_missing_deployment_fee,
-        ) {
-            (Some(_), Some(deployments_per_two_acts), Some(missing_deployment_fee)) => {
-                Some(JuryFeeRules {
-                    deployments_per_two_acts,
-                    missing_deployment_fee,
-                })
-            }
-            _ => None,
-        },
-    }))
+    Ok(crate::competition::current(db)
+        .await?
+        .map(|competition| FeeRules {
+            fee_per_start: competition.fee_per_start,
+            max_fee_per_rider: competition.max_fee_per_rider,
+            jury: competition.jury.map(|jury| JuryFeeRules {
+                deployments_per_two_acts: jury.deployments_per_two_acts,
+                missing_deployment_fee: jury.missing_deployment_fee,
+            }),
+        }))
 }
 
 /// The fees per club, of all clubs or only of `club_id`. The jury fee only

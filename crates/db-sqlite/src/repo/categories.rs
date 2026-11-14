@@ -14,14 +14,9 @@ use super::SqliteRepo;
 
 /// The determining day of the current competition; `None` without one.
 async fn determining_day(conn: &mut SqliteConnection) -> sqlx::Result<Option<Date>> {
-    sqlx::query_scalar!(
-        r#"
-        SELECT determining_day as "determining_day: Date"
-        FROM competition ORDER BY start_date DESC LIMIT 1
-        "#
-    )
-    .fetch_optional(conn)
-    .await
+    Ok(crate::competition::current(conn)
+        .await?
+        .map(|competition| competition.determining_day))
 }
 
 /// Rejects ages the import rejects, e.g. a `min_age` not below `under_age`.

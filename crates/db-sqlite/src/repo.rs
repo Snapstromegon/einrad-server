@@ -18,12 +18,16 @@ mod categories;
 mod check_in;
 mod club_mails;
 mod clubs;
+mod competition;
 mod fees;
 mod groups;
 mod heats_finals;
 mod jury;
+mod media;
+mod metrics;
 mod riders;
 mod settings;
+mod test_support;
 mod timeplan;
 mod users;
 
@@ -45,6 +49,11 @@ impl SqliteRepo {
     #[must_use]
     pub fn from_pool(pool: SqlitePool) -> Self {
         Self::new(ReloadableSqlite::new(pool, "sqlite::memory:".to_string()))
+    }
+
+    /// A migrated, empty in-memory database, for tests.
+    pub async fn in_memory() -> Self {
+        Self::from_pool(crate::reloadable_sqlite::in_memory_migrated().await)
     }
 
     /// The repo as the handle the application passes around.

@@ -75,12 +75,9 @@ impl ClubMailsRepo for SqliteRepo {
 
     async fn mail_reply_to(&self) -> Result<Option<String>, DbError> {
         let pool = self.pool().await;
-        let email = sqlx::query_scalar!(
-            "SELECT contact_email FROM competition ORDER BY start_date DESC LIMIT 1"
-        )
-        .fetch_optional(&pool)
-        .await?
-        .flatten();
+        let email = crate::competition::current(&pool)
+            .await?
+            .and_then(|competition| competition.contact_email);
         Ok(email.filter(|email| !email.trim().is_empty()))
     }
 

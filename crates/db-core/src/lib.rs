@@ -9,11 +9,14 @@ pub mod act_type;
 pub mod acts;
 pub mod auth;
 pub mod bookings;
+pub mod branding;
 pub mod categories;
 pub mod category_ages;
 pub mod check_in;
 pub mod club_mails;
 pub mod clubs;
+pub mod colors;
+pub mod competition;
 pub mod fee_waivers;
 pub mod fees;
 pub mod finals;
@@ -23,6 +26,8 @@ pub mod heats;
 pub mod heats_finals;
 pub mod ids;
 pub mod jury;
+pub mod media;
+pub mod metrics;
 pub mod people;
 pub mod riders;
 pub mod roles;
@@ -38,10 +43,13 @@ pub use categories::CategoriesRepo;
 pub use check_in::CheckInRepo;
 pub use club_mails::ClubMailsRepo;
 pub use clubs::ClubsRepo;
+pub use competition::CompetitionRepo;
 pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
 pub use heats_finals::HeatsFinalsRepo;
 pub use jury::JuryRepo;
+pub use media::MediaRepo;
+pub use metrics::MetricsRepo;
 pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
 pub use timeplan::TimeplanRepo;
@@ -70,6 +78,9 @@ pub trait Db:
     + ActsRepo
     + TimeplanRepo
     + JuryRepo
+    + CompetitionRepo
+    + MediaRepo
+    + MetricsRepo
     + Send
     + Sync
     + 'static

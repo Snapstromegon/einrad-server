@@ -33,6 +33,10 @@ const COMPLETE_CONFIG: &str = r#"
     jwt_secret = "a-long-random-secret"
 "#;
 
+fn repo_of(db: &sqlx::SqlitePool) -> db_sqlite::SqliteRepo {
+    db_sqlite::SqliteRepo::from_pool(db.clone())
+}
+
 fn resolve(config: &str) -> Result<Settings, String> {
     Settings::resolve(CliArgs::default(), ConfigFile::parse(config).unwrap())
 }
@@ -111,7 +115,10 @@ async fn missing_smtp_starts_the_setup() {
     let db = in_memory_migrated().await;
     add_admin(&db).await;
     let settings = resolve("[auth]\njwt_secret = \"a-long-random-secret\"");
-    let reason = pending_reason(&settings, &db).await.unwrap().unwrap();
+    let reason = pending_reason(&settings, &repo_of(&db))
+        .await
+        .unwrap()
+        .unwrap();
     match reason {
         PendingReason::IncompleteConfig(missing) => assert!(missing.contains("SMTP"), "{missing}"),
         other => panic!("{other:?}"),
@@ -123,7 +130,10 @@ async fn missing_jwt_secret_starts_the_setup() {
     let db = in_memory_migrated().await;
     add_admin(&db).await;
     let settings = resolve("[smtp]\nserver = \"s\"\nuser = \"u\"\npassword = \"p\"");
-    let reason = pending_reason(&settings, &db).await.unwrap().unwrap();
+    let reason = pending_reason(&settings, &repo_of(&db))
+        .await
+        .unwrap()
+        .unwrap();
     match reason {
         PendingReason::IncompleteConfig(missing) => {
             assert!(missing.contains("JWT secret"), "{missing}");
@@ -135,7 +145,7 @@ async fn missing_jwt_secret_starts_the_setup() {
 #[tokio::test]
 async fn no_admin_starts_the_setup_even_with_a_complete_config() {
     let db = in_memory_migrated().await;
-    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &db)
+    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &repo_of(&db))
         .await
         .unwrap();
     assert_eq!(reason, Some(PendingReason::NoAdmin));
@@ -145,7 +155,7 @@ async fn no_admin_starts_the_setup_even_with_a_complete_config() {
 async fn an_existing_competition_without_an_admin_starts_the_setup() {
     let db = in_memory_migrated().await;
     common::seed_db(&db, &common::open_registration()).await;
-    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &db)
+    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &repo_of(&db))
         .await
         .unwrap();
     assert_eq!(reason, Some(PendingReason::NoAdmin));
@@ -155,7 +165,7 @@ async fn an_existing_competition_without_an_admin_starts_the_setup() {
 async fn a_complete_config_with_an_admin_starts_normally() {
     let db = in_memory_migrated().await;
     add_admin(&db).await;
-    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &db)
+    let reason = pending_reason(&resolve(COMPLETE_CONFIG), &repo_of(&db))
         .await
         .unwrap();
     assert_eq!(reason, None);

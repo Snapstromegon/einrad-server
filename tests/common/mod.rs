@@ -350,7 +350,7 @@ impl TestApp {
     /// Takes the competition's photo settings and lists the source once,
     /// as the server does every few seconds.
     pub async fn sync_photos(&self) -> Result<(), String> {
-        self.photos.sync(&self.db).await
+        self.photos.sync(self.repo.as_ref()).await
     }
 
     /// Directory uploaded songs are stored in.

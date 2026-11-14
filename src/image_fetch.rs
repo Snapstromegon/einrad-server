@@ -17,10 +17,11 @@ use reqwest::{StatusCode, header::USER_AGENT, redirect};
 use tokio::{sync::Semaphore, task::JoinSet};
 use tracing::{info, warn};
 
+use db_core::{DbError, DbHandle};
+
 use crate::{
-    images::{self, Image, Slot},
+    images::{Image, Slot},
     logo::Logo,
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 /// How long connecting may take.
@@ -114,20 +115,19 @@ impl ImageFetcher {
     /// management. Never holds the database across a download, so a reload
     /// isn't blocked, and a result for an image that changed meanwhile is
     /// dropped.
-    pub async fn refresh(&self, db: &ReloadableSqlite, only: Option<Slot>) -> sqlx::Result<()> {
+    pub async fn refresh(&self, repo: &DbHandle, only: Option<Slot>) -> Result<(), DbError> {
         // A single image is safe without it (a result for a changed image is
         // dropped) and shouldn't wait for a slow refresh of all of them.
         let _refreshing = match only {
             None => Some(self.refreshing.lock().await),
             Some(_) => None,
         };
-        let todo: Vec<Image> = {
-            let pool = db.get().await.clone();
-            images::list(&pool).await?
-        }
-        .into_iter()
-        .filter(|image| image.source_url.is_some() && only.is_none_or(|slot| slot.is(image)))
-        .collect();
+        let todo: Vec<Image> = repo
+            .list_images()
+            .await?
+            .into_iter()
+            .filter(|image| image.source_url.is_some() && only.is_none_or(|slot| slot.is(image)))
+            .collect();
         if todo.is_empty() {
             return Ok(());
         }
@@ -160,18 +160,17 @@ impl ImageFetcher {
                     Err(e.to_string())
                 }
             };
-            let pool = db.get().await.clone();
-            images::store_fetched(&pool, id, &url, result).await?;
+            repo.store_fetched_image(id, &url, result).await?;
         }
         Ok(())
     }
 
     /// Refreshes in the background, e.g. at startup, which must neither wait
     /// for the downloads nor fail on them.
-    pub fn refresh_in_background(self: &Arc<Self>, db: ReloadableSqlite, only: Option<Slot>) {
+    pub fn refresh_in_background(self: &Arc<Self>, repo: DbHandle, only: Option<Slot>) {
         let fetcher = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = fetcher.refresh(&db, only).await {
+            if let Err(e) = fetcher.refresh(&repo, only).await {
                 warn!("Couldn't refresh the images: {e}");
             }
         });
@@ -193,7 +192,7 @@ async fn download(http: &reqwest::Client, url: &str) -> Result<Logo, FetchError>
         bytes.extend_from_slice(&chunk);
     }
     // Scaling a raster image takes a moment.
-    tokio::task::spawn_blocking(move || Logo::from_upload(&bytes))
+    tokio::task::spawn_blocking(move || crate::logo::from_upload(&bytes))
         .await
         .map_err(|_| FetchError::Failed)?
         .map_err(|e| FetchError::Image(e.to_string()))

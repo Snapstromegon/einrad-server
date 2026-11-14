@@ -17,15 +17,14 @@ use time::OffsetDateTime;
 
 use crate::{
     act_type::ActType,
-    competition::Competition,
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
         SponsorConfig, TimeplanEntryConfig,
     },
     finals,
-    images::{self, Image, ImageUrl},
+    images::{Image, ImageUrl},
     jury::{JuryUnitKind, UnitSettings},
-    logo::{Format, SvgLogo},
+    logo::{Format, StoredLogoExt, SvgLogo},
     timeplan::EntryKind,
 };
 
@@ -71,10 +70,10 @@ impl Export {
 
 /// The current competition as a competition file; `None` without one.
 pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Export>> {
-    let Some(competition) = Competition::current(&mut *conn).await? else {
+    let Some(competition) = db_sqlite::competition::current(&mut *conn).await? else {
         return Ok(None);
     };
-    let images = images::list(&mut *conn).await?;
+    let images = db_sqlite::images::list(&mut *conn).await?;
     let mut left_out = Vec::new();
     let (mut logo_svg, mut logo_url) = (Branding::Keep, Branding::Keep);
     let (mut break_image_svg, mut break_image_url) = (Branding::Keep, Branding::Keep);
@@ -300,7 +299,7 @@ async fn source_of(
     if !image.has_data {
         return Ok((Branding::Keep, Branding::Keep));
     }
-    match images::load(&mut *conn, image.id)
+    match db_sqlite::images::load(&mut *conn, image.id)
         .await?
         .and_then(|stored| stored.svg())
     {

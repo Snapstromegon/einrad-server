@@ -22,4 +22,12 @@ pub trait SettingsRepo {
     /// Whether an admin published the current competition's start list and
     /// timeplan. Without a competition nothing is published.
     async fn startlist_published(&self) -> Result<bool, DbError>;
+
+    /// Publishes (`now`) or withdraws the start list and timeplan. `false`
+    /// without a competition.
+    async fn set_startlist_published(
+        &self,
+        published: bool,
+        now: time::OffsetDateTime,
+    ) -> Result<bool, DbError>;
 }

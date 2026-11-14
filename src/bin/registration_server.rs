@@ -98,7 +98,9 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
         .await?;
     }
 
-    if let Some(reason) = setup::pending_reason(&settings, &db).await? {
+    if let Some(reason) =
+        setup::pending_reason(&settings, &db_sqlite::SqliteRepo::from_pool(db.clone())).await?
+    {
         let state = SetupState::new(
             bootstrap.configured_base_url,
             SetupEnv::new(db.clone(), setup_cli),

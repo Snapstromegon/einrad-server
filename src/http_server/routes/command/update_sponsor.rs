@@ -1,4 +1,5 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -6,7 +7,6 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     images,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -34,17 +34,16 @@ pub struct UpdateSponsorResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn update_sponsor(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<UpdateSponsorBody>,
 ) -> Result<Json<UpdateSponsorResponse>, HttpError> {
     let name = images::clean_name(&body.name).map_err(HttpError::ErrorMessages)?;
     let link = images::clean_link(body.link.as_deref()).map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    if !images::update_sponsor(&db, body.id, &name, link.as_deref()).await? {
+    if !repo.update_sponsor(body.id, &name, link.as_deref()).await? {
         return Err(HttpError::NotFound);
     }
     info!("Changed sponsor {} ({name})", body.id);

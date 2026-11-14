@@ -21,8 +21,7 @@ pub use db_core::category_ages::{
 
 use crate::{
     act_type::ActType,
-    colors,
-    competition::{Competition, upsert_competition},
+    competition::Competition,
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
         Settings, SponsorConfig, TimeplanEntryConfig,
@@ -716,7 +715,10 @@ pub async fn apply(
     };
     let mut tx = begin_write(db).await.map_err(db_error)?;
     let mut dropped_registrations = Vec::new();
-    let applied = match Competition::current(&mut *tx).await.map_err(db_error)? {
+    let applied = match db_sqlite::competition::current(&mut *tx)
+        .await
+        .map_err(db_error)?
+    {
         None => {
             let dropped = write(&mut tx, file, &file.competition.id).await?;
             dropped_registrations = dropped.judge_registrations;
@@ -847,7 +849,9 @@ pub struct Preview {
 /// for an invalid file.
 pub async fn preview(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<Preview, String> {
     let mut tx = begin_write(db).await.map_err(db_error)?;
-    let current = Competition::current(&mut *tx).await.map_err(db_error)?;
+    let current = db_sqlite::competition::current(&mut *tx)
+        .await
+        .map_err(db_error)?;
     let before = Snapshot::take(&mut tx).await.map_err(db_error)?;
     let id = current.as_ref().map_or(&file.competition.id, |c| &c.id);
     let dropped = write(&mut tx, file, id).await?;
@@ -872,7 +876,7 @@ pub async fn preview(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<Pr
 /// an error.
 pub async fn create(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<(), String> {
     let mut tx = begin_write(db).await.map_err(db_error)?;
-    if Competition::current(&mut *tx)
+    if db_sqlite::competition::current(&mut *tx)
         .await
         .map_err(db_error)?
         .is_some()
@@ -893,7 +897,10 @@ pub async fn create(db: &sqlx::SqlitePool, file: &CompetitionFile) -> Result<(),
 /// imports one in the admin UI. Without either it refuses to start, as
 /// nobody could import one.
 pub async fn startup_competition(db: &sqlx::SqlitePool) -> Result<Option<Competition>, String> {
-    if let Some(competition) = Competition::current(db).await.map_err(db_error)? {
+    if let Some(competition) = db_sqlite::competition::current(db)
+        .await
+        .map_err(db_error)?
+    {
         return Ok(Some(competition));
     }
     let admins = sqlx::query_scalar!(
@@ -1166,10 +1173,10 @@ async fn write(
             .map_err(db_error)?;
     }
 
-    upsert_competition(&mut *conn, &competition)
+    db_sqlite::competition::upsert(&mut *conn, &Competition::from(&competition))
         .await
         .map_err(db_error)?;
-    colors::write(
+    db_sqlite::competition::write_colors(
         &mut *conn,
         &competition.id,
         &competition.primary_color,
@@ -1197,7 +1204,7 @@ async fn write(
     let timeplan = &file.timeplan;
 
     if !categories.is_empty() {
-        let determining_day = Competition::current(&mut *conn)
+        let determining_day = db_sqlite::competition::current(&mut *conn)
             .await
             .map_err(db_error)?
             .map(|c| c.determining_day)
@@ -1484,17 +1491,17 @@ async fn write_single_image(
     url: &Branding<ImageUrl>,
 ) -> sqlx::Result<()> {
     if let Some(svg) = svg.value() {
-        let current = images::list(&mut *conn)
+        let current = db_sqlite::images::list(&mut *conn)
             .await?
             .into_iter()
             .find(|image| slot.is(image));
         write_svg(conn, competition_id, slot, current.as_ref(), svg).await
     } else if let Some(url) = url.value() {
-        images::set_url(conn, competition_id, slot, url)
+        db_sqlite::images::set_url(conn, competition_id, slot, &url.to_string())
             .await
             .map(|_| ())
     } else if matches!(svg, Branding::Reset) || matches!(url, Branding::Reset) {
-        images::remove(&mut *conn, slot).await
+        db_sqlite::images::remove(&mut *conn, slot).await
     } else {
         Ok(())
     }
@@ -1510,13 +1517,13 @@ async fn write_svg(
 ) -> sqlx::Result<()> {
     let new = Logo::from(svg);
     if let Some(current) = current.filter(|c| c.source_url.is_none() && c.has_data)
-        && images::load(&mut *conn, current.id)
+        && db_sqlite::images::load(&mut *conn, current.id)
             .await?
             .is_some_and(|stored| stored.is(&new))
     {
         return Ok(());
     }
-    images::set_data(&mut *conn, competition_id, slot, &new).await?;
+    db_sqlite::images::set_data(&mut *conn, competition_id, slot, &new).await?;
     Ok(())
 }
 
@@ -1528,7 +1535,7 @@ async fn write_sponsors(
     competition_id: &str,
     sponsors: &[SponsorConfig],
 ) -> sqlx::Result<()> {
-    let mut unused: Vec<Image> = images::list(&mut *conn)
+    let mut unused: Vec<Image> = db_sqlite::images::list(&mut *conn)
         .await?
         .into_iter()
         .filter(|image| image.kind == "sponsor")
@@ -1544,17 +1551,28 @@ async fn write_sponsors(
         let id = match &current {
             Some(current) => {
                 if current.link != link {
-                    images::update_sponsor(&mut *conn, current.id, &name, link.as_deref()).await?;
+                    db_sqlite::images::update_sponsor(
+                        &mut *conn,
+                        current.id,
+                        &name,
+                        link.as_deref(),
+                    )
+                    .await?;
                 }
                 if current.position != position {
-                    images::set_position(&mut *conn, current.id, position).await?;
+                    db_sqlite::images::set_position(&mut *conn, current.id, position).await?;
                 }
                 current.id
             }
             None => {
-                let id =
-                    images::add_sponsor(&mut *conn, competition_id, &name, link.as_deref()).await?;
-                images::set_position(&mut *conn, id, position).await?;
+                let id = db_sqlite::images::add_sponsor(
+                    &mut *conn,
+                    competition_id,
+                    &name,
+                    link.as_deref(),
+                )
+                .await?;
+                db_sqlite::images::set_position(&mut *conn, id, position).await?;
                 id
             }
         };
@@ -1568,11 +1586,12 @@ async fn write_sponsors(
             )
             .await?;
         } else if let Some(url) = &sponsor.url {
-            images::set_url(conn, competition_id, Slot::Sponsor(id), url).await?;
+            db_sqlite::images::set_url(conn, competition_id, Slot::Sponsor(id), &url.to_string())
+                .await?;
         }
     }
     for gone in unused {
-        images::remove(&mut *conn, Slot::Sponsor(gone.id)).await?;
+        db_sqlite::images::remove(&mut *conn, Slot::Sponsor(gone.id)).await?;
     }
     Ok(())
 }
@@ -1960,7 +1979,11 @@ mod tests {
             report.warnings
         );
         assert_eq!(
-            Competition::current(&db).await.unwrap().unwrap().name,
+            db_sqlite::competition::current(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .name,
             "Cup"
         );
     }
@@ -2056,7 +2079,14 @@ mod tests {
             report.warnings
         );
         assert_eq!(count(&db, "competition").await, 1);
-        assert_eq!(Competition::current(&db).await.unwrap().unwrap().id, "cup");
+        assert_eq!(
+            db_sqlite::competition::current(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            "cup"
+        );
     }
 
     /// [`COMPETITION`] with a heat and a final, the two jury units.
@@ -2200,7 +2230,7 @@ mod tests {
             report.warnings
         );
 
-        let competition = Competition::current(&db).await.unwrap().unwrap();
+        let competition = db_sqlite::competition::current(&db).await.unwrap().unwrap();
         assert_eq!(
             (competition.id.as_str(), competition.name.as_str()),
             ("cup", "Cup 2")
@@ -2266,7 +2296,7 @@ mod tests {
             report.warnings
         );
         assert_eq!(count(&db, "competition").await, 1);
-        let competition = Competition::current(&db).await.unwrap().unwrap();
+        let competition = db_sqlite::competition::current(&db).await.unwrap().unwrap();
         assert_eq!(
             (competition.id.as_str(), competition.name.as_str()),
             ("cup", "Cup 2")
@@ -2298,7 +2328,7 @@ mod tests {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         seed_file(&db, COMPETITION).await.unwrap();
 
-        let competition = Competition::current(&db).await.unwrap().unwrap();
+        let competition = db_sqlite::competition::current(&db).await.unwrap().unwrap();
         assert_eq!(competition.determining_day, DAY);
         assert_eq!(competition.max_fee_per_rider, None);
         let categories: Vec<(String, i64)> =

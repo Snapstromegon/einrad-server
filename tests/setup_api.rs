@@ -424,7 +424,12 @@ async fn completion_writes_the_config_and_creates_the_admin() {
     let loaded = ConfigFile::load(Some(&path)).unwrap();
     let settings = Settings::resolve(CliArgs::default(), loaded);
     assert!(settings.is_ok());
-    assert_eq!(pending_reason(&settings, &h.db).await.unwrap(), None);
+    assert_eq!(
+        pending_reason(&settings, &db_sqlite::SqliteRepo::from_pool(h.db.clone()))
+            .await
+            .unwrap(),
+        None
+    );
 
     // The admin: hashed, verified.
     let admins = h.admins().await;

@@ -16,7 +16,7 @@ use db_core::{
     people,
 };
 use sqlx::SqliteConnection;
-use time::{Date, OffsetDateTime};
+use time::OffsetDateTime;
 
 use super::SqliteRepo;
 use crate::registration::{club_access, map_duplicate};
@@ -61,31 +61,14 @@ async fn judge_access(
 /// The jury's age rule of the current competition; `None` without a
 /// competition or without jury rules.
 async fn judge_age_rule(conn: &mut SqliteConnection) -> sqlx::Result<Option<JudgeAgeRule>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            start_date as "start_date: Date",
-            jury_min_age,
-            jury_deployments_per_two_acts,
-            jury_missing_deployment_fee
-        FROM competition ORDER BY start_date DESC LIMIT 1
-        "#
-    )
-    .fetch_optional(conn)
-    .await?;
-    Ok(row.and_then(|row| {
-        match (
-            row.jury_min_age,
-            row.jury_deployments_per_two_acts,
-            row.jury_missing_deployment_fee,
-        ) {
-            (Some(min_age), Some(_), Some(_)) => Some(JudgeAgeRule {
-                min_age,
-                competition_start: row.start_date,
-            }),
-            _ => None,
-        }
-    }))
+    Ok(crate::competition::current(conn)
+        .await?
+        .and_then(|competition| {
+            competition.jury.map(|jury| JudgeAgeRule {
+                min_age: jury.min_age,
+                competition_start: competition.start_date,
+            })
+        }))
 }
 
 /// Fails with a German message if the club already registered a judge with
@@ -800,38 +783,16 @@ impl JuryRepo for SqliteRepo {
         now: OffsetDateTime,
     ) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
-        if published {
-            let row = sqlx::query!(
-                r#"
-                SELECT
-                    registration_end as "registration_end: OffsetDateTime",
-                    jury_registration_end as "jury_registration_end: OffsetDateTime",
-                    jury_min_age,
-                    jury_deployments_per_two_acts,
-                    jury_missing_deployment_fee
-                FROM competition ORDER BY start_date DESC LIMIT 1
-                "#
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
-            if let Some(row) = row {
-                // The jury's own deadline only counts with the jury rules.
-                let has_rules = row.jury_min_age.is_some()
-                    && row.jury_deployments_per_two_acts.is_some()
-                    && row.jury_missing_deployment_fee.is_some();
-                let end = if has_rules {
-                    row.jury_registration_end.unwrap_or(row.registration_end)
-                } else {
-                    row.registration_end
-                };
-                if now <= end {
-                    return Err(RegistrationError::Rejected(format!(
-                        "Der Juryplan kann erst nach dem Ende der Jury-Anmeldung ({:02}.{:02}.{}) veröffentlicht werden.",
-                        end.day(),
-                        u8::from(end.month()),
-                        end.year()
-                    )));
-                }
+        if published && let Some(competition) = crate::competition::current(&mut *tx).await? {
+            // The jury's own deadline only counts with the jury rules.
+            let end = competition.judge_registration_end();
+            if now <= end {
+                return Err(RegistrationError::Rejected(format!(
+                    "Der Juryplan kann erst nach dem Ende der Jury-Anmeldung ({:02}.{:02}.{}) veröffentlicht werden.",
+                    end.day(),
+                    u8::from(end.month()),
+                    end.year()
+                )));
             }
         }
         let published_at = published.then_some(now);

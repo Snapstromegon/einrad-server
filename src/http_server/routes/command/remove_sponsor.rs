@@ -1,12 +1,12 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::{self, Slot},
-    reloadable_sqlite::ReloadableSqlite,
+    images::Slot,
     roles::permit,
 };
 
@@ -30,15 +30,14 @@ pub struct RemoveSponsorResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn remove_sponsor(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<RemoveSponsorBody>,
 ) -> Result<Json<RemoveSponsorResponse>, HttpError> {
-    let db = db.get().await.clone();
-    images::remove(&db, Slot::Sponsor(body.id)).await?;
+    repo.remove_image(Slot::Sponsor(body.id)).await?;
     info!("Removed sponsor {}", body.id);
     Ok(Json(RemoveSponsorResponse {}))
 }

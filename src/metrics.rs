@@ -32,9 +32,9 @@ use prometheus_client::{
 use tracing::error;
 
 use crate::{
-    competition::{Competition, Features},
+    competition::Features,
     http_server::{HttpServerOptions, routes::query::predict_timeplan::predict},
-    reloadable_sqlite::ReloadableSqlite,
+    system_status::StatusOptions,
     timeplan::Audience,
 };
 
@@ -254,7 +254,6 @@ impl Metrics {
     /// Reads the database counts into the gauges.
     async fn refresh(
         &self,
-        db: &sqlx::SqlitePool,
         repo: &dyn db_core::Db,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let set = |family: &GaugeFamily, rows: Vec<(Labels, i64)>| {
@@ -264,57 +263,31 @@ impl Metrics {
             }
         };
 
-        let users = sqlx::query!(
-            r#"SELECT email_verified as "verified!: bool", COUNT(*) as "count!: i64" FROM users GROUP BY email_verified"#
-        )
-        .fetch_all(db)
-        .await?;
+        let counts = repo.db_counts().await?;
         set(
             &self.users,
-            users
+            counts
+                .users
                 .into_iter()
-                .map(|r| (labels([("verified", &r.verified.to_string())]), r.count))
+                .map(|(verified, count)| (labels([("verified", &verified.to_string())]), count))
                 .collect(),
         );
-
-        self.clubs.set(
-            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM clubs"#)
-                .fetch_one(db)
-                .await?,
-        );
-        self.riders.set(
-            sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM rider"#)
-                .fetch_one(db)
-                .await?,
-        );
-        self.riders_checked_in.set(
-            sqlx::query_scalar!(
-                r#"SELECT COUNT(*) as "count!: i64" FROM rider WHERE checked_in_at IS NOT NULL"#
-            )
-            .fetch_one(db)
-            .await?,
-        );
-        let by_club = sqlx::query!(
-            r#"
-            SELECT clubs.name, COUNT(rider.id) as "count!: i64"
-            FROM clubs LEFT JOIN rider ON rider.club_id = clubs.id
-            GROUP BY clubs.id
-            "#
-        )
-        .fetch_all(db)
-        .await?;
+        self.clubs.set(counts.clubs);
+        self.riders.set(counts.riders);
+        self.riders_checked_in.set(counts.riders_checked_in);
         set(
             &self.riders_by_club,
-            by_club
+            counts
+                .riders_by_club
                 .into_iter()
-                .map(|r| (labels([("club", &r.name)]), r.count))
+                .map(|(club, count)| (labels([("club", &club)]), count))
                 .collect(),
         );
 
-        let competition = Competition::current(db).await?;
+        let competition = repo.current_competition().await?;
         let capabilities = competition
             .as_ref()
-            .map(|c| c.status_options().get_system_status());
+            .map(|c| StatusOptions::from(c).get_system_status());
         self.registration_open.set(
             capabilities
                 .as_ref()
@@ -329,108 +302,53 @@ impl Metrics {
                 .map_or(0, |c| c.registration_end.unix_timestamp()),
         );
 
-        let acts = sqlx::query!(
-            r#"
-            SELECT
-                act_type as "act_type!",
-                CASE
-                    WHEN withdrawn_at IS NOT NULL THEN 'withdrawn'
-                    WHEN category IS NOT NULL THEN 'categorized'
-                    ELSE 'uncategorized'
-                END as "state!: String",
-                COUNT(*) as "count!: i64"
-            FROM view_act
-            GROUP BY 1, 2
-            "#
-        )
-        .fetch_all(db)
-        .await?;
         set(
             &self.acts,
-            acts.into_iter()
-                .map(|r| {
-                    (
-                        labels([("act_type", &r.act_type), ("state", &r.state)]),
-                        r.count,
-                    )
+            counts
+                .acts
+                .into_iter()
+                .map(|(act_type, state, count)| {
+                    (labels([("act_type", &act_type), ("state", &state)]), count)
                 })
                 .collect(),
         );
-        let by_category = sqlx::query!(
-            r#"
-            SELECT category as "category!", COUNT(*) as "count!: i64"
-            FROM view_act
-            WHERE category IS NOT NULL AND withdrawn_at IS NULL
-            GROUP BY category
-            "#
-        )
-        .fetch_all(db)
-        .await?;
         set(
             &self.acts_by_category,
-            by_category
+            counts
+                .acts_by_category
                 .into_iter()
-                .map(|r| (labels([("category", &r.category)]), r.count))
+                .map(|(category, count)| (labels([("category", &category)]), count))
                 .collect(),
         );
-        let riders = sqlx::query!(
-            r#"
-            SELECT p.is_replacement as "replacement!: bool", COUNT(*) as "count!: i64"
-            FROM act_participants p JOIN acts ON acts.id = p.act_id
-            WHERE acts.act_type IN ('group_small', 'group_large')
-            GROUP BY p.is_replacement
-            "#
-        )
-        .fetch_all(db)
-        .await?;
         set(
             &self.group_riders,
-            riders
+            counts
+                .group_riders
                 .into_iter()
-                .map(|r| {
-                    let kind = if r.replacement {
+                .map(|(replacement, count)| {
+                    let kind = if replacement {
                         "replacement"
                     } else {
                         "regular"
                     };
-                    (labels([("kind", kind)]), r.count)
+                    (labels([("kind", kind)]), count)
                 })
                 .collect(),
         );
-        let songs = sqlx::query!(
-            r#"
-            SELECT
-                CASE
-                    WHEN song_file IS NULL THEN 'missing'
-                    WHEN song_checked THEN 'checked'
-                    ELSE 'uploaded'
-                END as "state!: String",
-                COUNT(*) as "count!: i64"
-            FROM acts GROUP BY 1
-            "#
-        )
-        .fetch_all(db)
-        .await?;
         set(
             &self.songs,
-            songs
+            counts
+                .songs
                 .into_iter()
-                .map(|r| (labels([("state", &r.state)]), r.count))
+                .map(|(state, count)| (labels([("state", &state)]), count))
                 .collect(),
         );
-        let normalization = sqlx::query!(
-            r#"
-            SELECT normalization_status as "status!", COUNT(*) as "count!: i64"
-            FROM acts WHERE normalization_status IS NOT NULL GROUP BY 1
-            "#
-        )
-        .fetch_all(db)
-        .await?;
         set(
             &self.song_normalization,
-            normalization
+            counts
+                .song_normalization
                 .into_iter()
-                .map(|r| (labels([("status", &r.status)]), r.count))
+                .map(|(status, count)| (labels([("status", &status)]), count))
                 .collect(),
         );
 
@@ -444,31 +362,13 @@ impl Metrics {
                 .sum(),
         );
 
-        let performed = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!: i64" FROM acts WHERE ended_at IS NOT NULL"#
-        )
-        .fetch_one(db)
-        .await?;
-        self.acts_performed.set(performed);
-        let entries = sqlx::query!(
-            r#"
-            SELECT
-                CASE
-                    WHEN ended_at IS NOT NULL THEN 'ended'
-                    WHEN started_at IS NOT NULL THEN 'started'
-                    ELSE 'planned'
-                END as "status!: String",
-                COUNT(*) as "count!: i64"
-            FROM timeplan GROUP BY 1
-            "#
-        )
-        .fetch_all(db)
-        .await?;
+        self.acts_performed.set(counts.acts_performed);
         set(
             &self.timeplan_entries,
-            entries
+            counts
+                .timeplan_entries
                 .into_iter()
-                .map(|r| (labels([("status", &r.status)]), r.count))
+                .map(|(status, count)| (labels([("status", &status)]), count))
                 .collect(),
         );
         // An incomplete timeplan can't be predicted; that isn't a scrape error.
@@ -499,7 +399,6 @@ pub fn metrics() -> &'static Metrics {
 
 /// `GET /metrics`: the metrics in the OpenMetrics text format.
 pub async fn metrics_handler(
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(repo): Extension<db_core::DbHandle>,
     Extension(options): Extension<std::sync::Arc<HttpServerOptions>>,
     headers: HeaderMap,
@@ -516,8 +415,7 @@ pub async fn metrics_handler(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let db = db.get().await.clone();
-    if let Err(e) = metrics().refresh(&db, &*repo).await {
+    if let Err(e) = metrics().refresh(&*repo).await {
         error!("Couldn't read the metrics from the database: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
@@ -586,7 +484,6 @@ mod tests {
         headers.insert(header::AUTHORIZATION, "Bearer x".parse().unwrap());
 
         let response = metrics_handler(
-            Extension(ReloadableSqlite::new(db.clone(), String::new())),
             Extension(db_sqlite::SqliteRepo::from_pool(db).into_handle()),
             Extension(Arc::new(options)),
             headers,

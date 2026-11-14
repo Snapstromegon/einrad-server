@@ -1,23 +1,14 @@
 //! What the commands on the competition's images (#286, #291) share.
 
 use axum::{extract::Multipart, http::StatusCode};
+use db_core::DbHandle;
 
 use crate::{
-    competition::Competition,
     http_server::HttpError,
     image_fetch::ImageFetcher,
     images::{self, ImageUrl, Slot},
-    logo::{Logo, SvgLogo},
-    reloadable_sqlite::ReloadableSqlite,
+    logo::{self, Logo, SvgLogo},
 };
-
-/// The id of the current competition.
-pub async fn competition_id(db: &sqlx::SqlitePool) -> Result<String, HttpError> {
-    Ok(Competition::current(db)
-        .await?
-        .ok_or(HttpError::NotFound)?
-        .id)
-}
 
 /// Reads a multipart upload: its text fields as `(name, value)` before the
 /// file, which is the last field, and the checked image. A body over the
@@ -44,7 +35,7 @@ pub async fn read_upload(mut body: Multipart) -> Result<(Vec<(String, String)>, 
         fields.push((name, value));
     };
     // Scaling a raster image takes a moment.
-    let logo = tokio::task::spawn_blocking(move || Logo::from_upload(&bytes))
+    let logo = tokio::task::spawn_blocking(move || logo::from_upload(&bytes))
         .await
         .map_err(|_| HttpError::InternalServerError)?
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
@@ -52,10 +43,8 @@ pub async fn read_upload(mut body: Multipart) -> Result<(Vec<(String, String)>, 
 }
 
 /// Stores an uploaded image in `slot`.
-pub async fn store_upload(db: &ReloadableSqlite, slot: Slot, logo: &Logo) -> Result<(), HttpError> {
-    let db = db.get().await.clone();
-    let competition_id = competition_id(&db).await?;
-    if !images::set_data(&db, &competition_id, slot, logo).await? {
+pub async fn store_upload(repo: &DbHandle, slot: Slot, logo: &Logo) -> Result<(), HttpError> {
+    if !repo.set_image_data(slot, logo).await? {
         return Err(HttpError::NotFound);
     }
     Ok(())
@@ -78,7 +67,7 @@ pub fn image_url(url: &str) -> Result<ImageUrl, HttpError> {
 /// them). A URL is downloaded right away, so the admin sees at once if it
 /// works; a failed download isn't an error here, it's the image's state.
 pub async fn apply_source(
-    db: &ReloadableSqlite,
+    repo: &DbHandle,
     fetcher: &ImageFetcher,
     slot: Slot,
     svg: Option<&str>,
@@ -88,18 +77,13 @@ pub async fn apply_source(
         svg.filter(|s| !s.trim().is_empty()),
         url.filter(|u| !u.trim().is_empty()),
     ) {
-        (Some(svg), None) => store_upload(db, slot, &svg_logo(svg)?).await,
+        (Some(svg), None) => store_upload(repo, slot, &svg_logo(svg)?).await,
         (None, Some(url)) => {
             let url = image_url(url)?;
-            {
-                let pool = db.get().await.clone();
-                let competition_id = competition_id(&pool).await?;
-                let mut conn = pool.acquire().await?;
-                if !images::set_url(&mut conn, &competition_id, slot, &url).await? {
-                    return Err(HttpError::NotFound);
-                }
+            if !repo.set_image_url(slot, &url.to_string()).await? {
+                return Err(HttpError::NotFound);
             }
-            fetcher.refresh(db, Some(slot)).await?;
+            fetcher.refresh(repo, Some(slot)).await?;
             Ok(())
         }
         _ => Err(HttpError::ErrorMessages(

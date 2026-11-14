@@ -30,13 +30,13 @@ use reqwest::{
     Method,
     header::{CONTENT_TYPE, HeaderValue},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
 use tracing::{info, warn};
 use url::Url;
 use utoipa::ToSchema;
 
-use crate::{competition::Competition, reloadable_sqlite::ReloadableSqlite};
+use db_core::DbHandle;
 
 /// How often the source is listed.
 pub const POLL_EVERY: Duration = Duration::from_secs(5);
@@ -59,26 +59,12 @@ const PROPFIND_BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// Where the photos come from, as the competition sets it
 /// (`[competition.photos]`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PhotosSettings {
-    /// A WebDAV URL, a Nextcloud share link or a local folder.
-    pub source: String,
-    /// Nextcloud user for a WebDAV folder.
-    #[serde(default)]
-    pub user: Option<String>,
-    /// Nextcloud app password for a WebDAV folder, or a share link's
-    /// password.
-    #[serde(default)]
-    pub password: Option<String>,
-}
+pub use db_core::competition::PhotosSettings;
 
-impl PhotosSettings {
-    /// Checks that the source is a folder path, a WebDAV URL or a share
-    /// link with a token.
-    pub fn check(&self) -> Result<(), String> {
-        Source::parse(self).map(|_| ())
-    }
+/// Checks that the source is a folder path, a WebDAV URL or a share link
+/// with a token.
+pub fn check_settings(settings: &PhotosSettings) -> Result<(), String> {
+    Source::parse(settings).map(|_| ())
 }
 
 // There's only one per server, so its size doesn't matter.
@@ -299,14 +285,13 @@ impl Photos {
     }
 
     /// Follows the competition's photo settings in the background: every
-    /// [`POLL_EVERY`] they're read from `db` and the source is listed (see
+    /// [`POLL_EVERY`] they're read from the database and the source is listed (see
     /// [`Photos::sync`]).
-    pub fn start(self: &Arc<Self>, db: ReloadableSqlite) {
+    pub fn start(self: &Arc<Self>, repo: DbHandle) {
         let photos = self.clone();
         tokio::spawn(async move {
             loop {
-                let pool = db.get().await.clone();
-                if let Err(e) = photos.sync(&pool).await {
+                if let Err(e) = photos.sync(repo.as_ref()).await {
                     warn!("Couldn't list the photos: {e}");
                 }
                 tokio::time::sleep(POLL_EVERY).await;
@@ -316,8 +301,9 @@ impl Photos {
 
     /// Takes the current competition's photo settings (see
     /// [`Photos::configure`]) and lists the source once.
-    pub async fn sync(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
-        let competition = Competition::current(db)
+    pub async fn sync(&self, repo: &dyn db_core::Db) -> Result<(), String> {
+        let competition = repo
+            .current_competition()
             .await
             .map_err(|e| format!("Couldn't read the photo settings: {e}"))?;
         self.configure(competition.and_then(|c| c.photos).as_ref());

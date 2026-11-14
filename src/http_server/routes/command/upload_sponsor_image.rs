@@ -1,4 +1,5 @@
 use axum::{Extension, Json, extract::Multipart};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -7,7 +8,6 @@ use super::image_support::{read_upload, store_upload};
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     images::Slot,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -42,10 +42,10 @@ pub struct SponsorImageUpload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, body))]
+#[instrument(skip(repo, body))]
 #[axum::debug_handler]
 pub async fn upload_sponsor_image(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     body: Multipart,
 ) -> Result<Json<UploadSponsorImageResponse>, HttpError> {
@@ -55,7 +55,7 @@ pub async fn upload_sponsor_image(
         .find(|(name, _)| name == "id")
         .and_then(|(_, value)| value.trim().parse::<i64>().ok())
         .ok_or_else(|| HttpError::ErrorMessages("Der Sponsor fehlt.".to_string()))?;
-    store_upload(&db, Slot::Sponsor(id), &logo).await?;
+    store_upload(&repo, Slot::Sponsor(id), &logo).await?;
     info!("Set the image of sponsor {id} ({})", logo.format.name());
     Ok(Json(UploadSponsorImageResponse {}))
 }

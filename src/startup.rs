@@ -89,8 +89,8 @@ pub async fn build(
     }
     // URL images (logo, break image, sponsors) are downloaded in the
     // background, so an unreachable server never delays the start (#291).
-    ImageFetcher::shared().refresh_in_background(db.clone(), None);
-    photos.start(db.clone());
+    ImageFetcher::shared().refresh_in_background(repo.clone(), None);
+    photos.start(repo.clone());
 
     let server = HttpServer::new(
         HttpServerOptions {
