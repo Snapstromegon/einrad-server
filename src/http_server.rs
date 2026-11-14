@@ -43,6 +43,20 @@ pub enum HttpError {
     StatusCode(axum::http::StatusCode),
 }
 
+impl From<db_core::clubs::RegistrationError> for HttpError {
+    fn from(error: db_core::clubs::RegistrationError) -> Self {
+        use db_core::clubs::RegistrationError;
+        match error {
+            RegistrationError::NotFound => HttpError::StatusCode(axum::http::StatusCode::NOT_FOUND),
+            RegistrationError::Forbidden => {
+                HttpError::StatusCode(axum::http::StatusCode::FORBIDDEN)
+            }
+            RegistrationError::Rejected(message) => HttpError::ErrorMessages(message),
+            RegistrationError::Db(error) => HttpError::Db(error),
+        }
+    }
+}
+
 impl IntoResponse for HttpError {
     fn into_response(self) -> axum::response::Response {
         ClientError::from(self).into_response()

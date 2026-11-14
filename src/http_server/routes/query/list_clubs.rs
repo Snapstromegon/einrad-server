@@ -1,5 +1,6 @@
 use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
@@ -62,8 +63,9 @@ pub struct ClubContacts {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo, db))]
 pub async fn list_clubs(
+    Extension(repo): Extension<DbHandle>,
     Extension(db): Extension<ReloadableSqlite>,
     _: Granted<permit::ViewClubs>,
     balances: Option<Granted<permit::ViewClubBalances>>,
@@ -72,26 +74,8 @@ pub async fn list_clubs(
 ) -> Result<Json<Vec<ClubOverview>>, HttpError> {
     let (balances, contacts) = (balances.is_some(), contacts.is_some());
     let jury = balances || jury.is_some();
+    let rows = repo.list_clubs().await?;
     let db = db.get().await.clone();
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            clubs.id as "id!: ClubId",
-            clubs.name,
-            clubs.owner_id as "owner_id!: UserId",
-            clubs.fee_waiver,
-            users.name as owner_name,
-            users.email as owner_email,
-            users.email_verified as owner_email_verified,
-            COALESCE(clubs.responsible_name, users.name) as "responsible_name!: String",
-            COALESCE(clubs.responsible_email, users.email) as "responsible_email!: String"
-        FROM clubs
-        JOIN users ON users.id = clubs.owner_id
-        ORDER BY clubs.name
-        "#
-    )
-    .fetch_all(&db)
-    .await?;
     let competition = Competition::current(&db).await?;
     let paid = paid_by_club(&db).await?;
     let features = Features::of(competition.as_ref());

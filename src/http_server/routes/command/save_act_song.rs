@@ -6,13 +6,13 @@ use axum::{
     extract::{Multipart, Query},
     http::StatusCode,
 };
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tokio::fs::DirBuilder;
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_act_access,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     normalize,
     reloadable_sqlite::ReloadableSqlite,
@@ -64,9 +64,10 @@ pub struct Upload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo, db))]
 #[axum::debug_handler]
 pub async fn save_act_song(
+    Extension(repo): Extension<DbHandle>,
     Extension(db): Extension<ReloadableSqlite>,
     http_options: Extension<Arc<HttpServerOptions>>,
     auth: Auth,
@@ -77,9 +78,9 @@ pub async fn save_act_song(
     if !capabilities.can_upload_music {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
+    repo.ensure_act_access(&auth.actor(), query.act_id).await?;
     let reloadable_db = db.clone();
     let db = db.get().await.clone();
-    ensure_act_access(&mut *db.acquire().await?, &auth, query.act_id).await?;
     let entry = body
         .next_field()
         .await

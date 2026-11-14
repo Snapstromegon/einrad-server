@@ -1,10 +1,10 @@
 use crate::ids::{ClubId, JudgeId, JuryUnitId};
 use axum::{Extension, Json, extract::Query, http::StatusCode};
+use db_core::DbHandle;
 use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    groups::ensure_club_access,
     http_server::{
         ClientError, HttpError,
         extractor::auth::{Auth, Granted},
@@ -43,21 +43,22 @@ pub struct JuryPlan {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo, db))]
 pub async fn list_jury_plan(
     _jury: JuryEnabled,
+    Extension(repo): Extension<DbHandle>,
     Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     jury_lead: Option<Granted<permit::ManageJury>>,
     Query(query): Query<ListJuryPlanQuery>,
 ) -> Result<Json<JuryPlan>, HttpError> {
-    let db = db.get().await.clone();
-    let mut conn = db.acquire().await?;
     match query.club_id {
-        Some(club_id) => ensure_club_access(&mut conn, &auth, club_id).await?,
+        Some(club_id) => repo.ensure_club_access(&auth.actor(), club_id).await?,
         None if jury_lead.is_some() => {}
         None => return Err(HttpError::StatusCode(StatusCode::FORBIDDEN)),
     }
+    let db = db.get().await.clone();
+    let mut conn = db.acquire().await?;
     let published_at = sqlx::query_scalar!(
         r#"SELECT jury_plan_published_at as "published_at: OffsetDateTime" FROM competition ORDER BY start_date DESC LIMIT 1"#
     )

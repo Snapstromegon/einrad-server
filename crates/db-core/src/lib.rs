@@ -5,13 +5,22 @@
 
 use std::sync::Arc;
 
+pub mod act_type;
 pub mod auth;
+pub mod clubs;
+pub mod gender;
+pub mod groups;
 pub mod ids;
+pub mod people;
+pub mod riders;
 pub mod roles;
 pub mod settings;
 pub mod users;
 
 pub use auth::AuthRepo;
+pub use clubs::ClubsRepo;
+pub use groups::GroupsRepo;
+pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
 pub use users::UsersRepo;
 
@@ -22,7 +31,9 @@ pub use users::UsersRepo;
 /// or a driver type: one method is one unit of work, and the implementation
 /// decides how to make it atomic.
 #[async_trait::async_trait]
-pub trait Db: AuthRepo + UsersRepo + SettingsRepo + Send + Sync + 'static {
+pub trait Db:
+    AuthRepo + UsersRepo + SettingsRepo + ClubsRepo + RidersRepo + GroupsRepo + Send + Sync + 'static
+{
     /// Reopens the database after its file was replaced from the outside. A
     /// no-op for backends that have no file.
     async fn reload(&self) -> Result<(), DbError> {

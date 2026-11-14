@@ -5,6 +5,8 @@ use sqlx::migrate::Migrator;
 
 pub mod db_backup;
 pub mod db_restore;
+mod group_rules;
+mod registration;
 pub mod reloadable_sqlite;
 mod repo;
 

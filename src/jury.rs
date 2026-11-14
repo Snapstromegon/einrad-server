@@ -13,13 +13,12 @@ use time::{Date, OffsetDateTime};
 use crate::{
     act_type::ActType,
     competition::{Competition, Features, JuryRules},
-    groups::ensure_club_access,
     http_server::{
         HttpError,
         extractor::auth::Auth,
         routes::query::predict_timeplan::{self, TimeplanEntry},
     },
-    people::{self, Person},
+    people,
     reloadable_sqlite::ReloadableSqlite,
     timeplan::Audience,
 };
@@ -433,7 +432,74 @@ pub async fn ensure_unit_unused(
     Ok(())
 }
 
-pub(crate) use crate::people::is_unique_violation;
+// Transitional helpers of the judges' SQL, which moves behind the Db trait
+// with the jury group (#238). Until then they work on a connection.
+
+/// Whether the error is a unique violation.
+pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(|e| e.is_unique_violation())
+}
+
+/// Fails with 404 for an unknown club and 403 unless the user may manage it.
+pub(crate) async fn ensure_club_access(
+    conn: &mut sqlx::SqliteConnection,
+    auth: &Auth,
+    club_id: ClubId,
+) -> Result<(), HttpError> {
+    let owner_id = sqlx::query_scalar!(
+        r#"SELECT owner_id as "owner_id!: crate::ids::UserId" FROM clubs WHERE id = $1"#,
+        club_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    if auth.actor().may_manage_club(club_id, owner_id) {
+        Ok(())
+    } else {
+        Err(HttpError::StatusCode(StatusCode::FORBIDDEN))
+    }
+}
+
+/// Fails with a German message if the club already registered a judge with
+/// this name (ignoring case and spaces). `except_id` excludes the judge being
+/// edited.
+async fn ensure_judge_name_is_free(
+    conn: &mut sqlx::SqliteConnection,
+    club_id: ClubId,
+    firstname: &str,
+    lastname: &str,
+    except_id: JudgeId,
+) -> Result<(), HttpError> {
+    let names = sqlx::query!(
+        "SELECT firstname, lastname FROM judge WHERE club_id = $1 AND id IS NOT $2",
+        club_id,
+        except_id,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let key = people::person_key(firstname, lastname);
+    match names
+        .iter()
+        .find(|row| people::person_key(&row.firstname, &row.lastname) == key)
+    {
+        Some(row) => Err(HttpError::ErrorMessages(
+            people::already_registered_message(&row.firstname, &row.lastname),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The database's own uniqueness rule, for the rare request that slips past
+/// the name check: the same message.
+fn map_duplicate(error: sqlx::Error, firstname: &str, lastname: &str) -> HttpError {
+    if is_unique_violation(&error) {
+        HttpError::ErrorMessages(people::already_registered_message(firstname, lastname))
+    } else {
+        error.into()
+    }
+}
 
 /// What a judge does in a jury unit.
 #[derive(
@@ -630,15 +696,7 @@ pub async fn save_judge(
     club_id: ClubId,
     fields: &JudgeFields,
 ) -> Result<(), HttpError> {
-    people::ensure_name_is_free(
-        conn,
-        Person::Judge,
-        club_id,
-        &fields.firstname,
-        &fields.lastname,
-        Some(judge_id.0),
-    )
-    .await?;
+    ensure_judge_name_is_free(conn, club_id, &fields.firstname, &fields.lastname, judge_id).await?;
     let result = sqlx::query!(
         r#"
         INSERT INTO judge (
@@ -666,11 +724,7 @@ pub async fn save_judge(
     match result {
         Ok(_) => {}
         Err(e) => {
-            return Err(people::map_duplicate(
-                e,
-                &fields.firstname,
-                &fields.lastname,
-            ));
+            return Err(map_duplicate(e, &fields.firstname, &fields.lastname));
         }
     }
     let existing: std::collections::HashSet<(JuryUnitKind, JuryUnitId, JudgeTask)> = sqlx::query!(

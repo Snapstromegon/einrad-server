@@ -1,15 +1,12 @@
 use crate::ids::{ActId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
-    rider_registration::{self, PartnerClubs},
-    roles::Permission,
     system_status::Capabilities,
 };
 
@@ -43,7 +40,7 @@ pub struct LinkPairBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn link_pair(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<LinkPairBody>,
@@ -51,17 +48,8 @@ pub async fn link_pair(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
-    let clubs = if auth.can(Permission::ManageRegistrations) {
-        PartnerClubs::Any
-    } else {
-        PartnerClubs::Same
-    };
-    let act_id =
-        rider_registration::link_pair(&mut transaction, body.rider_id, body.partner_id, clubs)
-            .await?;
-    transaction.commit().await?;
+    let act_id = db
+        .link_pair(&auth.actor(), body.rider_id, body.partner_id)
+        .await?;
     Ok(Json(LinkPairResponse { act_id }))
 }

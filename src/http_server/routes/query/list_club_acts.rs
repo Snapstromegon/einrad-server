@@ -2,12 +2,12 @@ use crate::ids::{ActId, ClubId, RiderId};
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     act_type::ActType,
     competition::{Competition, Features},
-    groups::ensure_club_access,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     normalize::NormalizationStatus,
     reloadable_sqlite::ReloadableSqlite,
@@ -77,17 +77,19 @@ pub struct ListClubActsQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo, db))]
 #[axum::debug_handler]
 pub async fn list_club_acts(
+    Extension(repo): Extension<DbHandle>,
     Extension(db): Extension<ReloadableSqlite>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Query(query): Query<ListClubActsQuery>,
     auth: Auth,
 ) -> Result<Json<Vec<ClubAct>>, HttpError> {
+    repo.ensure_club_access(&auth.actor(), query.club_id)
+        .await?;
     let db = db.get().await.clone();
     let mut connection = db.acquire().await?;
-    ensure_club_access(&mut connection, &auth, query.club_id).await?;
     let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
     let acts_with_club_participation = sqlx::query!(
         r#"

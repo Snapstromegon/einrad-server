@@ -1,17 +1,16 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
+use crate::{gender::Gender, people};
 use crate::{
-    gender::Gender,
-    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    people::{self, Person},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
+use db_core::riders::RiderEdit;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EditRiderResponse {}
@@ -49,7 +48,7 @@ pub struct EditRiderBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn edit_rider(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(mut body): Json<EditRiderBody>,
@@ -59,34 +58,16 @@ pub async fn edit_rider(
     }
     people::trim_name(&mut body.firstname);
     people::trim_name(&mut body.lastname);
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    let club_id = ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
-    people::ensure_name_is_free(
-        &mut transaction,
-        Person::Rider,
-        club_id,
-        &body.firstname,
-        &body.lastname,
-        Some(body.rider_id.0),
+    db.edit_rider(
+        &auth.actor(),
+        body.rider_id,
+        &RiderEdit {
+            firstname: body.firstname,
+            lastname: body.lastname,
+            birthdate: body.birthdate,
+            gender: body.gender,
+        },
     )
     .await?;
-
-    sqlx::query!(
-        r#"
-        UPDATE rider SET firstname = $1, lastname = $2, birthdate = $3, gender = COALESCE($4, gender)
-        WHERE id = $5
-        "#,
-        body.firstname,
-        body.lastname,
-        body.birthdate,
-        body.gender,
-        body.rider_id,
-    )
-    .execute(&mut *transaction)
-    .await
-    .map_err(|e| people::map_duplicate(e, &body.firstname, &body.lastname))?;
-
-    transaction.commit().await?;
     Ok(Json(EditRiderResponse {}))
 }

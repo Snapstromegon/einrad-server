@@ -6,9 +6,8 @@ use utoipa::ToSchema;
 
 use crate::{
     competition::Competition,
-    groups::ensure_club_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{self, JudgeFields, JuryEnabled},
+    jury::{self, JudgeFields, JuryEnabled, ensure_club_access},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };

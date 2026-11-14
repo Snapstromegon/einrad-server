@@ -1,15 +1,13 @@
 use crate::ids::{ActId, ClubId, RiderId};
-use std::collections::HashSet;
 
 use axum::{Extension, Json, http::StatusCode};
+use db_core::{DbHandle, groups::GroupMember};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::{ensure_club_access, get_group, type_conflict_message},
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -60,7 +58,7 @@ pub struct SetClubGroupMembersBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_club_group_members(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<SetClubGroupMembersBody>,
@@ -68,67 +66,17 @@ pub async fn set_club_group_members(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-
-    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
-    let group = get_group(&mut transaction, body.act_id).await?;
-
-    let mut seen = HashSet::new();
-    for member in &body.members {
-        if !seen.insert(member.rider_id) {
-            return Err(HttpError::ErrorMessages(
-                "Jede FahrerIn kann nur einmal in der Gruppe angemeldet werden.".to_string(),
-            ));
-        }
-        let club_id = sqlx::query_scalar!(
-            r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = $1"#,
-            member.rider_id
-        )
-        .fetch_optional(&mut *transaction)
+    let members: Vec<GroupMember> = body
+        .members
+        .iter()
+        .map(|member| GroupMember {
+            rider_id: member.rider_id,
+            is_replacement: member.is_replacement,
+        })
+        .collect();
+    let warning = db
+        .set_group_members(&auth.actor(), body.club_id, body.act_id, &members)
         .await?;
-        if club_id != Some(body.club_id) {
-            return Err(HttpError::ErrorMessages(
-                "Ein Verein kann nur seine eigenen FahrerInnen zu einer Gruppe hinzufügen."
-                    .to_string(),
-            ));
-        }
-    }
-
-    info!(
-        "Setting {} riders of club {} in group {:?}",
-        body.members.len(),
-        body.club_id,
-        group.group_name
-    );
-    sqlx::query!(
-        r#"
-        DELETE FROM act_participants
-        WHERE act_id = $1 AND rider_id IN (SELECT id FROM rider WHERE club_id = $2)
-        "#,
-        group.id,
-        body.club_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
-
-    for member in &body.members {
-        sqlx::query!(
-            r#"
-            INSERT INTO act_participants (act_id, rider_id, is_replacement)
-            VALUES ($1, $2, $3)
-            "#,
-            group.id,
-            member.rider_id,
-            member.is_replacement,
-        )
-        .execute(&mut *transaction)
-        .await?;
-    }
-
-    let warning = type_conflict_message(&mut transaction, group.id).await?;
-
-    transaction.commit().await?;
 
     Ok(Json(SetClubGroupMembersResponse { warning }))
 }

@@ -12,6 +12,9 @@ use sqlx::SqlitePool;
 use crate::reloadable_sqlite::ReloadableSqlite;
 
 mod auth;
+mod clubs;
+mod groups;
+mod riders;
 mod settings;
 mod users;
 

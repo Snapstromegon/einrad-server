@@ -34,6 +34,15 @@ impl Auth {
             .any(|r| r.permissions().contains(&permission))
     }
 
+    /// Who asks, as far as club access is concerned.
+    pub fn actor(&self) -> db_core::clubs::Actor {
+        db_core::clubs::Actor {
+            user_id: self.user_id,
+            club_id: self.club_id,
+            manage_registrations: self.can(Permission::ManageRegistrations),
+        }
+    }
+
     /// Sorted.
     pub fn permissions(&self) -> Vec<Permission> {
         roles::permissions_of(&self.roles)

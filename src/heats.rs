@@ -317,13 +317,15 @@ pub async fn category_names(
 ) -> Result<Vec<String>, HttpError> {
     let mut names: Vec<String> = vec![];
     for id in ids {
-        let name =
-            sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories WHERE id = $1"#, id)
-                .fetch_optional(&mut *conn)
-                .await?
-                .ok_or_else(|| {
-                    HttpError::NotFoundMessage(format!("Die Kategorie {id} gibt es nicht (mehr)."))
-                })?;
+        let name = sqlx::query_scalar!(
+            r#"SELECT name as "name!" FROM categories WHERE id = $1"#,
+            id
+        )
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(|| {
+            HttpError::NotFoundMessage(format!("Die Kategorie {id} gibt es nicht (mehr)."))
+        })?;
         if !names.contains(&name) {
             names.push(name);
         }

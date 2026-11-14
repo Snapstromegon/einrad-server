@@ -11,7 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId};
+use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId, UserId};
+use db_core::{GroupsRepo, RidersRepo, riders::Pair};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -25,9 +26,7 @@ use crate::{
         TimeplanEntryConfig, toml_date, toml_datetime_option,
     },
     gender::Gender,
-    groups,
-    rider_registration::{self, Pair, PartnerClubs},
-    seed,
+    groups, seed,
 };
 
 #[derive(Debug, Deserialize)]
@@ -592,7 +591,13 @@ impl DemoData {
             partners.insert(partner, name);
         }
 
-        let mut transaction = db.begin().await.map_err(|e| e.to_string())?;
+        // The seed acts as the organizer; each call is its own unit of work.
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+        let organizer = db_core::clubs::Actor {
+            user_id: UserId::new(),
+            club_id: None,
+            manage_registrations: true,
+        };
         for (&name, &partner) in &partners {
             // Each pair once.
             if name > partner {
@@ -600,29 +605,24 @@ impl DemoData {
             }
             let partner_id = riders.id(partner, name)?;
             let id = riders.id(name, name)?;
-            rider_registration::link_pair(&mut transaction, id, partner_id, PartnerClubs::Any)
+            repo.link_pair(&organizer, id, partner_id)
                 .await
                 .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
         }
         for (id, rider) in &riders.all {
             let name = rider.full_name();
             if rider.single.is_some() {
-                rider_registration::set_single(&mut transaction, *id, true)
+                repo.set_single(&organizer, *id, true)
                     .await
                     .map_err(|e| format!("Couldn't add the single of {name}: {e}"))?;
             }
             // Riders named as `partner` by their partner are linked above.
             if rider.pair && !partners.contains_key(name.as_str()) {
-                rider_registration::request_pair(
-                    &mut transaction,
-                    *id,
-                    rider.partner_name.as_deref(),
-                )
-                .await
-                .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
+                repo.request_pair(&organizer, *id, rider.partner_name.as_deref())
+                    .await
+                    .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
             }
         }
-        transaction.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -635,6 +635,7 @@ impl DemoData {
     ) -> Result<HashMap<String, ActId>, String> {
         let db_error = |e: sqlx::Error| format!("Database error while seeding groups: {e}");
         let mut connection = db.acquire().await.map_err(db_error)?;
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
         let mut ids = HashMap::new();
         for group in &self.groups {
             let referenced_by = format!("Group {}", group.name);
@@ -695,9 +696,10 @@ impl DemoData {
             }
             // The API only warns about such conflicts; demo groups must not
             // have any.
-            if let Some(conflict) = groups::type_conflict_message(&mut connection, act_id)
+            if let Some(conflict) = repo
+                .group_conflict(act_id)
                 .await
-                .map_err(db_error)?
+                .map_err(|e| format!("Database error while seeding groups: {e}"))?
             {
                 return Err(format!("{referenced_by}: {conflict}"));
             }
@@ -724,8 +726,8 @@ impl DemoData {
                 }
                 (None, Some(rider), Some(act_type)) => {
                     let rider_id = riders.id(rider, "[[acts]]")?;
-                    let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
-                    let starts = rider_registration::starts(&mut conn, rider_id)
+                    let starts = db_sqlite::SqliteRepo::from_pool(db.clone())
+                        .rider_starts(rider_id)
                         .await
                         .map_err(|e| e.to_string())?;
                     let act_id = match (act_type, starts.pair) {

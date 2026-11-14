@@ -2,13 +2,13 @@ use crate::ids::ActId;
 use std::sync::Arc;
 
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     competition::{Competition, Features},
-    groups::ensure_act_access,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
@@ -41,9 +41,10 @@ pub struct EditClubActBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo, db))]
 #[axum::debug_handler]
 pub async fn edit_club_act(
+    Extension(repo): Extension<DbHandle>,
     Extension(db): Extension<ReloadableSqlite>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     auth: Auth,
@@ -53,8 +54,8 @@ pub async fn edit_club_act(
     if !capabilities.can_upload_music {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
+    repo.ensure_act_access(&auth.actor(), body.id).await?;
     let db = db.get().await.clone();
-    ensure_act_access(&mut *db.acquire().await?, &auth, body.id).await?;
     let moderation_input = Features::of(Competition::current(&db).await?.as_ref()).moderation_input;
 
     sqlx::query!(
