@@ -1238,6 +1238,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
         BTreeSet::from([
             "act_type",
             "category",
+            "category_id",
             "club_names",
             "group_name",
             "id",
@@ -1254,6 +1255,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
             "group_name": "Alpha",
             "act_type": "group_small",
             "category": "KGU15",
+            "category_id": app.category_id("KGU15").await,
             "owner_club_id": club_id,
             "owner_club_name": "RSV",
             "regular_count": 4,
@@ -1276,6 +1278,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
         BTreeSet::from([
             "act_type",
             "category",
+            "category_id",
             "conflict",
             "group_name",
             "id",

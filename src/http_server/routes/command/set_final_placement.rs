@@ -117,7 +117,7 @@ pub async fn set_final_placement(
         if let Some(act_id) = change.act_id {
             // Withdrawn acts don't start: they count as without category.
             let category = sqlx::query_scalar!(
-                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category: String"
+                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
                 FROM view_act WHERE id = ?"#,
                 act_id
             )

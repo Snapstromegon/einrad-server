@@ -237,7 +237,8 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let timeplan = sqlx::query!(
         r#"
         SELECT
-            kind as "kind: EntryKind", category,
+            kind as "kind: EntryKind",
+            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
             (SELECT code FROM finals WHERE finals.id = timeplan.final_id) as final_name,
             label, duration_seconds,
             einfahrzeit_seconds, show_photos, internal,

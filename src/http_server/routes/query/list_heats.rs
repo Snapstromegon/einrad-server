@@ -31,6 +31,8 @@ pub struct Heat {
     /// Its categories, in category order. Empty until the admin assigns
     /// them.
     categories: Vec<String>,
+    /// The same categories by id, in the same order.
+    category_ids: Vec<Uuid>,
     /// The act type its categories share; `None` without categories.
     act_type: Option<ActType>,
     /// Whether its categories are singles male; `None` without categories.
@@ -68,10 +70,10 @@ pub async fn list_heats(
     let db = db.get().await.clone();
     // One read transaction, so the heats and their categories match.
     let mut tx = db.begin().await?;
-    let mut categories: HashMap<Uuid, Vec<(String, Discipline)>> = HashMap::new();
+    let mut categories: HashMap<Uuid, Vec<(Uuid, String, Discipline)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT heat_id as "heat_id!: Uuid", name as "name!", act_type as "act_type: ActType", is_single_male
+        SELECT heat_id as "heat_id!: Uuid", id as "id!: Uuid", name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories
         WHERE heat_id IS NOT NULL
         ORDER BY "order", name
@@ -83,7 +85,7 @@ pub async fn list_heats(
         categories
             .entry(row.heat_id)
             .or_default()
-            .push((row.name, Discipline::new(row.act_type, row.is_single_male)));
+            .push((row.id, row.name, Discipline::new(row.act_type, row.is_single_male)));
     }
     let mut finals: HashMap<Uuid, Vec<HeatFinal>> = HashMap::new();
     for row in sqlx::query!(
@@ -114,7 +116,7 @@ pub async fn list_heats(
             skip,
             (
                 SELECT COUNT(*) FROM view_act
-                WHERE withdrawn_at IS NULL AND category IN (SELECT name FROM categories WHERE heat_id = heats.id)
+                WHERE withdrawn_at IS NULL AND category_id IN (SELECT id FROM categories WHERE heat_id = heats.id)
             ) as "act_count!: i64"
         FROM heats
         ORDER BY
@@ -131,11 +133,12 @@ pub async fn list_heats(
         rows.into_iter()
             .map(|row| {
                 let categories = categories.remove(&row.id).unwrap_or_default();
-                let discipline = categories.first().map(|(_, d)| *d);
+                let discipline = categories.first().map(|(_, _, d)| *d);
                 Heat {
                     finals: finals.remove(&row.id).unwrap_or_default(),
                     id: row.id,
-                    categories: categories.into_iter().map(|(name, _)| name).collect(),
+                    category_ids: categories.iter().map(|(id, _, _)| *id).collect(),
+                    categories: categories.into_iter().map(|(_, name, _)| name).collect(),
                     act_type: discipline.map(|d| d.act_type),
                     is_single_male: discipline.map(|d| d.single_male),
                     name: row.name,

@@ -1207,7 +1207,8 @@ impl Snapshot {
             )
             .await?,
             timeplan: rows(
-                r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
+                r#"SELECT json_array(earliest_start_time, duration_seconds, label,
+                    (SELECT name FROM categories WHERE categories.id = timeplan.category_id),
                     (SELECT code FROM finals WHERE finals.id = timeplan.final_id),
                     kind, show_photos, internal, einfahrzeit_seconds)
                 FROM timeplan ORDER BY position, id"#,
@@ -1393,13 +1394,15 @@ async fn write(
         }
         for (index, category) in resolved.iter().enumerate() {
             let order = index as i64 + 1;
+            let category_id = Uuid::now_v7();
             sqlx::query!(
                 r#"
                 INSERT INTO categories (
-                    name, description, min_age, under_age, act_type,
+                    id, name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
+                category_id,
                 category.name,
                 category.description,
                 category.min_age,
@@ -1558,10 +1561,10 @@ async fn write(
             sqlx::query!(
                 r#"
                 INSERT INTO timeplan (
-                    earliest_start_time, duration_seconds, label, category, final_id, kind,
+                    earliest_start_time, duration_seconds, label, category_id, final_id, kind,
                     show_photos, internal, position, einfahrzeit_seconds
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?, ?)
                 "#,
                 entry.earliest_start,
                 duration_seconds,

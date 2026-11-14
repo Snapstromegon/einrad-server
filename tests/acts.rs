@@ -746,7 +746,7 @@ async fn startlist_csv_contains_header_sections_and_acts() {
 
     // Every timeplan entry gets a section line, except empty categories.
     let timeplan_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM timeplan WHERE category IS NULL OR category IN (SELECT category FROM view_act)",
+        "SELECT COUNT(*) FROM timeplan WHERE category_id IS NULL OR category_id IN (SELECT category_id FROM view_act)",
     )
     .fetch_one(&app.db)
     .await

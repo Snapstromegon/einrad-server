@@ -26,7 +26,7 @@ pub struct AddHeatBody {
     /// All of one act type and gender, none in another heat, group
     /// categories included. May be empty. A heat of groups starts with its
     /// Vorlauf skipped.
-    categories: Vec<String>,
+    category_ids: Vec<Uuid>,
     /// The fewest acts it needs for its Vorlauf. Without: 6 if all its
     /// categories are U15 or younger (Junior Expert), otherwise 5.
     #[serde(default)]
@@ -57,7 +57,6 @@ pub async fn add_heat(
     let name = heats::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
     let code = heats::normalize_code(body.code.as_deref(), &name);
     let description = normalize_description(body.description);
-    let categories = heats::normalize_categories(&body.categories);
     let threshold = body
         .threshold
         .map(heats::check_threshold)
@@ -65,6 +64,9 @@ pub async fn add_heat(
         .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
+    let categories = heats::category_names(&mut tx, &body.category_ids)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
 
     heats::check_free(&mut tx, None, &name, &code)
         .await

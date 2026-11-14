@@ -25,7 +25,7 @@ pub struct EditHeatBody {
     new_code: Option<String>,
     description: Option<String>,
     /// See `AddHeatBody::categories`; the ones left out leave the heat.
-    categories: Vec<String>,
+    category_ids: Vec<Uuid>,
     /// The fewest acts it needs for its Vorlauf; without, it stays.
     #[serde(default)]
     threshold: Option<i64>,
@@ -59,7 +59,6 @@ pub async fn edit_heat(
 ) -> Result<Json<EditHeatResponse>, HttpError> {
     let new_name = heats::normalize_name(&body.new_name).map_err(HttpError::ErrorMessages)?;
     let description = normalize_description(body.description);
-    let categories = heats::normalize_categories(&body.categories);
     let threshold = body
         .threshold
         .map(heats::check_threshold)
@@ -67,6 +66,9 @@ pub async fn edit_heat(
         .map_err(HttpError::ErrorMessages)?;
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
+    let categories = heats::category_names(&mut tx, &body.category_ids)
+        .await
+        .map_err(HttpError::ErrorMessages)?;
 
     let Some(name) = heats::name_of(&mut tx, body.id).await? else {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));

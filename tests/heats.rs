@@ -395,6 +395,11 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "code": "JE EW",
                 "description": "Junior Expert Einzel Weiblich (U11–U15)",
                 "categories": ["EWU11", "EWU13", "EWU15"],
+                "category_ids": [
+                    app.category_id("EWU11").await,
+                    app.category_id("EWU13").await,
+                    app.category_id("EWU15").await,
+                ],
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": final_,
@@ -409,6 +414,7 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "code": "E EW",
                 "description": null,
                 "categories": ["EWU17"],
+                "category_ids": [app.category_id("EWU17").await],
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": final_,
@@ -623,7 +629,7 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     for (body, message) in [
         (heat_body(" ", &[]), "Namen"),
         (heat_body("JE EW", &[]), "gibt es schon"),
-        (heat_body("X", &["EMU99"]), "EMU99"),
+        (heat_body("X", &["EMU99"]), "gibt es nicht"),
         // One act type and gender.
         (heat_body("X", &["EMU17", "EWU19"]), "EWU19"),
         (heat_body("X", &["PU17", "EWU19"]), "EWU19"),

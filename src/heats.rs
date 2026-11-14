@@ -301,6 +301,27 @@ pub fn normalize_categories(categories: &[String]) -> Vec<String> {
     result
 }
 
+/// The names of the categories with these IDs, in the order given and
+/// without repeats. An ID no category has gives a German message.
+pub async fn category_names(
+    conn: &mut SqliteConnection,
+    ids: &[Uuid],
+) -> Result<Vec<String>, String> {
+    let mut names: Vec<String> = vec![];
+    for id in ids {
+        let name =
+            sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories WHERE id = ?"#, id)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "Eine Kategorie gibt es nicht (mehr).".to_string())?;
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
+
 /// The categories as far as heats care.
 pub async fn categories(conn: &mut SqliteConnection) -> sqlx::Result<Vec<CategoryInfo>> {
     Ok(sqlx::query!(

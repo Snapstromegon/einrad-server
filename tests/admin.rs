@@ -545,7 +545,7 @@ async fn delete_category_removes_its_timeplan_entries() {
     let categories = category_orders(&app).await;
     assert!(!categories.iter().any(|(name, _)| name == "EWU13"));
     let timeplan_refs: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM timeplan WHERE category = 'EWU13'")
+        sqlx::query_scalar("SELECT COUNT(*) FROM timeplan WHERE category_id IN (SELECT id FROM categories WHERE name = 'EWU13')")
             .fetch_one(&app.db)
             .await
             .unwrap();

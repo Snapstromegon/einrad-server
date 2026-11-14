@@ -19,6 +19,8 @@ pub struct TimeplanListEntry {
     earliest_start_time: Option<time::OffsetDateTime>,
     duration_seconds: Option<i64>,
     label: Option<String>,
+    /// Start blocks only: the home category, by id and name.
+    category_id: Option<uuid::Uuid>,
     category: Option<String>,
     /// Start blocks only: the final running here instead of a category, by
     /// id and name.
@@ -72,7 +74,8 @@ pub async fn list_timeplan(
             earliest_start_time,
             duration_seconds,
             CASE WHEN internal AND ?1 THEN ?2 ELSE label END as "label: String",
-            category,
+            category_id as "category_id: uuid::Uuid",
+            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
             final_id as "final_id: uuid::Uuid",
             (SELECT name FROM finals WHERE finals.id = timeplan.final_id) as final_name,
             einfahrzeit_seconds,

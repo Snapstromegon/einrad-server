@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Category {
+    id: uuid::Uuid,
     name: String,
     description: Option<String>,
     /// The age on the determining day from which on riders belong to the
@@ -49,7 +50,7 @@ pub async fn list_categories(
     let club_categories = sqlx::query_as!(
         Category,
         r#"
-        SELECT name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: uuid::Uuid", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
+        SELECT id as "id!: uuid::Uuid", name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: uuid::Uuid", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
         FROM categories ORDER BY "order" ASC
         "#
     )

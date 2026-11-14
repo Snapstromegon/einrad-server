@@ -61,8 +61,10 @@ pub struct Act {
     /// would give away the rider's birthdate.
     pub max_age: Option<f64>,
     pub participants: Vec<ActParticipant>,
-    /// `null` for acts no category matches, incomplete groups (fewer than 3
-    /// regular riders) and groups with a `type_conflict`.
+    /// The category's ID and name; `null` for acts no category matches,
+    /// incomplete groups (fewer than 3 regular riders) and groups with a
+    /// `type_conflict`.
+    pub category_id: Option<Uuid>,
     pub category: Option<String>,
     /// Groups only: a rider is also in another group of the same type (a rider
     /// may start in one small and one large group). Such groups get no
@@ -119,6 +121,7 @@ pub struct DBAct {
     pub act_type: ActType,
     pub max_age: Option<f64>,
     pub participants: sqlx::types::Json<Vec<ActParticipant>>,
+    pub category_id: Option<Uuid>,
     pub category: Option<String>,
     pub type_conflict: bool,
     pub song_checked: bool,
@@ -146,6 +149,7 @@ impl From<DBAct> for Act {
             act_type: db_act.act_type,
             max_age: db_act.max_age,
             participants: db_act.participants.0,
+            category_id: db_act.category_id,
             category: db_act.category,
             type_conflict: db_act.type_conflict,
             song_checked: db_act.song_checked,

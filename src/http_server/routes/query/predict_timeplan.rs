@@ -18,6 +18,7 @@ pub struct TimeplanAct {
     pub id: Uuid,
     pub name: String,
     /// The act's own category; in a mixed block it differs from the block's.
+    pub category_id: Uuid,
     pub category: String,
     pub category_description: String,
     pub act_duration_seconds: i64,
@@ -108,6 +109,7 @@ pub struct TimeplanFinalistAct {
     pub id: Uuid,
     pub name: String,
     /// The act's category, from its heat.
+    pub category_id: Uuid,
     pub category: String,
     pub category_description: String,
 }
@@ -129,7 +131,8 @@ pub enum TimeplanEntry {
         /// What to show: the label, otherwise the home category's (or
         /// final's) description.
         description: String,
-        /// The category whose acts run here by default.
+        /// The category whose acts run here by default, by id and name.
+        home_category_id: Option<Uuid>,
         home_category: Option<String>,
         /// The final running here instead of a category (by id and name);
         /// its slots are `Finalist` slots.
@@ -378,7 +381,7 @@ pub fn predict_from(
 
                     match slot {
                         Slot::Act(act) => {
-                            let category = loaded.categories.get(&act.category);
+                            let category = loaded.categories.get(&act.category_id);
                             let act_duration = time::Duration::seconds(
                                 category.map_or(0, |c| c.act_duration_seconds),
                             );
@@ -392,6 +395,7 @@ pub fn predict_from(
                                 status: TimeplanItemStatus::of(act.started_at, act.ended_at)?,
                                 id: act.id,
                                 name: act.name.clone(),
+                                category_id: act.category_id,
                                 category: act.category.clone(),
                                 category_description: category.map_or_else(
                                     || act.category.clone(),
@@ -462,10 +466,11 @@ pub fn predict_from(
                                 act: finalist.act.as_ref().map(|act| TimeplanFinalistAct {
                                     id: act.id,
                                     name: act.name.clone(),
+                                    category_id: act.category_id,
                                     category: act.category.clone(),
                                     category_description: loaded
                                         .categories
-                                        .get(&act.category)
+                                        .get(&act.category_id)
                                         .map_or_else(
                                             || act.category.clone(),
                                             |c| c.description.clone(),
@@ -492,9 +497,8 @@ pub fn predict_from(
                 }
 
                 let home = entry
-                    .category
-                    .as_ref()
-                    .and_then(|name| loaded.categories.get(name))
+                    .category_id
+                    .and_then(|id| loaded.categories.get(&id))
                     .or_else(|| entry.final_id.as_ref().and_then(|id| loaded.finals.get(id)));
                 let description = entry
                     .label
@@ -507,6 +511,7 @@ pub fn predict_from(
                 TimeplanEntry::Acts {
                     label: entry.label,
                     description,
+                    home_category_id: entry.category_id,
                     home_category: entry.category,
                     final_id: entry.final_id,
                     final_name: entry.final_name,

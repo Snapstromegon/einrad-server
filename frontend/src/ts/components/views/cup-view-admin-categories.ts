@@ -62,6 +62,8 @@ interface CategoryDraft {
 interface Editing {
   /** Name of the edited category, `null` for a new one. */
   original: string | null;
+  /** Its ID: a rename keeps everything attached to it. */
+  originalId: string | null;
   draft: CategoryDraft;
 }
 
@@ -951,7 +953,7 @@ export default class CupViewAdminCategories extends LitElement {
 
   private startNew() {
     this.error = "";
-    this.editing = { original: null, draft: newDraft() };
+    this.editing = { original: null, originalId: null, draft: newDraft() };
     this.focusEditRow();
   }
 
@@ -963,7 +965,11 @@ export default class CupViewAdminCategories extends LitElement {
       return;
     }
     this.error = "";
-    this.editing = { original: category.name, draft: draftOf(category) };
+    this.editing = {
+      original: category.name,
+      originalId: category.id,
+      draft: draftOf(category),
+    };
     this.focusEditRow();
   }
 
@@ -1052,12 +1058,13 @@ export default class CupViewAdminCategories extends LitElement {
     this.busy = true;
     this.error = "";
     try {
-      if (editing.original === null) {
+      if (editing.originalId === null) {
         await unwrap(client.addCategory({ body }));
       } else {
+        const { name, ...rest } = body;
         await unwrap(
           client.editCategory({
-            body: { ...body, name: editing.original, new_name: body.name },
+            body: { ...rest, category_id: editing.originalId, new_name: name },
           }),
         );
       }
@@ -1077,8 +1084,12 @@ export default class CupViewAdminCategories extends LitElement {
     if (!name || this.busy) {
       return;
     }
+    const category = this.categoryByName(name);
+    if (!category) {
+      return;
+    }
     const acts = this.current?.actCounts.get(name) ?? 0;
-    const carry = await this.timeplanCarryOver(name);
+    const carry = await this.timeplanCarryOver(category.id);
     if (
       !confirm(
         `Kategorie „${name}“ löschen?\n\n` +
@@ -1104,7 +1115,9 @@ export default class CupViewAdminCategories extends LitElement {
           }),
         );
       }
-      await unwrap(client.deleteCategory({ body: { name } }));
+      await unwrap(
+        client.deleteCategory({ body: { category_id: category.id } }),
+      );
       if (this.editing?.original === name) {
         this.editing = null;
       }
@@ -1116,11 +1129,11 @@ export default class CupViewAdminCategories extends LitElement {
    * entry, the timeplan is computed from its earliest start: the next entry
    * takes it over, unless it has an own one. `null` if nothing is to do.
    */
-  private async timeplanCarryOver(name: string) {
+  private async timeplanCarryOver(categoryId: string) {
     try {
       const [first, next] = await unwrap(client.listTimeplan());
       const start = first?.earliest_start_time;
-      if (first?.category !== name || !next || !start) {
+      if (first?.category_id !== categoryId || !next || !start) {
         return null;
       }
       if (next.earliest_start_time) {
@@ -1135,7 +1148,7 @@ export default class CupViewAdminCategories extends LitElement {
           id: next.id,
           earliest_start_time: start,
           kind: next.kind,
-          category: next.category ?? null,
+          category_id: next.category_id ?? null,
           final_id: next.final_id ?? null,
           label: next.label ?? null,
           duration_seconds: next.duration_seconds ?? null,
@@ -1149,14 +1162,16 @@ export default class CupViewAdminCategories extends LitElement {
   }
 
   private async onMoveUp(e: Event) {
-    const name = (e.currentTarget as HTMLElement).dataset.name;
-    if (name) {
+    const category = this.categoryByName(
+      (e.currentTarget as HTMLElement).dataset.name,
+    );
+    if (category) {
       await this.command(
         "Verschieben fehlgeschlagen",
         async () =>
           await unwrap(
             client.moveCategoryUp({
-              body: { name },
+              body: { category_id: category.id },
             }),
           ),
       );
@@ -1164,14 +1179,16 @@ export default class CupViewAdminCategories extends LitElement {
   }
 
   private async onMoveDown(e: Event) {
-    const name = (e.currentTarget as HTMLElement).dataset.name;
-    if (name) {
+    const category = this.categoryByName(
+      (e.currentTarget as HTMLElement).dataset.name,
+    );
+    if (category) {
       await this.command(
         "Verschieben fehlgeschlagen",
         async () =>
           await unwrap(
             client.moveCategoryDown({
-              body: { name },
+              body: { category_id: category.id },
             }),
           ),
       );

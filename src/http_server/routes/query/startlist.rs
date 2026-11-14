@@ -26,6 +26,7 @@ pub struct StartlistAct {
     group_name: Option<String>,
     act_type: ActType,
     participants: Vec<StartlistActParticipant>,
+    category_id: Option<Uuid>,
     category: Option<String>,
     act_order: Option<i64>,
     category_order: Option<i64>,
@@ -57,6 +58,7 @@ pub async fn startlist(
         group_name: Option<String>,
         act_type: ActType,
         participants: sqlx::types::Json<Vec<StartlistActParticipant>>,
+        category_id: Option<Uuid>,
         category: Option<String>,
         act_order: Option<i64>,
         category_order: Option<i64>,
@@ -69,6 +71,7 @@ pub async fn startlist(
                 group_name: db_act.group_name,
                 act_type: db_act.act_type,
                 participants: db_act.participants.0,
+                category_id: db_act.category_id,
                 category: db_act.category,
                 act_order: db_act.act_order,
                 category_order: db_act.category_order,
@@ -87,8 +90,9 @@ pub async fn startlist(
             view_act.group_name,
             view_act.act_type as "act_type!: ActType",
             view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
+            view_act.category_id as "category_id: Uuid",
             view_act.category
-        FROM view_act JOIN categories ON view_act.category = categories.name
+        FROM view_act JOIN categories ON view_act.category_id = categories.id
         WHERE view_act.withdrawn_at IS NULL
         ORDER BY categories."order", view_act."order" ASC
         "#

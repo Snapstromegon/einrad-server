@@ -23,7 +23,9 @@ pub struct AddTimeplanEntryBody {
     earliest_start_time: Option<String>, // ISO datetime string
     duration_seconds: Option<i64>,
     label: Option<String>,
-    category: Option<String>,
+    /// The start block's home category.
+    #[serde(default)]
+    category_id: Option<Uuid>,
     /// A start block running this final instead of a category.
     #[serde(default)]
     final_id: Option<Uuid>,
@@ -72,7 +74,7 @@ pub async fn add_timeplan_entry(
 ) -> Result<Json<AddTimeplanEntryResponse>, HttpError> {
     let fields = EntryFields::new(
         body.kind,
-        body.category,
+        body.category_id,
         body.final_id,
         body.label,
         body.duration_seconds,
@@ -98,7 +100,7 @@ pub async fn add_timeplan_entry(
             earliest_start_time,
             duration_seconds,
             label,
-            category,
+            category_id,
             final_id,
             kind,
             einfahrzeit_seconds,
@@ -112,7 +114,7 @@ pub async fn add_timeplan_entry(
         body.earliest_start_time,
         fields.duration_seconds,
         fields.label,
-        fields.category,
+        fields.category_id,
         fields.final_id,
         fields.kind,
         fields.einfahrzeit_seconds,

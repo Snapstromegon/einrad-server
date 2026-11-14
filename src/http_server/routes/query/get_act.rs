@@ -61,7 +61,8 @@ pub async fn get_act(
             view_act.max_age as "max_age: f64",
             view_act.participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>",
             -- Withdrawn acts show no category: they don't start.
-            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
+            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: Uuid",
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category?: String",
             (
                 view_act.act_type IN ('group_small', 'group_large')
                 AND EXISTS (
@@ -76,7 +77,7 @@ pub async fn get_act(
             view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool",
             view_act.fee_waiver
         FROM view_act LEFT JOIN categories
-            ON view_act.category = categories.name AND view_act.withdrawn_at IS NULL
+            ON view_act.category_id = categories.id AND view_act.withdrawn_at IS NULL
         WHERE view_act.id = ?
         "#,
         query.act_id

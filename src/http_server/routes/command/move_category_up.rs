@@ -2,6 +2,7 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -14,7 +15,7 @@ pub struct MoveCategoryUpResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MoveCategoryUpBody {
-    name: String,
+    category_id: Uuid,
 }
 
 /// Move a category up by swapping order with the previous category.
@@ -47,9 +48,9 @@ pub async fn move_category_up(
     let current = sqlx::query!(
         r#"
         SELECT "order" FROM categories 
-        WHERE name = $1
+        WHERE id = $1
         "#,
-        body.name
+        body.category_id
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -73,9 +74,9 @@ pub async fn move_category_up(
 
         let new_order = max_order + 1;
         sqlx::query!(
-            r#"UPDATE categories SET "order" = $1 WHERE name = $2"#,
+            r#"UPDATE categories SET "order" = $1 WHERE id = $2"#,
             new_order,
-            body.name
+            body.category_id
         )
         .execute(&mut *tx)
         .await?;
@@ -86,7 +87,7 @@ pub async fn move_category_up(
     // Find the previous category (the one with the largest order less than current)
     let prev_entry = sqlx::query!(
         r#"
-        SELECT name, "order" FROM categories 
+        SELECT id as "id!: Uuid", "order" FROM categories 
         WHERE "order" < $1 
         ORDER BY "order" DESC 
         LIMIT 1
@@ -97,7 +98,7 @@ pub async fn move_category_up(
     .await?;
 
     if let Some(prev) = prev_entry {
-        let prev_name = prev.name;
+        let prev_id = prev.id;
         let prev_order = prev
             .order
             .ok_or(HttpError::StatusCode(StatusCode::BAD_REQUEST))?;
@@ -107,27 +108,27 @@ pub async fn move_category_up(
 
         // Move current to temp
         sqlx::query!(
-            r#"UPDATE categories SET "order" = $1 WHERE name = $2"#,
+            r#"UPDATE categories SET "order" = $1 WHERE id = $2"#,
             temp_order,
-            body.name
+            body.category_id
         )
         .execute(&mut *tx)
         .await?;
 
         // Move previous to current position
         sqlx::query!(
-            r#"UPDATE categories SET "order" = $1 WHERE name = $2"#,
+            r#"UPDATE categories SET "order" = $1 WHERE id = $2"#,
             current_order,
-            prev_name
+            prev_id
         )
         .execute(&mut *tx)
         .await?;
 
         // Move temp to previous position
         sqlx::query!(
-            r#"UPDATE categories SET "order" = $1 WHERE name = $2"#,
+            r#"UPDATE categories SET "order" = $1 WHERE id = $2"#,
             prev_order,
-            body.name
+            body.category_id
         )
         .execute(&mut *tx)
         .await?;

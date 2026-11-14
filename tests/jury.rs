@@ -218,7 +218,7 @@ async fn the_day_of_a_unit_follows_the_timeplan() {
     let admin = app.create_admin().await;
     // E EW (EWU17) starts on the second day, JE EW (EWU11) on the first.
     sqlx::query(
-        "UPDATE timeplan SET earliest_start_time = '2027-06-06T09:00:00+02:00' WHERE category = 'EWU17'",
+        "UPDATE timeplan SET earliest_start_time = '2027-06-06T09:00:00+02:00' WHERE category_id = (SELECT id FROM categories WHERE name = 'EWU17')",
     )
     .execute(&app.db)
     .await

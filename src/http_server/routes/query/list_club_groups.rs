@@ -18,6 +18,7 @@ pub struct ClubGroup {
     act_type: ActType,
     /// `null` for incomplete groups (fewer than 3 regular riders) and groups
     /// with a `conflict`.
+    category_id: Option<Uuid>,
     category: Option<String>,
     /// Age in whole years of the oldest rider (replacements included) on the
     /// determining day.
@@ -87,7 +88,8 @@ pub async fn list_club_groups(
             view_act.id as "id!: Uuid",
             view_act.group_name as "group_name!",
             view_act.act_type as "act_type!: ActType",
-            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
+            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: Uuid",
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category?: String",
             view_act.max_age as "max_age: f64",
             view_act.name,
             view_act.song_file,
@@ -165,6 +167,7 @@ pub async fn list_club_groups(
             id: group.id,
             group_name: group.group_name,
             act_type: group.act_type,
+            category_id: group.category_id,
             category: group.category,
             // Whole years are enough to tell U15 from 15+; the exact age
             // would give away the birthdate of other clubs' riders.

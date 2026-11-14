@@ -506,7 +506,78 @@ impl TestApp {
     }
 
     pub async fn post(&self, uri: &str, body: Value, cookie: Option<&str>) -> TestResponse {
+        let body = self.categories_by_id(uri, body).await;
         self.request(Method::POST, uri, Some(body), cookie).await
+    }
+
+    /// The id of the category called `name`: the admin API addresses
+    /// categories by it (#356).
+    pub async fn category_id(&self, name: &str) -> Uuid {
+        sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
+            .bind(name)
+            .fetch_one(&self.db)
+            .await
+            .unwrap_or_else(|e| panic!("no category {name}: {e}"))
+    }
+
+    /// Lets a test name categories where the admin API takes IDs: `post`
+    /// swaps `category` (timeplan entries), `categories` (heats) and the
+    /// `name` of `edit_category`, `delete_category` and the `move_category_*`
+    /// bodies for their IDs, unless the body already carries them. Tests of
+    /// the ID API itself (`category_ids.rs`) send IDs and skip this.
+    async fn categories_by_id(&self, uri: &str, mut body: Value) -> Value {
+        let endpoint = uri.rsplit('/').next().unwrap_or_default();
+        let Some(object) = body.as_object_mut() else {
+            return body;
+        };
+        match endpoint {
+            "add_timeplan_entry" | "edit_timeplan_entry" => {
+                if let Some(category) = object.remove("category")
+                    && let Some(name) = category.as_str()
+                {
+                    let id = self.category_id(name).await;
+                    object.insert("category_id".into(), json!(id));
+                }
+            }
+            "add_heat" | "edit_heat" => {
+                if let Some(Value::Array(names)) = object.remove("categories") {
+                    let mut ids = vec![];
+                    for name in names {
+                        // Like the server did: names are trimmed, empty ones
+                        // dropped; a name no category has gives an unknown ID.
+                        let name = name.as_str().unwrap().trim();
+                        if name.is_empty() {
+                            continue;
+                        }
+                        let id: Uuid =
+                            sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
+                                .bind(name)
+                                .fetch_optional(&self.db)
+                                .await
+                                .unwrap()
+                                .unwrap_or_else(Uuid::now_v7);
+                        ids.push(id);
+                    }
+                    object.insert("category_ids".into(), json!(ids));
+                }
+            }
+            "edit_category" | "delete_category" | "move_category_up" | "move_category_down" => {
+                if !object.contains_key("category_id")
+                    && let Some(name) = object.remove("name")
+                {
+                    // A name no category has gives an ID no category has.
+                    let id: Uuid = sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
+                        .bind(name.as_str().unwrap())
+                        .fetch_optional(&self.db)
+                        .await
+                        .unwrap()
+                        .unwrap_or_else(Uuid::now_v7);
+                    object.insert("category_id".into(), json!(id));
+                }
+            }
+            _ => {}
+        }
+        body
     }
 
     /// Inserts a verified user directly into the database.

@@ -240,7 +240,8 @@ async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     assert_eq!(
         texts(
             &db,
-            "SELECT COALESCE(category, (SELECT name FROM finals WHERE id = final_id), label) \
+            "SELECT COALESCE((SELECT name FROM categories WHERE id = category_id), \
+             (SELECT name FROM finals WHERE id = final_id), label) \
              FROM timeplan ORDER BY position"
         )
         .await,
