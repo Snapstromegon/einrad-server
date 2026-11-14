@@ -56,7 +56,7 @@ pub async fn set_jury_deployments_override(
         body.club_id, body.deployments
     );
     let result = sqlx::query!(
-        "UPDATE clubs SET jury_deployments_override = ? WHERE id = ?",
+        "UPDATE clubs SET jury_deployments_override = $1 WHERE id = $2",
         body.deployments,
         body.club_id
     )

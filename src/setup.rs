@@ -91,7 +91,7 @@ pub async fn pending_reason(
         return Ok(Some(PendingReason::IncompleteConfig(missing.clone())));
     }
     let admins = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
+        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
         Role::Admin
     )
     .fetch_one(db)

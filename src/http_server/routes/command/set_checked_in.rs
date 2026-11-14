@@ -63,7 +63,7 @@ pub async fn set_checked_in(
     for rider_id in rider_ids {
         let result = if let Some(checked_in_at) = checked_in_at {
             sqlx::query!(
-                "UPDATE rider SET checked_in_at = COALESCE(checked_in_at, ?) WHERE id = ?",
+                "UPDATE rider SET checked_in_at = COALESCE(checked_in_at, $1) WHERE id = $2",
                 checked_in_at,
                 rider_id,
             )
@@ -71,7 +71,7 @@ pub async fn set_checked_in(
             .await?
         } else {
             sqlx::query!(
-                "UPDATE rider SET checked_in_at = NULL WHERE id = ?",
+                "UPDATE rider SET checked_in_at = NULL WHERE id = $1",
                 rider_id
             )
             .execute(&mut *transaction)

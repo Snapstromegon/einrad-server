@@ -63,9 +63,10 @@ pub async fn move_judge_registrations(
     }
     sqlx::query!(
         r#"
-        INSERT OR IGNORE INTO judge_registration (judge_id, heat_id, final_id, task)
-        SELECT judge_id, ?, ?, task FROM judge_registration
-        WHERE judge_id = ? AND unit_id = ?
+        INSERT INTO judge_registration (judge_id, heat_id, final_id, task)
+        SELECT judge_id, $1, $2, task FROM judge_registration
+        WHERE judge_id = $3 AND unit_id = $4
+        ON CONFLICT DO NOTHING
         "#,
         to_heat,
         to_final,
@@ -75,7 +76,7 @@ pub async fn move_judge_registrations(
     .execute(&mut *transaction)
     .await?;
     let result = sqlx::query!(
-        "DELETE FROM judge_registration WHERE judge_id = ? AND unit_id = ?",
+        "DELETE FROM judge_registration WHERE judge_id = $1 AND unit_id = $2",
         body.judge_id,
         body.from_id,
     )

@@ -72,7 +72,7 @@ pub async fn set_club_responsible(
     let mut transaction = begin_write(&db).await?;
     ensure_club_access(&mut transaction, &auth, body.club_id).await?;
     sqlx::query!(
-        "UPDATE clubs SET responsible_name = ?, responsible_email = ? WHERE id = ?",
+        "UPDATE clubs SET responsible_name = $1, responsible_email = $2 WHERE id = $3",
         name,
         email,
         body.club_id,

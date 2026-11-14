@@ -639,7 +639,7 @@ async fn invalid_input_writes_nothing() {
 #[tokio::test]
 async fn an_email_used_by_another_user_is_rejected_before_anything_is_written() {
     let h = harness(CliArgs::default(), None).await;
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Erika Beispiel', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'max@example.org', true, 'Erika Beispiel', 'x')")
         .bind(uuid::Uuid::now_v7())
         .execute(&h.db)
         .await

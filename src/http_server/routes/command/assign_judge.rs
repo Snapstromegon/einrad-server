@@ -38,7 +38,7 @@ pub async fn assign_judge(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
     let is_trained =
-        sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", body.judge_id)
+        sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = $1", body.judge_id)
             .fetch_optional(&mut *transaction)
             .await?
             .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
@@ -53,7 +53,7 @@ pub async fn assign_judge(
     );
     let (heat_id, final_id) = jury::unit_columns(body.unit_kind, body.unit_id);
     let result = sqlx::query!(
-        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
+        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)",
         body.judge_id,
         heat_id,
         final_id,

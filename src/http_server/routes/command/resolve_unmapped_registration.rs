@@ -56,7 +56,7 @@ pub async fn resolve_unmapped_registration(
     let unmapped = sqlx::query!(
         r#"
         SELECT judge_id as "judge_id!: JudgeId", task as "task!: jury::JudgeTask"
-        FROM judge_registration_unmapped WHERE id = ?
+        FROM judge_registration_unmapped WHERE id = $1
         "#,
         body.id
     )
@@ -72,7 +72,7 @@ pub async fn resolve_unmapped_registration(
         }
         let (heat_id, final_id) = jury::unit_columns(unit.kind, unit.id);
         sqlx::query!(
-            "INSERT OR IGNORE INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
+            "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
             unmapped.judge_id,
             heat_id,
             final_id,
@@ -82,7 +82,7 @@ pub async fn resolve_unmapped_registration(
         .await?;
     }
     sqlx::query!(
-        "DELETE FROM judge_registration_unmapped WHERE id = ?",
+        "DELETE FROM judge_registration_unmapped WHERE id = $1",
         body.id
     )
     .execute(&mut *transaction)

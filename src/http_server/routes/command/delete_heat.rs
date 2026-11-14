@@ -62,7 +62,7 @@ pub async fn delete_heat(
     jury::ensure_unit_unused(&mut tx, JuryUnitKind::Heat, body.id.into()).await?;
     info!("Deleting heat {}", body.id);
     // Its categories leave it (foreign key).
-    let result = sqlx::query!("DELETE FROM heats WHERE id = ?", body.id)
+    let result = sqlx::query!("DELETE FROM heats WHERE id = $1", body.id)
         .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {

@@ -52,7 +52,7 @@ async fn judges_follow_the_registration_window_unless_the_jury_has_its_own() {
 
     // A later jury deadline keeps the judge registration open.
     let later = OffsetDateTime::now_utc() + Duration::days(3);
-    sqlx::query("UPDATE competition SET jury_registration_end = ?")
+    sqlx::query("UPDATE competition SET jury_registration_end = $1")
         .bind(later)
         .execute(&app.db)
         .await

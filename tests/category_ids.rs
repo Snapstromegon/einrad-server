@@ -170,7 +170,7 @@ async fn ids_are_the_fixed_timestamp_plus_position_with_the_name_bits() {
     // By order (empty first), then name: Ohne 0, KG1 1, EMU17 2, Größe 3.
     for (pos, name) in [(0, "Ohne"), (1, "KG1"), (2, "EMU17"), (3, "Größe")] {
         let got: String =
-            sqlx::query_scalar("SELECT lower(hex(id)) FROM categories WHERE name = ?")
+            sqlx::query_scalar("SELECT lower(hex(id)) FROM categories WHERE name = $1")
                 .bind(name)
                 .fetch_one(&db)
                 .await

@@ -181,7 +181,7 @@ pub async fn default_threshold_of(
     let mut under_ages = Vec::with_capacity(categories.len());
     for category in categories {
         under_ages.push(
-            sqlx::query_scalar!("SELECT under_age FROM categories WHERE id = ?", category)
+            sqlx::query_scalar!("SELECT under_age FROM categories WHERE id = $1", category)
                 .fetch_optional(&mut *conn)
                 .await?
                 .flatten(),
@@ -222,16 +222,22 @@ pub async fn has_started(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::
 
 /// The name of a heat, or `None` if there is none with that id.
 pub async fn name_of(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar!(r#"SELECT name as "name!" FROM heats WHERE id = ?"#, heat_id)
-        .fetch_optional(conn)
-        .await
+    sqlx::query_scalar!(
+        r#"SELECT name as "name!" FROM heats WHERE id = $1"#,
+        heat_id
+    )
+    .fetch_optional(conn)
+    .await
 }
 
 /// The short code of a heat, or `None` if there is none with that id.
 pub async fn code_of(conn: &mut SqliteConnection, heat_id: HeatId) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, heat_id)
-        .fetch_optional(conn)
-        .await
+    sqlx::query_scalar!(
+        r#"SELECT code as "code!" FROM heats WHERE id = $1"#,
+        heat_id
+    )
+    .fetch_optional(conn)
+    .await
 }
 
 /// Trims a heat's name; fails with a German message if it's empty.
@@ -312,7 +318,7 @@ pub async fn category_names(
     let mut names: Vec<String> = vec![];
     for id in ids {
         let name =
-            sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories WHERE id = ?"#, id)
+            sqlx::query_scalar!(r#"SELECT name as "name!" FROM categories WHERE id = $1"#, id)
                 .fetch_optional(&mut *conn)
                 .await?
                 .ok_or_else(|| {
@@ -333,7 +339,7 @@ pub async fn categories(conn: &mut SqliteConnection) -> sqlx::Result<Vec<Categor
             heats.name as heat
         FROM categories
         LEFT JOIN heats ON heats.id = categories.heat_id
-        ORDER BY categories."order", categories.name
+        ORDER BY categories."order" NULLS FIRST, categories.name
         "#
     )
     .fetch_all(conn)
@@ -355,8 +361,8 @@ pub async fn discipline(
     Ok(sqlx::query!(
         r#"
         SELECT act_type as "act_type: ActType", is_single_male
-        FROM categories WHERE heat_id = ?
-        ORDER BY "order" LIMIT 1
+        FROM categories WHERE heat_id = $1
+        ORDER BY "order" NULLS FIRST LIMIT 1
         "#,
         heat_id
     )
@@ -374,7 +380,7 @@ pub async fn finals_of(
         r#"
         SELECT DISTINCT finals.name as "name!", act_type as "act_type: ActType", is_single_male
         FROM finals JOIN final_slots ON final_slots.final_id = finals.id
-        WHERE final_slots.heat_id = ?
+        WHERE final_slots.heat_id = $1
         ORDER BY finals.name
         "#,
         heat_id
@@ -394,14 +400,14 @@ pub async fn set_categories(
     categories: &[String],
 ) -> sqlx::Result<()> {
     sqlx::query!(
-        "UPDATE categories SET heat_id = NULL WHERE heat_id = ?",
+        "UPDATE categories SET heat_id = NULL WHERE heat_id = $1",
         heat_id
     )
     .execute(&mut *conn)
     .await?;
     for category in categories {
         sqlx::query!(
-            "UPDATE categories SET heat_id = ? WHERE name = ?",
+            "UPDATE categories SET heat_id = $1 WHERE name = $2",
             heat_id,
             category
         )

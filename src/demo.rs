@@ -308,7 +308,7 @@ impl DemoData {
             let started_at = entry.started_at.map(utc);
             let ended_at = entry.ended_at.map(utc);
             sqlx::query!(
-                "UPDATE timeplan SET started_at = ?, ended_at = ? WHERE id = ?",
+                "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
                 started_at,
                 ended_at,
                 id
@@ -352,7 +352,7 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 INSERT INTO users (id, email, email_verified, name, password)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5)
                 "#,
                 id,
                 user.email,
@@ -365,7 +365,7 @@ impl DemoData {
             .map_err(|e| format!("Couldn't insert user {}: {e}", user.name))?;
             for role in &user.roles {
                 sqlx::query!(
-                    "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
+                    "INSERT INTO user_roles (user_id, role) VALUES ($1, $2)",
                     id,
                     role
                 )
@@ -375,7 +375,7 @@ impl DemoData {
             }
             if let Some(token) = user.verification_token {
                 sqlx::query!(
-                    "INSERT INTO mail_verification (id, user_id, created_at) VALUES (?, ?, ?)",
+                    "INSERT INTO mail_verification (id, user_id, created_at) VALUES ($1, $2, $3)",
                     token,
                     id,
                     now
@@ -386,7 +386,7 @@ impl DemoData {
             }
             if let Some(token) = user.password_reset_token {
                 sqlx::query!(
-                    "INSERT INTO password_resets (id, user_id, created_at) VALUES (?, ?, ?)",
+                    "INSERT INTO password_resets (id, user_id, created_at) VALUES ($1, $2, $3)",
                     token,
                     id,
                     now
@@ -417,7 +417,7 @@ impl DemoData {
             })?;
             let club_id = ClubId::new();
             sqlx::query!(
-                "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES (?, ?, ?, ?)",
+                "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES ($1, $2, $3, $4)",
                 club_id,
                 club.name,
                 owner_id,
@@ -430,7 +430,7 @@ impl DemoData {
                 let booking_id = BookingId::new();
                 let date = OffsetDateTime::now_utc().date();
                 sqlx::query!(
-                    "INSERT INTO bookings (id, amount, date, note, club_id) VALUES (?, ?, ?, 'Überweisung', ?)",
+                    "INSERT INTO bookings (id, amount, date, note, club_id) VALUES ($1, $2, $3, 'Überweisung', $4)",
                     booking_id,
                     amount,
                     date,
@@ -441,7 +441,7 @@ impl DemoData {
                 .map_err(|e| format!("Couldn't insert the payment of {}: {e}", club.name))?;
             }
             sqlx::query!(
-                "UPDATE users SET club_id = ? WHERE id = ?",
+                "UPDATE users SET club_id = $1 WHERE id = $2",
                 club_id,
                 owner_id
             )
@@ -474,7 +474,7 @@ impl DemoData {
                     INSERT INTO rider (
                         id, club_id, firstname, lastname, birthdate, gender, checked_in_at,
                         fee_waiver
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     "#,
                     id,
                     club_id,
@@ -514,7 +514,7 @@ impl DemoData {
                 continue;
             }
             let club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
                 club.name
             )
             .fetch_one(&mut *conn)
@@ -641,7 +641,7 @@ impl DemoData {
             let group_name = groups::normalize_group_name(&group.name)
                 .map_err(|e| format!("{referenced_by}: {e}"))?;
             let owner_club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
                 group.owner
             )
             .fetch_optional(&mut *connection)
@@ -658,7 +658,7 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
-                VALUES (?, '', ?, ?, ?)
+                VALUES ($1, '', $2, $3, $4)
                 "#,
                 act_id,
                 group.act_type,
@@ -683,7 +683,7 @@ impl DemoData {
                 sqlx::query!(
                     r#"
                     INSERT INTO act_participants (act_id, rider_id, is_replacement)
-                    VALUES (?, ?, ?)
+                    VALUES ($1, $2, $3)
                     "#,
                     act_id,
                     rider_id,
@@ -792,10 +792,10 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 UPDATE acts SET
-                    name = ?, description = ?, song_file = ?, song_file_name = ?,
-                    song_checked = ?, "order" = ?, started_at = ?, ended_at = ?,
-                    fee_waiver = ?
-                WHERE id = ?
+                    name = $1, description = $2, song_file = $3, song_file_name = $4,
+                    song_checked = $5, "order" = $6, started_at = $7, ended_at = $8,
+                    fee_waiver = $9
+                WHERE id = $10
                 "#,
                 name,
                 act.description,
@@ -1121,7 +1121,7 @@ mod tests {
         let data_path = data_dir();
         data.apply(&db, &data_path).await.unwrap();
         let file: String =
-            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file_name = ?")
+            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file_name = $1")
                 .bind(&cached)
                 .fetch_one(&db)
                 .await

@@ -53,11 +53,11 @@ pub async fn delete_final(
     }
     jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, body.id.into()).await?;
     info!("Deleting final {}", body.id);
-    sqlx::query!("DELETE FROM timeplan WHERE final_id = ?", body.id)
+    sqlx::query!("DELETE FROM timeplan WHERE final_id = $1", body.id)
         .execute(&mut *tx)
         .await?;
     // Its slots go with it (foreign key).
-    let result = sqlx::query!("DELETE FROM finals WHERE id = ?", body.id)
+    let result = sqlx::query!("DELETE FROM finals WHERE id = $1", body.id)
         .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {

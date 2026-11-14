@@ -61,7 +61,7 @@ pub async fn set_jury_plan_published(
     let published_at = body.published.then_some(now);
     info!("Juryplan published: {}", body.published);
     sqlx::query!(
-        "UPDATE competition SET jury_plan_published_at = ?",
+        "UPDATE competition SET jury_plan_published_at = $1",
         published_at
     )
     .execute(&mut *transaction)

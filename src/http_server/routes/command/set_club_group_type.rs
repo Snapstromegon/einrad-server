@@ -69,7 +69,7 @@ pub async fn set_club_group_type(
             body.act_type.as_str()
         );
         sqlx::query!(
-            "UPDATE acts SET act_type = ? WHERE id = ?",
+            "UPDATE acts SET act_type = $1 WHERE id = $2",
             body.act_type,
             group.id,
         )

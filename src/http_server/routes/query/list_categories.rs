@@ -52,7 +52,7 @@ pub async fn list_categories(
         Category,
         r#"
         SELECT id as "id!: CategoryId", name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: HeatId", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
-        FROM categories ORDER BY "order" ASC
+        FROM categories ORDER BY "order" ASC NULLS FIRST
         "#
     )
     .fetch_all(&db)

@@ -134,7 +134,7 @@ pub async fn list_club_acts(
             FROM act_participants
             JOIN rider ON act_participants.rider_id = rider.id
             JOIN clubs ON clubs.id = rider.club_id
-            WHERE act_participants.act_id = ?
+            WHERE act_participants.act_id = $1
             ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
             "#,
             act.id

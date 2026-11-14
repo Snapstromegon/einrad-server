@@ -76,7 +76,7 @@ pub async fn list_heats(
         SELECT heat_id as "heat_id!: HeatId", id as "id!: CategoryId", name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories
         WHERE heat_id IS NOT NULL
-        ORDER BY "order", name
+        ORDER BY "order" NULLS FIRST, name
         "#
     )
     .fetch_all(&mut *tx)

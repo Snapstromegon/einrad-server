@@ -73,7 +73,7 @@ pub async fn create_club_group(
     sqlx::query!(
         r#"
         INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
-        VALUES (?, '', ?, ?, ?)
+        VALUES ($1, '', $2, $3, $4)
         "#,
         act_id,
         body.act_type,

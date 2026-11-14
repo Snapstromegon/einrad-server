@@ -13,7 +13,7 @@ use crate::roles::Role;
 /// If the database can't be read.
 pub async fn admin_exists(db: &SqlitePool) -> sqlx::Result<bool> {
     let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
+        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
         Role::Admin
     )
     .fetch_one(db)
@@ -27,7 +27,7 @@ pub async fn admin_exists(db: &SqlitePool) -> sqlx::Result<bool> {
 /// If the database can't be read.
 pub async fn email_in_use(db: &SqlitePool, email: &str) -> sqlx::Result<bool> {
     let count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM users WHERE email = ?"#,
+        r#"SELECT COUNT(*) as "count!: i64" FROM users WHERE email = $1"#,
         email
     )
     .fetch_one(db)
@@ -81,7 +81,7 @@ pub async fn create_admin_with_hash(
 ) -> sqlx::Result<Option<UserId>> {
     let mut tx = db.begin().await?;
     let admins = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
+        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
         Role::Admin
     )
     .fetch_one(&mut *tx)
@@ -91,7 +91,7 @@ pub async fn create_admin_with_hash(
     }
     let id = UserId::new();
     sqlx::query!(
-        "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, ?)",
+        "INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, $2, true, $3, $4)",
         id,
         email,
         name,
@@ -100,7 +100,7 @@ pub async fn create_admin_with_hash(
     .execute(&mut *tx)
     .await?;
     sqlx::query!(
-        "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
+        "INSERT INTO user_roles (user_id, role) VALUES ($1, $2)",
         id,
         Role::Admin,
     )

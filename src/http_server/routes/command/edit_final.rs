@@ -58,7 +58,7 @@ pub async fn edit_final(
     let mut tx = begin_write(&db).await?;
 
     let heats = sqlx::query_scalar!(
-        r#"SELECT heat_id as "heat_id!: HeatId" FROM final_slots WHERE final_id = ? ORDER BY position"#,
+        r#"SELECT heat_id as "heat_id!: HeatId" FROM final_slots WHERE final_id = $1 ORDER BY position"#,
         body.id
     )
     .fetch_all(&mut *tx)
@@ -74,7 +74,7 @@ pub async fn edit_final(
         }
         _ => {
             sqlx::query_scalar!(
-                r#"SELECT code as "code!" FROM finals WHERE id = ?"#,
+                r#"SELECT code as "code!" FROM finals WHERE id = $1"#,
                 body.id
             )
             .fetch_one(&mut *tx)
@@ -92,15 +92,15 @@ pub async fn edit_final(
         r#"
         UPDATE finals
         SET
-            name = ?,
-            code = ?,
-            description = ?,
-            act_type = ?,
-            is_single_male = ?,
-            einfahrzeit_seconds = ?,
-            act_duration_seconds = ?,
-            judge_duration_seconds = ?
-        WHERE id = ?
+            name = $1,
+            code = $2,
+            description = $3,
+            act_type = $4,
+            is_single_male = $5,
+            einfahrzeit_seconds = $6,
+            act_duration_seconds = $7,
+            judge_duration_seconds = $8
+        WHERE id = $9
         "#,
         new_name,
         new_code,

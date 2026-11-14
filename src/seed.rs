@@ -498,7 +498,7 @@ pub async fn stored_coverage_warnings(
     let categories = sqlx::query!(
         r#"
         SELECT name as "name!", act_type as "act_type: ActType", is_single_male, min_age, under_age
-        FROM categories ORDER BY "order", name
+        FROM categories ORDER BY "order" NULLS FIRST, name
         "#
     )
     .fetch_all(&mut *conn)
@@ -1080,7 +1080,7 @@ pub async fn startup_competition(db: &sqlx::SqlitePool) -> Result<Option<Competi
         return Ok(Some(competition));
     }
     let admins = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
+        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = $1"#,
         Role::Admin
     )
     .fetch_one(db)
@@ -1182,7 +1182,7 @@ impl Snapshot {
                 r#"SELECT json_array(name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds,
                     judge_duration_seconds)
-                FROM categories ORDER BY "order", name"#,
+                FROM categories ORDER BY "order" NULLS FIRST, name"#,
             )
             .await?,
             heats: rows(
@@ -1362,7 +1362,7 @@ async fn write(
     .map_err(db_error)?;
     // The app uses one competition. A row left over from an earlier id
     // would win in `Competition::current` if it starts later.
-    sqlx::query!("DELETE FROM competition WHERE id != ?", competition.id)
+    sqlx::query!("DELETE FROM competition WHERE id != $1", competition.id)
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
@@ -1400,7 +1400,7 @@ async fn write(
                 INSERT INTO categories (
                     id, name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 "#,
                 category_id,
                 category.name,
@@ -1441,7 +1441,7 @@ async fn write(
             INSERT INTO heats (
                 id, name, code, description, threshold, skip, jury_registrable, jury_deployments,
                 jury_needed_technical, jury_needed_performance, jury_needed_dismounts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
             heat_id,
             heat.name,
@@ -1486,7 +1486,7 @@ async fn write(
                     einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds,
                     jury_registrable, jury_deployments, jury_needed_technical,
                     jury_needed_performance, jury_needed_dismounts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 "#,
                 final_id,
                 item.name,
@@ -1549,7 +1549,7 @@ async fn write(
             let final_id = match &entry.final_name {
                 Some(name) => Some(
                     sqlx::query_scalar!(
-                        r#"SELECT id as "id: FinalId" FROM finals WHERE code = ?"#,
+                        r#"SELECT id as "id: FinalId" FROM finals WHERE code = $1"#,
                         name
                     )
                     .fetch_one(&mut *conn)
@@ -1564,7 +1564,7 @@ async fn write(
                     earliest_start_time, duration_seconds, label, category_id, final_id, kind,
                     show_photos, internal, position, einfahrzeit_seconds
                 )
-                VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, (SELECT id FROM categories WHERE name = $4), $5, $6, $7, $8, $9, $10)
                 "#,
                 entry.earliest_start,
                 duration_seconds,
@@ -1589,7 +1589,7 @@ async fn write(
 
     for registration in registrations {
         let unit = sqlx::query_scalar!(
-            r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+            r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = $1 AND name = $2"#,
             registration.unit_kind,
             registration.unit_name
         )
@@ -1600,7 +1600,7 @@ async fn write(
             Some(unit) => {
                 let (heat_id, final_id) = crate::jury::unit_columns(registration.unit_kind, unit);
                 sqlx::query!(
-                    "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)",
                     registration.judge_id,
                     heat_id,
                     final_id,
@@ -2284,35 +2284,35 @@ mod tests {
                 .await
                 .unwrap();
         let statements: Vec<sqlx::query::Query<'_, sqlx::Sqlite, _>> = vec![
-            sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Max', '')")
+            sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'max@example.org', true, 'Max', '')")
                 .bind(user),
-            sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES (?, 'Club A', ?)")
+            sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES ($1, 'Club A', $2)")
                 .bind(club)
                 .bind(user),
-            sqlx::query("INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender) VALUES (?, ?, 'Erika', 'Muster', '2014-01-01T00:00:00Z', 'female')")
+            sqlx::query("INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender) VALUES ($1, $2, 'Erika', 'Muster', '2014-01-01T00:00:00Z', 'female')")
                 .bind(rider)
                 .bind(club),
-            sqlx::query("INSERT INTO acts (id, name, act_type, song_file, started_at, ended_at) VALUES (?, 'Kür', 'single', 'song.mp3', '2027-06-05T10:00:00Z', '2027-06-05T10:04:00Z')").bind(act),
-            sqlx::query("INSERT INTO act_participants (act_id, rider_id) VALUES (?, ?)")
+            sqlx::query("INSERT INTO acts (id, name, act_type, song_file, started_at, ended_at) VALUES ($1, 'Kür', 'single', 'song.mp3', '2027-06-05T10:00:00Z', '2027-06-05T10:04:00Z')").bind(act),
+            sqlx::query("INSERT INTO act_participants (act_id, rider_id) VALUES ($1, $2)")
                 .bind(act)
                 .bind(rider),
-            sqlx::query("INSERT INTO judge (id, club_id, firstname, lastname, birthdate, is_trained) VALUES (?, ?, 'Max', 'Müller', '1990-01-01T00:00:00Z', true)")
+            sqlx::query("INSERT INTO judge (id, club_id, firstname, lastname, birthdate, is_trained) VALUES ($1, $2, 'Max', 'Müller', '1990-01-01T00:00:00Z', true)")
                 .bind(judge)
                 .bind(club),
-            sqlx::query("INSERT INTO judge_registration (judge_id, heat_id, task) VALUES (?, ?, 'technical')")
+            sqlx::query("INSERT INTO judge_registration (judge_id, heat_id, task) VALUES ($1, $2, 'technical')")
                 .bind(judge)
                 .bind(heat_id),
-            sqlx::query("INSERT INTO judge_registration (judge_id, final_id, task) VALUES (?, ?, 'performance')")
+            sqlx::query("INSERT INTO judge_registration (judge_id, final_id, task) VALUES ($1, $2, 'performance')")
                 .bind(judge)
                 .bind(final_id),
-            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, task) VALUES (?, ?, 'technical')")
+            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, task) VALUES ($1, $2, 'technical')")
                 .bind(judge)
                 .bind(heat_id),
             sqlx::query("UPDATE competition SET jury_plan_published_at = '2027-01-01T00:00:00Z'"),
-            sqlx::query("INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ((SELECT MIN(id) FROM timeplan), 1, ?)")
+            sqlx::query("INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ((SELECT MIN(id) FROM timeplan), 1, $1)")
                 .bind(act),
-            sqlx::query("UPDATE final_slots SET act_id = ? WHERE position = 1").bind(act),
-            sqlx::query("INSERT INTO bookings (id, amount, date, club_id) VALUES (?, 15, '2027-01-01', ?)")
+            sqlx::query("UPDATE final_slots SET act_id = $1 WHERE position = 1").bind(act),
+            sqlx::query("INSERT INTO bookings (id, amount, date, club_id) VALUES ($1, 15, '2027-01-01', $2)")
                 .bind(uuid::Uuid::now_v7())
                 .bind(club),
         ];

@@ -44,10 +44,10 @@ pub async fn ensure_name_is_free(
 ) -> Result<(), HttpError> {
     let names: Vec<(String, String)> = match person {
         Person::Rider => sqlx::query_as(
-            "SELECT firstname, lastname FROM rider WHERE club_id = ? AND id IS NOT ?",
+            "SELECT firstname, lastname FROM rider WHERE club_id = $1 AND id IS NOT $2",
         ),
         Person::Judge => sqlx::query_as(
-            "SELECT firstname, lastname FROM judge WHERE club_id = ? AND id IS NOT ?",
+            "SELECT firstname, lastname FROM judge WHERE club_id = $1 AND id IS NOT $2",
         ),
     }
     .bind(club_id)

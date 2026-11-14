@@ -68,7 +68,7 @@ pub async fn reset_block_order(
 
     info!("Resetting the order of timeplan block {}", body.timeplan_id);
     sqlx::query!(
-        "DELETE FROM timeplan_slots WHERE timeplan_id = ?",
+        "DELETE FROM timeplan_slots WHERE timeplan_id = $1",
         body.timeplan_id
     )
     .execute(&mut *tx)

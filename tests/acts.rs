@@ -71,7 +71,7 @@ async fn get_act_returns_category_and_participants() {
 /// Category of the act of the given type the rider takes part in.
 async fn category_of(app: &TestApp, rider_id: RiderId, act_type: &str) -> Value {
     let act_id: ActId = sqlx::query_scalar(
-        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
+        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = $1 AND act_type = $2",
     )
     .bind(rider_id)
     .bind(act_type)

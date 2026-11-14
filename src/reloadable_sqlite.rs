@@ -140,7 +140,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO marker (value) VALUES (?)")
+        sqlx::query("INSERT INTO marker (value) VALUES ($1)")
             .bind(value)
             .execute(&pool)
             .await
@@ -226,7 +226,7 @@ mod tests {
                         .fetch_one(&mut *tx)
                         .await?;
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                    sqlx::query("UPDATE counter SET value = ?")
+                    sqlx::query("UPDATE counter SET value = $1")
                         .bind(value + 1)
                         .execute(&mut *tx)
                         .await?;

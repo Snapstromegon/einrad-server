@@ -56,7 +56,7 @@ pub async fn rename_club_group(
 
     info!("Renaming group {:?} to {group_name:?}", group.group_name);
     sqlx::query!(
-        "UPDATE acts SET group_name = ? WHERE id = ?",
+        "UPDATE acts SET group_name = $1 WHERE id = $2",
         group_name,
         group.id,
     )

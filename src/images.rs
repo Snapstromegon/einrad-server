@@ -202,7 +202,7 @@ pub async fn meta(
         SELECT id as "id!: i64", updated_at as "updated_at: OffsetDateTime"
         FROM competition_image
         WHERE competition_id = (SELECT id FROM competition ORDER BY start_date DESC LIMIT 1)
-            AND data IS NOT NULL AND kind = ? AND (kind != 'sponsor' OR id = ?)
+            AND data IS NOT NULL AND kind = $1 AND (kind != 'sponsor' OR id = $2)
         "#,
         kind,
         id,
@@ -218,7 +218,7 @@ pub async fn load(db: impl sqlx::SqliteExecutor<'_>, id: i64) -> sqlx::Result<Op
         r#"
         SELECT mime_type, data, updated_at as "updated_at: OffsetDateTime"
         FROM competition_image
-        WHERE id = ? AND data IS NOT NULL
+        WHERE id = $1 AND data IS NOT NULL
         "#,
         id
     )
@@ -259,9 +259,9 @@ pub async fn set_data(
         let result = sqlx::query!(
             r#"
             UPDATE competition_image SET
-                source_url = NULL, mime_type = ?, data = ?, updated_at = ?,
+                source_url = NULL, mime_type = $1, data = $2, updated_at = $3,
                 fetched_at = NULL, fetch_error = NULL
-            WHERE id = ? AND competition_id = ? AND kind = 'sponsor'
+            WHERE id = $4 AND competition_id = $5 AND kind = 'sponsor'
             "#,
             mime_type,
             logo.data,
@@ -277,7 +277,7 @@ pub async fn set_data(
     sqlx::query!(
         r#"
         INSERT INTO competition_image (competition_id, kind, mime_type, data, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (competition_id, kind) WHERE kind != 'sponsor' DO UPDATE SET
             source_url = NULL,
             mime_type = excluded.mime_type,
@@ -314,9 +314,9 @@ pub async fn set_url(
         let result = sqlx::query!(
             r#"
             UPDATE competition_image SET
-                source_url = ?, fetched_at = NULL, fetch_error = NULL
-            WHERE id = ? AND competition_id = ? AND kind = 'sponsor'
-                AND source_url IS NOT ?
+                source_url = $1, fetched_at = NULL, fetch_error = NULL
+            WHERE id = $2 AND competition_id = $3 AND kind = 'sponsor'
+                AND source_url IS NOT $4
             "#,
             url,
             id,
@@ -330,7 +330,7 @@ pub async fn set_url(
         }
         let exists = sqlx::query_scalar!(
             r#"SELECT COUNT(*) as "count!: i64" FROM competition_image
-            WHERE id = ? AND competition_id = ? AND kind = 'sponsor'"#,
+            WHERE id = $1 AND competition_id = $2 AND kind = 'sponsor'"#,
             id,
             competition_id
         )
@@ -342,7 +342,7 @@ pub async fn set_url(
     sqlx::query!(
         r#"
         INSERT INTO competition_image (competition_id, kind, source_url, updated_at)
-        VALUES (?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (competition_id, kind) WHERE kind != 'sponsor' DO UPDATE SET
             source_url = excluded.source_url,
             fetched_at = NULL,
@@ -365,7 +365,7 @@ pub async fn remove(db: impl sqlx::SqliteExecutor<'_>, slot: Slot) -> sqlx::Resu
     match slot {
         Slot::Sponsor(id) => {
             sqlx::query!(
-                "DELETE FROM competition_image WHERE id = ? AND kind = 'sponsor'",
+                "DELETE FROM competition_image WHERE id = $1 AND kind = 'sponsor'",
                 id
             )
             .execute(db)
@@ -373,7 +373,7 @@ pub async fn remove(db: impl sqlx::SqliteExecutor<'_>, slot: Slot) -> sqlx::Resu
         }
         slot => {
             let kind = slot.kind();
-            sqlx::query!("DELETE FROM competition_image WHERE kind = ?", kind)
+            sqlx::query!("DELETE FROM competition_image WHERE kind = $1", kind)
                 .execute(db)
                 .await?;
         }
@@ -393,10 +393,10 @@ pub async fn add_sponsor(
     let result = sqlx::query!(
         r#"
         INSERT INTO competition_image (competition_id, kind, position, name, link, updated_at)
-        VALUES (?, 'sponsor',
+        VALUES ($1, 'sponsor',
             (SELECT COALESCE(MAX(position) + 1, 0) FROM competition_image
-                WHERE competition_id = ? AND kind = 'sponsor'),
-            ?, ?, ?)
+                WHERE competition_id = $2 AND kind = 'sponsor'),
+            $3, $4, $5)
         "#,
         competition_id,
         competition_id,
@@ -417,7 +417,7 @@ pub async fn update_sponsor(
     link: Option<&str>,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query!(
-        "UPDATE competition_image SET name = ?, link = ? WHERE id = ? AND kind = 'sponsor'",
+        "UPDATE competition_image SET name = $1, link = $2 WHERE id = $3 AND kind = 'sponsor'",
         name,
         link,
         id,
@@ -434,7 +434,7 @@ pub async fn set_position(
     position: i64,
 ) -> sqlx::Result<()> {
     sqlx::query!(
-        "UPDATE competition_image SET position = ? WHERE id = ? AND kind = 'sponsor'",
+        "UPDATE competition_image SET position = $1 WHERE id = $2 AND kind = 'sponsor'",
         position,
         id,
     )
@@ -462,9 +462,9 @@ pub async fn store_fetched(
             sqlx::query!(
                 r#"
                 UPDATE competition_image SET
-                    updated_at = CASE WHEN data IS ? AND mime_type IS ? THEN updated_at ELSE ? END,
-                    mime_type = ?, data = ?, fetched_at = ?, fetch_error = NULL
-                WHERE id = ? AND source_url = ?
+                    updated_at = CASE WHEN data IS $1 AND mime_type IS $2 THEN updated_at ELSE $3 END,
+                    mime_type = $4, data = $5, fetched_at = $6, fetch_error = NULL
+                WHERE id = $7 AND source_url = $8
                 "#,
                 logo.data,
                 mime_type,
@@ -481,8 +481,8 @@ pub async fn store_fetched(
         }
         Err(error) => sqlx::query!(
             r#"
-            UPDATE competition_image SET fetched_at = ?, fetch_error = ?
-            WHERE id = ? AND source_url = ?
+            UPDATE competition_image SET fetched_at = $1, fetch_error = $2
+            WHERE id = $3 AND source_url = $4
             "#,
             now,
             error,

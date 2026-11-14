@@ -42,7 +42,7 @@ pub async fn reset_password(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT user_id as "user_id!: UserId" FROM password_resets WHERE id = ?
+        SELECT user_id as "user_id!: UserId" FROM password_resets WHERE id = $1
         "#,
         body.token
     )
@@ -54,7 +54,7 @@ pub async fn reset_password(
         let password_hash = generate_hash(body.new_password);
         sqlx::query!(
             r#"
-            UPDATE users SET password = ? WHERE id = ?
+            UPDATE users SET password = $1 WHERE id = $2
             "#,
             password_hash,
             user.user_id
@@ -64,7 +64,7 @@ pub async fn reset_password(
         // Drop the previous verification tokens
         sqlx::query!(
             r#"
-            DELETE FROM password_resets WHERE user_id = ?
+            DELETE FROM password_resets WHERE user_id = $1
             "#,
             user.user_id
         )

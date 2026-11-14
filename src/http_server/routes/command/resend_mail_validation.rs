@@ -47,7 +47,7 @@ pub async fn resend_mail_validation(
     // Drop the previous verification tokens
     sqlx::query!(
         r#"
-        DELETE FROM mail_verification WHERE user_id = ?
+        DELETE FROM mail_verification WHERE user_id = $1
         "#,
         auth.user_id
     )
@@ -59,7 +59,7 @@ pub async fn resend_mail_validation(
     sqlx::query!(
         r#"
         INSERT INTO mail_verification (id, user_id, created_at)
-        VALUES (?, ?, ?)
+        VALUES ($1, $2, $3)
         "#,
         email_token,
         auth.user_id,

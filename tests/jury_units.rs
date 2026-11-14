@@ -598,7 +598,7 @@ async fn unmapped_registrations_are_resolved_by_the_jury_lead() {
     // What the migration leaves of a jury category it could not map.
     for task in ["technical", "dismounts"] {
         sqlx::query(
-            "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES (?, 'Einzel Vorlauf Expert', ?)",
+            "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES ($1, 'Einzel Vorlauf Expert', $2)",
         )
         .bind(Uuid::parse_str(judge_id.as_str().unwrap()).unwrap())
         .bind(task)
@@ -744,7 +744,7 @@ async fn the_jury_lead_cannot_move_registrations_to_a_unit_that_takes_none() {
 
     // The same for an unmapped registration.
     sqlx::query(
-        "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES (?, 'Alt', 'technical')",
+        "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES ($1, 'Alt', 'technical')",
     )
     .bind(Uuid::parse_str(judge_id.as_str().unwrap()).unwrap())
     .execute(&app.db)

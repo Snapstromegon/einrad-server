@@ -71,8 +71,8 @@ pub fn spawn(
         let pool = db.get().await.clone();
         let updated = sqlx::query!(
             r#"
-            UPDATE acts SET normalization_status = ?
-            WHERE id = ? AND song_file_normalized = ?
+            UPDATE acts SET normalization_status = $1
+            WHERE id = $2 AND song_file_normalized = $3
             "#,
             status,
             act_id,
@@ -113,7 +113,7 @@ pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()>
     for act in acts {
         let target = normalized_file_name(act.id);
         sqlx::query!(
-            "UPDATE acts SET song_file_normalized = ?, normalization_status = 'pending' WHERE id = ?",
+            "UPDATE acts SET song_file_normalized = $1, normalization_status = 'pending' WHERE id = $2",
             target,
             act.id
         )
@@ -152,7 +152,7 @@ pub async fn requeue_missing(db: &ReloadableSqlite, data_path: &Path) -> sqlx::R
         }
         let target = normalized_file_name(id);
         sqlx::query(
-            "UPDATE acts SET song_file_normalized = ?, normalization_status = 'pending' WHERE id = ?",
+            "UPDATE acts SET song_file_normalized = $1, normalization_status = 'pending' WHERE id = $2",
         )
         .bind(&target)
         .bind(id)

@@ -51,7 +51,7 @@ pub async fn set_act_withdrawn(
     let updated = sqlx::query!(
         r#"
         UPDATE acts
-        SET withdrawn_at = CASE WHEN $1 THEN COALESCE(withdrawn_at, datetime('now')) END
+        SET withdrawn_at = CASE WHEN $1 THEN COALESCE(withdrawn_at, CURRENT_TIMESTAMP) END
         WHERE id = $2
         "#,
         body.withdrawn,

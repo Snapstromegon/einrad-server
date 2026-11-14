@@ -198,12 +198,12 @@ async fn old_schema_backup(dir: &TempDir, name: &str) -> String {
         .unwrap();
     older.run(&mut conn).await.unwrap();
     let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'old@example.org', true, 'Alter Admin', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'old@example.org', true, 'Alter Admin', 'x')")
         .bind(id)
         .execute(&mut conn)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_roles (user_id, role) VALUES (?, 'admin')")
+    sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')")
         .bind(id)
         .execute(&mut conn)
         .await
@@ -389,8 +389,8 @@ async fn only_admins_can_restore_check_and_manage_missing_songs() {
 /// Sets the song columns of an act directly.
 async fn set_song(app: &TestApp, act: ActId, file: &str, name: &str, normalized: Option<&str>) {
     sqlx::query(
-        "UPDATE acts SET song_file = ?, song_file_name = ?, song_file_normalized = ?, \
-         normalization_status = 'done' WHERE id = ?",
+        "UPDATE acts SET song_file = $1, song_file_name = $2, song_file_normalized = $3, \
+         normalization_status = 'done' WHERE id = $4",
     )
     .bind(file)
     .bind(name)
@@ -444,7 +444,7 @@ async fn missing_songs_are_reported_and_missing_normalized_files_requeued() {
     // The kept song's normalized copy is queued again under a new name.
     let mut conn = open(&dir.0.join("db.sqlite")).await;
     let normalized: Option<String> =
-        sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = ?")
+        sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = $1")
             .bind(kept)
             .fetch_one(&mut conn)
             .await
@@ -473,7 +473,7 @@ async fn a_missing_song_can_be_uploaded_again_or_marked_deleted() {
             Some("n.mp3"),
         )
         .await;
-        sqlx::query("UPDATE acts SET song_checked = TRUE WHERE id = ?")
+        sqlx::query("UPDATE acts SET song_checked = TRUE WHERE id = $1")
             .bind(act)
             .execute(&app.db)
             .await

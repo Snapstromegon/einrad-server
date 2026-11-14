@@ -210,7 +210,7 @@ impl ClubData {
                     COALESCE(clubs.responsible_email, users.email) as "representative_email!: String"
                 FROM clubs
                 JOIN users ON users.id = clubs.owner_id
-                WHERE clubs.id = ?
+                WHERE clubs.id = $1
                 "#,
                 id
             )
@@ -789,7 +789,7 @@ pub async fn record(
     sqlx::query!(
         r#"
         INSERT INTO club_mails (id, sent_at, user_id, user_name, subject, body, reply_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
         id,
         sent_at,
@@ -807,7 +807,7 @@ pub async fn record(
         let mail_id = sqlx::query_scalar!(
             r#"
             INSERT INTO club_mail_messages (mail_id, club_id, club_name, addresses, subject, body)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id as "id!: i64"
             "#,
             id,
@@ -869,7 +869,7 @@ pub async fn send(
             }
         };
         if let Err(error) = sqlx::query!(
-            "UPDATE club_mail_messages SET status = ?, error = ? WHERE id = ?",
+            "UPDATE club_mail_messages SET status = $1, error = $2 WHERE id = $3",
             mail.status,
             mail.error,
             mail.id,

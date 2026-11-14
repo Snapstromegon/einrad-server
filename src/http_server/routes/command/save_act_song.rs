@@ -121,7 +121,7 @@ pub async fn save_act_song(
         .await
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let previous_normalized = sqlx::query_scalar!(
-        "SELECT song_file_normalized FROM acts WHERE id = ?",
+        "SELECT song_file_normalized FROM acts WHERE id = $1",
         query.act_id
     )
     .fetch_optional(&db)
@@ -131,9 +131,9 @@ pub async fn save_act_song(
     sqlx::query!(
         r#"
         UPDATE acts
-        SET song_file_name = ?, song_file = ?, song_checked = FALSE,
-            song_file_normalized = ?, normalization_status = 'pending'
-        WHERE id = ?
+        SET song_file_name = $1, song_file = $2, song_checked = FALSE,
+            song_file_normalized = $3, normalization_status = 'pending'
+        WHERE id = $4
         "#,
         file_name,
         save_file_name,

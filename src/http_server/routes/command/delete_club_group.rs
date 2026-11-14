@@ -59,7 +59,7 @@ pub async fn delete_club_group(
             SELECT COUNT(*) as "count!: i64"
             FROM act_participants
             JOIN rider ON rider.id = act_participants.rider_id
-            WHERE act_participants.act_id = ? AND rider.club_id IS NOT ?
+            WHERE act_participants.act_id = $1 AND rider.club_id IS NOT $2
             "#,
             group.id,
             group.owner_club_id,
@@ -75,10 +75,10 @@ pub async fn delete_club_group(
     }
 
     info!("Deleting group {:?} ({})", group.group_name, group.id);
-    sqlx::query!("DELETE FROM act_participants WHERE act_id = ?", group.id)
+    sqlx::query!("DELETE FROM act_participants WHERE act_id = $1", group.id)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query!("DELETE FROM acts WHERE id = ?", group.id)
+    sqlx::query!("DELETE FROM acts WHERE id = $1", group.id)
         .execute(&mut *transaction)
         .await?;
 

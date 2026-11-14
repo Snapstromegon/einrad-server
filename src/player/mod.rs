@@ -1086,7 +1086,7 @@ impl PlayerHub {
                 song_file_normalized,
                 normalization_status as "normalization_status: NormalizationStatus",
                 participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>"
-            FROM view_act WHERE id = ?
+            FROM view_act WHERE id = $1
             "#,
             act_id
         )
@@ -1727,7 +1727,7 @@ mod tests {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let act = ActId(Uuid::from_u128(1));
         sqlx::query(
-            "INSERT INTO acts (id, name, act_type, started_at) VALUES (?, '', 'single', datetime('now'))",
+            "INSERT INTO acts (id, name, act_type, started_at) VALUES ($1, '', 'single', CURRENT_TIMESTAMP)",
         )
         .bind(act)
         .execute(&db)
@@ -1738,7 +1738,7 @@ mod tests {
         select(&hub, a).await;
         hub.lock().cue = Some(song(1));
         let music_started = async || -> Option<String> {
-            sqlx::query_scalar("SELECT music_started_at FROM acts WHERE id = ?")
+            sqlx::query_scalar("SELECT music_started_at FROM acts WHERE id = $1")
                 .bind(act)
                 .fetch_one(&db)
                 .await
@@ -1767,7 +1767,7 @@ mod tests {
         .await
         .expect("music start not recorded within 2 s");
         let seconds_ago: f64 = sqlx::query_scalar(
-            "SELECT (julianday('now') - julianday(music_started_at)) * 86400 FROM acts WHERE id = ?",
+            "SELECT (julianday('now') - julianday(music_started_at)) * 86400 FROM acts WHERE id = $1",
         )
         .bind(act)
         .fetch_one(&db)

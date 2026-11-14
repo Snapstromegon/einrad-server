@@ -48,7 +48,7 @@ pub async fn unassign_judge(
         body.judge_id, body.unit_id
     );
     sqlx::query!(
-        "DELETE FROM jury_assignments WHERE judge_id = ? AND unit_id = ?",
+        "DELETE FROM jury_assignments WHERE judge_id = $1 AND unit_id = $2",
         body.judge_id,
         body.unit_id,
     )

@@ -577,7 +577,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             music_started_at as "music_started_at: OffsetDateTime"
         FROM view_act
         WHERE category_id IS NOT NULL AND withdrawn_at IS NULL
-        ORDER BY "order"
+        ORDER BY "order" NULLS FIRST
         "#
     )
     .fetch_all(&mut *db)
@@ -943,7 +943,7 @@ pub async fn entry_ids(db: &mut SqliteConnection) -> sqlx::Result<Vec<i64>> {
 pub async fn set_entry_order(db: &mut SqliteConnection, ids: &[i64]) -> sqlx::Result<()> {
     for (position, id) in (1_i64..).zip(ids) {
         sqlx::query!(
-            "UPDATE timeplan SET position = ? WHERE id = ?",
+            "UPDATE timeplan SET position = $1 WHERE id = $2",
             position,
             id
         )
@@ -991,13 +991,13 @@ pub async fn now(db: &mut SqliteConnection) -> sqlx::Result<String> {
 pub async fn start_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sqlx::Result<()> {
     match slot {
         Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET started_at = ? WHERE id = ?", now, act.id)
+            sqlx::query!("UPDATE acts SET started_at = $1 WHERE id = $2", now, act.id)
                 .execute(db)
                 .await?;
         }
         Slot::Break(pause) => {
             sqlx::query!(
-                "UPDATE timeplan_slots SET started_at = ? WHERE id = ?",
+                "UPDATE timeplan_slots SET started_at = $1 WHERE id = $2",
                 now,
                 pause.id
             )
@@ -1006,7 +1006,7 @@ pub async fn start_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sq
         }
         Slot::Finalist(finalist) => {
             sqlx::query!(
-                "UPDATE final_slots SET started_at = ? WHERE id = ?",
+                "UPDATE final_slots SET started_at = $1 WHERE id = $2",
                 now,
                 finalist.id
             )
@@ -1021,13 +1021,13 @@ pub async fn start_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sq
 pub async fn end_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sqlx::Result<()> {
     match slot {
         Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = ? WHERE id = ?", now, act.id)
+            sqlx::query!("UPDATE acts SET ended_at = $1 WHERE id = $2", now, act.id)
                 .execute(db)
                 .await?;
         }
         Slot::Break(pause) => {
             sqlx::query!(
-                "UPDATE timeplan_slots SET ended_at = ? WHERE id = ?",
+                "UPDATE timeplan_slots SET ended_at = $1 WHERE id = $2",
                 now,
                 pause.id
             )
@@ -1036,7 +1036,7 @@ pub async fn end_slot(db: &mut SqliteConnection, slot: &Slot, now: &str) -> sqlx
         }
         Slot::Finalist(finalist) => {
             sqlx::query!(
-                "UPDATE final_slots SET ended_at = ? WHERE id = ?",
+                "UPDATE final_slots SET ended_at = $1 WHERE id = $2",
                 now,
                 finalist.id
             )
@@ -1053,7 +1053,7 @@ pub async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Resul
     match slot {
         Slot::Act(act) => {
             sqlx::query!(
-                "UPDATE acts SET started_at = NULL, music_started_at = NULL WHERE id = ?",
+                "UPDATE acts SET started_at = NULL, music_started_at = NULL WHERE id = $1",
                 act.id
             )
             .execute(db)
@@ -1061,7 +1061,7 @@ pub async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Resul
         }
         Slot::Break(pause) => {
             sqlx::query!(
-                "UPDATE timeplan_slots SET started_at = NULL WHERE id = ?",
+                "UPDATE timeplan_slots SET started_at = NULL WHERE id = $1",
                 pause.id
             )
             .execute(db)
@@ -1069,7 +1069,7 @@ pub async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Resul
         }
         Slot::Finalist(finalist) => {
             sqlx::query!(
-                "UPDATE final_slots SET started_at = NULL, music_started_at = NULL WHERE id = ?",
+                "UPDATE final_slots SET started_at = NULL, music_started_at = NULL WHERE id = $1",
                 finalist.id
             )
             .execute(db)
@@ -1083,13 +1083,13 @@ pub async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Resul
 pub async fn reopen_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result<()> {
     match slot {
         Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = NULL WHERE id = ?", act.id)
+            sqlx::query!("UPDATE acts SET ended_at = NULL WHERE id = $1", act.id)
                 .execute(db)
                 .await?;
         }
         Slot::Break(pause) => {
             sqlx::query!(
-                "UPDATE timeplan_slots SET ended_at = NULL WHERE id = ?",
+                "UPDATE timeplan_slots SET ended_at = NULL WHERE id = $1",
                 pause.id
             )
             .execute(db)
@@ -1097,7 +1097,7 @@ pub async fn reopen_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result
         }
         Slot::Finalist(finalist) => {
             sqlx::query!(
-                "UPDATE final_slots SET ended_at = NULL WHERE id = ?",
+                "UPDATE final_slots SET ended_at = NULL WHERE id = $1",
                 finalist.id
             )
             .execute(db)
@@ -1119,8 +1119,8 @@ pub async fn mark_music_started(
     let mut tx = crate::reloadable_sqlite::begin_write(db).await?;
     let act = sqlx::query!(
         r#"
-        UPDATE acts SET music_started_at = datetime(julianday('now') - ? / 86400.0)
-        WHERE id = ? AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
+        UPDATE acts SET music_started_at = datetime(julianday('now') - $1 / 86400.0)
+        WHERE id = $2 AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
         "#,
         seconds_ago,
         act_id
@@ -1129,8 +1129,8 @@ pub async fn mark_music_started(
     .await?;
     let finalist = sqlx::query!(
         r#"
-        UPDATE final_slots SET music_started_at = datetime(julianday('now') - ? / 86400.0)
-        WHERE act_id = ? AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
+        UPDATE final_slots SET music_started_at = datetime(julianday('now') - $1 / 86400.0)
+        WHERE act_id = $2 AND started_at IS NOT NULL AND ended_at IS NULL AND music_started_at IS NULL
             AND final_id IN (SELECT id FROM finals WHERE placement_published)
         "#,
         seconds_ago,

@@ -38,7 +38,7 @@ fn resolve(config: &str) -> Result<Settings, String> {
 }
 
 async fn add_admin(db: &sqlx::SqlitePool) {
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'admin@cup.test', true, 'Max Müller', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'admin@cup.test', true, 'Max Müller', 'x')")
         .bind(uuid::Uuid::now_v7())
         .execute(db)
         .await

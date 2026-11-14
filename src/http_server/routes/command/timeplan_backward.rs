@@ -63,7 +63,7 @@ pub async fn timeplan_backward(
                 // Nothing done in this entry yet: undo its start, together
                 // with the empty blocks skipped to get here.
                 sqlx::query!(
-                    "UPDATE timeplan SET started_at = NULL WHERE id = ?",
+                    "UPDATE timeplan SET started_at = NULL WHERE id = $1",
                     entry.id
                 )
                 .execute(&mut *tx)
@@ -85,9 +85,12 @@ pub async fn timeplan_backward(
                 return Ok(Json(SetTimeplanBackwardResponse {}));
             };
             let entry = &entries[index];
-            sqlx::query!("UPDATE timeplan SET ended_at = NULL WHERE id = ?", entry.id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query!(
+                "UPDATE timeplan SET ended_at = NULL WHERE id = $1",
+                entry.id
+            )
+            .execute(&mut *tx)
+            .await?;
             // Its last slot runs again if ending it ended the block; a block
             // that ended because its last acts were moved away just reopens.
             if let Some(last) = entry
@@ -117,13 +120,13 @@ pub async fn timeplan_backward(
 /// its acts while one of its breaks runs).
 async fn reset_entry(db: &mut sqlx::SqliteConnection, id: i64) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE timeplan SET started_at = NULL, ended_at = NULL WHERE id = ?",
+        "UPDATE timeplan SET started_at = NULL, ended_at = NULL WHERE id = $1",
         id
     )
     .execute(&mut *db)
     .await?;
     sqlx::query!(
-        "UPDATE timeplan_slots SET started_at = NULL, ended_at = NULL WHERE timeplan_id = ? AND act_id IS NULL",
+        "UPDATE timeplan_slots SET started_at = NULL, ended_at = NULL WHERE timeplan_id = $1 AND act_id IS NULL",
         id
     )
     .execute(&mut *db)

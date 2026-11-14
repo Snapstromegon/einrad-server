@@ -46,10 +46,10 @@ pub async fn edit_jury_unit(
             sqlx::query!(
                 r#"
                 UPDATE heats SET
-                    jury_registrable = ?, jury_deployments = ?,
-                    jury_needed_technical = ?, jury_needed_performance = ?,
-                    jury_needed_dismounts = ?
-                WHERE id = ?
+                    jury_registrable = $1, jury_deployments = $2,
+                    jury_needed_technical = $3, jury_needed_performance = $4,
+                    jury_needed_dismounts = $5
+                WHERE id = $6
                 "#,
                 body.registrable,
                 body.deployments,
@@ -65,10 +65,10 @@ pub async fn edit_jury_unit(
             sqlx::query!(
                 r#"
                 UPDATE finals SET
-                    jury_registrable = ?, jury_deployments = ?,
-                    jury_needed_technical = ?, jury_needed_performance = ?,
-                    jury_needed_dismounts = ?
-                WHERE id = ?
+                    jury_registrable = $1, jury_deployments = $2,
+                    jury_needed_technical = $3, jury_needed_performance = $4,
+                    jury_needed_dismounts = $5
+                WHERE id = $6
                 "#,
                 body.registrable,
                 body.deployments,

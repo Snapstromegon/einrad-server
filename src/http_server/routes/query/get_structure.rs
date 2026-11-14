@@ -189,7 +189,7 @@ pub async fn get_structure(
         r#"
         SELECT id as "id!: CategoryId", name as "name!", description, act_type as "act_type: ActType", is_single_male, heat_id as "heat_id: HeatId"
         FROM categories
-        ORDER BY "order", name
+        ORDER BY "order" NULLS FIRST, name
         "#
     )
     .fetch_all(&mut *tx)

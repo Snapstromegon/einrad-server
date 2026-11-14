@@ -63,7 +63,7 @@ pub async fn set_final_published(
         body.id, body.published
     );
     let result = sqlx::query!(
-        "UPDATE finals SET placement_published = ? WHERE id = ?",
+        "UPDATE finals SET placement_published = $1 WHERE id = $2",
         body.published,
         body.id
     )

@@ -107,7 +107,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             name as "name!", description, act_type as "act_type: ActType",
             is_single_male, min_age, under_age, einfahrzeit_seconds,
             act_duration_seconds, judge_duration_seconds
-        FROM categories ORDER BY "order", name
+        FROM categories ORDER BY "order" NULLS FIRST, name
         "#
     )
     .fetch_all(&mut *conn)
@@ -151,7 +151,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     .await?
     {
         let categories = sqlx::query_scalar!(
-            r#"SELECT name as "name!" FROM categories WHERE heat_id = ? ORDER BY "order", name"#,
+            r#"SELECT name as "name!" FROM categories WHERE heat_id = $1 ORDER BY "order" NULLS FIRST, name"#,
             row.id
         )
         .fetch_all(&mut *conn)
@@ -203,7 +203,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             r#"
             SELECT heats.code as "heat!" FROM final_slots
             JOIN heats ON heats.id = final_slots.heat_id
-            WHERE final_slots.final_id = ? ORDER BY position
+            WHERE final_slots.final_id = $1 ORDER BY position
             "#,
             row.id
         )

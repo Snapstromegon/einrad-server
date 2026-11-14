@@ -50,7 +50,7 @@ pub async fn delete_club_judge(
     jury::ensure_judge_access(&mut transaction, &auth, body.judge_id).await?;
     info!("Deleting judge {}", body.judge_id);
     // The registrations go with it (foreign key).
-    sqlx::query!("DELETE FROM judge WHERE id = ?", body.judge_id)
+    sqlx::query!("DELETE FROM judge WHERE id = $1", body.judge_id)
         .execute(&mut *transaction)
         .await?;
     transaction.commit().await?;

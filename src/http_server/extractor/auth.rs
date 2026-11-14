@@ -139,7 +139,7 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for Auth {
             let db = parts.extensions.get::<ReloadableSqlite>().unwrap();
             let user = sqlx::query!(
                 r#"
-                SELECT email, name, club_id as "club_id: ClubId", email_verified FROM users WHERE id = ?
+                SELECT email, name, club_id as "club_id: ClubId", email_verified FROM users WHERE id = $1
                 "#,
                 user_id,
             )

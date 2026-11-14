@@ -80,7 +80,7 @@ pub async fn add_rider(
     sqlx::query!(
         r#"
         INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender)
-        VALUES (?, ?, ?, ?, ?, ?);
+        VALUES ($1, $2, $3, $4, $5, $6);
         "#,
         rider_id,
         body.club_id,

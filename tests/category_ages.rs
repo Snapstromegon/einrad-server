@@ -34,7 +34,7 @@ async fn migrated_before_ages() -> SqlitePool {
 async fn insert_dated(db: &SqlitePool, name: &str, from: Option<&str>, to: Option<&str>) {
     sqlx::query(
         "INSERT INTO categories (name, from_birthday, to_birthday, act_type) \
-         VALUES (?, ?, ?, 'single')",
+         VALUES ($1, $2, $3, 'single')",
     )
     .bind(name)
     .bind(from)
@@ -179,7 +179,7 @@ async fn single_category(
 }
 
 async fn set_ages(app: &TestApp, name: &str, min_age: Option<f64>, under_age: Option<f64>) {
-    sqlx::query("UPDATE categories SET min_age = ?, under_age = ? WHERE name = ?")
+    sqlx::query("UPDATE categories SET min_age = $1, under_age = $2 WHERE name = $3")
         .bind(min_age)
         .bind(under_age)
         .bind(name)
@@ -189,7 +189,7 @@ async fn set_ages(app: &TestApp, name: &str, min_age: Option<f64>, under_age: Op
 }
 
 async fn set_determining_day(app: &TestApp, day: &str) {
-    sqlx::query("UPDATE competition SET determining_day = ?")
+    sqlx::query("UPDATE competition SET determining_day = $1")
         .bind(day)
         .execute(&app.db)
         .await

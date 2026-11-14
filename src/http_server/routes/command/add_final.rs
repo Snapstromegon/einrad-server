@@ -66,7 +66,7 @@ pub async fn add_final(
             id, name, code, description, act_type, is_single_male, "order",
             einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
         )
-        VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), $7, $8, $9)
         "#,
         id,
         name,

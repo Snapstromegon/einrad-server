@@ -110,7 +110,7 @@ pub async fn ensure_club_access(
     club_id: ClubId,
 ) -> Result<(), HttpError> {
     let owner_id = sqlx::query_scalar!(
-        r#"SELECT owner_id as "owner_id!: UserId" FROM clubs WHERE id = ?"#,
+        r#"SELECT owner_id as "owner_id!: UserId" FROM clubs WHERE id = $1"#,
         club_id
     )
     .fetch_optional(&mut *conn)
@@ -137,7 +137,7 @@ pub async fn ensure_rider_access(
     rider_id: RiderId,
 ) -> Result<ClubId, HttpError> {
     let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = ?"#,
+        r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = $1"#,
         rider_id
     )
     .fetch_optional(&mut *conn)
@@ -209,7 +209,7 @@ pub async fn get_group(conn: &mut SqliteConnection, act_id: ActId) -> Result<Gro
             act_type as "act_type!: ActType",
             owner_club_id as "owner_club_id: ClubId"
         FROM acts
-        WHERE id = ? AND group_name IS NOT NULL
+        WHERE id = $1 AND group_name IS NOT NULL
         "#,
         act_id
     )
@@ -247,7 +247,7 @@ pub async fn ensure_group_name_is_free(
     let existing = sqlx::query_scalar!(
         r#"
         SELECT group_name as "group_name!" FROM acts
-        WHERE group_name IS NOT NULL AND id IS NOT ?
+        WHERE group_name IS NOT NULL AND id IS NOT $1
         "#,
         except_act_id
     )
@@ -303,7 +303,7 @@ pub async fn type_conflict_message(
         JOIN acts other ON other.id = theirs.act_id AND other.act_type = this.act_type
         JOIN rider ON rider.id = own.rider_id
         JOIN clubs ON clubs.id = rider.club_id
-        WHERE own.act_id = ? AND this.act_type IN ('group_small', 'group_large')
+        WHERE own.act_id = $1 AND this.act_type IN ('group_small', 'group_large')
         ORDER BY rider.lastname, rider.firstname, other.group_name
         "#,
         act_id
@@ -319,7 +319,7 @@ pub async fn type_conflict_message(
         r#"
         SELECT group_name as "group_name!", act_type as "act_type!: ActType"
         FROM acts
-        WHERE id = ?
+        WHERE id = $1
         "#,
         act_id
     )

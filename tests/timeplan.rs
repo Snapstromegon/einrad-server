@@ -580,7 +580,7 @@ async fn act_timer_starts_with_the_first_music_start() {
     assert!(music_started().await.is_string());
 
     // Only the first start counts.
-    sqlx::query("UPDATE acts SET music_started_at = '2026-04-19 09:15:00' WHERE id = ?")
+    sqlx::query("UPDATE acts SET music_started_at = '2026-04-19 09:15:00' WHERE id = $1")
         .bind(act_id)
         .execute(&app.db)
         .await
@@ -1194,7 +1194,7 @@ async fn late_acts_join_their_home_block_and_deleted_acts_leave() {
     );
 
     let rider: RiderId =
-        sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = ?")
+        sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = $1")
             .bind(a1)
             .fetch_one(&app.db)
             .await
@@ -1352,7 +1352,7 @@ async fn started_slots_keep_their_planned_order_whatever_their_times() {
         step_ok(&app, &admin, "timeplan_forward").await;
     }
     // A start time from another clock (e.g. imported data) doesn't reorder.
-    sqlx::query("UPDATE acts SET started_at = '2099-01-01 10:00:00' WHERE id = ?")
+    sqlx::query("UPDATE acts SET started_at = '2099-01-01 10:00:00' WHERE id = $1")
         .bind(a1)
         .execute(&app.db)
         .await
@@ -1682,7 +1682,7 @@ async fn breaks_need_a_duration_in_the_database_too() {
         .unwrap();
     for duration in [None, Some(0)] {
         let insert = sqlx::query(
-            "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES (?, 0, 'Pause', ?)",
+            "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES ($1, 0, 'Pause', $2)",
         )
         .bind(block)
         .bind(duration)

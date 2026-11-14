@@ -98,17 +98,17 @@ pub async fn set_waiver(
     let id = target.id();
     let current = match target {
         Target::Club(_) => {
-            sqlx::query_scalar!("SELECT fee_waiver FROM clubs WHERE id = ?", id)
+            sqlx::query_scalar!("SELECT fee_waiver FROM clubs WHERE id = $1", id)
                 .fetch_optional(&mut *tx)
                 .await?
         }
         Target::Rider(_) => {
-            sqlx::query_scalar!("SELECT fee_waiver FROM rider WHERE id = ?", id)
+            sqlx::query_scalar!("SELECT fee_waiver FROM rider WHERE id = $1", id)
                 .fetch_optional(&mut *tx)
                 .await?
         }
         Target::Act(_) => {
-            sqlx::query_scalar!("SELECT fee_waiver FROM acts WHERE id = ?", id)
+            sqlx::query_scalar!("SELECT fee_waiver FROM acts WHERE id = $1", id)
                 .fetch_optional(&mut *tx)
                 .await?
         }
@@ -119,17 +119,17 @@ pub async fn set_waiver(
     }
     match target {
         Target::Club(_) => {
-            sqlx::query!("UPDATE clubs SET fee_waiver = ? WHERE id = ?", reason, id)
+            sqlx::query!("UPDATE clubs SET fee_waiver = $1 WHERE id = $2", reason, id)
                 .execute(&mut *tx)
                 .await?;
         }
         Target::Rider(_) => {
-            sqlx::query!("UPDATE rider SET fee_waiver = ? WHERE id = ?", reason, id)
+            sqlx::query!("UPDATE rider SET fee_waiver = $1 WHERE id = $2", reason, id)
                 .execute(&mut *tx)
                 .await?;
         }
         Target::Act(_) => {
-            sqlx::query!("UPDATE acts SET fee_waiver = ? WHERE id = ?", reason, id)
+            sqlx::query!("UPDATE acts SET fee_waiver = $1 WHERE id = $2", reason, id)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -155,18 +155,16 @@ async fn name_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Stri
     let id = target.id();
     match target {
         Target::Club(_) => {
-            sqlx::query_scalar!("SELECT name FROM clubs WHERE id = ?", id)
+            sqlx::query_scalar!("SELECT name FROM clubs WHERE id = $1", id)
                 .fetch_one(tx)
                 .await
         }
-        Target::Rider(_) => {
-            sqlx::query_scalar!(
-                r#"SELECT firstname || ' ' || lastname as "name!: String" FROM rider WHERE id = ?"#,
-                id
-            )
-            .fetch_one(tx)
-            .await
-        }
+        Target::Rider(_) => sqlx::query_scalar!(
+            r#"SELECT firstname || ' ' || lastname as "name!: String" FROM rider WHERE id = $1"#,
+            id
+        )
+        .fetch_one(tx)
+        .await,
         Target::Act(_) => {
             sqlx::query_scalar!(
                 r#"
@@ -180,7 +178,7 @@ async fn name_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Stri
                     ),
                     ''
                 ) as "name!: String"
-                FROM acts WHERE id = ?
+                FROM acts WHERE id = $1
                 "#,
                 id
             )
@@ -196,7 +194,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
         Target::Club(_) => {
             sqlx::query_as!(
                 WaiverClub,
-                r#"SELECT id as "id!: ClubId", name FROM clubs WHERE id = ?"#,
+                r#"SELECT id as "id!: ClubId", name FROM clubs WHERE id = $1"#,
                 id
             )
             .fetch_all(tx)
@@ -208,7 +206,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
                 r#"
                 SELECT clubs.id as "id!: ClubId", clubs.name
                 FROM rider JOIN clubs ON clubs.id = rider.club_id
-                WHERE rider.id = ?
+                WHERE rider.id = $1
                 "#,
                 id
             )
@@ -223,7 +221,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
                 FROM act_participants p
                 JOIN rider s ON s.id = p.rider_id
                 JOIN clubs ON clubs.id = s.club_id
-                WHERE p.act_id = ?
+                WHERE p.act_id = $1
                 ORDER BY clubs.name
                 "#,
                 id

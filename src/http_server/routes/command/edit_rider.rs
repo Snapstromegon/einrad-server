@@ -74,8 +74,8 @@ pub async fn edit_rider(
 
     sqlx::query!(
         r#"
-        UPDATE rider SET firstname = ?, lastname = ?, birthdate = ?, gender = COALESCE(?, gender)
-        WHERE id = ?
+        UPDATE rider SET firstname = $1, lastname = $2, birthdate = $3, gender = COALESCE($4, gender)
+        WHERE id = $5
         "#,
         body.firstname,
         body.lastname,

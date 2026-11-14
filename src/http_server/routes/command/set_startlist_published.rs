@@ -43,7 +43,7 @@ pub async fn set_startlist_published(
     let published_at = body.published.then(time::OffsetDateTime::now_utc);
     info!("Start list published: {}", body.published);
     let result = sqlx::query!(
-        "UPDATE competition SET startlist_published_at = ?",
+        "UPDATE competition SET startlist_published_at = $1",
         published_at
     )
     .execute(&mut *tx)

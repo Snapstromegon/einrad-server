@@ -94,9 +94,9 @@ pub async fn write(
     sqlx::query!(
         r#"
         UPDATE competition SET
-            primary_color = IIF(?, primary_color, ?),
-            secondary_color = IIF(?, secondary_color, ?)
-        WHERE id = ?
+            primary_color = IIF($1, primary_color, $2),
+            secondary_color = IIF($3, secondary_color, $4)
+        WHERE id = $5
         "#,
         keep_primary,
         primary,

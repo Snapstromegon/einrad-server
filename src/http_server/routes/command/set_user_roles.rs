@@ -50,22 +50,24 @@ pub async fn set_user_roles(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
 
-    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM users WHERE id = ?")
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM users WHERE id = $1")
         .bind(body.user_id)
         .fetch_optional(&mut *transaction)
         .await?;
     exists.ok_or(HttpError::NotFound)?;
 
-    sqlx::query("DELETE FROM user_roles WHERE user_id = ?")
+    sqlx::query("DELETE FROM user_roles WHERE user_id = $1")
         .bind(body.user_id)
         .execute(&mut *transaction)
         .await?;
     for role in &body.roles {
-        sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role) VALUES (?, ?)")
-            .bind(body.user_id)
-            .bind(role)
-            .execute(&mut *transaction)
-            .await?;
+        sqlx::query(
+            "INSERT INTO user_roles (user_id, role) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(body.user_id)
+        .bind(role)
+        .execute(&mut *transaction)
+        .await?;
     }
 
     transaction.commit().await?;

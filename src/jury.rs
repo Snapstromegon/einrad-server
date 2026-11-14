@@ -275,7 +275,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     .await?;
     let categories = sqlx::query!(
         r#"SELECT name as "name!", heat_id as "heat_id: HeatId", act_type as "act_type!: ActType"
-            FROM categories ORDER BY "order", name"#
+            FROM categories ORDER BY "order" NULLS FIRST, name"#
     )
     .fetch_all(&mut *conn)
     .await?;
@@ -387,7 +387,7 @@ pub async fn unit_is_registrable(
     id: JuryUnitId,
 ) -> sqlx::Result<Option<bool>> {
     sqlx::query_scalar!(
-        r#"SELECT registrable as "registrable!: bool" FROM view_jury_unit WHERE kind = ? AND id = ?"#,
+        r#"SELECT registrable as "registrable!: bool" FROM view_jury_unit WHERE kind = $1 AND id = $2"#,
         kind,
         id
     )
@@ -609,7 +609,7 @@ pub async fn ensure_judge_access(
     judge_id: JudgeId,
 ) -> Result<ClubId, HttpError> {
     let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: ClubId" FROM judge WHERE id = ?"#,
+        r#"SELECT club_id as "club_id!: ClubId" FROM judge WHERE id = $1"#,
         judge_id
     )
     .fetch_optional(&mut *conn)
@@ -643,7 +643,7 @@ pub async fn save_judge(
         r#"
         INSERT INTO judge (
             id, club_id, firstname, lastname, birthdate, is_trained, max_deployments, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (id) DO UPDATE SET
             firstname = excluded.firstname,
             lastname = excluded.lastname,
@@ -679,7 +679,7 @@ pub async fn save_judge(
             CASE WHEN heat_id IS NULL THEN 'final' ELSE 'heat' END as "kind!: JuryUnitKind",
             unit_id as "unit_id!: JuryUnitId",
             task as "task!: JudgeTask"
-        FROM judge_registration WHERE judge_id = ?
+        FROM judge_registration WHERE judge_id = $1
         "#,
         judge_id
     )
@@ -689,7 +689,7 @@ pub async fn save_judge(
     .map(|row| (row.kind, row.unit_id, row.task))
     .collect();
     sqlx::query!(
-        "DELETE FROM judge_registration WHERE judge_id = ?",
+        "DELETE FROM judge_registration WHERE judge_id = $1",
         judge_id
     )
     .execute(&mut *conn)
@@ -697,7 +697,7 @@ pub async fn save_judge(
     if !fields.is_trained {
         // Untrained people only count dismounts, also in the Juryplan.
         sqlx::query!(
-            "DELETE FROM jury_assignments WHERE judge_id = ? AND task != 'dismounts'",
+            "DELETE FROM jury_assignments WHERE judge_id = $1 AND task != 'dismounts'",
             judge_id
         )
         .execute(&mut *conn)
@@ -727,7 +727,7 @@ pub async fn save_judge(
         }
         let (heat_id, final_id) = unit_columns(registration.unit_kind, registration.unit_id);
         sqlx::query!(
-            "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
+            "INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)",
             judge_id,
             heat_id,
             final_id,

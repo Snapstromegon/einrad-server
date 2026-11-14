@@ -400,14 +400,14 @@ async fn heats_and_finals_are_keyed_by_id_and_a_missing_id_is_an_error() {
     // Names and codes stay unique.
     let id = Uuid::now_v7();
     assert!(
-        sqlx::query("INSERT INTO heats (id, name, code) VALUES (?, 'Einzel EM', 'X')")
+        sqlx::query("INSERT INTO heats (id, name, code) VALUES ($1, 'Einzel EM', 'X')")
             .bind(id)
             .execute(&db)
             .await
             .is_err()
     );
     assert!(
-        sqlx::query("INSERT INTO heats (id, name, code) VALUES (?, 'Anders', 'E EM')")
+        sqlx::query("INSERT INTO heats (id, name, code) VALUES ($1, 'Anders', 'E EM')")
             .bind(id)
             .execute(&db)
             .await

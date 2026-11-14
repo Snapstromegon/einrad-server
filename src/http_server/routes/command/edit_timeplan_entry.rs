@@ -138,7 +138,7 @@ pub async fn edit_timeplan_entry(
     }
     if drops_slots {
         // Its acts go back to their home blocks.
-        sqlx::query!("DELETE FROM timeplan_slots WHERE timeplan_id = ?", body.id)
+        sqlx::query!("DELETE FROM timeplan_slots WHERE timeplan_id = $1", body.id)
             .execute(&mut *tx)
             .await?;
     }

@@ -44,7 +44,7 @@ pub async fn list_club_pair_requests(
         r#"
         SELECT pair_requests.rider_id as "rider_id!: RiderId", pair_requests.partner_name
         FROM pair_requests JOIN rider ON rider.id = pair_requests.rider_id
-        WHERE rider.club_id = ?
+        WHERE rider.club_id = $1
         "#,
         query.club_id
     )

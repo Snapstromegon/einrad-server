@@ -78,7 +78,7 @@ pub async fn get_act(
             view_act.fee_waiver
         FROM view_act LEFT JOIN categories
             ON view_act.category_id = categories.id AND view_act.withdrawn_at IS NULL
-        WHERE view_act.id = ?
+        WHERE view_act.id = $1
         "#,
         query.act_id
     )

@@ -75,9 +75,12 @@ pub async fn edit_heat(
     let new_code = match body.new_code.as_deref() {
         Some(code) if !code.trim().is_empty() => heats::normalize_code(Some(code), &new_name),
         _ => {
-            sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, body.id)
-                .fetch_one(&mut *tx)
-                .await?
+            sqlx::query_scalar!(
+                r#"SELECT code as "code!" FROM heats WHERE id = $1"#,
+                body.id
+            )
+            .fetch_one(&mut *tx)
+            .await?
         }
     };
     heats::check_categories(&mut tx, body.id, &categories)
@@ -92,7 +95,7 @@ pub async fn edit_heat(
         info!("Renaming heat {name:?} to {new_name:?}");
     }
     sqlx::query!(
-        "UPDATE heats SET name = ?, code = ?, description = ?, threshold = coalesce(?, threshold) WHERE id = ?",
+        "UPDATE heats SET name = $1, code = $2, description = $3, threshold = coalesce($4, threshold) WHERE id = $5",
         new_name,
         new_code,
         description,

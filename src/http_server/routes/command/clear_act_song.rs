@@ -49,7 +49,7 @@ pub async fn clear_act_song(
         UPDATE acts
         SET song_file = NULL, song_file_name = NULL, song_file_normalized = NULL,
             normalization_status = NULL, song_checked = FALSE
-        WHERE id = ?
+        WHERE id = $1
         "#,
     )
     .bind(body.act_id)

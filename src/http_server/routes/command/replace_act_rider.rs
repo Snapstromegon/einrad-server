@@ -61,7 +61,7 @@ pub async fn replace_act_rider(
     let mut transaction = begin_write(&db).await?;
 
     let withdrawn = sqlx::query_scalar!(
-        r#"SELECT withdrawn_at IS NOT NULL as "withdrawn!: bool" FROM acts WHERE id = ?"#,
+        r#"SELECT withdrawn_at IS NOT NULL as "withdrawn!: bool" FROM acts WHERE id = $1"#,
         body.act_id,
     )
     .fetch_optional(&mut *transaction)
@@ -82,7 +82,7 @@ pub async fn replace_act_rider(
     }
 
     let participants = sqlx::query_scalar!(
-        r#"SELECT rider_id as "rider_id!: RiderId" FROM act_participants WHERE act_id = ?"#,
+        r#"SELECT rider_id as "rider_id!: RiderId" FROM act_participants WHERE act_id = $1"#,
         body.act_id,
     )
     .fetch_all(&mut *transaction)

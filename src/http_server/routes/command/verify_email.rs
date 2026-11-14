@@ -48,7 +48,7 @@ pub async fn verify_email(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT user_id as "user_id!: UserId" FROM mail_verification WHERE id = ?
+        SELECT user_id as "user_id!: UserId" FROM mail_verification WHERE id = $1
         "#,
         body.token
     )
@@ -57,13 +57,13 @@ pub async fn verify_email(
     info!("User ID: {:?}", user);
     if let Some(user) = user {
         sqlx::query!(
-            r#"UPDATE users SET email_verified = true WHERE id = ?"#,
+            r#"UPDATE users SET email_verified = true WHERE id = $1"#,
             user.user_id
         )
         .execute(&db)
         .await?;
         sqlx::query!(
-            r#"DELETE FROM mail_verification WHERE user_id = ?"#,
+            r#"DELETE FROM mail_verification WHERE user_id = $1"#,
             user.user_id
         )
         .execute(&db)

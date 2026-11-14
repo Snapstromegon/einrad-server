@@ -114,7 +114,7 @@ async fn start_next_timeplan_entry(
 
     for skipped in &upcoming[..next] {
         sqlx::query!(
-            "UPDATE timeplan SET started_at = ?, ended_at = ? WHERE id = ?",
+            "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
             now,
             now,
             skipped.id
@@ -125,7 +125,7 @@ async fn start_next_timeplan_entry(
 
     let next = upcoming[next];
     sqlx::query!(
-        "UPDATE timeplan SET started_at = ? WHERE id = ?",
+        "UPDATE timeplan SET started_at = $1 WHERE id = $2",
         now,
         next.id
     )
@@ -143,7 +143,7 @@ async fn start_next_timeplan_entry(
 }
 
 async fn end_entry(db: &mut sqlx::SqliteConnection, id: i64, now: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE timeplan SET ended_at = ? WHERE id = ?", now, id)
+    sqlx::query!("UPDATE timeplan SET ended_at = $1 WHERE id = $2", now, id)
         .execute(db)
         .await?;
     Ok(())

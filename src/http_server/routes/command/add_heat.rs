@@ -77,7 +77,7 @@ pub async fn add_heat(
     info!("Adding heat {name:?}");
     let id = HeatId::new();
     sqlx::query!(
-        "INSERT INTO heats (id, name, code, description, threshold) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO heats (id, name, code, description, threshold) VALUES ($1, $2, $3, $4, $5)",
         id,
         name,
         code,
@@ -97,7 +97,7 @@ pub async fn add_heat(
         .await?
         .is_some_and(heats::Discipline::is_group)
     {
-        sqlx::query!("UPDATE heats SET skip = TRUE WHERE id = ?", id)
+        sqlx::query!("UPDATE heats SET skip = TRUE WHERE id = $1", id)
             .execute(&mut *tx)
             .await?;
     }

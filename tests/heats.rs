@@ -34,7 +34,7 @@ async fn insert_category(
 ) {
     sqlx::query(
         "INSERT INTO categories (name, act_type, is_single_male, min_age, under_age) \
-         VALUES (?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(name)
     .bind(act_type)
@@ -58,7 +58,7 @@ async fn insert_old_final(
     categories: &[&str],
 ) {
     sqlx::query(
-        "INSERT INTO finals (name, act_type, is_single_male, \"order\") VALUES (?, ?, ?, ?)",
+        "INSERT INTO finals (name, act_type, is_single_male, \"order\") VALUES ($1, $2, $3, $4)",
     )
     .bind(name)
     .bind(act_type)
@@ -73,7 +73,7 @@ async fn insert_old_final(
             position += 1;
             sqlx::query(
                 "INSERT INTO final_slots (id, final_name, position, group_label, number) \
-                 VALUES (randomblob(16), ?, ?, ?, ?)",
+                 VALUES (randomblob(16), $1, $2, $3, $4)",
             )
             .bind(name)
             .bind(position)
@@ -85,7 +85,7 @@ async fn insert_old_final(
         }
     }
     for category in categories {
-        sqlx::query("INSERT INTO final_categories (final_name, category) VALUES (?, ?)")
+        sqlx::query("INSERT INTO final_categories (final_name, category) VALUES ($1, $2)")
             .bind(name)
             .bind(category)
             .execute(db)
@@ -133,7 +133,7 @@ async fn slot_heats(db: &SqlitePool, final_name: &str) -> Vec<String> {
         "SELECT heats.name FROM final_slots \
          JOIN finals ON finals.id = final_slots.final_id \
          JOIN heats ON heats.id = final_slots.heat_id \
-         WHERE finals.name = ? ORDER BY position",
+         WHERE finals.name = $1 ORDER BY position",
     )
     .bind(final_name)
     .fetch_all(db)

@@ -49,7 +49,7 @@ pub async fn rename_club(
     if auth.can(Permission::ManageRegistrations) {
         sqlx::query!(
             r#"
-            UPDATE clubs SET name = ? WHERE id = ?
+            UPDATE clubs SET name = $1 WHERE id = $2
             "#,
             body.name,
             body.club_id,
@@ -57,7 +57,7 @@ pub async fn rename_club(
     } else {
         sqlx::query!(
             r#"
-            UPDATE clubs SET name = ? WHERE id = ? AND owner_id = ?
+            UPDATE clubs SET name = $1 WHERE id = $2 AND owner_id = $3
             "#,
             body.name,
             body.club_id,

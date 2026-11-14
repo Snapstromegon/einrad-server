@@ -47,7 +47,7 @@ pub async fn delete_booking(
         .await?
         .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
     info!("Deleting booking {id}");
-    sqlx::query!("DELETE FROM bookings WHERE id = ?", id)
+    sqlx::query!("DELETE FROM bookings WHERE id = $1", id)
         .execute(&mut *tx)
         .await?;
     bookings::log_change(

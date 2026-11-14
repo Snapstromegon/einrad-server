@@ -118,7 +118,7 @@ async fn check_heat(
         r#"
         SELECT heats.name as "heat!", categories.name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories JOIN heats ON heats.id = categories.heat_id
-        WHERE categories.id = ?
+        WHERE categories.id = $1
         "#,
         body.category_id
     )

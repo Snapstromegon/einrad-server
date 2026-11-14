@@ -89,7 +89,7 @@ pub async fn get_club(
             COALESCE(clubs.responsible_name, users.name) as "responsible_name?: String",
             COALESCE(clubs.responsible_email, users.email) as "responsible_email?: String"
         FROM clubs LEFT JOIN users ON users.id = clubs.owner_id
-        WHERE clubs.id = ?
+        WHERE clubs.id = $1
         "#,
             club_id
         )

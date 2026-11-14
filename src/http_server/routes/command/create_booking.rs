@@ -44,7 +44,7 @@ pub async fn create_booking(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
     if let Some(club_id) = input.club_id
-        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = ?", club_id)
+        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = $1", club_id)
             .fetch_optional(&mut *tx)
             .await?
             .is_none()
@@ -57,7 +57,7 @@ pub async fn create_booking(
         input.amount, input.club_id
     );
     sqlx::query!(
-        "INSERT INTO bookings (id, amount, date, note, club_id, ignored) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO bookings (id, amount, date, note, club_id, ignored) VALUES ($1, $2, $3, $4, $5, $6)",
         id,
         input.amount,
         input.date,

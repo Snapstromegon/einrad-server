@@ -79,7 +79,7 @@ pub async fn set_final_placement(
             final_slots.started_at IS NOT NULL as "started!: bool"
         FROM final_slots
         JOIN heats ON heats.id = final_slots.heat_id
-        WHERE final_id = ?
+        WHERE final_id = $1
         "#,
         body.id
     )
@@ -118,7 +118,7 @@ pub async fn set_final_placement(
             // Withdrawn acts don't start: they count as without category.
             let category = sqlx::query_scalar!(
                 r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
-                FROM view_act WHERE id = ?"#,
+                FROM view_act WHERE id = $1"#,
                 act_id
             )
             .fetch_optional(&mut *tx)
@@ -165,13 +165,16 @@ pub async fn set_final_placement(
     // Empty the changed slots first, so acts can swap slots without
     // clashing in the unique index.
     for (slot_id, _) in &changed {
-        sqlx::query!("UPDATE final_slots SET act_id = NULL WHERE id = ?", slot_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "UPDATE final_slots SET act_id = NULL WHERE id = $1",
+            slot_id
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     for (slot_id, act_id) in &changed {
         sqlx::query!(
-            "UPDATE final_slots SET act_id = ? WHERE id = ?",
+            "UPDATE final_slots SET act_id = $1 WHERE id = $2",
             act_id,
             slot_id
         )

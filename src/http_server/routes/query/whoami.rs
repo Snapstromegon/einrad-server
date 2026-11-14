@@ -28,7 +28,7 @@ pub async fn whoami(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT id as "id!: UserId", name, email, email_verified, club_id as "club_id: ClubId" FROM users WHERE id = ?
+        SELECT id as "id!: UserId", name, email, email_verified, club_id as "club_id: ClubId" FROM users WHERE id = $1
         "#,
         auth.user_id
     )

@@ -208,7 +208,7 @@ pub fn permissions_of(roles: &[Role]) -> Vec<Permission> {
 /// A user's roles, sorted.
 pub async fn roles_of(db: &SqlitePool, user_id: UserId) -> sqlx::Result<Vec<Role>> {
     let mut roles = sqlx::query_scalar!(
-        r#"SELECT role as "role: Role" FROM user_roles WHERE user_id = ?"#,
+        r#"SELECT role as "role: Role" FROM user_roles WHERE user_id = $1"#,
         user_id
     )
     .fetch_all(db)

@@ -46,7 +46,7 @@ pub async fn login(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT id as "id!: UserId", password FROM users WHERE email = ?
+        SELECT id as "id!: UserId", password FROM users WHERE email = $1
         "#,
         body.email,
     )

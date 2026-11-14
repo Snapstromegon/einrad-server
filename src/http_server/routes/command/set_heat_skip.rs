@@ -56,7 +56,7 @@ pub async fn set_heat_skip(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
     let heat = sqlx::query!(
-        r#"SELECT name as "name!", skip FROM heats WHERE id = ?"#,
+        r#"SELECT name as "name!", skip FROM heats WHERE id = $1"#,
         body.id
     )
     .fetch_optional(&mut *tx)
@@ -76,9 +76,13 @@ pub async fn set_heat_skip(
         "Setting the Vorlauf of heat {:?} skipped: {}",
         heat.name, body.skip
     );
-    sqlx::query!("UPDATE heats SET skip = ? WHERE id = ?", body.skip, body.id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "UPDATE heats SET skip = $1 WHERE id = $2",
+        body.skip,
+        body.id
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     // The next act may be another one now.

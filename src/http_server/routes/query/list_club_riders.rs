@@ -83,7 +83,7 @@ pub async fn list_club_riders(
             ) as "waived_count!: i64",
             rider.fee_waiver IS NOT NULL as "fee_waived!: bool"
         FROM rider
-        WHERE rider.club_id = ?
+        WHERE rider.club_id = $1
         "#,
         club_id
     )

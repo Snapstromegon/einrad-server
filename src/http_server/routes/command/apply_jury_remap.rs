@@ -90,7 +90,7 @@ pub async fn apply_jury_remap(
             r#"
             SELECT judge.id as "id!: JudgeId" FROM judge
             JOIN clubs ON clubs.id = judge.club_id
-            WHERE clubs.name = ? AND judge.firstname = ? AND judge.lastname = ?
+            WHERE clubs.name = $1 AND judge.firstname = $2 AND judge.lastname = $3
             "#,
             registration.club,
             registration.firstname,
@@ -107,7 +107,7 @@ pub async fn apply_jury_remap(
         };
         let unit = match jury::parse_unit_label(label) {
             Some((kind, name)) => sqlx::query!(
-                r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+                r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = $1 AND name = $2"#,
                 kind,
                 name
             )
@@ -133,7 +133,7 @@ pub async fn apply_jury_remap(
         let (heat_id, final_id) = jury::unit_columns(kind, unit);
         sqlx::query!(
             r#"
-            INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)
+            INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES ($1, $2, $3, $4)
             ON CONFLICT DO NOTHING
             "#,
             judge,

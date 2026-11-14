@@ -278,7 +278,7 @@ async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
     let err = seed::startup_competition(&db).await.unwrap_err();
     assert!(err.contains("setup mode"), "{err}");
 
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'admin@cup.test', true, 'Admin', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'admin@cup.test', true, 'Admin', 'x')")
         .bind(uuid::Uuid::now_v7())
         .execute(&db)
         .await

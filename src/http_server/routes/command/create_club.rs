@@ -49,8 +49,8 @@ pub async fn create_club(
     let club_id = ClubId::new();
     sqlx::query!(
         r#"
-        INSERT INTO clubs (id, name, owner_id) VALUES (?, ?, ?);
-        UPDATE users SET club_id = ? WHERE id = ?;
+        INSERT INTO clubs (id, name, owner_id) VALUES ($1, $2, $3);
+        UPDATE users SET club_id = $4 WHERE id = $5;
         "#,
         club_id,
         body.name,

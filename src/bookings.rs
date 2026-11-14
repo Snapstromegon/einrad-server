@@ -54,7 +54,7 @@ impl Booking {
                 clubs.name as "club_name?: String",
                 bookings.ignored
             FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id
-            WHERE bookings.id = ?
+            WHERE bookings.id = $1
             "#,
             id
         )
@@ -197,7 +197,7 @@ pub async fn log_change(
     sqlx::query!(
         r#"
         INSERT INTO booking_log (booking_id, at, user_id, user_name, roles, action, before, after)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
         id,
         at,
@@ -226,7 +226,7 @@ pub async fn log_waiver(
     sqlx::query!(
         r#"
         INSERT INTO booking_log (at, user_id, user_name, roles, action, waiver)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
         "#,
         at,
         actor.user_id,
@@ -370,7 +370,7 @@ where
         r#"
         SELECT id as "id!: BookingId", amount, date as "date: Date", note
         FROM bookings
-        WHERE club_id = ?
+        WHERE club_id = $1
         ORDER BY date, rowid
         "#,
         club_id

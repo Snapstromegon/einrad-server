@@ -94,7 +94,7 @@ pub async fn startlist(
             view_act.category
         FROM view_act JOIN categories ON view_act.category_id = categories.id
         WHERE view_act.withdrawn_at IS NULL
-        ORDER BY categories."order", view_act."order" ASC
+        ORDER BY categories."order" NULLS FIRST, view_act."order" ASC NULLS FIRST
         "#
     )
     .fetch_all(&db)

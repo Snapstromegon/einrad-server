@@ -71,7 +71,7 @@ pub async fn register(
     sqlx::query!(
         r#"
         INSERT INTO users (id, name, email, email_verified, password)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
         user_id,
         body.name,
@@ -88,7 +88,7 @@ pub async fn register(
     sqlx::query!(
         r#"
         INSERT INTO mail_verification (id, user_id, created_at)
-        VALUES (?, ?, ?)
+        VALUES ($1, $2, $3)
         "#,
         email_token,
         user_id,
@@ -129,7 +129,7 @@ pub async fn register(
 async fn check_email_exists(db: &SqlitePool, email: &str) -> Result<(), HttpError> {
     let user = sqlx::query!(
         r#"
-        SELECT id FROM users WHERE email = ?
+        SELECT id FROM users WHERE email = $1
         "#,
         email
     )

@@ -202,7 +202,7 @@ pub async fn replace_slots(
         r#"
         SELECT heat_id as "heat_id!: HeatId", number, act_id as "act_id!: ActId"
         FROM final_slots
-        WHERE final_id = ? AND act_id IS NOT NULL
+        WHERE final_id = $1 AND act_id IS NOT NULL
         "#,
         final_id
     )
@@ -211,7 +211,7 @@ pub async fn replace_slots(
     .into_iter()
     .map(|row| ((row.heat_id, row.number), row.act_id))
     .collect();
-    sqlx::query!("DELETE FROM final_slots WHERE final_id = ?", final_id)
+    sqlx::query!("DELETE FROM final_slots WHERE final_id = $1", final_id)
         .execute(&mut *conn)
         .await?;
     let mut position = 0_i64;
@@ -223,7 +223,7 @@ pub async fn replace_slots(
             sqlx::query!(
                 r#"
                 INSERT INTO final_slots (id, final_id, position, heat_id, number, act_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
                 id,
                 final_id,
@@ -269,7 +269,7 @@ pub async fn check_heats(
             r#"
             SELECT finals.name as "name!" FROM final_slots
             JOIN finals ON finals.id = final_slots.final_id
-            WHERE final_slots.heat_id = ? AND final_slots.final_id != ? LIMIT 1
+            WHERE final_slots.heat_id = $1 AND final_slots.final_id != $2 LIMIT 1
             "#,
             group.heat_id,
             final_id
@@ -321,7 +321,7 @@ pub async fn name_of(
     final_id: FinalId,
 ) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar!(
-        r#"SELECT name as "name!" FROM finals WHERE id = ?"#,
+        r#"SELECT name as "name!" FROM finals WHERE id = $1"#,
         final_id
     )
     .fetch_optional(conn)
@@ -344,7 +344,7 @@ pub async fn check_plannable(
     let planned = sqlx::query_scalar!(
         r#"
         SELECT EXISTS (
-            SELECT 1 FROM timeplan WHERE final_id = ? AND id IS NOT ?
+            SELECT 1 FROM timeplan WHERE final_id = $1 AND id IS NOT $2
         ) as "planned!: bool"
         "#,
         final_id,

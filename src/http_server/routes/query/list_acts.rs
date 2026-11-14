@@ -80,7 +80,7 @@ pub async fn list_acts(
             view_act.fee_waiver
         FROM view_act LEFT JOIN categories
             ON view_act.category_id = categories.id AND view_act.withdrawn_at IS NULL
-        ORDER BY categories."order" IS NULL, categories."order", view_act."order" ASC
+        ORDER BY categories."order" IS NULL, categories."order", view_act."order" ASC NULLS FIRST
         "#
     )
     .fetch_all(&db)

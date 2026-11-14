@@ -122,7 +122,7 @@ pub async fn list_finals(
         SELECT DISTINCT final_slots.final_id as "final_id!: FinalId", categories.name as "category!", categories."order"
         FROM final_slots
         JOIN categories ON categories.heat_id = final_slots.heat_id
-        ORDER BY final_slots.final_id, categories."order", categories.name
+        ORDER BY final_slots.final_id, categories."order" NULLS FIRST, categories.name
         "#
     )
     .fetch_all(&mut *tx)

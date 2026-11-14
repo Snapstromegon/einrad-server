@@ -247,7 +247,7 @@ pub async fn set_block_order(
             |input| matches!(input, BlockSlotInput::Break { id: Some(kept), .. } if kept == *id),
         )
     }) {
-        sqlx::query!("DELETE FROM timeplan_slots WHERE id = ?", id)
+        sqlx::query!("DELETE FROM timeplan_slots WHERE id = $1", id)
             .execute(&mut *tx)
             .await?;
     }
@@ -257,7 +257,7 @@ pub async fn set_block_order(
         match slot {
             Slot::Act(act) => {
                 sqlx::query!(
-                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND act_id = ?",
+                    "DELETE FROM timeplan_slots WHERE timeplan_id = $1 AND act_id = $2",
                     block.id,
                     act.id
                 )
@@ -266,7 +266,7 @@ pub async fn set_block_order(
             }
             Slot::Finalist(finalist) => {
                 sqlx::query!(
-                    "DELETE FROM timeplan_slots WHERE timeplan_id = ? AND heat_id = ? AND number = ?",
+                    "DELETE FROM timeplan_slots WHERE timeplan_id = $1 AND heat_id = $2 AND number = $3",
                     block.id,
                     finalist.heat_id,
                     finalist.number
@@ -282,11 +282,11 @@ pub async fn set_block_order(
         match input {
             BlockSlotInput::Act { act_id } => {
                 // From any other block.
-                sqlx::query!("DELETE FROM timeplan_slots WHERE act_id = ?", act_id)
+                sqlx::query!("DELETE FROM timeplan_slots WHERE act_id = $1", act_id)
                     .execute(&mut *tx)
                     .await?;
                 sqlx::query!(
-                    "INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES (?, ?, ?)",
+                    "INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ($1, $2, $3)",
                     block.id,
                     position,
                     act_id
@@ -296,7 +296,7 @@ pub async fn set_block_order(
             }
             BlockSlotInput::Finalist { heat_id, number } => {
                 sqlx::query!(
-                    "INSERT INTO timeplan_slots (timeplan_id, position, heat_id, number) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO timeplan_slots (timeplan_id, position, heat_id, number) VALUES ($1, $2, $3, $4)",
                     block.id,
                     position,
                     heat_id,
@@ -312,7 +312,7 @@ pub async fn set_block_order(
             } => {
                 let label = label.trim();
                 sqlx::query!(
-                    "UPDATE timeplan_slots SET position = ?, label = ?, duration_seconds = ? WHERE id = ?",
+                    "UPDATE timeplan_slots SET position = $1, label = $2, duration_seconds = $3 WHERE id = $4",
                     position,
                     label,
                     duration_seconds,
@@ -328,7 +328,7 @@ pub async fn set_block_order(
             } => {
                 let label = label.trim();
                 sqlx::query!(
-                    "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES ($1, $2, $3, $4)",
                     block.id,
                     position,
                     label,

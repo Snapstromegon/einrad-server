@@ -105,7 +105,7 @@ async fn check_pool(pool: &SqlitePool, migrator: &Migrator) -> Result<BackupChec
 
     let has_table = |name: &'static str| async move {
         sqlx::query_scalar::<_, String>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = $1",
         )
         .bind(name)
         .fetch_optional(pool)
@@ -441,14 +441,14 @@ mod tests {
 
     async fn add_admin(pool: &SqlitePool, name: &str) {
         let id = UserId::new();
-        sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, 'x')")
+        sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, $2, true, $3, 'x')")
             .bind(id)
             .bind(format!("{id}@example.org"))
             .bind(name)
             .execute(pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO user_roles (user_id, role) VALUES (?, 'admin')")
+        sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')")
             .bind(id)
             .execute(pool)
             .await

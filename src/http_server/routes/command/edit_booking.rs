@@ -53,7 +53,7 @@ pub async fn edit_booking(
         .await?
         .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
     if let Some(club_id) = input.club_id
-        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = ?", club_id)
+        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = $1", club_id)
             .fetch_optional(&mut *tx)
             .await?
             .is_none()
@@ -62,7 +62,7 @@ pub async fn edit_booking(
     }
     info!("Editing booking {id}");
     sqlx::query!(
-        "UPDATE bookings SET amount = ?, date = ?, note = ?, club_id = ?, ignored = ? WHERE id = ?",
+        "UPDATE bookings SET amount = $1, date = $2, note = $3, club_id = $4, ignored = $5 WHERE id = $6",
         input.amount,
         input.date,
         input.note,

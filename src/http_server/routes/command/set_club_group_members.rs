@@ -82,7 +82,7 @@ pub async fn set_club_group_members(
             ));
         }
         let club_id = sqlx::query_scalar!(
-            r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = ?"#,
+            r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = $1"#,
             member.rider_id
         )
         .fetch_optional(&mut *transaction)
@@ -104,7 +104,7 @@ pub async fn set_club_group_members(
     sqlx::query!(
         r#"
         DELETE FROM act_participants
-        WHERE act_id = ? AND rider_id IN (SELECT id FROM rider WHERE club_id = ?)
+        WHERE act_id = $1 AND rider_id IN (SELECT id FROM rider WHERE club_id = $2)
         "#,
         group.id,
         body.club_id,
@@ -116,7 +116,7 @@ pub async fn set_club_group_members(
         sqlx::query!(
             r#"
             INSERT INTO act_participants (act_id, rider_id, is_replacement)
-            VALUES (?, ?, ?)
+            VALUES ($1, $2, $3)
             "#,
             group.id,
             member.rider_id,
