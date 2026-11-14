@@ -1,6 +1,5 @@
 //! The `competition_image` rows. Backend internals; the application goes
-//! through [`db_core::MediaRepo`]. The functions are `pub` only for the seed,
-//! demo and export code that still holds a connection (#238, step D8b).
+//! through [`db_core::MediaRepo`].
 
 use db_core::media::{Image, Logo, Slot, StoredLogo};
 use sqlx::SqliteConnection;
@@ -8,7 +7,7 @@ use time::OffsetDateTime;
 
 /// All images of the current competition: logo, break image, then the
 /// sponsors in order.
-pub async fn list(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Vec<Image>> {
+pub(crate) async fn list(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Vec<Image>> {
     let rows = sqlx::query!(
         r#"
         SELECT
@@ -43,7 +42,7 @@ pub async fn list(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Vec<Image>>
 
 /// The id and last change of the image in `slot` if it has bytes, so the
 /// ETag reads no image.
-pub async fn meta(
+pub(crate) async fn meta(
     db: impl sqlx::SqliteExecutor<'_>,
     slot: Slot,
 ) -> sqlx::Result<Option<(i64, OffsetDateTime)>> {
@@ -67,7 +66,10 @@ pub async fn meta(
 }
 
 /// The bytes of the image row `id`; `None` without any.
-pub async fn load(db: impl sqlx::SqliteExecutor<'_>, id: i64) -> sqlx::Result<Option<StoredLogo>> {
+pub(crate) async fn load(
+    db: impl sqlx::SqliteExecutor<'_>,
+    id: i64,
+) -> sqlx::Result<Option<StoredLogo>> {
     let row = sqlx::query!(
         r#"
         SELECT mime_type, data, updated_at as "updated_at: OffsetDateTime"
@@ -89,7 +91,7 @@ pub async fn load(db: impl sqlx::SqliteExecutor<'_>, id: i64) -> sqlx::Result<Op
 
 /// The bytes of the logo or the break image of the current competition;
 /// `None` without any (a URL image that was never downloaded has none).
-pub async fn load_single(
+pub(crate) async fn load_single(
     db: &mut SqliteConnection,
     slot: Slot,
 ) -> sqlx::Result<Option<StoredLogo>> {
@@ -101,7 +103,7 @@ pub async fn load_single(
 
 /// Sets the image in `slot` to `logo`, an inline SVG or an upload: it no
 /// longer comes from a URL. `false` if a sponsor doesn't exist.
-pub async fn set_data(
+pub(crate) async fn set_data(
     db: impl sqlx::SqliteExecutor<'_>,
     competition_id: &str,
     slot: Slot,
@@ -156,7 +158,7 @@ pub async fn set_data(
 /// replaces them, so a typo in the URL costs nothing; its warning shows
 /// meanwhile. The same URL changes nothing. Nothing is downloaded here. `false` if
 /// a sponsor doesn't exist.
-pub async fn set_url(
+pub(crate) async fn set_url(
     conn: &mut SqliteConnection,
     competition_id: &str,
     slot: Slot,
@@ -214,7 +216,7 @@ pub async fn set_url(
 
 /// Removes the logo or break image (so its fallback applies again), or the
 /// sponsor.
-pub async fn remove(db: impl sqlx::SqliteExecutor<'_>, slot: Slot) -> sqlx::Result<()> {
+pub(crate) async fn remove(db: impl sqlx::SqliteExecutor<'_>, slot: Slot) -> sqlx::Result<()> {
     match slot {
         Slot::Sponsor(id) => {
             sqlx::query!(
@@ -236,7 +238,7 @@ pub async fn remove(db: impl sqlx::SqliteExecutor<'_>, slot: Slot) -> sqlx::Resu
 
 /// Adds a sponsor at the end of the list, without an image yet; returns its
 /// id.
-pub async fn add_sponsor(
+pub(crate) async fn add_sponsor(
     db: impl sqlx::SqliteExecutor<'_>,
     competition_id: &str,
     name: &str,
@@ -263,7 +265,7 @@ pub async fn add_sponsor(
 }
 
 /// Changes a sponsor's name and link; `false` if it doesn't exist.
-pub async fn update_sponsor(
+pub(crate) async fn update_sponsor(
     db: impl sqlx::SqliteExecutor<'_>,
     id: i64,
     name: &str,
@@ -281,7 +283,7 @@ pub async fn update_sponsor(
 }
 
 /// Moves a sponsor to `position` in the list (counted from 0).
-pub async fn set_position(
+pub(crate) async fn set_position(
     db: impl sqlx::SqliteExecutor<'_>,
     id: i64,
     position: i64,
@@ -302,7 +304,7 @@ pub async fn set_position(
 ///
 /// A good download keeps `updated_at`, so the ETag stays, if the bytes
 /// didn't change. A failed one keeps the last good copy.
-pub async fn store_fetched(
+pub(crate) async fn store_fetched(
     db: impl sqlx::SqliteExecutor<'_>,
     id: i64,
     url: &str,

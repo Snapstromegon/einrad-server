@@ -14,9 +14,7 @@ use std::{
 
 use axum_extra::extract::CookieJar;
 use db_core::DbHandle;
-use db_sqlite::SqliteRepo;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::{info, warn};
 use url::Url;
 
@@ -34,9 +32,9 @@ const TEST_MAIL_TIMEOUT: Duration = Duration::from_secs(20);
 /// What a pending setup works on: the database, the CLI/environment values
 /// (which are never written) and where the config file goes.
 pub struct SetupEnv {
-    pub db: SqlitePool,
-    /// The same database behind the repository traits.
+    /// The database behind the repository traits.
     pub repo: DbHandle,
+    sqlite: db_sqlite::SqliteRepo,
     pub cli: CliArgs,
     /// `--config`/`CONFIG`, default `./config.toml`.
     pub config_path: PathBuf,
@@ -44,14 +42,14 @@ pub struct SetupEnv {
 
 impl SetupEnv {
     #[must_use]
-    pub fn new(db: SqlitePool, cli: CliArgs) -> Self {
+    pub fn new(sqlite: db_sqlite::SqliteRepo, cli: CliArgs) -> Self {
         let config_path = cli
             .config
             .clone()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
         Self {
-            repo: SqliteRepo::from_pool(db.clone()).into_handle(),
-            db,
+            repo: sqlite.clone().into_handle(),
+            sqlite,
             cli,
             config_path,
         }
@@ -801,11 +799,11 @@ async fn hand_over(
     for warning in &settings.warnings {
         warn!("{}", clean(warning));
     }
-    let report = seed::apply_settings(&env.db, &settings)
+    let report = seed::apply_settings(env.repo.as_ref(), &settings)
         .await
         .map_err(|e| clean(&e))?;
     let normal = startup::build(
-        env.db.clone(),
+        env.sqlite.clone(),
         settings,
         &report,
         &super::config_dir(Some(&env.config_path)),

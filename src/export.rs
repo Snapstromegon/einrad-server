@@ -12,19 +12,20 @@
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
 //! progress, finals placements and the jury plan.
 
-use crate::ids::{FinalId, HeatId};
-use time::OffsetDateTime;
+use db_core::{
+    Db,
+    seed::{CompetitionDump, DumpImage},
+};
 
 use crate::{
-    act_type::ActType,
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
         SponsorConfig, TimeplanEntryConfig,
     },
     finals,
-    images::{Image, ImageUrl},
-    jury::{JuryUnitKind, UnitSettings},
-    logo::{Format, StoredLogoExt, SvgLogo},
+    images::ImageUrl,
+    jury::JuryUnitKind,
+    logo::{StoredLogoExt, SvgLogo},
     timeplan::EntryKind,
 };
 
@@ -69,30 +70,43 @@ impl Export {
 }
 
 /// The current competition as a competition file; `None` without one.
-pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Export>> {
-    let Some(competition) = db_sqlite::competition::current(&mut *conn).await? else {
-        return Ok(None);
-    };
-    let images = db_sqlite::images::list(&mut *conn).await?;
+///
+/// # Errors
+/// If the database can't be read.
+pub async fn export(repo: &dyn Db) -> Result<Option<Export>, db_core::DbError> {
+    Ok(repo.dump_competition().await?.map(from_dump))
+}
+
+/// The competition file for the rows of the database.
+#[must_use]
+pub fn from_dump(dump: CompetitionDump) -> Export {
+    let CompetitionDump {
+        competition,
+        images,
+        categories,
+        heats,
+        finals: dump_finals,
+        timeplan,
+    } = dump;
     let mut left_out = Vec::new();
     let (mut logo_svg, mut logo_url) = (Branding::Keep, Branding::Keep);
     let (mut break_image_svg, mut break_image_url) = (Branding::Keep, Branding::Keep);
     let mut sponsors = Vec::new();
     for image in &images {
-        match image.kind.as_str() {
+        match image.image.kind.as_str() {
             "logo" => {
-                (logo_svg, logo_url) = source_of(conn, image, "the logo", &mut left_out).await?;
+                (logo_svg, logo_url) = source_of(image, "the logo", &mut left_out);
             }
             "break" => {
                 (break_image_svg, break_image_url) =
-                    source_of(conn, image, "the break image", &mut left_out).await?;
+                    source_of(image, "the break image", &mut left_out);
             }
             _ => {
-                let label = format!("the sponsor {}", image.name);
-                let (svg, url) = source_of(conn, image, &label, &mut left_out).await?;
+                let label = format!("the sponsor {}", image.image.name);
+                let (svg, url) = source_of(image, &label, &mut left_out);
                 sponsors.push(SponsorConfig {
-                    name: image.name.clone(),
-                    link: image.link.clone(),
+                    name: image.image.name.clone(),
+                    link: image.image.link.clone(),
                     svg: svg.value().cloned(),
                     url: url.value().cloned(),
                 });
@@ -100,170 +114,92 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
         }
     }
 
-    let categories: Vec<CategoryConfig> = sqlx::query!(
-        r#"
-        SELECT
-            name as "name!", description, act_type as "act_type: ActType",
-            is_single_male, min_age, under_age, einfahrzeit_seconds,
-            act_duration_seconds, judge_duration_seconds
-        FROM categories ORDER BY "order" NULLS FIRST, name
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(|row| CategoryConfig {
-        name: row.name,
-        description: row.description,
-        act_type: row.act_type,
-        single_male: row.is_single_male,
-        min_age: row.min_age,
-        under_age: row.under_age,
-        einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
-        act_duration_minutes: minutes(row.act_duration_seconds),
-        judge_duration_minutes: minutes(row.judge_duration_seconds),
-    })
-    .collect();
+    let categories: Vec<CategoryConfig> = categories
+        .into_iter()
+        .map(|row| CategoryConfig {
+            name: row.name,
+            description: row.description,
+            act_type: row.act_type,
+            single_male: row.single_male,
+            min_age: row.min_age,
+            under_age: row.under_age,
+            einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
+            act_duration_minutes: minutes(row.act_duration_seconds),
+            judge_duration_minutes: minutes(row.judge_duration_seconds),
+        })
+        .collect();
 
     let group_categories: Vec<String> = categories
         .iter()
         .filter(|c| c.act_type.is_group())
         .map(|c| c.name.clone())
         .collect();
-    // In the order of their first category, empty ones last, as the admin
-    // UI lists them.
-    let mut heats = Vec::new();
-    for row in sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: HeatId", name as "name!", code as "code!", description, threshold, skip,
-            jury_registrable as "jury_registrable: bool", jury_deployments,
-            jury_needed_technical, jury_needed_performance, jury_needed_dismounts
-        FROM heats
-        ORDER BY
-            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id) IS NULL,
-            (SELECT MIN("order") FROM categories WHERE heat_id = heats.id),
-            name
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    {
-        let categories = sqlx::query_scalar!(
-            r#"SELECT name as "name!" FROM categories WHERE heat_id = $1 ORDER BY "order" NULLS FIRST, name"#,
-            row.id
-        )
-        .fetch_all(&mut *conn)
-        .await?;
-        // Only a skip that differs from the default (groups skip, others
-        // don't) goes into the file.
-        let is_group = categories
-            .first()
-            .is_some_and(|first| group_categories.contains(first));
-        let jury = UnitSettings {
-            registrable: row.jury_registrable,
-            deployments: row.jury_deployments,
-            needed_technical: row.jury_needed_technical,
-            needed_performance: row.jury_needed_performance,
-            needed_dismounts: row.jury_needed_dismounts,
-        }
-        .for_file(JuryUnitKind::Heat);
-        heats.push(HeatConfig {
-            name: row.name,
-            code: Some(row.code),
-            description: row.description,
-            categories,
-            threshold: Some(row.threshold),
-            skip: (row.skip != is_group).then_some(row.skip),
-            jury_registrable: jury[0].map(|v| v != 0),
-            jury_deployments: jury[1],
-            jury_needed_technical: jury[2],
-            jury_needed_performance: jury[3],
-            jury_needed_dismounts: jury[4],
-        });
-    }
+    let heats: Vec<HeatConfig> = heats
+        .into_iter()
+        .map(|row| {
+            // Only a skip that differs from the default (groups skip, others
+            // don't) goes into the file.
+            let is_group = row
+                .categories
+                .first()
+                .is_some_and(|first| group_categories.contains(first));
+            let jury = row.jury.for_file(JuryUnitKind::Heat);
+            HeatConfig {
+                name: row.name,
+                code: Some(row.code),
+                description: row.description,
+                categories: row.categories,
+                threshold: Some(row.threshold),
+                skip: (row.skip != is_group).then_some(row.skip),
+                jury_registrable: jury[0].map(|v| v != 0),
+                jury_deployments: jury[1],
+                jury_needed_technical: jury[2],
+                jury_needed_performance: jury[3],
+                jury_needed_dismounts: jury[4],
+            }
+        })
+        .collect();
 
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: FinalId", name as "name!", code as "code!", description, act_type as "act_type: ActType",
-            is_single_male, einfahrzeit_seconds, act_duration_seconds,
-            judge_duration_seconds,
-            jury_registrable as "jury_registrable: bool", jury_deployments,
-            jury_needed_technical, jury_needed_performance, jury_needed_dismounts
-        FROM finals ORDER BY "order", name
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await?;
-    let mut final_configs = Vec::with_capacity(rows.len());
-    for row in rows {
-        let heats = sqlx::query_scalar!(
-            r#"
-            SELECT heats.code as "heat!" FROM final_slots
-            JOIN heats ON heats.id = final_slots.heat_id
-            WHERE final_slots.final_id = $1 ORDER BY position
-            "#,
-            row.id
-        )
-        .fetch_all(&mut *conn)
-        .await?;
-        let jury = UnitSettings {
-            registrable: row.jury_registrable,
-            deployments: row.jury_deployments,
-            needed_technical: row.jury_needed_technical,
-            needed_performance: row.jury_needed_performance,
-            needed_dismounts: row.jury_needed_dismounts,
-        }
-        .for_file(JuryUnitKind::Final);
-        final_configs.push(FinalConfig {
-            slots: finals::group_slots(heats.iter().map(String::as_str)),
-            name: row.name,
-            code: Some(row.code),
-            description: row.description,
-            act_type: row.act_type,
-            single_male: row.is_single_male,
-            einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
-            act_duration_minutes: minutes(row.act_duration_seconds),
-            judge_duration_minutes: minutes(row.judge_duration_seconds),
-            jury_registrable: jury[0].map(|v| v != 0),
-            jury_deployments: jury[1],
-            jury_needed_technical: jury[2],
-            jury_needed_performance: jury[3],
-            jury_needed_dismounts: jury[4],
-        });
-    }
+    let final_configs: Vec<FinalConfig> = dump_finals
+        .into_iter()
+        .map(|row| {
+            let jury = row.jury.for_file(JuryUnitKind::Final);
+            FinalConfig {
+                slots: finals::group_slots(row.slot_heats.iter().map(String::as_str)),
+                name: row.name,
+                code: Some(row.code),
+                description: row.description,
+                act_type: row.act_type,
+                single_male: row.single_male,
+                einfahrzeit_minutes: minutes(row.einfahrzeit_seconds),
+                act_duration_minutes: minutes(row.act_duration_seconds),
+                judge_duration_minutes: minutes(row.judge_duration_seconds),
+                jury_registrable: jury[0].map(|v| v != 0),
+                jury_deployments: jury[1],
+                jury_needed_technical: jury[2],
+                jury_needed_performance: jury[3],
+                jury_needed_dismounts: jury[4],
+            }
+        })
+        .collect();
 
-    let timeplan = sqlx::query!(
-        r#"
-        SELECT
-            kind as "kind: EntryKind",
-            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
-            (SELECT code FROM finals WHERE finals.id = timeplan.final_id) as final_name,
-            label, duration_seconds,
-            einfahrzeit_seconds, show_photos, internal,
-            earliest_start_time as "earliest_start_time: OffsetDateTime"
-        FROM timeplan ORDER BY position, id
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(|row| TimeplanEntryConfig {
-        // Only a labelled start block needs its kind spelled out.
-        kind: (row.kind == EntryKind::Acts && row.label.is_some()).then_some(EntryKind::Acts),
-        category: row.category,
-        final_name: row.final_name,
-        label: row.label,
-        duration_minutes: row.duration_seconds.map(minutes),
-        einfahrzeit_minutes: row.einfahrzeit_seconds.map(minutes),
-        show_photos: row.show_photos,
-        internal: row.internal,
-        earliest_start: row.earliest_start_time,
-    })
-    .collect();
+    let timeplan = timeplan
+        .into_iter()
+        .map(|row| TimeplanEntryConfig {
+            // Only a labelled start block needs its kind spelled out.
+            kind: (row.kind == EntryKind::Acts && row.label.is_some()).then_some(EntryKind::Acts),
+            category: row.category,
+            final_name: row.final_code,
+            label: row.label,
+            duration_minutes: row.duration_seconds.map(minutes),
+            einfahrzeit_minutes: row.einfahrzeit_seconds.map(minutes),
+            show_photos: row.show_photos,
+            internal: row.internal,
+            earliest_start: row.earliest_start,
+        })
+        .collect();
 
-    Ok(Some(Export {
+    Export {
         file: CompetitionFile {
             competition: CompetitionConfig {
                 logo_svg,
@@ -279,35 +215,31 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             timeplan,
         },
         left_out,
-    }))
+    }
 }
 
 /// How the file gives an image: its URL, or an inline SVG, or not at all (a
 /// raster image is noted in `left_out`).
-async fn source_of(
-    conn: &mut sqlx::SqliteConnection,
-    image: &Image,
+fn source_of(
+    dump: &DumpImage,
     label: &str,
     left_out: &mut Vec<String>,
-) -> sqlx::Result<(Branding<SvgLogo>, Branding<ImageUrl>)> {
+) -> (Branding<SvgLogo>, Branding<ImageUrl>) {
+    let image = &dump.image;
     if let Some(url) = &image.source_url {
-        return Ok((
+        return (
             Branding::Keep,
             url.parse().map_or(Branding::Keep, Branding::Set),
-        ));
+        );
     }
     if !image.has_data {
-        return Ok((Branding::Keep, Branding::Keep));
+        return (Branding::Keep, Branding::Keep);
     }
-    match db_sqlite::images::load(&mut *conn, image.id)
-        .await?
-        .and_then(|stored| stored.svg())
-    {
-        Some(svg) => Ok((Branding::Set(svg), Branding::Keep)),
+    match dump.stored.as_ref().and_then(|stored| stored.svg()) {
+        Some(svg) => (Branding::Set(svg), Branding::Keep),
         None => {
-            let format = image.format().map_or("raster", Format::name);
-            left_out.push(format!("{label} ({format})"));
-            Ok((Branding::Keep, Branding::Keep))
+            left_out.push(format!("{label} ({})", dump.format_name()));
+            (Branding::Keep, Branding::Keep)
         }
     }
 }

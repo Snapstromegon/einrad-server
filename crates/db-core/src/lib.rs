@@ -31,6 +31,7 @@ pub mod metrics;
 pub mod people;
 pub mod riders;
 pub mod roles;
+pub mod seed;
 pub mod settings;
 pub mod structure;
 pub mod timeplan;
@@ -51,6 +52,7 @@ pub use jury::JuryRepo;
 pub use media::MediaRepo;
 pub use metrics::MetricsRepo;
 pub use riders::RidersRepo;
+pub use seed::{ExportRepo, SeedRepo};
 pub use settings::SettingsRepo;
 pub use timeplan::TimeplanRepo;
 pub use users::UsersRepo;
@@ -81,6 +83,8 @@ pub trait Db:
     + CompetitionRepo
     + MediaRepo
     + MetricsRepo
+    + SeedRepo
+    + ExportRepo
     + Send
     + Sync
     + 'static

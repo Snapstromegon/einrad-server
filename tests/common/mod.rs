@@ -130,7 +130,14 @@ pub fn closed_registration() -> StatusOptions {
 pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
     let file = CompetitionFile::parse(include_str!("../fixtures/competition.toml")).unwrap();
     let data = TempDir::new();
-    seed::apply(db, Some(&file), false, &data.0).await.unwrap();
+    seed::apply(
+        &SqliteRepo::from_pool(db.clone()),
+        Some(&file),
+        false,
+        &data.0,
+    )
+    .await
+    .unwrap();
     set_registration_status(db, status).await;
     // Tests read the startlist unless they are about its publication.
     set_startlist_published(db, true).await;

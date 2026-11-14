@@ -3,12 +3,12 @@ use axum::{
     http::header,
     response::{IntoResponse, Response},
 };
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     export,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -25,14 +25,12 @@ use crate::{
         (status=404, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn export_competition(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Response, HttpError> {
-    let db = db.get().await.clone();
-    let mut conn = db.acquire().await?;
-    let export = export::export(&mut conn)
+    let export = export::export(repo.as_ref())
         .await?
         .ok_or(HttpError::NotFound)?;
     let content = export.content().map_err(HttpError::ErrorMessages)?;

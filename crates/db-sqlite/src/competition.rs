@@ -1,9 +1,6 @@
 //! The `competition` row: reading the current competition and writing its
 //! settings. Backend internals; the application goes through
 //! [`db_core::CompetitionRepo`] and [`db_core::SettingsRepo`].
-//!
-//! `current`, `upsert` and `write_colors` are `pub` only for the seed, demo
-//! and export code that still holds a connection (#238, step D8b).
 
 use db_core::{
     branding::Branding,
@@ -13,7 +10,9 @@ use db_core::{
 use time::{Date, OffsetDateTime};
 
 /// Loads the current competition: the one with the latest start date.
-pub async fn current(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Option<Competition>> {
+pub(crate) async fn current(
+    db: impl sqlx::SqliteExecutor<'_>,
+) -> sqlx::Result<Option<Competition>> {
     let row = sqlx::query!(
         r#"
         SELECT
@@ -110,7 +109,10 @@ pub async fn current(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<Option<C
 }
 
 /// Inserts the competition or updates it if it already exists.
-pub async fn upsert(db: impl sqlx::SqliteExecutor<'_>, config: &Competition) -> sqlx::Result<()> {
+pub(crate) async fn upsert(
+    db: impl sqlx::SqliteExecutor<'_>,
+    config: &Competition,
+) -> sqlx::Result<()> {
     let jury = config.jury.as_ref();
     let photos = config.photos.as_ref();
     sqlx::query!(
@@ -193,7 +195,7 @@ pub async fn upsert(db: impl sqlx::SqliteExecutor<'_>, config: &Competition) -> 
 
 /// Writes the competition's colors: each is kept, reset to the default or
 /// set (ADR 0009).
-pub async fn write_colors(
+pub(crate) async fn write_colors(
     db: impl sqlx::SqliteExecutor<'_>,
     competition_id: &str,
     primary: &Branding<HexColor>,

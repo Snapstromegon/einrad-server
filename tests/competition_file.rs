@@ -49,7 +49,7 @@ async fn start(db: &SqlitePool, dir: &TempDir, args: &[&str]) -> Result<Report, 
     let cli = CliArgs::try_parse_from(argv).map_err(|e| e.to_string())?;
     let file = ConfigFile::load(cli.config.as_deref())?;
     let settings = Settings::resolve(cli, file)?;
-    seed::apply_settings(db, &settings).await
+    seed::apply_settings(&db_sqlite::SqliteRepo::from_pool(db.clone()), &settings).await
 }
 
 fn write(dir: &TempDir, name: &str, content: &str) -> String {
@@ -188,8 +188,7 @@ async fn a_logo_comes_with_the_file_and_stays_unless_a_replace_sets_it() {
         .await
         .unwrap();
     let logo = |db: sqlx::SqlitePool| async move {
-        let mut conn = db.acquire().await.unwrap();
-        db_sqlite::images::load_single(&mut conn, Slot::Logo)
+        db_core::MediaRepo::load_slot_image(&db_sqlite::SqliteRepo::from_pool(db), Slot::Logo)
             .await
             .unwrap()
             .map(|logo| logo.data)
@@ -278,7 +277,9 @@ async fn photos_have_no_flags_or_environment_variables_anymore() {
 #[tokio::test]
 async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
     let db = in_memory_migrated().await;
-    let err = seed::startup_competition(&db).await.unwrap_err();
+    let err = seed::startup_competition(&db_sqlite::SqliteRepo::from_pool(db.clone()))
+        .await
+        .unwrap_err();
     assert!(err.contains("setup mode"), "{err}");
 
     sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'admin@cup.test', true, 'Admin', 'x')")
@@ -290,7 +291,12 @@ async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
         .execute(&db)
         .await
         .unwrap();
-    assert_eq!(seed::startup_competition(&db).await.unwrap(), None);
+    assert_eq!(
+        seed::startup_competition(&db_sqlite::SqliteRepo::from_pool(db.clone()))
+            .await
+            .unwrap(),
+        None
+    );
 
     let dir = TempDir::new();
     write(&dir, "config.toml", SYSTEM_CONFIG);
@@ -298,7 +304,12 @@ async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
     start(&db, &dir, &["--competition", &competition])
         .await
         .unwrap();
-    assert!(seed::startup_competition(&db).await.unwrap().is_some());
+    assert!(
+        seed::startup_competition(&db_sqlite::SqliteRepo::from_pool(db.clone()))
+            .await
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[tokio::test]

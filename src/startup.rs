@@ -4,11 +4,9 @@
 
 use std::sync::Arc;
 
-use eyre::eyre;
-use sqlx::SqlitePool;
-use tracing::{info, warn};
-
 use db_sqlite::SqliteRepo;
+use eyre::eyre;
+use tracing::{info, warn};
 
 use crate::{
     config::Settings,
@@ -19,7 +17,6 @@ use crate::{
     normalize,
     photos::Photos,
     player::PlayerHub,
-    reloadable_sqlite::ReloadableSqlite,
     seed::{self, Report},
     setup,
 };
@@ -39,7 +36,7 @@ pub struct NormalMode {
 /// # Errors
 /// If the mailer's SMTP server setting is invalid or a component can't start.
 pub async fn build(
-    db: SqlitePool,
+    sqlite: SqliteRepo,
     settings: Settings,
     report: &Report,
     config_dir: &std::path::Path,
@@ -54,7 +51,10 @@ pub async fn build(
     )
     .map_err(|e| eyre!("The SMTP server setting is invalid: {e}"))?;
 
-    match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
+    match seed::startup_competition(&sqlite)
+        .await
+        .map_err(|e| eyre!(e))?
+    {
         Some(competition) => info!(
             "Running competition {} ({})",
             competition.name, competition.id
@@ -65,6 +65,8 @@ pub async fn build(
         ),
     }
 
+    let db = sqlite.reloadable();
+    let repo = sqlite.into_handle();
     info!("Build JWT config");
     let jwt_algorithm = jsonwebtoken::Algorithm::HS512;
     let mut validator = jsonwebtoken::Validation::new(jwt_algorithm);
@@ -77,8 +79,6 @@ pub async fn build(
         settings.insecure_cookies,
     ));
 
-    let db = ReloadableSqlite::new(db, settings.database_url);
-    let repo = SqliteRepo::new(db.clone()).into_handle();
     // Songs uploaded while the server was down or before normalization existed.
     normalize::resume(&repo, &settings.data_path).await?;
 

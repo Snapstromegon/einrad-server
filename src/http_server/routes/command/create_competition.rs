@@ -1,4 +1,5 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use time::{Date, Month, OffsetDateTime};
 use tracing::instrument;
@@ -8,7 +9,6 @@ use crate::{
     competition::Features,
     config::{Branding, CompetitionConfig, CompetitionFile, PaymentConfig},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     seed,
 };
@@ -104,10 +104,10 @@ fn problems(body: &CreateCompetitionBody) -> Vec<String> {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, body))]
+#[instrument(skip(repo, body))]
 #[axum::debug_handler]
 pub async fn create_competition(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<CreateCompetitionBody>,
 ) -> Result<Json<CreateCompetitionResponse>, HttpError> {
@@ -152,8 +152,7 @@ pub async fn create_competition(
         finals: vec![],
         timeplan: vec![],
     };
-    let db = db.get().await.clone();
-    seed::create(&db, &file)
+    seed::create(repo.as_ref(), &file)
         .await
         .map_err(HttpError::ErrorMessages)?;
     Ok(Json(CreateCompetitionResponse { id }))

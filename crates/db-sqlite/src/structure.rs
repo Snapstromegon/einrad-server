@@ -216,8 +216,8 @@ pub(crate) async fn finals_of_heat(
 
 /// Sets the categories of a heat: the ones named join it, the others leave
 /// it. The caller checks them first (see [`check_heat_categories`]).
-/// *Transitional*: the competition import sets them in its own transaction.
-pub async fn set_heat_categories(
+/// The competition import sets them in its own transaction.
+pub(crate) async fn set_heat_categories(
     conn: &mut SqliteConnection,
     heat_id: HeatId,
     categories: &[String],
@@ -302,9 +302,9 @@ pub(crate) async fn check_final_free(
 /// Replaces the slots of a final with new ones for `groups`, in order. A
 /// slot keeps its placed act if the new slots have one with the same heat
 /// and number. The caller checks that none of the old ones has started and
-/// that the heats exist. *Transitional*: the competition import replaces
-/// them in its own transaction.
-pub async fn replace_final_slots(
+/// that the heats exist. The competition import replaces them in its own
+/// transaction.
+pub(crate) async fn replace_final_slots(
     conn: &mut SqliteConnection,
     final_id: FinalId,
     groups: &[SlotGroupInput],

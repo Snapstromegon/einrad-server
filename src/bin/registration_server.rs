@@ -70,6 +70,11 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
         path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
     }
 
+    let repo = SqliteRepo::new(reloadable_sqlite::ReloadableSqlite::new(
+        db,
+        bootstrap.database_url.clone(),
+    ));
+
     let mut report = None;
     if let Ok(settings) = &settings {
         for warning in &settings.warnings {
@@ -79,7 +84,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
             info!("Reading the competition file {}", path.display());
         }
         report = Some(
-            seed::apply_settings(&db, settings)
+            seed::apply_settings(&repo, settings)
                 .await
                 .map_err(|e| eyre!(e))?,
         );
@@ -89,21 +94,13 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     }
     if let Some(admin) = &admin {
         info!("Inserting admin user with email: {}", admin.email);
-        insert_admin_user(
-            &SqliteRepo::from_pool(db.clone()),
-            &admin.name,
-            &admin.email,
-            &admin.password,
-        )
-        .await?;
+        insert_admin_user(&repo, &admin.name, &admin.email, &admin.password).await?;
     }
 
-    if let Some(reason) =
-        setup::pending_reason(&settings, &db_sqlite::SqliteRepo::from_pool(db.clone())).await?
-    {
+    if let Some(reason) = setup::pending_reason(&settings, &repo).await? {
         let state = SetupState::new(
             bootstrap.configured_base_url,
-            SetupEnv::new(db.clone(), setup_cli),
+            SetupEnv::new(repo.clone(), setup_cli),
         );
         state.announce(&reason);
         let listener = tokio::net::TcpListener::bind(&bootstrap.http_address).await?;
@@ -114,7 +111,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
-    let mut normal = startup::build(db, settings, &report, &config_dir).await?;
+    let mut normal = startup::build(repo, settings, &report, &config_dir).await?;
 
     info!("Starting HTTP server");
     normal.server.start(shutdown_signal()).await?;

@@ -102,7 +102,8 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     }
 
     info!("Applying demo data from {}", args.demo.display());
-    demo.apply(&db, &data_path).await.map_err(|e| eyre!(e))?;
+    let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+    demo.apply(&repo, &data_path).await.map_err(|e| eyre!(e))?;
     db.close().await;
 
     info!(

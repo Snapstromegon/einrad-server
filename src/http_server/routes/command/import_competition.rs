@@ -11,7 +11,6 @@ use crate::{
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     image_fetch::ImageFetcher,
     photos::Photos,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     seed::{self, Applied, Dropped, RemapFile},
 };
@@ -58,10 +57,9 @@ pub struct RemapFileDownload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, repo, http_options, photos, body))]
+#[instrument(skip(repo, http_options, photos, body))]
 #[axum::debug_handler]
 pub async fn import_competition(
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(repo): Extension<DbHandle>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Extension(photos): Extension<Arc<Photos>>,
@@ -69,8 +67,7 @@ pub async fn import_competition(
     Json(body): Json<CompetitionFileBody>,
 ) -> Result<Json<ImportCompetitionResponse>, HttpError> {
     let file = parse(&body)?;
-    let db = db.get().await.clone();
-    let report = seed::apply(&db, Some(&file), true, &http_options.data_path)
+    let report = seed::apply(repo.as_ref(), Some(&file), true, &http_options.data_path)
         .await
         .map_err(HttpError::ErrorMessages)?;
     let (outcome, dropped) = match report.applied {

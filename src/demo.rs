@@ -11,8 +11,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::ids::{ActId, BookingId, ClubId, JuryUnitId, RiderId, UserId};
-use db_core::{GroupsRepo, JuryRepo, RidersRepo, riders::Pair};
+use crate::ids::{ActId, ClubId, JuryUnitId, RiderId, UserId};
+use db_core::{
+    Db, DbError,
+    riders::Pair,
+    seed::{SeedActDetails, SeedClub, SeedGroup, SeedRider, SeedUser},
+};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -271,8 +275,8 @@ impl DemoData {
 
     /// Writes the demo data into an empty, migrated database. Song files are
     /// stored in `data_path`.
-    pub async fn apply(&self, db: &sqlx::SqlitePool, data_path: &Path) -> Result<(), String> {
-        let db_error = |e: sqlx::Error| format!("Database error while seeding demo data: {e}");
+    pub async fn apply(&self, repo: &dyn Db, data_path: &Path) -> Result<(), String> {
+        let db_error = |e: DbError| format!("Database error while seeding demo data: {e}");
 
         let timeplan: Vec<TimeplanEntryConfig> = self
             .timeplan
@@ -296,34 +300,25 @@ impl DemoData {
             finals: self.finals.clone(),
             timeplan,
         };
-        seed::apply(db, Some(&file), false, data_path).await?;
+        seed::apply(repo, Some(&file), false, data_path).await?;
 
-        let timeplan_ids: Vec<i64> =
-            sqlx::query_scalar!(r#"SELECT id as "id!" FROM timeplan ORDER BY position, id"#)
-                .fetch_all(db)
-                .await
-                .map_err(db_error)?;
-        for (id, entry) in timeplan_ids.iter().zip(&self.timeplan) {
-            let started_at = entry.started_at.map(utc);
-            let ended_at = entry.ended_at.map(utc);
-            sqlx::query!(
-                "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
-                started_at,
-                ended_at,
-                id
-            )
-            .execute(db)
+        let progress: Vec<_> = self
+            .timeplan
+            .iter()
+            .map(|entry| (entry.started_at.map(utc), entry.ended_at.map(utc)))
+            .collect();
+        repo.seed_timeplan_progress(&progress)
             .await
             .map_err(db_error)?;
-        }
 
-        let users = self.insert_users(db).await?;
-        let riders = self.insert_clubs(db, &users).await?;
-        self.register_starts(db, &riders).await?;
-        self.insert_judges(db).await?;
+        let users = self.insert_users(repo).await?;
+        let riders = self.insert_clubs(repo, &users).await?;
+        self.register_starts(repo, &riders).await?;
+        self.insert_judges(repo).await?;
 
-        let group_ids = self.insert_groups(db, &riders).await?;
-        self.update_acts(db, &riders, &group_ids, data_path).await?;
+        let group_ids = self.insert_groups(repo, &riders).await?;
+        self.update_acts(repo, &riders, &group_ids, data_path)
+            .await?;
 
         info!(
             "Seeded {} users, {} clubs, {} riders and {} groups from the demo data",
@@ -335,8 +330,7 @@ impl DemoData {
         Ok(())
     }
 
-    async fn insert_users(&self, db: &sqlx::SqlitePool) -> Result<HashMap<String, Uuid>, String> {
-        let db_error = |e: sqlx::Error| format!("Database error while seeding users: {e}");
+    async fn insert_users(&self, repo: &dyn Db) -> Result<HashMap<String, UserId>, String> {
         let now = OffsetDateTime::now_utc();
         // Hashing is slow, so users sharing a password share its hash.
         let mut hashes: HashMap<&str, String> = HashMap::new();
@@ -347,53 +341,20 @@ impl DemoData {
                 .entry(password)
                 .or_insert_with(|| generate_hash(password))
                 .clone();
-            let id = Uuid::now_v7();
-            sqlx::query!(
-                r#"
-                INSERT INTO users (id, email, email_verified, name, password)
-                VALUES ($1, $2, $3, $4, $5)
-                "#,
+            let id = UserId::new();
+            repo.seed_user(&SeedUser {
                 id,
-                user.email,
-                user.email_verified,
-                user.name,
-                hash,
-            )
-            .execute(db)
+                email: user.email.clone(),
+                email_verified: user.email_verified,
+                name: user.name.clone(),
+                password_hash: hash,
+                roles: user.roles.clone(),
+                verification_token: user.verification_token,
+                password_reset_token: user.password_reset_token,
+                now,
+            })
             .await
             .map_err(|e| format!("Couldn't insert user {}: {e}", user.name))?;
-            for role in &user.roles {
-                sqlx::query!(
-                    "INSERT INTO user_roles (user_id, role) VALUES ($1, $2)",
-                    id,
-                    role
-                )
-                .execute(db)
-                .await
-                .map_err(|e| format!("Couldn't grant {} a role: {e}", user.name))?;
-            }
-            if let Some(token) = user.verification_token {
-                sqlx::query!(
-                    "INSERT INTO mail_verification (id, user_id, created_at) VALUES ($1, $2, $3)",
-                    token,
-                    id,
-                    now
-                )
-                .execute(db)
-                .await
-                .map_err(db_error)?;
-            }
-            if let Some(token) = user.password_reset_token {
-                sqlx::query!(
-                    "INSERT INTO password_resets (id, user_id, created_at) VALUES ($1, $2, $3)",
-                    token,
-                    id,
-                    now
-                )
-                .execute(db)
-                .await
-                .map_err(db_error)?;
-            }
             ids.insert(user.name.clone(), id);
         }
         Ok(ids)
@@ -403,8 +364,8 @@ impl DemoData {
     /// riders by full name.
     async fn insert_clubs(
         &self,
-        db: &sqlx::SqlitePool,
-        users: &HashMap<String, Uuid>,
+        repo: &dyn Db,
+        users: &HashMap<String, UserId>,
     ) -> Result<RiderIds<'_>, String> {
         let mut riders = RiderIds::default();
         for club in &self.clubs {
@@ -415,38 +376,16 @@ impl DemoData {
                 )
             })?;
             let club_id = ClubId::new();
-            sqlx::query!(
-                "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES ($1, $2, $3, $4)",
-                club_id,
-                club.name,
-                owner_id,
-                club.fee_waiver,
-            )
-            .execute(db)
+            repo.seed_club(&SeedClub {
+                id: club_id,
+                name: club.name.clone(),
+                owner: owner_id,
+                fee_waiver: club.fee_waiver.clone(),
+                payment: club.payment,
+                payment_date: OffsetDateTime::now_utc().date(),
+            })
             .await
             .map_err(|e| format!("Couldn't insert club {}: {e}", club.name))?;
-            if let Some(amount) = club.payment {
-                let booking_id = BookingId::new();
-                let date = OffsetDateTime::now_utc().date();
-                sqlx::query!(
-                    "INSERT INTO bookings (id, amount, date, note, club_id) VALUES ($1, $2, $3, 'Überweisung', $4)",
-                    booking_id,
-                    amount,
-                    date,
-                    club_id,
-                )
-                .execute(db)
-                .await
-                .map_err(|e| format!("Couldn't insert the payment of {}: {e}", club.name))?;
-            }
-            sqlx::query!(
-                "UPDATE users SET club_id = $1 WHERE id = $2",
-                club_id,
-                owner_id
-            )
-            .execute(db)
-            .await
-            .map_err(|e| format!("Couldn't assign club {}: {e}", club.name))?;
 
             for rider in &club.riders {
                 let name = rider.full_name();
@@ -468,23 +407,16 @@ impl DemoData {
                     Single::Female => Gender::Female,
                     Single::Male => Gender::Male,
                 });
-                sqlx::query!(
-                    r#"
-                    INSERT INTO rider (
-                        id, club_id, firstname, lastname, birthdate, gender, checked_in_at,
-                        fee_waiver
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    "#,
+                repo.seed_rider(&SeedRider {
                     id,
                     club_id,
-                    rider.firstname,
-                    rider.lastname,
+                    firstname: rider.firstname.clone(),
+                    lastname: rider.lastname.clone(),
                     birthdate,
                     gender,
                     checked_in_at,
-                    rider.fee_waiver,
-                )
-                .execute(db)
+                    fee_waiver: rider.fee_waiver.clone(),
+                })
                 .await
                 .map_err(|e| format!("Couldn't insert rider {name}: {e}"))?;
                 riders.insert(name, id, rider);
@@ -494,35 +426,35 @@ impl DemoData {
     }
 
     /// Registers the clubs' judges with the same rules as the API.
-    async fn insert_judges(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
-        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+    async fn insert_judges(&self, repo: &dyn Db) -> Result<(), String> {
         // The seed acts as the organizer, like the other registrations.
         let organizer = db_core::clubs::Actor {
             user_id: UserId::new(),
             club_id: None,
             manage_registrations: true,
         };
-        let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
-        let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = sqlx::query!(
-            r#"SELECT id as "id!: JuryUnitId", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
-        )
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|unit| (crate::jury::unit_label(unit.kind, &unit.name), (unit.kind, unit.id)))
-        .collect();
+        let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = repo
+            .jury_unit_rows()
+            .await
+            .map_err(|e| e.to_string())?
+            .units
+            .into_iter()
+            .map(|unit| {
+                (
+                    crate::jury::unit_label(unit.kind, &unit.name),
+                    (unit.kind, unit.id),
+                )
+            })
+            .collect();
         for club in &self.clubs {
             if club.judges.is_empty() {
                 continue;
             }
-            let club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
-                club.name
-            )
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(|e| e.to_string())?;
+            let club_id = repo
+                .find_club_by_name(&club.name)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Club {} doesn't exist.", club.name))?;
             for judge in &club.judges {
                 let name = format!("{} {}", judge.firstname, judge.lastname);
                 let registrations = judge
@@ -558,11 +490,7 @@ impl DemoData {
 
     /// Registers the singles, linked pairs and pair requests with the same
     /// rules as the API.
-    async fn register_starts(
-        &self,
-        db: &sqlx::SqlitePool,
-        riders: &RiderIds<'_>,
-    ) -> Result<(), String> {
+    async fn register_starts(&self, repo: &dyn Db, riders: &RiderIds<'_>) -> Result<(), String> {
         let mut partners: HashMap<&str, &str> = HashMap::new();
         for rider in self.clubs.iter().flat_map(|club| &club.riders) {
             let Some(partner) = rider.partner.as_deref() else {
@@ -594,7 +522,6 @@ impl DemoData {
         }
 
         // The seed acts as the organizer; each call is its own unit of work.
-        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
         let organizer = db_core::clubs::Actor {
             user_id: UserId::new(),
             club_id: None,
@@ -632,25 +559,22 @@ impl DemoData {
     /// the act ids by group name.
     async fn insert_groups(
         &self,
-        db: &sqlx::SqlitePool,
+        repo: &dyn Db,
         riders: &RiderIds<'_>,
     ) -> Result<HashMap<String, ActId>, String> {
-        let db_error = |e: sqlx::Error| format!("Database error while seeding groups: {e}");
-        let mut connection = db.acquire().await.map_err(db_error)?;
-        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+        let db_error = |e: DbError| format!("Database error while seeding groups: {e}");
         let mut ids = HashMap::new();
         for group in &self.groups {
             let referenced_by = format!("Group {}", group.name);
             let group_name = groups::normalize_group_name(&group.name)
                 .map_err(|e| format!("{referenced_by}: {e}"))?;
-            let owner_club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
-                group.owner
-            )
-            .fetch_optional(&mut *connection)
-            .await
-            .map_err(db_error)?
-            .ok_or_else(|| format!("{referenced_by}: owner {} is not a demo club.", group.owner))?;
+            let owner_club_id = repo
+                .find_club_by_name(&group.owner)
+                .await
+                .map_err(db_error)?
+                .ok_or_else(|| {
+                    format!("{referenced_by}: owner {} is not a demo club.", group.owner)
+                })?;
             if !group.act_type.is_group() {
                 return Err(format!(
                     "{referenced_by}: act_type must be group_small or group_large."
@@ -658,51 +582,32 @@ impl DemoData {
             }
 
             let act_id = ActId::new();
-            sqlx::query!(
-                r#"
-                INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
-                VALUES ($1, '', $2, $3, $4)
-                "#,
-                act_id,
-                group.act_type,
-                group_name,
-                owner_club_id,
-            )
-            .execute(&mut *connection)
-            .await
-            .map_err(|e| format!("Couldn't insert group {}: {e}", group.name))?;
-
             let mut seen = HashSet::new();
             let members = group
                 .members
                 .iter()
                 .map(|name| (name, false))
                 .chain(group.replacements.iter().map(|name| (name, true)));
+            let mut participants = Vec::new();
             for (name, is_replacement) in members {
                 let rider_id = riders.id(name, &referenced_by)?;
                 if !seen.insert(rider_id) {
                     return Err(format!("{referenced_by}: {name} is listed twice."));
                 }
-                sqlx::query!(
-                    r#"
-                    INSERT INTO act_participants (act_id, rider_id, is_replacement)
-                    VALUES ($1, $2, $3)
-                    "#,
-                    act_id,
-                    rider_id,
-                    is_replacement,
-                )
-                .execute(&mut *connection)
-                .await
-                .map_err(db_error)?;
+                participants.push((rider_id, is_replacement));
             }
+            repo.seed_group(&SeedGroup {
+                id: act_id,
+                owner_club_id,
+                act_type: group.act_type,
+                name: group_name,
+                participants,
+            })
+            .await
+            .map_err(|e| format!("Couldn't insert group {}: {e}", group.name))?;
             // The API only warns about such conflicts; demo groups must not
             // have any.
-            if let Some(conflict) = repo
-                .group_conflict(act_id)
-                .await
-                .map_err(|e| format!("Database error while seeding groups: {e}"))?
-            {
+            if let Some(conflict) = repo.group_conflict(act_id).await.map_err(db_error)? {
                 return Err(format!("{referenced_by}: {conflict}"));
             }
             ids.insert(group.name.clone(), act_id);
@@ -712,7 +617,7 @@ impl DemoData {
 
     async fn update_acts(
         &self,
-        db: &sqlx::SqlitePool,
+        repo: &dyn Db,
         riders: &RiderIds<'_>,
         group_ids: &HashMap<String, ActId>,
         data_path: &Path,
@@ -728,7 +633,7 @@ impl DemoData {
                 }
                 (None, Some(rider), Some(act_type)) => {
                     let rider_id = riders.id(rider, "[[acts]]")?;
-                    let starts = db_sqlite::SqliteRepo::from_pool(db.clone())
+                    let starts = repo
                         .rider_starts(rider_id)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -790,29 +695,18 @@ impl DemoData {
                 }
             };
 
-            let name = act.name.as_deref().unwrap_or("");
-            let started_at = act.started_at.map(utc);
-            let ended_at = act.ended_at.map(utc);
-            sqlx::query!(
-                r#"
-                UPDATE acts SET
-                    name = $1, description = $2, song_file = $3, song_file_name = $4,
-                    song_checked = $5, "order" = $6, started_at = $7, ended_at = $8,
-                    fee_waiver = $9
-                WHERE id = $10
-                "#,
-                name,
-                act.description,
+            repo.seed_act_details(&SeedActDetails {
+                id: act_id,
+                name: act.name.clone().unwrap_or_default(),
+                description: act.description.clone(),
                 song_file,
                 song_file_name,
-                act.song_checked,
-                act.order,
-                started_at,
-                ended_at,
-                act.fee_waiver,
-                act_id,
-            )
-            .execute(db)
+                song_checked: act.song_checked,
+                order: act.order,
+                started_at: act.started_at.map(utc),
+                ended_at: act.ended_at.map(utc),
+                fee_waiver: act.fee_waiver.clone(),
+            })
             .await
             .map_err(|e| format!("Couldn't update the {label}: {e}"))?;
         }
@@ -921,233 +815,6 @@ fn tone_wav(frequency: f64, seconds: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const DEMO: &str = include_str!("../demo-data.toml");
-
-    async fn count(db: &sqlx::SqlitePool, sql: &'static str) -> i64 {
-        sqlx::query_scalar(sql).fetch_one(db).await.unwrap()
-    }
-
-    fn data_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("cup-demo-test-{}", Uuid::new_v4()))
-    }
-
-    #[tokio::test]
-    async fn demo_file_fills_every_table() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = DemoData::parse(DEMO).unwrap();
-        let data_path = data_dir();
-        data.apply(&db, &data_path).await.unwrap();
-
-        for (table, sql) in [
-            ("competition", "SELECT COUNT(*) FROM competition"),
-            ("users", "SELECT COUNT(*) FROM users"),
-            (
-                "mail_verification",
-                "SELECT COUNT(*) FROM mail_verification",
-            ),
-            ("password_resets", "SELECT COUNT(*) FROM password_resets"),
-            ("clubs", "SELECT COUNT(*) FROM clubs"),
-            ("rider", "SELECT COUNT(*) FROM rider"),
-            ("acts", "SELECT COUNT(*) FROM acts"),
-            ("act_participants", "SELECT COUNT(*) FROM act_participants"),
-            ("categories", "SELECT COUNT(*) FROM categories"),
-            ("timeplan", "SELECT COUNT(*) FROM timeplan"),
-            ("finals", "SELECT COUNT(*) FROM finals"),
-            ("final_slots", "SELECT COUNT(*) FROM final_slots"),
-            (
-                "planned finals",
-                "SELECT COUNT(*) FROM timeplan WHERE final_id IS NOT NULL",
-            ),
-        ] {
-            assert!(count(&db, sql).await > 0, "{table} is empty");
-        }
-
-        // Every act lands in a category, so it shows up in the startlist,
-        // except for one group that doesn't have enough riders yet.
-        assert_eq!(
-            count(
-                &db,
-                "SELECT COUNT(*) FROM view_act WHERE category IS NULL AND NOT (group_name IS NOT NULL AND regular_count < 3)"
-            )
-            .await,
-            0
-        );
-        assert_eq!(
-            count(&db, "SELECT COUNT(*) FROM view_act WHERE category IS NULL").await,
-            1
-        );
-        for (what, sql) in [
-            (
-                "small group",
-                "SELECT COUNT(*) FROM view_act WHERE act_type = 'group_small' AND category IS NOT NULL",
-            ),
-            (
-                "large group",
-                "SELECT COUNT(*) FROM view_act WHERE act_type = 'group_large' AND category IS NOT NULL",
-            ),
-            (
-                "group across clubs",
-                "SELECT COUNT(*) FROM view_act WHERE group_name IS NOT NULL AND (SELECT COUNT(DISTINCT s.club_id) FROM act_participants p JOIN rider s ON s.id = p.rider_id WHERE p.act_id = view_act.id) > 1",
-            ),
-            (
-                "replacement rider",
-                "SELECT COUNT(*) FROM act_participants WHERE is_replacement",
-            ),
-            (
-                "checked-in rider",
-                "SELECT COUNT(*) FROM rider WHERE checked_in_at IS NOT NULL",
-            ),
-            (
-                "rider not checked in",
-                "SELECT COUNT(*) FROM rider WHERE checked_in_at IS NULL",
-            ),
-        ] {
-            assert!(count(&db, sql).await > 0, "no {what}");
-        }
-        // Pairs have two riders.
-        assert_eq!(
-            count(
-                &db,
-                "SELECT COUNT(*) FROM acts WHERE act_type = 'pair' AND (SELECT COUNT(*) FROM act_participants p WHERE p.act_id = acts.id) != 2"
-            )
-            .await,
-            0
-        );
-        for (what, sql) in [
-            (
-                "linked pair",
-                "SELECT COUNT(*) FROM acts WHERE act_type = 'pair'",
-            ),
-            ("pair request", "SELECT COUNT(*) FROM pair_requests"),
-        ] {
-            assert!(count(&db, sql).await > 0, "no {what}");
-        }
-        let songs: Vec<String> =
-            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file IS NOT NULL")
-                .fetch_all(&db)
-                .await
-                .unwrap();
-        assert!(!songs.is_empty());
-        for song in songs {
-            assert!(data_path.join(&song).exists(), "{song}");
-        }
-        std::fs::remove_dir_all(data_path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn demo_structure_has_no_loose_ends() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = DemoData::parse(DEMO).unwrap();
-        let data_path = data_dir();
-        data.apply(&db, &data_path).await.unwrap();
-
-        assert_eq!(
-            count(&db, "SELECT COUNT(*) FROM categories WHERE heat_id IS NULL").await,
-            0,
-            "a category has no heat"
-        );
-        assert_eq!(
-            count(
-                &db,
-                "SELECT COUNT(*) FROM heats WHERE NOT EXISTS (SELECT 1 FROM final_slots WHERE final_slots.heat_id = heats.id)"
-            )
-            .await,
-            0,
-            "a heat feeds no final"
-        );
-        assert_eq!(
-            count(
-                &db,
-                "SELECT COUNT(*) FROM finals WHERE NOT EXISTS (SELECT 1 FROM timeplan WHERE timeplan.final_id = finals.id)"
-            )
-            .await,
-            0,
-            "a final is not in the timeplan"
-        );
-        std::fs::remove_dir_all(data_path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn unknown_partner_is_rejected() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let mut data = DemoData::parse(DEMO).unwrap();
-        let rider = &mut data.clubs[0].riders[0];
-        rider.pair = true;
-        rider.partner = Some("Niemand Unbekannt".into());
-        rider.partner_name = None;
-        let err = data.apply(&db, &data_dir()).await.unwrap_err();
-        assert!(err.contains("Niemand Unbekannt"), "{err}");
-    }
-
-    #[tokio::test]
-    async fn demo_groups_follow_the_group_rules() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let mut data = DemoData::parse(DEMO).unwrap();
-        // Emma Wagner already rides in a small group.
-        let incomplete = data
-            .groups
-            .iter_mut()
-            .find(|group| group.members.len() < 3)
-            .unwrap();
-        incomplete.members.push("Emma Wagner".into());
-        let err = data.apply(&db, &data_dir()).await.unwrap_err();
-        assert!(err.contains("„Emma Wagner“"), "{err}");
-    }
-
-    #[tokio::test]
-    async fn fetched_songs_are_stored() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let mut data = DemoData::parse(DEMO).unwrap();
-        // No downloads in tests: one song is in the cache already, the
-        // other's download fails.
-        for act in &mut data.acts {
-            act.song_url = None;
-        }
-        let cache = data_dir();
-        std::fs::create_dir_all(&cache).unwrap();
-        std::fs::write(cache.join("cached.mp3"), b"cached song").unwrap();
-        let (cached, missing) = {
-            let mut with_song = data.acts.iter_mut().filter(|act| act.song.is_some());
-            let cached = with_song.next().unwrap();
-            cached.song_url = Some("https://example.org/songs/cached.mp3".into());
-            let missing = with_song.next().unwrap();
-            missing.song_url = Some(format!("file://{}", cache.join("not-there.mp3").display()));
-            (cached.song.clone(), missing.song.clone())
-        };
-
-        data.fetch_songs(&cache).unwrap();
-        let missing_act = data.acts.iter().find(|act| act.song == missing).unwrap();
-        assert_eq!(missing_act.song_source, None);
-        assert!(!cache.join("not-there.mp3").exists());
-        assert!(!cache.join("not-there.part").exists());
-
-        let data_path = data_dir();
-        data.apply(&db, &data_path).await.unwrap();
-        let file: String =
-            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file_name = $1")
-                .bind(&cached)
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        assert!(file.ends_with(".mp3"), "{file}");
-        assert_eq!(std::fs::read(data_path.join(file)).unwrap(), b"cached song");
-        std::fs::remove_dir_all(data_path).unwrap();
-        std::fs::remove_dir_all(cache).unwrap();
-    }
-
-    #[test]
-    fn song_url_needs_a_file_name() {
-        let mut data = DemoData::parse(DEMO).unwrap();
-        for act in &mut data.acts {
-            act.song_url = None;
-        }
-        data.acts[0].song_url = Some("https://example.org/".into());
-        let cache = data_dir();
-        let err = data.fetch_songs(&cache).unwrap_err();
-        assert!(err.contains("https://example.org/"), "{err}");
-        std::fs::remove_dir_all(cache).unwrap();
-    }
 
     #[test]
     fn tone_has_a_valid_wav_header() {

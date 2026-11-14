@@ -3,16 +3,16 @@
 
 use sqlx::migrate::Migrator;
 
-pub mod competition;
+mod competition;
 pub mod db_backup;
 pub mod db_restore;
 mod fees;
 mod group_rules;
-pub mod images;
+mod images;
 mod registration;
 pub mod reloadable_sqlite;
 mod repo;
-pub mod structure;
+mod structure;
 mod timeplan;
 
 pub use repo::SqliteRepo;

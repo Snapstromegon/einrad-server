@@ -69,7 +69,7 @@ fn env_in(dir: &Path) -> SetupEnv {
         ..Default::default()
     };
     let db = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
-    SetupEnv::new(db, cli)
+    SetupEnv::new(db_sqlite::SqliteRepo::from_pool(db), cli)
 }
 
 async fn send(app: &Router, method: Method, uri: &str, body: Option<&str>) -> Response {
