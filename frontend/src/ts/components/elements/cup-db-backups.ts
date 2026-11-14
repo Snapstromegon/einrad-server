@@ -6,8 +6,20 @@ import { errorMessage, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
+import "./cup-missing-songs";
 
 type DbBackup = schemas.DbBackup;
+type MissingSong = schemas.MissingSong;
+
+/** What has to be typed to enable the restore button. */
+const RESTORE_WORD = "Restore";
+
+/** A restore the admin is about to confirm. */
+interface Restoring {
+  backup: DbBackup;
+  check: schemas.CheckDbBackupResponse;
+  typed: string;
+}
 
 /** "1,4 MB", "532 KB": binary units, one decimal from MB on. */
 export const formatSize = (bytes: number) => {
@@ -32,7 +44,9 @@ const formatCreated = (createdAt: string) =>
  * The admin's "Datenbank-Backups" section: list, download, delete (one or
  * many, after a confirmation) and "Backup jetzt erstellen".
  *
- * A per-row action (e.g. "Wiederherstellen") goes into `renderRowActions`.
+ * "Wiederherstellen" checks the backup first and asks for confirmation
+ * (typing "Restore"); "Songs prüfen" lists the acts whose song file is
+ * missing, with upload and "als gelöscht markieren".
  */
 @customElement("cup-db-backups")
 export class CupDbBackups extends LitElement {
@@ -67,6 +81,28 @@ export class CupDbBackups extends LitElement {
         padding: 0.25rem 0.5rem 0.5rem;
       }
 
+      .restore {
+        display: grid;
+        gap: 0.5rem;
+        margin: 0.5rem 0;
+      }
+
+      .restore ul {
+        margin: 0.25rem 0 0;
+        padding-left: 1.25rem;
+      }
+
+      .restore .confirm-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .songs-panel {
+        margin: 0.5rem 0;
+      }
+
       .body .error-banner,
       .body .ok-banner {
         margin: 0.25rem 0;
@@ -95,6 +131,10 @@ export class CupDbBackups extends LitElement {
   @state() busy = false;
   @state() error: string | null = null;
   @state() notice: string | null = null;
+  /** The restore awaiting its confirmation. */
+  @state() restoring: Restoring | null = null;
+  /** Songs missing in the live database: after a restore, or "Songs prüfen". */
+  @state() missingSongs: MissingSong[] | null = null;
 
   override render() {
     const list = this.backups.value ?? this.lastBackups;
@@ -105,7 +145,8 @@ export class CupDbBackups extends LitElement {
       </summary>
       <div class="body">
         ${this.renderToolbar()} ${this.renderMessages()}
-        ${this.renderConfirmation(list)}
+        ${this.renderConfirmation(list)} ${this.renderRestore()}
+        ${this.renderMissingSongs()}
         ${
           list
             ? this.renderList(list)
@@ -134,6 +175,10 @@ export class CupDbBackups extends LitElement {
             ? `${this.selected.size} ausgewählte löschen`
             : "Ausgewählte löschen"
         }
+      </button>
+      <button class="btn small" ?disabled=${this.busy} @click=${this.onCheckSongs}>
+        <span class="material-icon">music_note</span>
+        Songs prüfen
       </button>
       <span class="spacer"></span>
       <button
@@ -202,6 +247,110 @@ export class CupDbBackups extends LitElement {
     </div>`;
   }
 
+  renderRestore() {
+    const r = this.restoring;
+    if (!r) {
+      return nothing;
+    }
+    const { check } = r;
+    const blocked = check.blocking.length > 0;
+    return html`<div class="warn-banner restore" role="alertdialog" aria-label="Wiederherstellen bestätigen">
+      <strong>Backup wiederherstellen?</strong>
+      <span>
+        Alle aktuellen Daten werden durch den Stand vom
+        ${formatCreated(r.backup.created_at)} ersetzt. Der aktuelle Stand wird
+        vorher als Backup gesichert.
+      </span>
+      ${
+        blocked
+          ? html`<div class="error-banner" role="alert">
+            Dieses Backup kann nicht wiederhergestellt werden:
+            <ul>
+              ${repeat(
+                check.blocking,
+                (r) => r,
+                (reason) => html`<li>${reason}</li>`,
+              )}
+            </ul>
+          </div>`
+          : nothing
+      }
+      ${
+        check.pending_migrations.length
+          ? html`<div class="warn-banner" role="status">
+            Das Backup hat einen älteren Datenbankstand. Beim Wiederherstellen
+            werden diese Migrationen angewendet:
+            <ul>
+              ${repeat(
+                check.pending_migrations,
+                (n) => n,
+                (name) => html`<li>${name}</li>`,
+              )}
+            </ul>
+          </div>`
+          : nothing
+      }
+      ${
+        check.missing_songs.length
+          ? html`<div class="warn-banner" role="status">
+            Songdateien sind nicht Teil eines Backups. Für
+            ${check.missing_songs.length === 1 ? "diese Kür fehlt" : `diese ${check.missing_songs.length} Küren fehlen`}
+            die Dateien in data/:
+            <cup-missing-songs .songs=${check.missing_songs}></cup-missing-songs>
+          </div>`
+          : nothing
+      }
+      <div class="confirm-row">
+        <label>
+          Zum Bestätigen <strong>${RESTORE_WORD}</strong> eingeben:
+          <input
+            type="text"
+            autocomplete="off"
+            aria-label="Zur Bestätigung ${RESTORE_WORD} eingeben"
+            .value=${r.typed}
+            ?disabled=${blocked || this.busy}
+            @input=${this.onTyped}
+          />
+        </label>
+        <button
+          class="btn danger small"
+          ?disabled=${blocked || this.busy || r.typed !== RESTORE_WORD}
+          @click=${this.onConfirmRestore}
+        >
+          <span class="material-icon">restore</span>
+          Wiederherstellen
+        </button>
+        <button class="btn small" ?disabled=${this.busy} @click=${this.onCancelRestore}>
+          Abbrechen
+        </button>
+      </div>
+    </div>`;
+  }
+
+  renderMissingSongs() {
+    if (!this.missingSongs) {
+      return nothing;
+    }
+    return html`<div class="songs-panel">
+      <strong>
+        ${
+          this.missingSongs.length
+            ? `Fehlende Songs (${this.missingSongs.length})`
+            : "Alle Songs sind vorhanden."
+        }
+      </strong>
+      ${
+        this.missingSongs.length
+          ? html`<cup-missing-songs
+            actions
+            .songs=${this.missingSongs}
+            @songs-changed=${this.onSongsChanged}
+          ></cup-missing-songs>`
+          : nothing
+      }
+    </div>`;
+  }
+
   renderList(list: DbBackup[]) {
     if (!list.length) {
       return html`<p class="empty">Noch keine Backups vorhanden.</p>`;
@@ -250,7 +399,16 @@ export class CupDbBackups extends LitElement {
 
   /** The buttons of one row; add further per-row actions here. */
   renderRowActions(backup: DbBackup) {
-    return html`<a
+    return html`<button
+        class="btn small"
+        data-filename=${backup.filename}
+        ?disabled=${this.busy}
+        @click=${this.onAskRestore}
+      >
+        <span class="material-icon">restore</span>
+        Wiederherstellen
+      </button>
+      <a
       class="btn small"
       href="/api/db-backups/${encodeURIComponent(backup.filename)}"
       download=${backup.filename}
@@ -313,6 +471,92 @@ export class CupDbBackups extends LitElement {
       this.busy = false;
       this.confirmingDelete = false;
       this.reload();
+    }
+  }
+
+  private async onAskRestore(event: Event) {
+    const name = (event.currentTarget as HTMLElement).dataset.filename;
+    const backup = (this.backups.value ?? this.lastBackups ?? []).find(
+      (b) => b.filename === name,
+    );
+    if (!backup) {
+      return;
+    }
+    this.busy = true;
+    this.error = null;
+    this.notice = null;
+    this.missingSongs = null;
+    try {
+      const check = await unwrap(
+        client.checkDbBackup({ query: { filename: backup.filename } }),
+      );
+      this.restoring = { backup, check, typed: "" };
+    } catch (e) {
+      this.error = `Backup konnte nicht geprüft werden: ${errorMessage(e)}`;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private onTyped(event: Event) {
+    if (this.restoring) {
+      this.restoring = {
+        ...this.restoring,
+        typed: (event.target as HTMLInputElement).value,
+      };
+    }
+  }
+
+  private onCancelRestore() {
+    this.restoring = null;
+  }
+
+  private async onConfirmRestore() {
+    const r = this.restoring;
+    if (!r || r.typed !== RESTORE_WORD || r.check.blocking.length) {
+      return;
+    }
+    this.busy = true;
+    this.error = null;
+    try {
+      const result = await unwrap(
+        client.restoreDbBackup({
+          body: {
+            filename: r.backup.filename,
+            // Pending migrations were shown, so confirming accepts them.
+            force: r.check.pending_migrations.length > 0,
+          },
+        }),
+      );
+      this.notice = `Wiederhergestellt: Stand vom ${formatCreated(r.backup.created_at)}. Der vorherige Stand ist gesichert als ${result.snapshot_filename}.`;
+      this.missingSongs = result.missing_songs;
+      this.restoring = null;
+    } catch (e) {
+      this.error = `Wiederherstellen fehlgeschlagen: ${errorMessage(e)}`;
+    } finally {
+      this.busy = false;
+      this.reload();
+    }
+  }
+
+  private async onCheckSongs() {
+    this.busy = true;
+    this.error = null;
+    this.notice = null;
+    try {
+      this.missingSongs = await unwrap(client.listMissingSongs());
+    } catch (e) {
+      this.error = `Songs konnten nicht geprüft werden: ${errorMessage(e)}`;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async onSongsChanged() {
+    try {
+      this.missingSongs = await unwrap(client.listMissingSongs());
+    } catch (e) {
+      this.error = `Songs konnten nicht geprüft werden: ${errorMessage(e)}`;
     }
   }
 
