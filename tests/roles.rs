@@ -102,6 +102,7 @@ async fn admins_hold_every_permission() {
     assert_eq!(strings(&response.body["roles"]), ["admin"]);
     let permissions = strings(&response.body["permissions"]);
     assert!(permissions.contains(&"manage_users"), "{permissions:?}");
+    assert!(permissions.contains(&"manage_backups"), "{permissions:?}");
     for permission in strings(&jury_lead.body["permissions"]) {
         assert!(permissions.contains(&permission), "{permission}");
     }

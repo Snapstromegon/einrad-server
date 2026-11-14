@@ -62,7 +62,7 @@ pub async fn restore_db_backup(
     Extension(db): Extension<ReloadableSqlite>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    auth: Granted<permit::ManageUsers>,
+    auth: Granted<permit::ManageBackups>,
     Json(body): Json<RestoreDbBackupBody>,
 ) -> Result<Json<RestoreDbBackupResponse>, HttpError> {
     let path = db_backup::resolve_backup(&db_file(&db)?, &body.filename)?;

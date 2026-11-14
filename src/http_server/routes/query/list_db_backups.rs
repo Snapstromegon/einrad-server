@@ -38,7 +38,7 @@ pub struct DbBackup {
 #[instrument(skip(db))]
 pub async fn list_db_backups(
     Extension(db): Extension<ReloadableSqlite>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
 ) -> Result<Json<Vec<DbBackup>>, HttpError> {
     let db_path = db_file(&db)?;
     let mut backups = Vec::new();

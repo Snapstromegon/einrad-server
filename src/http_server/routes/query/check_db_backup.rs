@@ -54,7 +54,7 @@ pub struct CheckDbBackupResponse {
 pub async fn check_db_backup(
     Extension(db): Extension<ReloadableSqlite>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
     Query(query): Query<CheckDbBackupQuery>,
 ) -> Result<Json<CheckDbBackupResponse>, HttpError> {
     let path = db_backup::resolve_backup(&db_file(&db)?, &query.filename)?;

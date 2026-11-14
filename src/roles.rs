@@ -90,9 +90,11 @@ macro_rules! permissions {
 }
 
 permissions! {
-    /// See users and grant roles; reload the database; list, download,
-    /// create and delete database backups.
+    /// See users and grant roles; reload the database.
     ManageUsers,
+    /// List, download, create, delete, check and restore database backups;
+    /// the songs a restore leaves missing.
+    ManageBackups,
     /// Categories, the timeplan, finals and the order of acts; publishing
     /// the start list and the timeplan.
     PlanCompetition,
@@ -315,6 +317,7 @@ mod tests {
         for role in roles {
             let admin_only = [
                 P::ManageUsers,
+                P::ManageBackups,
                 P::PlanCompetition,
                 P::ManageCompetition,
                 P::ManageRegistrations,

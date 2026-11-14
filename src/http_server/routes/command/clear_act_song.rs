@@ -40,7 +40,7 @@ pub struct ClearActSongBody {
 #[instrument(skip(db))]
 pub async fn clear_act_song(
     Extension(db): Extension<ReloadableSqlite>,
-    auth: Granted<permit::ManageUsers>,
+    auth: Granted<permit::ManageBackups>,
     Json(body): Json<ClearActSongBody>,
 ) -> Result<Json<ClearActSongResponse>, HttpError> {
     let db = db.get().await.clone();

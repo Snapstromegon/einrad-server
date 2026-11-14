@@ -40,7 +40,7 @@ pub struct DeleteDbBackupsBody {
 #[instrument(skip(db))]
 pub async fn delete_db_backups(
     Extension(db): Extension<ReloadableSqlite>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
     Json(body): Json<DeleteDbBackupsBody>,
 ) -> Result<Json<DeleteDbBackupsResponse>, HttpError> {
     let db_path = db_file(&db)?;

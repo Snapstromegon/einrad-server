@@ -67,7 +67,7 @@ impl From<BackupError> for HttpError {
 /// be an existing backup (BAKUI-4).
 pub async fn download(
     Extension(db): Extension<ReloadableSqlite>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
     Path(filename): Path<String>,
     request: Request,
 ) -> Result<Response, HttpError> {

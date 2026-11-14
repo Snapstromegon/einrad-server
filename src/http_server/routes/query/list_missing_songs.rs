@@ -29,7 +29,7 @@ use crate::{
 pub async fn list_missing_songs(
     Extension(db): Extension<ReloadableSqlite>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
 ) -> Result<Json<Vec<MissingSong>>, HttpError> {
     let pool = db.get().await.clone();
     Ok(Json(

@@ -35,7 +35,7 @@ pub struct CreateDbBackupResponse {
 #[instrument(skip(db))]
 pub async fn create_db_backup(
     Extension(db): Extension<ReloadableSqlite>,
-    _: Granted<permit::ManageUsers>,
+    _: Granted<permit::ManageBackups>,
 ) -> Result<Json<CreateDbBackupResponse>, HttpError> {
     let target = db_backup::backup_path(&db_file(&db)?, db_backup::now_local());
     if target.exists() {
