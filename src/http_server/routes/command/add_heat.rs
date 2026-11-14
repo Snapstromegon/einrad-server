@@ -75,7 +75,7 @@ pub async fn add_heat(
     };
 
     info!("Adding heat {name:?}");
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query!(
         "INSERT INTO heats (id, name, code, description, threshold) VALUES (?, ?, ?, ?, ?)",
         id,

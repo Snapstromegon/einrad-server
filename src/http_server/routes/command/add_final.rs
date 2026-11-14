@@ -59,7 +59,7 @@ pub async fn add_final(
         .map_err(HttpError::Conflict)?;
 
     info!("Adding final {name:?}");
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     sqlx::query!(
         r#"
         INSERT INTO finals (

@@ -1431,7 +1431,7 @@ async fn write(
                 heat.name
             );
         }
-        let heat_id = Uuid::new_v4();
+        let heat_id = Uuid::now_v7();
         heat_ids.insert(heat.code.clone(), heat_id);
         sqlx::query!(
             r#"
@@ -1475,7 +1475,7 @@ async fn write(
     if !finals.is_empty() {
         let resolved = resolve_finals(finals, &heats)?;
         for (order, item) in (1_i64..).zip(&resolved) {
-            let final_id = Uuid::new_v4();
+            let final_id = Uuid::now_v7();
             sqlx::query!(
                 r#"
                 INSERT INTO finals (
@@ -1544,13 +1544,15 @@ async fn write(
             let kind = entry_kind(entry);
             // `validate_timeplan` checked that the final exists.
             let final_id = match &entry.final_name {
-                Some(name) => sqlx::query_scalar!(
-                    r#"SELECT id as "id: Uuid" FROM finals WHERE code = ?"#,
-                    name
-                )
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db_error)?,
+                Some(name) => Some(
+                    sqlx::query_scalar!(
+                        r#"SELECT id as "id: Uuid" FROM finals WHERE code = ?"#,
+                        name
+                    )
+                    .fetch_one(&mut *conn)
+                    .await
+                    .map_err(db_error)?,
+                ),
                 None => None,
             };
             sqlx::query!(
@@ -2308,7 +2310,7 @@ mod tests {
                 .bind(act),
             sqlx::query("UPDATE final_slots SET act_id = ? WHERE position = 1").bind(act),
             sqlx::query("INSERT INTO bookings (id, amount, date, club_id) VALUES (?, 15, '2027-01-01', ?)")
-                .bind(uuid::Uuid::new_v4())
+                .bind(uuid::Uuid::now_v7())
                 .bind(club),
         ];
         for statement in statements {
