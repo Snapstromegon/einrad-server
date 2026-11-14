@@ -13,10 +13,9 @@ import {
 } from "../../contexts/systemStatus";
 import { type User as CurrentUser, userContext } from "../../contexts/user";
 import { type PairCandidate, unconfirmedPairs } from "../../pairs";
-import { can, ROLES, type Role, roleLock, roleNames, withRole } from "../../roles";
+import { ROLES, type Role, roleLock, roleNames, withRole } from "../../roles";
 import type { PickerOption } from "../elements/cup-rider-picker";
 import "../elements/cup-rider-picker.js";
-import "../elements/cup-db-backups.js";
 import { linkPartners } from "../elements/club/club-actions";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
@@ -749,9 +748,6 @@ export default class CupViewAdmin extends LitElement {
             : html`<p class="empty">Keine Nutzer registriert.</p>`
         }
       </details>
-      ${can(this.currentUser, "manage_backups")
-        ? html`<cup-db-backups></cup-db-backups>`
-        : nothing}
     `;
   }
 
