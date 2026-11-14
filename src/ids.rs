@@ -27,6 +27,7 @@ macro_rules! typed_ids {
         impl $name {
             /// A fresh time-ordered (v7) ID.
             #[must_use]
+            #[allow(clippy::new_without_default)] // no Default: it would mint a random ID
             pub fn new() -> Self {
                 Self(Uuid::now_v7())
             }
