@@ -55,6 +55,11 @@ export class CupDbBackups extends LitElement {
     iconStyles,
     adminStyles,
     css`
+      :host {
+        display: block;
+        min-width: 0;
+      }
+
       .select {
         width: 2rem;
       }
@@ -85,6 +90,34 @@ export class CupDbBackups extends LitElement {
         display: grid;
         gap: 0.5rem;
         margin: 0.5rem 0;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--color-warning);
+        border-left-width: 4px;
+        border-radius: 3px;
+        color: var(--color-warning-strong);
+        background: var(--color-warning-soft);
+      }
+
+      .restore > * {
+        min-width: 0;
+      }
+
+      .restore .error-banner,
+      .restore .warn-banner {
+        margin: 0;
+        white-space: normal;
+      }
+
+      .restore .grow {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .restore .confirm-row label {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem 0.5rem;
       }
 
       .restore ul {
@@ -254,7 +287,7 @@ export class CupDbBackups extends LitElement {
     }
     const { check } = r;
     const blocked = check.blocking.length > 0;
-    return html`<div class="warn-banner restore" role="alertdialog" aria-label="Wiederherstellen bestätigen">
+    return html`<div class="restore" role="alertdialog" aria-label="Wiederherstellen bestätigen">
       <strong>Backup wiederherstellen?</strong>
       <span>
         Alle aktuellen Daten werden durch den Stand vom
@@ -277,7 +310,7 @@ export class CupDbBackups extends LitElement {
       }
       ${
         check.pending_migrations.length
-          ? html`<div class="warn-banner" role="status">
+          ? html`<div class="warn-banner" role="status"><div>
             Das Backup hat einen älteren Datenbankstand. Beim Wiederherstellen
             werden diese Migrationen angewendet:
             <ul>
@@ -287,17 +320,17 @@ export class CupDbBackups extends LitElement {
                 (name) => html`<li>${name}</li>`,
               )}
             </ul>
-          </div>`
+          </div></div>`
           : nothing
       }
       ${
         check.missing_songs.length
-          ? html`<div class="warn-banner" role="status">
+          ? html`<div class="warn-banner" role="status"><div class="grow">
             Songdateien sind nicht Teil eines Backups. Für
             ${check.missing_songs.length === 1 ? "diese Kür fehlt" : `diese ${check.missing_songs.length} Küren fehlen`}
             die Dateien in data/:
             <cup-missing-songs .songs=${check.missing_songs}></cup-missing-songs>
-          </div>`
+          </div></div>`
           : nothing
       }
       <div class="confirm-row">

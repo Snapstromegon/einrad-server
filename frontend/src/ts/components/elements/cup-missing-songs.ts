@@ -26,6 +26,11 @@ export class CupMissingSongs extends LitElement {
     iconStyles,
     adminStyles,
     css`
+      :host {
+        display: block;
+        min-width: 0;
+      }
+
       .path {
         font-family: monospace;
         font-size: 0.85em;
