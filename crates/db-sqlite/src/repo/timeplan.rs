@@ -81,9 +81,7 @@ impl TimeplanRepo for SqliteRepo {
         let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
-            check_final_plannable(&mut tx, final_id, None)
-                .await
-                .map_err(RegistrationError::Rejected)?;
+            check_final_plannable(&mut tx, final_id, None).await?;
         }
 
         let id = sqlx::query_scalar!(
@@ -134,9 +132,7 @@ impl TimeplanRepo for SqliteRepo {
         let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
-            check_final_plannable(&mut tx, final_id, Some(id))
-                .await
-                .map_err(RegistrationError::Rejected)?;
+            check_final_plannable(&mut tx, final_id, Some(id)).await?;
         }
         // A final's block holds only the final's slots.
         let drops_slots = drops_slots(fields);

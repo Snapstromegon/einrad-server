@@ -27,10 +27,12 @@ use crate::{
 mod access;
 mod fees;
 mod registration;
+mod structure;
 mod timeplan;
 pub use access::*;
 pub use fees::*;
 pub use registration::*;
+pub use structure::*;
 pub use timeplan::*;
 
 /// A shared set of users, clubs and actors to seed a test from.
@@ -120,6 +122,11 @@ macro_rules! conformance_list {
             fees_and_amount_due,
             jury_obligation_counts_acts_and_judges,
             group_delete_and_member_rules,
+            structure_names_and_codes_are_unique,
+            heats_and_finals_share_a_discipline,
+            units_with_judges_are_not_deletable,
+            judge_names_are_unique_per_club,
+            final_placement_skip_and_start_rules,
         }
     };
 }

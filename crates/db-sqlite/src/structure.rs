@@ -14,6 +14,7 @@ use db_core::{
     finals::SlotGroupInput,
     heats::{self, CategoryInfo, Discipline},
     ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId, JuryUnitId},
+    structure_rules::{self, FinalPlanFacts, HeatCategoryFacts, NameCode, SlotHeatFacts},
 };
 use sqlx::SqliteConnection;
 
@@ -101,56 +102,33 @@ pub(crate) async fn check_heat_free(
     name: &str,
     code: &str,
 ) -> Result<(), RegistrationError> {
-    let name_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE name = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        name,
+    let others = sqlx::query_as!(
+        NameCode,
+        r#"SELECT name as "name!", code as "code!" FROM heats WHERE id IS NOT ?1"#,
         except
     )
-    .fetch_one(&mut *conn)
+    .fetch_all(conn)
     .await?;
-    if name_taken {
-        return Err(RegistrationError::Conflict(format!(
-            "Eine Vorlaufklasse „{name}“ gibt es schon."
-        )));
-    }
-    let code_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM heats WHERE code = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        code,
-        except
-    )
-    .fetch_one(&mut *conn)
-    .await?;
-    if code_taken {
-        return Err(RegistrationError::Conflict(format!(
-            "Eine Vorlaufklasse mit dem Kürzel „{code}“ gibt es schon."
-        )));
-    }
-    Ok(())
+    structure_rules::check_heat_free(&others, name, code)
 }
 
 /// The names of the categories with these IDs, in the order given and
-/// without repeats. An ID no category has is a 404 with a German message
-/// naming it.
+/// without repeats. An ID no category has is a 404.
 pub(crate) async fn category_names(
     conn: &mut SqliteConnection,
     ids: &[CategoryId],
 ) -> Result<Vec<String>, RegistrationError> {
-    let mut names: Vec<String> = vec![];
+    let mut known: Vec<(CategoryId, String)> = vec![];
     for id in ids {
         let name = sqlx::query_scalar!(
             r#"SELECT name as "name!" FROM categories WHERE id = $1"#,
             id
         )
         .fetch_optional(&mut *conn)
-        .await?
-        .ok_or_else(|| {
-            RegistrationError::NotFoundMessage(format!("Die Kategorie {id} gibt es nicht (mehr)."))
-        })?;
-        if !names.contains(&name) {
-            names.push(name);
-        }
+        .await?;
+        known.extend(name.map(|name| (*id, name)));
     }
-    Ok(names)
+    structure_rules::category_names(ids, &known)
 }
 
 /// The categories as far as heats care.
@@ -247,22 +225,12 @@ pub(crate) async fn check_heat_categories(
     heat_id: HeatId,
     categories: &[String],
 ) -> Result<(), RegistrationError> {
-    let heat = heat_name_of(&mut *conn, heat_id)
-        .await?
-        .ok_or_else(|| RegistrationError::Rejected("Die Vorlaufklasse gibt es nicht.".into()))?;
-    let known = category_infos(&mut *conn).await?;
-    let Some(discipline) = heats::check(&heat, categories, &known)
-        .map_err(|p| RegistrationError::Rejected(p.german()))?
-    else {
-        return Ok(());
+    let facts = HeatCategoryFacts {
+        heat: heat_name_of(&mut *conn, heat_id).await?,
+        known: category_infos(&mut *conn).await?,
+        finals: finals_of_heat(conn, heat_id).await?,
     };
-    let finals = finals_of_heat(conn, heat_id).await?;
-    if let Some((name, _)) = finals.iter().find(|(_, d)| *d != discipline) {
-        return Err(RegistrationError::Rejected(format!(
-            "Die Vorlaufklasse füllt Finalplätze im Finale „{name}“; ihre Kategorien brauchen dessen Typ und Geschlecht."
-        )));
-    }
-    Ok(())
+    structure_rules::check_heat_categories(&facts, categories)
 }
 
 /// Checks that no other final (not `except`) has the name or the code.
@@ -272,31 +240,14 @@ pub(crate) async fn check_final_free(
     name: &str,
     code: &str,
 ) -> Result<(), RegistrationError> {
-    let name_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        name,
+    let others = sqlx::query_as!(
+        NameCode,
+        r#"SELECT name as "name!", code as "code!" FROM finals WHERE id IS NOT ?1"#,
         except
     )
-    .fetch_one(&mut *conn)
+    .fetch_all(conn)
     .await?;
-    if name_taken {
-        return Err(RegistrationError::Conflict(format!(
-            "Ein Finale „{name}“ gibt es schon."
-        )));
-    }
-    let code_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE code = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        code,
-        except
-    )
-    .fetch_one(&mut *conn)
-    .await?;
-    if code_taken {
-        return Err(RegistrationError::Conflict(format!(
-            "Ein Finale mit dem Kürzel „{code}“ gibt es schon."
-        )));
-    }
-    Ok(())
+    structure_rules::check_final_free(&others, name, code)
 }
 
 /// Replaces the slots of a final with new ones for `groups`, in order. A
@@ -359,37 +310,25 @@ pub(crate) async fn check_final_heats(
     is_single_male: bool,
     groups: &[SlotGroupInput],
 ) -> Result<(), RegistrationError> {
-    let discipline = Discipline::new(act_type, is_single_male);
+    let mut heats = Vec::with_capacity(groups.len());
     for group in groups {
-        let Some(heat) = heat_name_of(&mut *conn, group.heat_id).await? else {
-            return Err(RegistrationError::Rejected(
-                "Die Vorlaufklasse gibt es nicht.".to_string(),
-            ));
-        };
-        let heat_discipline = heat_discipline(&mut *conn, group.heat_id).await?;
-        if heat_discipline.is_some_and(|heat| heat != discipline) {
-            return Err(RegistrationError::Rejected(format!(
-                "Die Vorlaufklasse „{heat}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale."
-            )));
-        }
-        let other = sqlx::query_scalar!(
-            r#"
-            SELECT finals.name as "name!" FROM final_slots
-            JOIN finals ON finals.id = final_slots.final_id
-            WHERE final_slots.heat_id = $1 AND final_slots.final_id != $2 LIMIT 1
-            "#,
-            group.heat_id,
-            final_id
-        )
-        .fetch_optional(&mut *conn)
-        .await?;
-        if let Some(other) = other {
-            return Err(RegistrationError::Rejected(format!(
-                "Die Vorlaufklasse „{heat}“ füllt schon Finalplätze im Finale „{other}“; eine Vorlaufklasse füllt höchstens ein Finale."
-            )));
-        }
+        heats.push(SlotHeatFacts {
+            name: heat_name_of(&mut *conn, group.heat_id).await?,
+            discipline: heat_discipline(&mut *conn, group.heat_id).await?,
+            other_final: sqlx::query_scalar!(
+                r#"
+                SELECT finals.name as "name!" FROM final_slots
+                JOIN finals ON finals.id = final_slots.final_id
+                WHERE final_slots.heat_id = $1 AND final_slots.final_id != $2 LIMIT 1
+                "#,
+                group.heat_id,
+                final_id
+            )
+            .fetch_optional(&mut *conn)
+            .await?,
+        });
     }
-    Ok(())
+    structure_rules::check_final_heats(Discipline::new(act_type, is_single_male), &heats)
 }
 
 /// Whether the final has started: a slot, its timeplan block, or one of its
@@ -438,19 +377,14 @@ pub(crate) async fn final_name_of(
 }
 
 /// Checks that a final exists and runs in no timeplan block other than
-/// `except` (the block being edited). The message is German.
+/// `except` (the block being edited).
 pub(crate) async fn check_final_plannable(
     conn: &mut SqliteConnection,
     final_id: FinalId,
     except: Option<i64>,
-) -> Result<(), String> {
-    let Some(final_name) = final_name_of(&mut *conn, final_id)
-        .await
-        .map_err(|e| e.to_string())?
-    else {
-        return Err("Das Finale gibt es nicht.".to_string());
-    };
-    let planned = sqlx::query_scalar!(
+) -> Result<(), RegistrationError> {
+    let name = final_name_of(&mut *conn, final_id).await?;
+    let planned_elsewhere = sqlx::query_scalar!(
         r#"
         SELECT EXISTS (
             SELECT 1 FROM timeplan WHERE final_id = $1 AND id IS NOT $2
@@ -459,26 +393,22 @@ pub(crate) async fn check_final_plannable(
         final_id,
         except
     )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|e| e.to_string())?;
-    if planned {
-        return Err(format!(
-            "Das Finale „{final_name}“ ist schon im Zeitplan; jedes Finale läuft in einem Block."
-        ));
-    }
-    Ok(())
+    .fetch_one(conn)
+    .await?;
+    structure_rules::check_final_plannable(&FinalPlanFacts {
+        name,
+        planned_elsewhere,
+    })
 }
 
-/// Refuses (409, German message) to delete the heat or final `id` while
-/// judges are registered or assigned to its jury unit (D4). The jury group
-/// may promote it.
-pub(crate) async fn ensure_jury_unit_unused(
+/// How many judges are registered or assigned to the jury unit of the heat
+/// or final `id` (`kind` is "heat" or "final").
+pub(crate) async fn jury_unit_use(
     conn: &mut SqliteConnection,
     kind: &str,
     id: JuryUnitId,
-) -> Result<(), RegistrationError> {
-    let used = sqlx::query_scalar!(
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
         r#"
         SELECT (
             (SELECT COUNT(*) FROM judge_registration r JOIN view_jury_unit u ON u.id = r.unit_id
@@ -491,12 +421,5 @@ pub(crate) async fn ensure_jury_unit_unused(
         id
     )
     .fetch_one(conn)
-    .await?;
-    if used > 0 {
-        return Err(RegistrationError::Conflict(
-            "Für die Jury dieser Vorlaufklasse oder dieses Finales sind JurorInnen gemeldet oder eingeteilt. Erst das ändern, dann löschen."
-                .to_string(),
-        ));
-    }
-    Ok(())
+    .await
 }

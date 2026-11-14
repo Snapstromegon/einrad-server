@@ -8,13 +8,13 @@ use db_core::{
     clubs::{Actor, RegistrationError},
     ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId},
     jury::{
-        ClubJudge, JudgeAgeRule, JudgeFacts, JudgeFields, JudgeTask, JuryAssignment,
+        self, ClubJudge, JudgeAgeRule, JudgeFacts, JudgeFields, JudgeTask, JuryAssignment,
         JuryUnitCategory, JuryUnitFeed, JuryUnitFields, JuryUnitFinalType, JuryUnitKind,
         JuryUnitRow, JuryUnitRows, ListedRegistration, RemapOutcome, RemapProblem,
         RemapRegistration, UnmappedRegistration, already_assigned_message, check_plan_publishable,
         check_task_assignable, check_unit_registration, parse_unit_label, unit_columns,
     },
-    people,
+    registration_rules::RiderName,
 };
 use sqlx::SqliteConnection;
 use time::OffsetDateTime;
@@ -68,16 +68,14 @@ async fn ensure_judge_name_is_free(
     )
     .fetch_all(&mut *conn)
     .await?;
-    let key = people::person_key(firstname, lastname);
-    match names
-        .iter()
-        .find(|row| people::person_key(&row.firstname, &row.lastname) == key)
-    {
-        Some(row) => Err(RegistrationError::Rejected(
-            people::already_registered_message(&row.firstname, &row.lastname),
-        )),
-        None => Ok(()),
-    }
+    let names: Vec<RiderName> = names
+        .into_iter()
+        .map(|row| RiderName {
+            firstname: row.firstname,
+            lastname: row.lastname,
+        })
+        .collect();
+    jury::ensure_judge_name_is_free(&names, firstname, lastname)
 }
 
 /// Writes a judge's fields and replaces their registrations; an untrained

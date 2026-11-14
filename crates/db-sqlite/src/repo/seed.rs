@@ -146,12 +146,8 @@ impl SeedRepo for SqliteRepo {
         plan: PlanBuilder<'_>,
     ) -> Result<(), SeedError> {
         let mut tx = self.begin_write().await?;
-        if competition::current(&mut *tx).await.map_err(db)?.is_some() {
-            return Err(SeedError::Invalid(
-                "Der Wettkampf lässt sich nicht anlegen, weil es schon einen Wettkampf gibt."
-                    .to_string(),
-            ));
-        }
+        let exists = competition::current(&mut *tx).await.map_err(db)?.is_some();
+        db_core::seed::check_no_competition(exists)?;
         write(&mut tx, plan, file_id).await?;
         tx.commit().await.map_err(db)?;
         info!("Created competition {file_id}");

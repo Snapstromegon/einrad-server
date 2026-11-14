@@ -265,6 +265,17 @@ pub fn already_assigned_message() -> String {
     "Die JurorIn ist hier schon eingeteilt.".to_string()
 }
 
+/// Fails if the club already registered a judge with this name (ignoring
+/// case and spaces). `registered` are the club's other judges' names (not
+/// the judge being edited).
+pub fn ensure_judge_name_is_free(
+    registered: &[crate::registration_rules::RiderName],
+    firstname: &str,
+    lastname: &str,
+) -> Result<(), RegistrationError> {
+    crate::registration_rules::ensure_rider_name_is_free(registered, firstname, lastname)
+}
+
 /// The Juryplan is published only after the jury registration ended;
 /// unpublishing is always fine. `end` is the end of the jury registration.
 pub fn check_plan_publishable(
@@ -1098,6 +1109,22 @@ mod obligation_tests {
             check_task_assignable(false, JudgeTask::Technical),
             Err(RegistrationError::Rejected(m)) if m == "Nicht geschulte Personen können nur Abstiege zählen."
         ));
+    }
+
+    #[test]
+    fn a_judge_name_is_unique_per_club() {
+        use crate::registration_rules::RiderName;
+        let registered = [RiderName {
+            firstname: "Tina".into(),
+            lastname: "Juror".into(),
+        }];
+        assert!(ensure_judge_name_is_free(&registered, "Tina", "Schmidt").is_ok());
+        match ensure_judge_name_is_free(&registered, " tina ", "JUROR") {
+            Err(RegistrationError::Rejected(m)) => {
+                assert_eq!(m, "Tina Juror ist bereits gemeldet.")
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

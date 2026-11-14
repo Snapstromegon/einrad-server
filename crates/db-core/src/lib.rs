@@ -38,6 +38,7 @@ pub mod roles;
 pub mod seed;
 pub mod settings;
 pub mod structure;
+pub mod structure_rules;
 pub mod timeplan;
 pub mod users;
 
