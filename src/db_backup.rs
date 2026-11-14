@@ -184,6 +184,30 @@ pub async fn has_pending_migrations(
         .any(|m| !applied.contains(&m.version)))
 }
 
+/// The versions in `_sqlx_migrations`, sorted.
+async fn applied_versions(pool: &SqlitePool) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+        .fetch_all(pool)
+        .await
+}
+
+/// The newest backup of `db_path` whose applied migrations are exactly the
+/// live database's, if there is one. Anything unreadable counts as "no".
+async fn newest_backup_with_same_state(pool: &SqlitePool, db_path: &Path) -> Option<PathBuf> {
+    let newest = list_backups(db_path).ok()?.pop()?;
+    let live = applied_versions(pool).await.ok()?;
+    let backup_pool = SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&newest)
+            .read_only(true),
+    )
+    .await
+    .ok()?;
+    let backed_up = applied_versions(&backup_pool).await;
+    backup_pool.close().await;
+    (backed_up.ok()? == live).then_some(newest)
+}
+
 /// Applies the pending migrations of the embedded `./migrations`, after a
 /// backup of the database file at `db_path` if there are any. A failed backup
 /// aborts before anything is migrated.
@@ -199,12 +223,21 @@ pub async fn migrate_with_backup_using(
     now: PrimitiveDateTime,
 ) -> Result<(), BackupError> {
     if has_pending_migrations(pool, migrator).await? {
-        let target = backup_path(db_path, now);
-        tracing::info!(
-            "Pending migrations: backing up the database to {}",
-            target.display()
-        );
-        create_backup_at(pool, &target).await?;
+        if let Some(existing) = newest_backup_with_same_state(pool, db_path).await {
+            // A failing migration under a restart loop would otherwise write
+            // a full copy on every start.
+            tracing::info!(
+                "Pending migrations: skipping the backup, {} has the same migration state",
+                existing.display()
+            );
+        } else {
+            let target = backup_path(db_path, now);
+            tracing::info!(
+                "Pending migrations: backing up the database to {}",
+                target.display()
+            );
+            create_backup_at(pool, &target).await?;
+        }
     }
     migrator.run(pool).await?;
     Ok(())
@@ -390,5 +423,69 @@ mod tests {
         ] {
             assert_eq!(parse_backup_name(db, bad), None, "{bad}");
         }
+    }
+
+    /// The first `n` real migrations plus one that fails.
+    fn failing_after(n: usize) -> Migrator {
+        let mut migrations = partial(n).migrations.to_vec();
+        migrations.push(sqlx::migrate::Migration::new(
+            99_991_231_000_000,
+            "broken".into(),
+            sqlx::migrate::MigrationType::Simple,
+            sqlx::SqlStr::from_static("THIS IS NOT SQL"),
+            false,
+        ));
+        let mut m = Migrator::DEFAULT;
+        m.migrations = migrations.into();
+        m
+    }
+
+    #[tokio::test]
+    async fn a_crash_looping_migration_backs_up_only_once() {
+        let dir = TempDir::new();
+        let pool = open(&dir.db()).await;
+        partial(1).run(&pool).await.unwrap();
+        let broken = failing_after(1);
+
+        for second in 0..3 {
+            let at = T + time::Duration::seconds(second);
+            assert!(
+                migrate_with_backup_using(&broken, &pool, &dir.db(), at)
+                    .await
+                    .is_err()
+            );
+        }
+
+        assert_eq!(
+            list_backups(&dir.db()).unwrap(),
+            vec![backup_path(&dir.db(), T)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_changed_migration_state_gets_a_new_backup() {
+        let dir = TempDir::new();
+        let pool = open(&dir.db()).await;
+        partial(1).run(&pool).await.unwrap();
+        assert!(
+            migrate_with_backup_using(&failing_after(1), &pool, &dir.db(), T)
+                .await
+                .is_err()
+        );
+
+        // The state moves on (an update applied one more migration), then
+        // the next pending migration fails.
+        partial(2).run(&pool).await.unwrap();
+        let later = T + time::Duration::seconds(5);
+        assert!(
+            migrate_with_backup_using(&failing_after(2), &pool, &dir.db(), later)
+                .await
+                .is_err()
+        );
+
+        assert_eq!(
+            list_backups(&dir.db()).unwrap(),
+            vec![backup_path(&dir.db(), T), backup_path(&dir.db(), later)]
+        );
     }
 }
