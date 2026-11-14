@@ -12,7 +12,7 @@
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
 //! progress, finals placements and the jury plan.
 
-use crate::ids::HeatId;
+use crate::ids::{FinalId, HeatId};
 use time::OffsetDateTime;
 
 use crate::{
@@ -187,7 +187,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: HeatId", name as "name!", code as "code!", description, act_type as "act_type: ActType",
+            id as "id!: FinalId", name as "name!", code as "code!", description, act_type as "act_type: ActType",
             is_single_male, einfahrzeit_seconds, act_duration_seconds,
             judge_duration_seconds,
             jury_registrable as "jury_registrable: bool", jury_deployments,
