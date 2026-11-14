@@ -261,7 +261,16 @@ impl TestApp {
     pub async fn without_reload_token(db: SqlitePool) -> Self {
         seed_db(&db, &open_registration()).await;
         let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
-        Self::build_with(db, mailer, None, None, None)
+        Self::build_with(db, mailer, None, None, None, "")
+    }
+
+    /// App whose database file (as far as the server knows) is `db.sqlite`
+    /// in `dir`, so backups land there. The pool itself stays in memory.
+    pub async fn with_db_dir(db: SqlitePool, dir: &Path) -> Self {
+        seed_db(&db, &open_registration()).await;
+        let mailer = Mailer::from_url("smtp://127.0.0.1:1", FROM_ADDRESS).unwrap();
+        let url = format!("sqlite://{}", dir.join("db.sqlite").display());
+        Self::build_with(db, mailer, None, None, Some(RELOAD_DB_TOKEN), &url)
     }
 
     fn build(
@@ -276,6 +285,7 @@ impl TestApp {
             mailpit,
             competition_file_id,
             Some(RELOAD_DB_TOKEN),
+            "",
         )
     }
 
@@ -287,6 +297,7 @@ impl TestApp {
         mailpit: Option<Mailpit>,
         competition_file_id: Option<&str>,
         reload_db_token: Option<&str>,
+        db_url: &str,
     ) -> Self {
         let mut validation = Validation::new(Algorithm::HS512);
         validation.validate_aud = false;
@@ -306,7 +317,7 @@ impl TestApp {
             metrics_token: Some(METRICS_TOKEN.into()),
             competition_file_id: competition_file_id.map(Into::into),
         };
-        let reloadable = ReloadableSqlite::new(db.clone(), String::new());
+        let reloadable = ReloadableSqlite::new(db.clone(), db_url.to_string());
         let player_hub = PlayerHub::new(reloadable.clone());
         let photos = Photos::new().unwrap();
         let router = get_api_router(

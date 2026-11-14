@@ -90,7 +90,8 @@ macro_rules! permissions {
 }
 
 permissions! {
-    /// See users and grant roles; reload the database.
+    /// See users and grant roles; reload the database; list, download,
+    /// create and delete database backups.
     ManageUsers,
     /// Categories, the timeplan, finals and the order of acts; publishing
     /// the start list and the timeplan.

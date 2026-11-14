@@ -36,6 +36,16 @@ impl ReloadableSqlite {
         }
     }
 
+    /// The database file, derived from the configured database URL; `None`
+    /// for an in-memory database or an unparsable URL.
+    pub fn file_path(&self) -> Option<std::path::PathBuf> {
+        let path = SqliteConnectOptions::from_str(&self.path)
+            .ok()?
+            .get_filename()
+            .to_path_buf();
+        (path.as_os_str() != ":memory:" && !path.as_os_str().is_empty()).then_some(path)
+    }
+
     pub async fn get(&self) -> RwLockReadGuard<'_, SqlitePool> {
         self.db.read().await
     }

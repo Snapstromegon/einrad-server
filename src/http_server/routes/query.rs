@@ -23,6 +23,7 @@ mod list_club_mails;
 mod list_club_pair_requests;
 mod list_club_riders;
 mod list_clubs;
+mod list_db_backups;
 mod list_finals;
 mod list_groups;
 mod list_heats;
@@ -52,6 +53,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_club_pair_requests::list_club_pair_requests))
         .routes(routes!(list_jury_units::list_jury_units))
         .routes(routes!(list_users::list_users))
+        .routes(routes!(list_db_backups::list_db_backups))
         .routes(routes!(whoami::whoami))
         .routes(routes!(get_system_status::get_system_status))
         .routes(routes!(list_riders::list_riders))

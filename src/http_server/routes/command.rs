@@ -14,10 +14,12 @@ mod create_booking;
 mod create_club;
 mod create_club_group;
 mod create_competition;
+mod create_db_backup;
 mod delete_booking;
 mod delete_category;
 mod delete_club_group;
 mod delete_club_judge;
+mod delete_db_backups;
 mod delete_final;
 mod delete_heat;
 mod delete_rider;
@@ -161,6 +163,8 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(set_block_order::set_block_order))
         .routes(routes!(reset_block_order::reset_block_order))
         .routes(routes!(reload_db::reload_db))
+        .routes(routes!(create_db_backup::create_db_backup))
+        .routes(routes!(delete_db_backups::delete_db_backups))
         .routes(routes!(
             preview_competition_import::preview_competition_import
         ))

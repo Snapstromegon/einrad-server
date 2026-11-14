@@ -23,6 +23,8 @@ pub enum BackupError {
     Write { path: PathBuf, source: sqlx::Error },
     #[error("couldn't read the migration state: {0}")]
     State(#[source] sqlx::Error),
+    #[error("no such backup: {0}")]
+    NoSuchBackup(String),
     #[error("couldn't list the backups in {dir}: {source}")]
     List {
         dir: PathBuf,
@@ -124,6 +126,33 @@ pub fn list_backups(db_path: &Path) -> Result<Vec<PathBuf>, BackupError> {
     }
     found.sort();
     Ok(found)
+}
+
+/// The local time in a backup's file name, if `name` is exactly
+/// `<db-stem>.backup-<YYYY-MM-DDTHH-MM-SS>.sqlite` for the database at
+/// `db_path` (what [`backup_path`] produces); nothing else matches.
+#[must_use]
+pub fn parse_backup_name(db_path: &Path, name: &str) -> Option<PrimitiveDateTime> {
+    let stamp = name
+        .strip_prefix(&format!("{}.backup-", stem(db_path)))?
+        .strip_suffix(".sqlite")?;
+    let format = format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]");
+    let at = PrimitiveDateTime::parse(stamp, format).ok()?;
+    // Parsing is lenient (e.g. about padding); only the canonical name counts.
+    (backup_path(db_path, at).file_name()?.to_str()? == name).then_some(at)
+}
+
+/// The path of the backup called `name` of the database at `db_path`. `name`
+/// must match the backup naming exactly **and** be in the directory listing, so
+/// the database itself, other files and paths with separators or `..` never
+/// resolve.
+pub fn resolve_backup(db_path: &Path, name: &str) -> Result<PathBuf, BackupError> {
+    let not_found = || BackupError::NoSuchBackup(name.to_string());
+    parse_backup_name(db_path, name).ok_or_else(not_found)?;
+    list_backups(db_path)?
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|n| n == name))
+        .ok_or_else(not_found)
 }
 
 /// Whether the database has applied migrations and the migrator knows more.
@@ -341,5 +370,25 @@ mod tests {
             list_backups(&dir.db()).unwrap(),
             vec![backup_path(&dir.db(), T), backup_path(&dir.db(), later)]
         );
+    }
+
+    #[test]
+    fn only_the_exact_backup_name_parses() {
+        let db = Path::new("/srv/db.sqlite");
+        assert_eq!(
+            parse_backup_name(db, "db.backup-2026-11-14T09-30-00.sqlite"),
+            Some(T)
+        );
+        for bad in [
+            "db.sqlite",
+            "../db.backup-2026-11-14T09-30-00.sqlite",
+            "/srv/db.backup-2026-11-14T09-30-00.sqlite",
+            "other.backup-2026-11-14T09-30-00.sqlite",
+            "db.backup-2026-11-14T09-30-00.sqlite.bak",
+            "db.backup-2026-11-14T9-30-00.sqlite",
+            "db.backup-2026-11-14T09-30-00 .sqlite",
+        ] {
+            assert_eq!(parse_backup_name(db, bad), None, "{bad}");
+        }
     }
 }
