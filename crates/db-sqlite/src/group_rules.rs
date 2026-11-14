@@ -9,7 +9,7 @@ use db_core::{
 };
 use sqlx::SqliteConnection;
 
-use crate::registration::club_access;
+use crate::registration::load_club;
 
 /// A group act as needed by the group commands.
 #[derive(Debug)]
@@ -50,13 +50,11 @@ pub(crate) async fn group_owner_access(
     actor: &Actor,
     group: &Group,
 ) -> Result<(), RegistrationError> {
-    if actor.manage_registrations {
-        return Ok(());
-    }
-    match group.owner_club_id {
-        Some(owner_club_id) => club_access(conn, actor, owner_club_id).await,
-        None => Err(RegistrationError::Forbidden),
-    }
+    let owner_club = match group.owner_club_id {
+        Some(club_id) => load_club(conn, club_id).await?,
+        None => None,
+    };
+    actor.may_change_group(owner_club).into_result()
 }
 
 /// Fails with a German message if another group already uses the name

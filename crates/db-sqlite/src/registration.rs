@@ -4,9 +4,9 @@
 
 use db_core::{
     act_type::ActType,
-    clubs::{Actor, RegistrationError},
+    clubs::{ActFacts, Actor, ClubFacts, RegistrationError},
     gender::Gender,
-    ids::{ActId, ClubId, RiderId, UserId},
+    ids::{ActId, ClubId, JudgeId, RiderId, UserId},
     people,
     riders::{Pair, Starts},
 };
@@ -20,29 +20,37 @@ pub(crate) enum PartnerClubs {
     Any,
 }
 
-/// Fails with `NotFound` for an unknown club and `Forbidden` unless the actor
-/// may manage it.
-pub(crate) async fn club_access(
+/// Loads a club's owner, the fact the access decision needs.
+pub(crate) async fn load_club(
     conn: &mut SqliteConnection,
-    actor: &Actor,
     club_id: ClubId,
-) -> Result<(), RegistrationError> {
-    let owner_id = sqlx::query_scalar!(
+) -> Result<Option<ClubFacts>, RegistrationError> {
+    Ok(sqlx::query_scalar!(
         r#"SELECT owner_id as "owner_id!: UserId" FROM clubs WHERE id = $1"#,
         club_id
     )
     .fetch_optional(&mut *conn)
     .await?
-    .ok_or(RegistrationError::NotFound)?;
-    if actor.may_manage_club(club_id, owner_id) {
-        Ok(())
-    } else {
-        Err(RegistrationError::Forbidden)
-    }
+    .map(|owner_id| ClubFacts {
+        id: club_id,
+        owner_id,
+    }))
 }
 
-/// Loads the club of a rider and checks that the actor may manage it (see
-/// [`club_access`]). Returns the club's id.
+/// Fails with `NotFound` for an unknown club and `Forbidden` unless the actor
+/// may manage it (decided by [`Actor::club_access`]).
+pub(crate) async fn club_access(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    club_id: ClubId,
+) -> Result<(), RegistrationError> {
+    actor
+        .club_access(load_club(conn, club_id).await?)
+        .into_result()
+}
+
+/// Loads the club of a rider and checks that the actor may change the rider
+/// ([`Actor::may_change_rider`]). Returns the club's id.
 pub(crate) async fn rider_access(
     conn: &mut SqliteConnection,
     actor: &Actor,
@@ -53,49 +61,82 @@ pub(crate) async fn rider_access(
         rider_id
     )
     .fetch_optional(&mut *conn)
-    .await?
-    .ok_or(RegistrationError::NotFound)?;
-    club_access(conn, actor, club_id).await?;
-    Ok(club_id)
+    .await?;
+    let club = match club_id {
+        Some(club_id) => load_club(conn, club_id).await?,
+        None => None,
+    };
+    actor.may_change_rider(club).into_result()?;
+    Ok(club_id.expect("an allowed rider exists"))
 }
 
-/// Checks that the actor may change the act: the organizer and users with
-/// access to the club of one of its riders or, for groups, to the club that
-/// created it.
+/// Loads the club of a judge and checks that the actor may change the judge
+/// ([`Actor::may_change_judge`]). Returns the club's id.
+pub(crate) async fn judge_access(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    judge_id: JudgeId,
+) -> Result<ClubId, RegistrationError> {
+    let club_id = sqlx::query_scalar!(
+        r#"SELECT club_id as "club_id!: ClubId" FROM judge WHERE id = $1"#,
+        judge_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let club = match club_id {
+        Some(club_id) => load_club(conn, club_id).await?,
+        None => None,
+    };
+    actor.may_change_judge(club).into_result()?;
+    Ok(club_id.expect("an allowed judge exists"))
+}
+
+/// Loads the clubs behind an act (its riders' clubs and a group's owner
+/// club); `None` for an unknown act.
+async fn load_act_facts(
+    conn: &mut SqliteConnection,
+    act_id: ActId,
+) -> Result<Option<ActFacts>, RegistrationError> {
+    let exists = sqlx::query_scalar!(r#"SELECT 1 as "one!: i64" FROM acts WHERE id = $1"#, act_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    if exists.is_none() {
+        return Ok(None);
+    }
+    let clubs = sqlx::query!(
+        r#"
+        SELECT clubs.id as "id!: ClubId", clubs.owner_id as "owner_id!: UserId"
+        FROM clubs
+        WHERE clubs.id IN (
+                SELECT rider.club_id FROM act_participants
+                JOIN rider ON rider.id = act_participants.rider_id
+                WHERE act_participants.act_id = $1
+            )
+            OR clubs.id = (SELECT owner_club_id FROM acts WHERE id = $1)
+        "#,
+        act_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(Some(ActFacts {
+        clubs: clubs
+            .into_iter()
+            .map(|row| ClubFacts {
+                id: row.id,
+                owner_id: row.owner_id,
+            })
+            .collect(),
+    }))
+}
+
+/// Checks that the actor may change the act ([`Actor::may_change_act`]).
 pub(crate) async fn act_access(
     conn: &mut SqliteConnection,
     actor: &Actor,
     act_id: ActId,
 ) -> Result<(), RegistrationError> {
-    let allowed = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM clubs
-            WHERE (clubs.owner_id = ?2 OR clubs.id = ?3)
-                AND (
-                    clubs.id IN (
-                        SELECT rider.club_id FROM act_participants
-                        JOIN rider ON rider.id = act_participants.rider_id
-                        WHERE act_participants.act_id = acts.id
-                    )
-                    OR clubs.id = acts.owner_club_id
-                )
-        ) as "allowed!: bool"
-        FROM acts
-        WHERE acts.id = ?1
-        "#,
-        act_id,
-        actor.user_id,
-        actor.club_id,
-    )
-    .fetch_optional(&mut *conn)
-    .await?
-    .ok_or(RegistrationError::NotFound)?;
-    if allowed || actor.manage_registrations {
-        Ok(())
-    } else {
-        Err(RegistrationError::Forbidden)
-    }
+    let facts = load_act_facts(conn, act_id).await?;
+    actor.may_change_act(facts.as_ref()).into_result()
 }
 
 /// Fails if the club already registered a rider with this name, giving the

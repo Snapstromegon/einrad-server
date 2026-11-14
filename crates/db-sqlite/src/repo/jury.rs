@@ -19,7 +19,7 @@ use sqlx::SqliteConnection;
 use time::OffsetDateTime;
 
 use super::SqliteRepo;
-use crate::registration::{club_access, map_duplicate};
+use crate::registration::{club_access, judge_access, map_duplicate};
 
 fn not_registrable() -> RegistrationError {
     RegistrationError::Rejected(NOT_REGISTRABLE_MESSAGE.to_string())
@@ -39,23 +39,6 @@ async fn unit_is_registrable(
     )
     .fetch_optional(conn)
     .await
-}
-
-/// Loads the club of a judge and checks that the actor may manage it.
-async fn judge_access(
-    conn: &mut SqliteConnection,
-    actor: &Actor,
-    judge_id: JudgeId,
-) -> Result<ClubId, RegistrationError> {
-    let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: ClubId" FROM judge WHERE id = $1"#,
-        judge_id
-    )
-    .fetch_optional(&mut *conn)
-    .await?
-    .ok_or(RegistrationError::NotFound)?;
-    club_access(conn, actor, club_id).await?;
-    Ok(club_id)
 }
 
 /// The jury's age rule of the current competition; `None` without a
