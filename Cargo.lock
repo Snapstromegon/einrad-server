@@ -1011,6 +1011,7 @@ dependencies = [
  "async-trait",
  "db-core",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.21",
  "time",

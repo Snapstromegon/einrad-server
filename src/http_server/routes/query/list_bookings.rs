@@ -1,29 +1,11 @@
-use crate::ids::{BookingId, ClubId};
 use axum::{Extension, Json};
-use time::Date;
+use db_core::{DbHandle, bookings::ListedBooking};
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
-
-time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
-
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct ListedBooking {
-    id: BookingId,
-    /// Negative for money going out, e.g. a refund.
-    amount: f64,
-    #[serde(with = "iso_date")]
-    date: Date,
-    note: String,
-    /// The club this booking is a payment of; `null` if unassigned or ignored.
-    club_id: Option<ClubId>,
-    club_name: Option<String>,
-    ignored: bool,
-}
 
 /// List all bookings, newest first: payments, unassigned and ignored ones.
 /// Treasurer.
@@ -38,28 +20,10 @@ pub struct ListedBooking {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_bookings(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManagePayments>,
 ) -> Result<Json<Vec<ListedBooking>>, HttpError> {
-    let db = db.get().await.clone();
-    let bookings = sqlx::query_as!(
-        ListedBooking,
-        r#"
-        SELECT
-            bookings.id as "id!: BookingId",
-            bookings.amount,
-            bookings.date as "date: Date",
-            bookings.note,
-            bookings.club_id as "club_id: ClubId",
-            clubs.name as "club_name?: String",
-            bookings.ignored
-        FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id
-        ORDER BY bookings.date DESC, bookings.rowid DESC
-        "#
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(bookings))
+    Ok(Json(repo.list_bookings().await?))
 }

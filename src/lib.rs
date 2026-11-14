@@ -1,16 +1,13 @@
-pub use db_core::{act_type, gender, groups, ids, people, roles};
+pub use db_core::{act_type, bookings, fee_waivers, fees, gender, groups, ids, people, roles};
 pub use db_sqlite::{db_backup, db_restore, reloadable_sqlite};
 
 pub mod admin_user;
-pub mod bookings;
 pub mod club_mails;
 pub mod colors;
 pub mod competition;
 pub mod config;
 pub mod demo;
 pub mod export;
-pub mod fee_waivers;
-pub mod fees;
 pub mod finals;
 pub mod heats;
 pub mod http_server;

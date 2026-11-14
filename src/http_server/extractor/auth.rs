@@ -43,6 +43,15 @@ impl Auth {
         }
     }
 
+    /// Who changes a booking: the user and their roles now.
+    pub fn booking_actor(&self) -> db_core::bookings::Actor<'_> {
+        db_core::bookings::Actor {
+            user_id: self.user_id,
+            name: &self.name,
+            roles: &self.roles,
+        }
+    }
+
     /// Sorted.
     pub fn permissions(&self) -> Vec<Permission> {
         roles::permissions_of(&self.roles)

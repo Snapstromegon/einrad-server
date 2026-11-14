@@ -11,230 +11,47 @@ use std::{
     sync::Arc,
 };
 
-use crate::ids::{ClubId, ClubMailId};
+use crate::ids::ClubId;
+use db_core::{Db, DbError, DbHandle};
 use minijinja::{
     AutoEscape, Environment, UndefinedBehavior,
     value::{Serde, Value},
 };
-use time::OffsetDateTime;
 use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
-    bookings::{paid_by_club, round_cents},
-    competition::{Competition, ResolvedFeatures},
-    fees::fees_by_club,
+    competition::ResolvedFeatures,
     http_server::{HttpError, extractor::auth::Auth},
     mailer::{Mailer, TextMail},
-    reloadable_sqlite::begin_write,
     roles::Permission,
     utils::club_code,
 };
 
-/// The data of one club a mail can use.
-#[derive(Debug, Clone)]
-pub struct ClubData {
-    pub id: ClubId,
-    pub name: String,
-    pub code: String,
-    pub contact_name: String,
-    pub contact_email: String,
-    /// The club representative, also when it's the club contact.
-    pub representative_name: String,
-    pub representative_email: String,
-    /// What the club owes, in €.
-    pub amount_due: f64,
-    /// The sum of its payments, in €.
-    pub paid: f64,
-    /// Missing jury deployments; 0 without the jury registration.
-    pub missing_deployments: i64,
-    /// The acts the club looks after that have no music yet.
-    pub missing_music: Vec<ActWithoutMusic>,
-}
+pub use db_core::club_mails::{
+    ActWithoutMusic, ClubData, DeliveryStatus, RenderedMail, SentClubMail, SentMail,
+};
 
-/// An act without music, as the templates see it.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct ActWithoutMusic {
-    /// The group's name, or the riders' names of a single or pair.
-    pub name: String,
-    /// "Einzelkür", "Paarkür", "Kleingruppe" or "Großgruppe".
-    #[serde(rename = "type")]
-    pub act_type: &'static str,
-    /// The act's title (Kürtitel); empty if it has none.
-    pub title: String,
-}
-
-/// The acts `club_id` looks after that have no music: its singles and pairs
-/// and the groups it created, without withdrawn ones; by type, then name.
-async fn acts_without_music(
-    db: &sqlx::SqlitePool,
-    club_id: ClubId,
-) -> sqlx::Result<Vec<ActWithoutMusic>> {
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            acts.act_type as "act_type: ActType",
-            acts.name as title,
-            COALESCE(
-                acts.group_name,
-                (
-                    SELECT group_concat(rider.firstname || ' ' || rider.lastname, ' & ')
-                    FROM act_participants
-                    JOIN rider ON rider.id = act_participants.rider_id
-                    WHERE act_participants.act_id = acts.id
-                ),
-                ''
-            ) as "name!: String"
-        FROM acts
-        WHERE acts.song_file IS NULL
-            AND acts.withdrawn_at IS NULL
-            AND CASE WHEN acts.act_type IN ('group_small', 'group_large')
-                THEN acts.owner_club_id = ?1
-                ELSE EXISTS (
-                    SELECT 1 FROM act_participants
-                    JOIN rider ON rider.id = act_participants.rider_id
-                    WHERE act_participants.act_id = acts.id AND rider.club_id = ?1
-                )
-            END
-        "#,
-        club_id
-    )
-    .fetch_all(db)
-    .await?;
-    let mut acts: Vec<_> = rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.act_type,
-                ActWithoutMusic {
-                    name: row.name,
-                    act_type: row.act_type.german_name(),
-                    title: row.title,
-                },
-            )
-        })
-        .collect();
-    let order = [
-        ActType::Single,
-        ActType::Pair,
-        ActType::GroupSmall,
-        ActType::GroupLarge,
-    ];
-    acts.sort_by_key(|(act_type, act)| {
-        (
-            order.iter().position(|t| t == act_type),
-            act.name.to_lowercase(),
-        )
-    });
-    Ok(acts.into_iter().map(|(_, act)| act).collect())
-}
-
-impl ClubData {
-    /// Where the club's mail goes: the club contact and the club
-    /// representative, each address once.
-    pub fn recipients(&self) -> Vec<String> {
-        let mut recipients = vec![self.contact_email.clone()];
-        if self.has_own_representative() {
-            recipients.push(self.representative_email.clone());
-        }
-        recipients
-    }
-
-    /// Whether the club named a club representative other than its contact.
-    fn has_own_representative(&self) -> bool {
-        !self
-            .representative_email
-            .eq_ignore_ascii_case(&self.contact_email)
-    }
-
-    /// What is still to pay, in €; negative when overpaid.
-    pub fn open_amount(&self) -> f64 {
-        round_cents(self.amount_due - self.paid)
-    }
-
-    /// A made-up club, to try a template before sending it.
-    fn sample() -> Self {
-        let id = ClubId(Uuid::nil());
-        Self {
-            id,
-            name: "RSV Muster".to_string(),
-            code: club_code(&id),
-            contact_name: "Max Mustermann".to_string(),
-            contact_email: "max@example.org".to_string(),
-            representative_name: "Max Mustermann".to_string(),
-            representative_email: "max@example.org".to_string(),
-            amount_due: 45.0,
-            paid: 15.0,
-            missing_deployments: 2,
-            missing_music: vec![ActWithoutMusic {
-                name: "Lea Muster".to_string(),
-                act_type: ActType::Single.german_name(),
-                title: "Sommerwind".to_string(),
-            }],
-        }
-    }
-
-    /// Every club, by name.
-    pub async fn load_all(
-        db: &sqlx::SqlitePool,
-        jury_registration: bool,
-    ) -> sqlx::Result<Vec<Self>> {
-        let ids = sqlx::query_scalar!(r#"SELECT id as "id!: ClubId" FROM clubs ORDER BY name"#)
-            .fetch_all(db)
-            .await?;
-        Ok(Self::load(db, &ids, jury_registration)
-            .await?
-            .unwrap_or_default())
-    }
-
-    /// The clubs `ids`, in that order; `None` if one doesn't exist.
-    /// `jury_registration`: whether the feature is on, see `Features`.
-    pub async fn load(
-        db: &sqlx::SqlitePool,
-        ids: &[ClubId],
-        jury_registration: bool,
-    ) -> sqlx::Result<Option<Vec<Self>>> {
-        let competition = Competition::current(db).await?;
-        let mut fees = fees_by_club(db, competition.as_ref(), jury_registration).await?;
-        let paid = paid_by_club(db).await?;
-        let mut clubs = Vec::with_capacity(ids.len());
-        for &id in ids {
-            let row = sqlx::query!(
-                r#"
-                SELECT
-                    clubs.name,
-                    users.name as contact_name,
-                    users.email as contact_email,
-                    COALESCE(clubs.responsible_name, users.name) as "representative_name!: String",
-                    COALESCE(clubs.responsible_email, users.email) as "representative_email!: String"
-                FROM clubs
-                JOIN users ON users.id = clubs.owner_id
-                WHERE clubs.id = $1
-                "#,
-                id
-            )
-            .fetch_optional(db)
-            .await?;
-            let Some(row) = row else {
-                return Ok(None);
-            };
-            let fees = fees.remove(&id).unwrap_or_default();
-            clubs.push(Self {
-                id,
-                name: row.name,
-                code: club_code(&id),
-                contact_name: row.contact_name,
-                contact_email: row.contact_email,
-                representative_name: row.representative_name,
-                representative_email: row.representative_email,
-                amount_due: fees.amount_due.total,
-                paid: paid.get(&id).copied().unwrap_or(0.0),
-                missing_deployments: fees.jury.map_or(0, |jury| jury.missing),
-                missing_music: acts_without_music(db, id).await?,
-            });
-        }
-        Ok(Some(clubs))
+/// A made-up club, to try a template before sending it.
+fn sample_club() -> ClubData {
+    let id = ClubId(Uuid::nil());
+    ClubData {
+        id,
+        name: "RSV Muster".to_string(),
+        code: club_code(&id),
+        contact_name: "Max Mustermann".to_string(),
+        contact_email: "max@example.org".to_string(),
+        representative_name: "Max Mustermann".to_string(),
+        representative_email: "max@example.org".to_string(),
+        amount_due: 45.0,
+        paid: 15.0,
+        missing_deployments: 2,
+        missing_music: vec![ActWithoutMusic {
+            name: "Lea Muster".to_string(),
+            act_type: ActType::Single.german_name(),
+            title: "Sommerwind".to_string(),
+        }],
     }
 }
 
@@ -412,19 +229,6 @@ pub struct ExtraRecipient {
     pub club_id: Option<ClubId>,
 }
 
-/// One mail as it goes out.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
-pub struct RenderedMail {
-    /// The club whose data it was rendered with; `null` for a typed-in
-    /// address without a club.
-    pub club_id: Option<ClubId>,
-    pub club_name: Option<String>,
-    /// Everyone it's addressed to, in one mail.
-    pub to: Vec<String>,
-    pub subject: String,
-    pub body: String,
-}
-
 /// A template that compiled, uses only variables its sender may use and
 /// rendered for a sample club.
 struct MailTemplate<'a> {
@@ -487,7 +291,7 @@ impl<'a> MailTemplate<'a> {
                 .filter(|name| uses.contains(*name))
                 .collect(),
         };
-        template.render(Some(&ClubData::sample()))?;
+        template.render(Some(&sample_club()))?;
         Ok(template)
     }
 
@@ -540,7 +344,7 @@ pub const NO_REPLY_NOTE: &str =
 /// a club given twice, or a typed-in address that already gets that
 /// club's mail, adds nothing.
 pub async fn prepare(
-    db: &sqlx::SqlitePool,
+    repo: &dyn Db,
     input: &ClubMailInput,
     access: Access,
 ) -> Result<PreparedMails, HttpError> {
@@ -588,13 +392,14 @@ pub async fn prepare(
             club_ids.push(*id);
         }
     }
-    let clubs: HashMap<ClubId, ClubData> = ClubData::load(db, &club_ids, access.jury_registration)
+    let clubs: HashMap<ClubId, ClubData> = repo
+        .load_mail_clubs(&club_ids, access.jury_registration)
         .await?
         .ok_or(HttpError::NotFound)?
         .into_iter()
         .map(|club| (club.id, club))
         .collect();
-    let reply_to = reply_to(db).await?;
+    let reply_to = repo.mail_reply_to().await?;
 
     // Each mail once per address: (address, club whose data it has).
     let mut covered: HashSet<(String, Option<ClubId>)> = HashSet::new();
@@ -682,8 +487,9 @@ pub struct ClubMailOptions {
 }
 
 /// The mail form's clubs, and the variables `access` allows.
-pub async fn options(db: &sqlx::SqlitePool, access: Access) -> sqlx::Result<ClubMailOptions> {
-    let clubs = ClubData::load_all(db, access.jury_registration)
+pub async fn options(repo: &dyn Db, access: Access) -> Result<ClubMailOptions, DbError> {
+    let clubs = repo
+        .load_all_mail_clubs(access.jury_registration)
         .await?
         .into_iter()
         .map(|club| {
@@ -711,134 +517,7 @@ pub async fn options(db: &sqlx::SqlitePool, access: Access) -> sqlx::Result<Club
                 description: variable.description,
             })
             .collect(),
-        reply_to: reply_to(db).await?,
-    })
-}
-
-/// Where answers to club mails go: the competition's contact email.
-async fn reply_to(db: &sqlx::SqlitePool) -> sqlx::Result<Option<String>> {
-    Ok(Competition::current(db)
-        .await?
-        .and_then(|competition| competition.contact_email)
-        .filter(|email| !email.trim().is_empty()))
-}
-
-/// What became of one mail.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    sqlx::Type,
-    utoipa::ToSchema,
-)]
-#[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "TEXT", rename_all = "snake_case")]
-pub enum DeliveryStatus {
-    /// Not handed to the mail server yet, e.g. the server stopped meanwhile.
-    Pending,
-    Sent,
-    Failed,
-}
-
-/// A club mail in the log: as written, with every mail as it went out.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
-pub struct SentClubMail {
-    pub id: ClubMailId,
-    #[serde(with = "time::serde::rfc3339")]
-    pub sent_at: OffsetDateTime,
-    pub sender_name: String,
-    /// The templates as written.
-    pub subject: String,
-    pub body: String,
-    pub reply_to: Option<String>,
-    pub mails: Vec<SentMail>,
-}
-
-/// One mail of a club mail as it went out.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
-pub struct SentMail {
-    #[serde(skip)]
-    id: i64,
-    /// The club whose data it was rendered with, and its name at the time.
-    pub club_id: Option<ClubId>,
-    pub club_name: Option<String>,
-    pub to: Vec<String>,
-    pub subject: String,
-    pub body: String,
-    pub status: DeliveryStatus,
-    /// Why it failed.
-    pub error: Option<String>,
-}
-
-/// Keeps `prepared`, a club mail `author` writes, before anything goes out:
-/// every mail as pending. Returns the log entry, mails in the order of
-/// `prepared`, for [`send`].
-pub async fn record(
-    db: &sqlx::SqlitePool,
-    author: &Auth,
-    input: &ClubMailInput,
-    prepared: PreparedMails,
-) -> sqlx::Result<SentClubMail> {
-    let id = ClubMailId::new();
-    let sent_at = OffsetDateTime::now_utc();
-    let mut tx = begin_write(db).await?;
-    sqlx::query!(
-        r#"
-        INSERT INTO club_mails (id, sent_at, user_id, user_name, subject, body, reply_to)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        "#,
-        id,
-        sent_at,
-        author.user_id,
-        author.name,
-        input.subject,
-        input.body,
-        prepared.reply_to,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let mut mails = Vec::with_capacity(prepared.mails.len());
-    for mail in prepared.mails {
-        let addresses = serde_json::to_string(&mail.to).expect("addresses serialize");
-        let mail_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO club_mail_messages (mail_id, club_id, club_name, addresses, subject, body)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id as "id!: i64"
-            "#,
-            id,
-            mail.club_id,
-            mail.club_name,
-            addresses,
-            mail.subject,
-            mail.body,
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        mails.push(SentMail {
-            id: mail_id,
-            club_id: mail.club_id,
-            club_name: mail.club_name,
-            to: mail.to,
-            subject: mail.subject,
-            body: mail.body,
-            status: DeliveryStatus::Pending,
-            error: None,
-        });
-    }
-    tx.commit().await?;
-    Ok(SentClubMail {
-        id,
-        sent_at,
-        sender_name: author.name.clone(),
-        subject: input.subject.clone(),
-        body: input.body.clone(),
-        reply_to: prepared.reply_to,
-        mails,
+        reply_to: repo.mail_reply_to().await?,
     })
 }
 
@@ -847,7 +526,7 @@ pub async fn record(
 /// database doesn't take, doesn't keep the others from going out. Owns its
 /// arguments, so it can run on after the request is gone.
 pub async fn send(
-    db: sqlx::SqlitePool,
+    repo: DbHandle,
     mailer: Arc<Mailer>,
     mut club_mail: SentClubMail,
 ) -> SentClubMail {
@@ -868,14 +547,9 @@ pub async fn send(
                 (DeliveryStatus::Failed, Some(error.to_string()))
             }
         };
-        if let Err(error) = sqlx::query!(
-            "UPDATE club_mail_messages SET status = $1, error = $2 WHERE id = $3",
-            mail.status,
-            mail.error,
-            mail.id,
-        )
-        .execute(&db)
-        .await
+        if let Err(error) = repo
+            .set_mail_status(mail.id, mail.status, mail.error.as_deref())
+            .await
         {
             error!(
                 "Couldn't keep the status of club mail {} to {to:?}: {error}",
@@ -884,74 +558,6 @@ pub async fn send(
         }
     }
     club_mail
-}
-
-/// Every club mail sent, newest first.
-pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
-    let club_mails = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: ClubMailId",
-            sent_at as "sent_at!: OffsetDateTime",
-            user_name,
-            subject,
-            body,
-            reply_to
-        FROM club_mails
-        ORDER BY sent_at DESC, id DESC
-        "#
-    )
-    .fetch_all(db)
-    .await?;
-    let mails = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: i64",
-            mail_id as "mail_id!: ClubMailId",
-            club_id as "club_id: ClubId",
-            club_name,
-            addresses,
-            subject,
-            body,
-            status as "status!: DeliveryStatus",
-            error
-        FROM club_mail_messages
-        ORDER BY id
-        "#
-    )
-    .fetch_all(db)
-    .await?;
-    let mut by_club_mail: HashMap<ClubMailId, Vec<SentMail>> = HashMap::new();
-    for row in mails {
-        by_club_mail.entry(row.mail_id).or_default().push(SentMail {
-            id: row.id,
-            club_id: row.club_id,
-            club_name: row.club_name,
-            to: serde_json::from_str(&row.addresses).unwrap_or_else(|error| {
-                warn!(
-                    "Club mail {} has unreadable addresses: {error}",
-                    row.mail_id
-                );
-                Vec::new()
-            }),
-            subject: row.subject,
-            body: row.body,
-            status: row.status,
-            error: row.error,
-        });
-    }
-    Ok(club_mails
-        .into_iter()
-        .map(|club_mail| SentClubMail {
-            mails: by_club_mail.remove(&club_mail.id).unwrap_or_default(),
-            id: club_mail.id,
-            sent_at: club_mail.sent_at,
-            sender_name: club_mail.user_name,
-            subject: club_mail.subject,
-            body: club_mail.body,
-            reply_to: club_mail.reply_to,
-        })
-        .collect())
 }
 
 #[cfg(test)]

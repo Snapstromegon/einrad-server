@@ -33,7 +33,6 @@ use tracing::error;
 
 use crate::{
     competition::{Competition, Features},
-    fees,
     http_server::{HttpServerOptions, routes::query::predict_timeplan::predict},
     reloadable_sqlite::ReloadableSqlite,
     timeplan::Audience,
@@ -253,7 +252,11 @@ impl Metrics {
     }
 
     /// Reads the database counts into the gauges.
-    async fn refresh(&self, db: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
+    async fn refresh(
+        &self,
+        db: &sqlx::SqlitePool,
+        repo: &dyn db_core::Db,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let set = |family: &GaugeFamily, rows: Vec<(Labels, i64)>| {
             family.clear();
             for (label_set, value) in rows {
@@ -431,21 +434,14 @@ impl Metrics {
                 .collect(),
         );
 
-        let paid =
-            sqlx::query_scalar!(r#"SELECT COALESCE(SUM(amount), 0.0) as "paid!: f64" FROM bookings WHERE club_id IS NOT NULL"#)
-                .fetch_one(db)
-                .await?;
+        let paid = repo.paid_by_club().await?.values().sum();
         self.payments_received.set(paid);
         self.fees_due.set(
-            fees::fees_by_club(
-                db,
-                competition.as_ref(),
-                Features::of(competition.as_ref()).jury_registration,
-            )
-            .await?
-            .values()
-            .map(|fees| fees.amount_due.total)
-            .sum(),
+            repo.fees_by_club(Features::of(competition.as_ref()).jury_registration)
+                .await?
+                .values()
+                .map(|fees| fees.amount_due.total)
+                .sum(),
         );
 
         let performed = sqlx::query_scalar!(
@@ -504,6 +500,7 @@ pub fn metrics() -> &'static Metrics {
 /// `GET /metrics`: the metrics in the OpenMetrics text format.
 pub async fn metrics_handler(
     Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<db_core::DbHandle>,
     Extension(options): Extension<std::sync::Arc<HttpServerOptions>>,
     headers: HeaderMap,
 ) -> Response {
@@ -520,7 +517,7 @@ pub async fn metrics_handler(
     }
 
     let db = db.get().await.clone();
-    if let Err(e) = metrics().refresh(&db).await {
+    if let Err(e) = metrics().refresh(&db, &*repo).await {
         error!("Couldn't read the metrics from the database: {e}");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
@@ -589,7 +586,8 @@ mod tests {
         headers.insert(header::AUTHORIZATION, "Bearer x".parse().unwrap());
 
         let response = metrics_handler(
-            Extension(ReloadableSqlite::new(db, String::new())),
+            Extension(ReloadableSqlite::new(db.clone(), String::new())),
+            Extension(db_sqlite::SqliteRepo::from_pool(db).into_handle()),
             Extension(Arc::new(options)),
             headers,
         )

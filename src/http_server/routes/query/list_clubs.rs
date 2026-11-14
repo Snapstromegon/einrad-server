@@ -4,12 +4,10 @@ use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
-    bookings::paid_by_club,
-    competition::{Competition, Features},
-    fees::{AmountDue, fees_by_club},
+    competition::Features,
+    fees::AmountDue,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryObligation,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     utils::club_code,
 };
@@ -63,10 +61,9 @@ pub struct ClubContacts {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(repo, db))]
+#[instrument(skip(repo))]
 pub async fn list_clubs(
     Extension(repo): Extension<DbHandle>,
-    Extension(db): Extension<ReloadableSqlite>,
     _: Granted<permit::ViewClubs>,
     balances: Option<Granted<permit::ViewClubBalances>>,
     contacts: Option<Granted<permit::ViewClubContacts>>,
@@ -75,11 +72,9 @@ pub async fn list_clubs(
     let (balances, contacts) = (balances.is_some(), contacts.is_some());
     let jury = balances || jury.is_some();
     let rows = repo.list_clubs().await?;
-    let db = db.get().await.clone();
-    let competition = Competition::current(&db).await?;
-    let paid = paid_by_club(&db).await?;
-    let features = Features::of(competition.as_ref());
-    let mut fees = fees_by_club(&db, competition.as_ref(), features.jury_registration).await?;
+    let paid = repo.paid_by_club().await?;
+    let features = Features::from_repo(&*repo).await?;
+    let mut fees = repo.fees_by_club(features.jury_registration).await?;
     let clubs = rows
         .into_iter()
         .map(|row| {

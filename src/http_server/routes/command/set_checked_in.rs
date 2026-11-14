@@ -1,7 +1,6 @@
 use crate::ids::RiderId;
-use std::collections::HashSet;
-
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::{info, instrument};
@@ -9,7 +8,6 @@ use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -43,46 +41,19 @@ pub struct SetCheckedInBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn set_checked_in(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::CheckIn>,
     Json(body): Json<SetCheckedInBody>,
 ) -> Result<Json<SetCheckedInResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-
     let checked_in_at = body.checked_in.then(OffsetDateTime::now_utc);
     info!(
         "Setting check-in of {} riders to {:?}",
         body.rider_ids.len(),
         checked_in_at
     );
-    let rider_ids: HashSet<RiderId> = body.rider_ids.into_iter().collect();
-    for rider_id in rider_ids {
-        let result = if let Some(checked_in_at) = checked_in_at {
-            sqlx::query!(
-                "UPDATE rider SET checked_in_at = COALESCE(checked_in_at, $1) WHERE id = $2",
-                checked_in_at,
-                rider_id,
-            )
-            .execute(&mut *transaction)
-            .await?
-        } else {
-            sqlx::query!(
-                "UPDATE rider SET checked_in_at = NULL WHERE id = $1",
-                rider_id
-            )
-            .execute(&mut *transaction)
-            .await?
-        };
-        if result.rows_affected() == 0 {
-            return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-        }
-    }
-
-    transaction.commit().await?;
-
+    repo.set_checked_in(&body.rider_ids, checked_in_at).await?;
     Ok(Json(SetCheckedInResponse { checked_in_at }))
 }

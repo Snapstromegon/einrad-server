@@ -12,7 +12,11 @@ use sqlx::SqlitePool;
 use crate::reloadable_sqlite::ReloadableSqlite;
 
 mod auth;
+mod bookings;
+mod check_in;
+mod club_mails;
 mod clubs;
+mod fees;
 mod groups;
 mod riders;
 mod settings;

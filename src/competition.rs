@@ -108,6 +108,17 @@ impl Features {
             .resolve()
     }
 
+    /// The features of the current competition, read through the database
+    /// trait. Read per request, so a change applies without a restart.
+    pub async fn from_repo(repo: &dyn db_core::Db) -> Result<ResolvedFeatures, db_core::DbError> {
+        let flags = repo.feature_flags().await?;
+        Ok(Features {
+            jury_registration: flags.jury_registration,
+            moderation_input: flags.moderation_input,
+        }
+        .resolve())
+    }
+
     /// The features of the current competition. Read per request, so a
     /// change applies without a restart.
     pub async fn current(db: impl sqlx::SqliteExecutor<'_>) -> sqlx::Result<ResolvedFeatures> {

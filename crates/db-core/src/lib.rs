@@ -7,10 +7,16 @@ use std::sync::Arc;
 
 pub mod act_type;
 pub mod auth;
+pub mod bookings;
+pub mod check_in;
+pub mod club_mails;
 pub mod clubs;
+pub mod fee_waivers;
+pub mod fees;
 pub mod gender;
 pub mod groups;
 pub mod ids;
+pub mod jury;
 pub mod people;
 pub mod riders;
 pub mod roles;
@@ -18,7 +24,11 @@ pub mod settings;
 pub mod users;
 
 pub use auth::AuthRepo;
+pub use bookings::BookingsRepo;
+pub use check_in::CheckInRepo;
+pub use club_mails::ClubMailsRepo;
 pub use clubs::ClubsRepo;
+pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
 pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
@@ -32,7 +42,19 @@ pub use users::UsersRepo;
 /// decides how to make it atomic.
 #[async_trait::async_trait]
 pub trait Db:
-    AuthRepo + UsersRepo + SettingsRepo + ClubsRepo + RidersRepo + GroupsRepo + Send + Sync + 'static
+    AuthRepo
+    + UsersRepo
+    + SettingsRepo
+    + ClubsRepo
+    + RidersRepo
+    + GroupsRepo
+    + BookingsRepo
+    + FeesRepo
+    + CheckInRepo
+    + ClubMailsRepo
+    + Send
+    + Sync
+    + 'static
 {
     /// Reopens the database after its file was replaced from the outside. A
     /// no-op for backends that have no file.

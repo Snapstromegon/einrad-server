@@ -116,3 +116,31 @@ pub trait ClubsRepo {
     /// club that created it.
     async fn ensure_act_access(&self, actor: &Actor, act: ActId) -> Result<(), RegistrationError>;
 }
+
+/// Letters and digits that can't be confused with each other (no 0/O, 1/I).
+const CLUB_CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// A short code for a club's transfer reference, like "EV-K7Q3".
+///
+/// It comes from the random end of the club's id, so it stays the same when
+/// the club is renamed and needs no storage. Four characters give about a
+/// million codes; with a few dozen clubs a clash is very unlikely, and the
+/// club name is part of the reference anyway.
+///
+/// ```
+/// use db_core::clubs::club_code;
+/// use db_core::ids::ClubId;
+///
+/// let id: ClubId = "0199d4a2-7c3e-7000-8000-00000000abcd".parse().unwrap();
+/// assert_eq!(club_code(&id), club_code(&id));
+/// assert!(club_code(&id).starts_with("EV-"));
+/// assert_eq!(club_code(&id).len(), 7);
+/// ```
+pub fn club_code(id: &ClubId) -> String {
+    let bytes = id.0.as_bytes();
+    let bits = u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+    let code: String = (0..4)
+        .map(|i| CLUB_CODE_ALPHABET[((bits >> (5 * i)) & 31) as usize] as char)
+        .collect();
+    format!("EV-{code}")
+}

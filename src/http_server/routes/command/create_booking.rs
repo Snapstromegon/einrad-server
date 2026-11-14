@@ -1,13 +1,13 @@
 use crate::ids::BookingId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::{self, Actor, Booking, BookingAction, BookingInput},
+    bookings::BookingInput,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -31,52 +31,18 @@ pub struct CreateBookingResponse {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn create_booking(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<BookingInput>,
 ) -> Result<Json<CreateBookingResponse>, HttpError> {
     let input = body
         .checked()
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    if let Some(club_id) = input.club_id
-        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = $1", club_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_none()
-    {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    let id = BookingId::new();
-    info!(
-        "Booking {id}: {} € for club {:?}",
-        input.amount, input.club_id
-    );
-    sqlx::query!(
-        "INSERT INTO bookings (id, amount, date, note, club_id, ignored) VALUES ($1, $2, $3, $4, $5, $6)",
-        id,
-        input.amount,
-        input.date,
-        input.note,
-        input.club_id,
-        input.ignored,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let after = Booking::load(&mut tx, id).await?;
-    bookings::log_change(
-        &mut tx,
-        id,
-        &Actor::of(&granted),
-        BookingAction::Created,
-        None,
-        after.as_ref(),
-    )
-    .await?;
-    tx.commit().await?;
+    let id = repo
+        .create_booking(&granted.booking_actor(), &input)
+        .await?;
     Ok(Json(CreateBookingResponse { id }))
 }
