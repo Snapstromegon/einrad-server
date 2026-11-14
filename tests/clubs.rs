@@ -753,7 +753,7 @@ async fn club_code_is_stable_across_renames() {
     assert_eq!(code(&after.body), first);
 }
 
-fn find<'a>(riders: &'a [Value], id: Uuid) -> &'a Value {
+fn find(riders: &[Value], id: Uuid) -> &Value {
     riders.iter().find(|s| s["id"] == id.to_string()).unwrap()
 }
 
