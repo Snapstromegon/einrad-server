@@ -102,7 +102,7 @@ pub async fn in_memory() -> SqlitePool {
 /// [`in_memory`] with the migrations applied.
 pub async fn in_memory_migrated() -> SqlitePool {
     let db = in_memory().await;
-    sqlx::migrate!("./migrations")
+    crate::MIGRATOR
         .run(&db)
         .await
         .expect("migrations apply to an empty database");
@@ -118,7 +118,7 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let path =
-                std::env::temp_dir().join(format!("reloadable-sqlite-{}", uuid::Uuid::new_v4()));
+                std::env::temp_dir().join(format!("reloadable-sqlite-{}", uuid::Uuid::now_v7()));
             std::fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -140,7 +140,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO marker (value) VALUES (?)")
+        sqlx::query("INSERT INTO marker (value) VALUES ($1)")
             .bind(value)
             .execute(&pool)
             .await
@@ -226,7 +226,7 @@ mod tests {
                         .fetch_one(&mut *tx)
                         .await?;
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                    sqlx::query("UPDATE counter SET value = ?")
+                    sqlx::query("UPDATE counter SET value = $1")
                         .bind(value + 1)
                         .execute(&mut *tx)
                         .await?;

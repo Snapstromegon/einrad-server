@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use super::preview_competition_import::{CompetitionFileBody, parse};
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     image_fetch::ImageFetcher,
     photos::Photos,
@@ -58,17 +58,17 @@ pub struct RemapFileDownload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options, photos, body))]
+#[instrument(skip(db, repo, http_options, photos, body))]
 #[axum::debug_handler]
 pub async fn import_competition(
     Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Extension(photos): Extension<Arc<Photos>>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<CompetitionFileBody>,
 ) -> Result<Json<ImportCompetitionResponse>, HttpError> {
     let file = parse(&body)?;
-    let reloadable = db.clone();
     let db = db.get().await.clone();
     let report = seed::apply(&db, Some(&file), true, &http_options.data_path)
         .await
@@ -84,10 +84,10 @@ pub async fn import_competition(
     // New URL images are downloaded in the background: the import doesn't
     // wait for other servers (#291).
     if !matches!(outcome, ImportOutcome::Unchanged) {
-        ImageFetcher::shared().refresh_in_background(reloadable, None);
+        ImageFetcher::shared().refresh_in_background(repo.clone(), None);
     }
     // The poller would notice within seconds; the info board shouldn't wait.
-    let competition = Competition::current(&db).await?;
+    let competition = repo.current_competition().await?;
     photos.configure(competition.and_then(|c| c.photos).as_ref());
 
     let remap_file = if dropped.judge_registrations.is_empty() {

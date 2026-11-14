@@ -2,7 +2,7 @@
 all: frontend backend
 	
 migrate-db:
-	sqlx migrate run
+	sqlx migrate run --source crates/db-sqlite/migrations
 
 install-frontend:
 	cd frontend && npm install

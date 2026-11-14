@@ -8,7 +8,8 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 const BEFORE: i64 = 20261118120000;
-const MIGRATION_FILE: &str = include_str!("../migrations/20261119120000_uuid_primary_keys.up.sql");
+const MIGRATION_FILE: &str =
+    include_str!("../crates/db-sqlite/migrations/20261119120000_uuid_primary_keys.up.sql");
 
 /// The fixed timestamp baked into the migration, 2026-11-14T00:00:00Z.
 const BASE_MS: u64 = 1_794_614_400_000;
@@ -45,9 +46,9 @@ async fn ids(db: &SqlitePool, sql: &'static str) -> Vec<Vec<u8>> {
 /// version 4) and Jugend (already v7); finals Finale EM (random) and Finale
 /// KG (a version 7 ID with the wrong variant, so not valid); slots, bookings,
 /// registrations, assignments, categories and the timeplan refer to them.
-async fn before() -> (SqlitePool, sqlx::migrate::Migrator) {
+async fn before() -> (SqlitePool, &'static sqlx::migrate::Migrator) {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE, &db).await.unwrap();
     for sql in [
         "INSERT INTO heats (id, name, code) VALUES \
@@ -400,14 +401,14 @@ async fn heats_and_finals_are_keyed_by_id_and_a_missing_id_is_an_error() {
     // Names and codes stay unique.
     let id = Uuid::now_v7();
     assert!(
-        sqlx::query("INSERT INTO heats (id, name, code) VALUES (?, 'Einzel EM', 'X')")
+        sqlx::query("INSERT INTO heats (id, name, code) VALUES ($1, 'Einzel EM', 'X')")
             .bind(id)
             .execute(&db)
             .await
             .is_err()
     );
     assert!(
-        sqlx::query("INSERT INTO heats (id, name, code) VALUES (?, 'Anders', 'E EM')")
+        sqlx::query("INSERT INTO heats (id, name, code) VALUES ($1, 'Anders', 'E EM')")
             .bind(id)
             .execute(&db)
             .await

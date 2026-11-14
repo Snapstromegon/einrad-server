@@ -4,10 +4,9 @@
 //! the pool's write lock: pre-restore snapshot, close, atomic rename, reopen,
 //! migrate; any failure after the close puts the snapshot back.
 
-use crate::ids::ActId;
+use db_core::{acts::ActSong, ids::ActId};
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use sqlx::{
     SqlitePool,
     migrate::Migrator,
@@ -15,7 +14,6 @@ use sqlx::{
 };
 use thiserror::Error;
 use time::PrimitiveDateTime;
-use utoipa::ToSchema;
 
 use crate::{
     db_backup::{self, BackupError},
@@ -31,19 +29,7 @@ pub struct BackupCheck {
     pub pending_migrations: Vec<String>,
 }
 
-/// An act whose song file isn't in the data directory.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct MissingSong {
-    pub act_id: ActId,
-    /// The act's name, or the group's.
-    pub name: String,
-    /// The act's club(s), if known.
-    pub club: Option<String>,
-    /// The file name of the original upload.
-    pub song_file_name: Option<String>,
-    /// The expected file, relative to the data directory.
-    pub song_file: String,
-}
+pub use db_core::acts::MissingSong;
 
 #[derive(Debug, Error)]
 pub enum RestoreError {
@@ -105,7 +91,7 @@ async fn check_pool(pool: &SqlitePool, migrator: &Migrator) -> Result<BackupChec
 
     let has_table = |name: &'static str| async move {
         sqlx::query_scalar::<_, String>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = $1",
         )
         .bind(name)
         .fetch_optional(pool)
@@ -179,6 +165,15 @@ pub async fn missing_songs(
     pool: &SqlitePool,
     data_path: &Path,
 ) -> Result<Vec<MissingSong>, sqlx::Error> {
+    Ok(db_core::acts::missing_songs(
+        act_songs(pool).await?,
+        data_path,
+    ))
+}
+
+/// Every act with a song, by name. See [`missing_songs`] for the schema
+/// fallback.
+pub(crate) async fn act_songs(pool: &SqlitePool) -> Result<Vec<ActSong>, sqlx::Error> {
     type Row = (ActId, String, Option<String>, Option<String>, String);
     let rich = sqlx::query_as::<_, Row>(
         r#"
@@ -212,16 +207,13 @@ pub async fn missing_songs(
     };
     Ok(rows
         .into_iter()
-        .filter(|(.., song_file)| !data_path.join(song_file).is_file())
-        .map(
-            |(act_id, name, club, song_file_name, song_file)| MissingSong {
-                act_id,
-                name,
-                club,
-                song_file_name,
-                song_file,
-            },
-        )
+        .map(|(act_id, name, club, song_file_name, song_file)| ActSong {
+            act_id,
+            name,
+            club,
+            song_file_name,
+            song_file,
+        })
         .collect())
 }
 
@@ -257,7 +249,7 @@ pub async fn restore(
         db,
         backup,
         force,
-        &sqlx::migrate!("./migrations"),
+        &crate::MIGRATOR,
         db_backup::now_local(),
         is_playing,
     )
@@ -412,7 +404,7 @@ async fn swap_in_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::UserId;
+    use db_core::ids::UserId;
     use sqlx::migrate::{Migration, MigrationType};
     use time::macros::datetime;
 
@@ -441,14 +433,14 @@ mod tests {
 
     async fn add_admin(pool: &SqlitePool, name: &str) {
         let id = UserId::new();
-        sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, 'x')")
+        sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, $2, true, $3, 'x')")
             .bind(id)
             .bind(format!("{id}@example.org"))
             .bind(name)
             .execute(pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO user_roles (user_id, role) VALUES (?, 'admin')")
+        sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')")
             .bind(id)
             .execute(pool)
             .await
@@ -457,7 +449,7 @@ mod tests {
 
     /// The embedded migrations plus one that fails.
     fn failing_migrator() -> Migrator {
-        let full = sqlx::migrate!("./migrations");
+        let full = &crate::MIGRATOR;
         let mut migrations = full.migrations.to_vec();
         migrations.push(Migration::new(
             99_991_231_000_000,
@@ -477,7 +469,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
@@ -505,7 +497,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
@@ -544,7 +536,7 @@ mod tests {
         let path = dir.0.join("db.sqlite");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let pool = reloadable_sqlite::connect(&url).await.unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::MIGRATOR.run(&pool).await.unwrap();
         add_admin(&pool, "Vorher").await;
         let db = ReloadableSqlite::new(pool.clone(), url);
         let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));

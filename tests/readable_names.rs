@@ -19,9 +19,9 @@ async fn pairs(db: &sqlx::SqlitePool, sql: &'static str) -> Vec<(String, Option<
 /// A database before the migration. Heats: "E EM 1" with a description,
 /// "E EM 2" without, "KG1" and "KG2" with the same description. Finals:
 /// "E EM" with a description and "E EW" without.
-async fn before() -> (sqlx::SqlitePool, sqlx::migrate::Migrator) {
+async fn before() -> (sqlx::SqlitePool, &'static sqlx::migrate::Migrator) {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE_READABLE_NAMES, &db).await.unwrap();
     exec(
         &db,

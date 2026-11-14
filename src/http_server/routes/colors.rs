@@ -11,19 +11,19 @@ use axum::{
     },
     response::{IntoResponse, Response},
 };
+use db_core::DbHandle;
 use tracing::warn;
 
 use super::etag::{fnv1a, if_none_match};
-use crate::{colors, competition::Competition, reloadable_sqlite::ReloadableSqlite};
+use crate::colors;
 
 /// The stylesheet with the competition's colors; without a competition or
 /// its own colors, it leaves the defaults.
 pub async fn competition_colors(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     request: HeaderMap,
 ) -> Response {
-    let db = db.get().await.clone();
-    let competition = match Competition::current(&db).await {
+    let competition = match repo.current_competition().await {
         Ok(competition) => competition,
         Err(e) => {
             warn!("Couldn't load the competition's colors: {e}");

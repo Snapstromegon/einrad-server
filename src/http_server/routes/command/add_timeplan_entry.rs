@@ -1,15 +1,14 @@
 use crate::ids::{CategoryId, FinalId};
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    finals,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    timeplan::{EntryFields, EntryKind, entry_ids, set_entry_order},
+    timeplan::{EntryFields, EntryKind},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -65,10 +64,10 @@ pub struct AddTimeplanEntryBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn add_timeplan_entry(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<AddTimeplanEntryBody>,
 ) -> Result<Json<AddTimeplanEntryResponse>, HttpError> {
@@ -86,55 +85,9 @@ pub async fn add_timeplan_entry(
             .with_internal(body.internal)
     })
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    if let Some(final_id) = fields.final_id {
-        finals::check_plannable(&mut tx, final_id, None)
-            .await
-            .map_err(HttpError::ErrorMessages)?;
-    }
-
-    let id = sqlx::query_scalar!(
-        r#"
-        INSERT INTO timeplan (
-            earliest_start_time,
-            duration_seconds,
-            label,
-            category_id,
-            final_id,
-            kind,
-            einfahrzeit_seconds,
-            show_photos,
-            internal,
-            position
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, (SELECT COALESCE(MAX(position), 0) + 1 FROM timeplan))
-        RETURNING id as "id!"
-        "#,
-        body.earliest_start_time,
-        fields.duration_seconds,
-        fields.label,
-        fields.category_id,
-        fields.final_id,
-        fields.kind,
-        fields.einfahrzeit_seconds,
-        fields.show_photos,
-        fields.internal,
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if let Some(after_id) = body.after_id {
-        let mut ids = entry_ids(&mut tx).await?;
-        ids.retain(|&e| e != id);
-        let index = ids
-            .iter()
-            .position(|&e| e == after_id)
-            .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-        ids.insert(index + 1, id);
-        set_entry_order(&mut tx, &ids).await?;
-    }
-    tx.commit().await?;
+    let id = repo
+        .add_timeplan_entry(&fields, body.earliest_start_time.as_deref(), body.after_id)
+        .await?;
 
     Ok(Json(AddTimeplanEntryResponse { id }))
 }

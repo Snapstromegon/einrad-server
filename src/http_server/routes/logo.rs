@@ -16,6 +16,7 @@ use axum::{
     },
     response::{IntoResponse, Response},
 };
+use db_core::{DbError, DbHandle};
 use time::{
     OffsetDateTime, PrimitiveDateTime, UtcOffset, format_description::BorrowedFormatItem, macros,
 };
@@ -25,7 +26,6 @@ use super::etag::{fnv1a, if_none_match};
 use crate::{
     images::{self, Slot},
     logo::{self, Format},
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 /// Opened on its own, an SVG logo runs no scripts and loads nothing
@@ -43,45 +43,41 @@ const DEFAULT_BREAK_HASH: u64 = fnv1a(images::DEFAULT_BREAK_SVG);
 
 /// The competition's logo, or the built-in default without one.
 pub async fn competition_logo(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     request: HeaderMap,
 ) -> Response {
     let default = Some((logo::DEFAULT_SVG, DEFAULT_LOGO_HASH));
-    serve(db, request, &[Slot::Logo], default).await
+    serve(repo, request, &[Slot::Logo], default).await
 }
 
 /// The info board's break image: the competition's own, else its logo, else
 /// the one built into the binary (#291).
-pub async fn break_image(
-    Extension(db): Extension<ReloadableSqlite>,
-    request: HeaderMap,
-) -> Response {
+pub async fn break_image(Extension(repo): Extension<DbHandle>, request: HeaderMap) -> Response {
     let default = Some((images::DEFAULT_BREAK_SVG, DEFAULT_BREAK_HASH));
-    serve(db, request, &[Slot::Break, Slot::Logo], default).await
+    serve(repo, request, &[Slot::Break, Slot::Logo], default).await
 }
 
 /// A sponsor's logo; 404 if it has none (a sponsor has no default).
 pub async fn sponsor_image(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Path(id): Path<i64>,
     request: HeaderMap,
 ) -> Response {
-    serve(db, request, &[Slot::Sponsor(id)], None).await
+    serve(repo, request, &[Slot::Sponsor(id)], None).await
 }
 
 /// Serves the first image of `slots` that has bytes, else `default` (its
 /// content and hash for the ETag), else 404. The ETag names the image that
 /// answers, so a fallback that changes under it is noticed.
 async fn serve(
-    db: ReloadableSqlite,
+    repo: DbHandle,
     request: HeaderMap,
     slots: &[Slot],
     default: Option<(&'static [u8], u64)>,
 ) -> Response {
-    let db = db.get().await.clone();
     let mut found = None;
     for slot in slots {
-        match images::meta(&db, *slot).await {
+        match repo.image_meta(*slot).await {
             Ok(Some(meta)) => {
                 found = Some(meta);
                 break;
@@ -121,7 +117,7 @@ async fn serve(
     let stored = match found {
         None => None,
         // `None` if it was removed in between.
-        Some((id, _)) => match images::load(&db, id).await {
+        Some((id, _)) => match repo.load_image(id).await {
             Ok(stored) => stored,
             Err(e) => return failed(e),
         },
@@ -152,7 +148,7 @@ fn not_modified(request: &HeaderMap, etag: &str, updated_at: Option<OffsetDateTi
         if updated_at.unix_timestamp() <= since.unix_timestamp())
 }
 
-fn failed(e: sqlx::Error) -> Response {
+fn failed(e: DbError) -> Response {
     warn!("Couldn't load a competition image: {e}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
 }

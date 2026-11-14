@@ -21,6 +21,7 @@ use axum::{
     body::Body,
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
+use db_sqlite::SqliteRepo;
 use einrad_server::ids::{ActId, CategoryId, ClubId, FinalId, HeatId, RiderId, UserId};
 use einrad_server::{
     config::CompetitionFile,
@@ -50,6 +51,7 @@ pub const PASSWORD: &str = "Sicheres-Passwort1";
 
 pub struct TestApp {
     pub db: SqlitePool,
+    pub repo: db_core::DbHandle,
     pub jwt: Arc<JWTConfig>,
     mailpit: Option<Mailpit>,
     data_dir: TempDir,
@@ -136,7 +138,7 @@ pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
 
 /// Publishes the competition's startlist and timeplan, or takes them back.
 pub async fn set_startlist_published(db: &SqlitePool, published: bool) {
-    sqlx::query("UPDATE competition SET startlist_published_at = ?")
+    sqlx::query("UPDATE competition SET startlist_published_at = $1")
         .bind(published.then(OffsetDateTime::now_utc))
         .execute(db)
         .await
@@ -145,18 +147,20 @@ pub async fn set_startlist_published(db: &SqlitePool, published: bool) {
 
 /// Sets the competition's photo settings.
 pub async fn set_photos(db: &SqlitePool, photos: Option<&PhotosSettings>) {
-    sqlx::query("UPDATE competition SET photos_source = ?, photos_user = ?, photos_password = ?")
-        .bind(photos.map(|p| p.source.clone()))
-        .bind(photos.and_then(|p| p.user.clone()))
-        .bind(photos.and_then(|p| p.password.clone()))
-        .execute(db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE competition SET photos_source = $1, photos_user = $2, photos_password = $3",
+    )
+    .bind(photos.map(|p| p.source.clone()))
+    .bind(photos.and_then(|p| p.user.clone()))
+    .bind(photos.and_then(|p| p.password.clone()))
+    .execute(db)
+    .await
+    .unwrap();
 }
 
 /// Sets the competition's `jury_registration` feature: on, off or unset.
 pub async fn set_jury_registration(db: &SqlitePool, on: Option<bool>) {
-    sqlx::query("UPDATE competition SET feature_jury_registration = ?")
+    sqlx::query("UPDATE competition SET feature_jury_registration = $1")
         .bind(on)
         .execute(db)
         .await
@@ -165,7 +169,7 @@ pub async fn set_jury_registration(db: &SqlitePool, on: Option<bool>) {
 
 /// Sets the competition's `moderation_input` feature: on, off or unset.
 pub async fn set_moderation_input(db: &SqlitePool, on: Option<bool>) {
-    sqlx::query("UPDATE competition SET feature_moderation_input = ?")
+    sqlx::query("UPDATE competition SET feature_moderation_input = $1")
         .bind(on)
         .execute(db)
         .await
@@ -176,7 +180,7 @@ pub async fn set_moderation_input(db: &SqlitePool, on: Option<bool>) {
 /// are read per request, so this takes effect immediately.
 pub async fn set_registration_status(db: &SqlitePool, status: &StatusOptions) {
     sqlx::query(
-        "UPDATE competition SET registration_start = ?, registration_end = ?, music_upload_end = ?",
+        "UPDATE competition SET registration_start = $1, registration_end = $2, music_upload_end = $3",
     )
     .bind(status.start_register_date)
     .bind(status.end_register_date)
@@ -190,7 +194,7 @@ impl TestApp {
     /// The id of the heat with the code `name`: the admin API addresses
     /// heats by it.
     pub async fn heat_id(&self, name: &str) -> HeatId {
-        sqlx::query_scalar("SELECT id FROM heats WHERE code = ?")
+        sqlx::query_scalar("SELECT id FROM heats WHERE code = $1")
             .bind(name)
             .fetch_one(&self.db)
             .await
@@ -200,7 +204,7 @@ impl TestApp {
     /// The id of the final with the code `name`: the admin API addresses
     /// finals by it.
     pub async fn final_id(&self, name: &str) -> FinalId {
-        sqlx::query_scalar("SELECT id FROM finals WHERE code = ?")
+        sqlx::query_scalar("SELECT id FROM finals WHERE code = $1")
             .bind(name)
             .fetch_one(&self.db)
             .await
@@ -319,11 +323,13 @@ impl TestApp {
             competition_file_id: competition_file_id.map(Into::into),
         };
         let reloadable = ReloadableSqlite::new(db.clone(), db_url.to_string());
-        let player_hub = PlayerHub::new(reloadable.clone());
+        let repo = SqliteRepo::new(reloadable.clone()).into_handle();
+        let player_hub = PlayerHub::new(repo.clone());
         let photos = Photos::new().unwrap();
         let router = get_api_router(
             Arc::new(options),
             reloadable,
+            repo.clone(),
             Arc::new(mailer),
             jwt.clone(),
             player_hub.clone(),
@@ -331,6 +337,7 @@ impl TestApp {
         );
         Self {
             db,
+            repo,
             jwt,
             mailpit,
             data_dir,
@@ -343,7 +350,7 @@ impl TestApp {
     /// Takes the competition's photo settings and lists the source once,
     /// as the server does every few seconds.
     pub async fn sync_photos(&self) -> Result<(), String> {
-        self.photos.sync(&self.db).await
+        self.photos.sync(self.repo.as_ref()).await
     }
 
     /// Directory uploaded songs are stored in.
@@ -514,7 +521,7 @@ impl TestApp {
     /// The id of the category called `name`: the admin API addresses
     /// categories by it (#356).
     pub async fn category_id(&self, name: &str) -> CategoryId {
-        sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
+        sqlx::query_scalar("SELECT id FROM categories WHERE name = $1")
             .bind(name)
             .fetch_one(&self.db)
             .await
@@ -583,7 +590,7 @@ impl TestApp {
     pub async fn create_user_with_roles(&self, name: &str, roles: &[&str]) -> UserId {
         let id = UserId::new();
         sqlx::query(
-            "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, ?)",
+            "INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, $2, true, $3, $4)",
         )
         .bind(id)
         .bind(email_for(name))
@@ -593,7 +600,7 @@ impl TestApp {
         .await
         .unwrap();
         for role in roles {
-            sqlx::query("INSERT INTO user_roles (user_id, role) VALUES (?, ?)")
+            sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, $2)")
                 .bind(id)
                 .bind(role)
                 .execute(&self.db)
@@ -712,7 +719,7 @@ impl TestApp {
 
     /// Returns the id of the (single) act the rider participates in.
     pub async fn act_of(&self, rider_id: RiderId) -> ActId {
-        sqlx::query_scalar("SELECT act_id FROM act_participants WHERE rider_id = ?")
+        sqlx::query_scalar("SELECT act_id FROM act_participants WHERE rider_id = $1")
             .bind(rider_id)
             .fetch_one(&self.db)
             .await
@@ -723,7 +730,7 @@ impl TestApp {
     /// Unlike [`TestApp::act_of`] this stays unambiguous for riders in groups.
     pub async fn act_of_type(&self, rider_id: RiderId, act_type: &str) -> ActId {
         sqlx::query_scalar(
-            "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
+            "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = $1 AND act_type = $2",
         )
         .bind(rider_id)
         .bind(act_type)

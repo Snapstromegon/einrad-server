@@ -2,10 +2,7 @@ use axum::{extract::FromRequestParts, http::request::Parts};
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::{
-    competition::Competition, http_server::extractor::auth::Auth,
-    reloadable_sqlite::ReloadableSqlite, roles::Permission,
-};
+use crate::{http_server::extractor::auth::Auth, roles::Permission};
 
 #[derive(Debug, Clone, Copy, serde::Serialize, utoipa::ToSchema)]
 pub struct Capabilities {
@@ -100,10 +97,9 @@ where
                 can_register_judge: true,
             });
         }
-        let db = parts.extensions.get::<ReloadableSqlite>().unwrap();
-        let db = db.get().await.clone();
-        match Competition::current(&db).await {
-            Ok(Some(competition)) => Ok(competition.status_options().get_system_status()),
+        let repo = parts.extensions.get::<db_core::DbHandle>().unwrap();
+        match repo.current_competition().await {
+            Ok(Some(competition)) => Ok(StatusOptions::from(&competition).get_system_status()),
             Ok(None) => Ok(Capabilities::CLOSED),
             Err(e) => {
                 error!("Couldn't load the competition: {e}");

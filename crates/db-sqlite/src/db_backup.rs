@@ -230,7 +230,7 @@ async fn newest_backup_with_same_state(pool: &SqlitePool, db_path: &Path) -> Opt
 /// backup of the database file at `db_path` if there are any. A failed backup
 /// aborts before anything is migrated.
 pub async fn migrate_with_backup(pool: &SqlitePool, db_path: &Path) -> Result<(), BackupError> {
-    migrate_with_backup_using(&sqlx::migrate!("./migrations"), pool, db_path, now_local()).await
+    migrate_with_backup_using(&crate::MIGRATOR, pool, db_path, now_local()).await
 }
 
 /// [`migrate_with_backup`] with an explicit migrator and time.
@@ -298,7 +298,7 @@ mod tests {
 
     /// The real migrator cut down to its first `n` migrations (up and down).
     fn partial(n: usize) -> Migrator {
-        let full = sqlx::migrate!("./migrations");
+        let full = &crate::MIGRATOR;
         let ups: Vec<_> = full
             .iter()
             .filter(|m| m.migration_type.is_up_migration())
@@ -343,8 +343,8 @@ mod tests {
         let pool = open(&dir.db()).await;
         partial(1).run(&pool).await.unwrap();
 
-        let full = sqlx::migrate!("./migrations");
-        migrate_with_backup_using(&full, &pool, &dir.db(), T)
+        let full = &crate::MIGRATOR;
+        migrate_with_backup_using(full, &pool, &dir.db(), T)
             .await
             .unwrap();
 
@@ -367,9 +367,9 @@ mod tests {
     async fn an_up_to_date_db_gets_no_backup() {
         let dir = TempDir::new();
         let pool = open(&dir.db()).await;
-        let full = sqlx::migrate!("./migrations");
+        let full = &crate::MIGRATOR;
         full.run(&pool).await.unwrap();
-        migrate_with_backup_using(&full, &pool, &dir.db(), T)
+        migrate_with_backup_using(full, &pool, &dir.db(), T)
             .await
             .unwrap();
         assert!(list_backups(&dir.db()).unwrap().is_empty());
@@ -379,7 +379,7 @@ mod tests {
     async fn a_fresh_db_gets_no_backup() {
         let dir = TempDir::new();
         let pool = open(&dir.db()).await;
-        migrate_with_backup_using(&sqlx::migrate!("./migrations"), &pool, &dir.db(), T)
+        migrate_with_backup_using(&crate::MIGRATOR, &pool, &dir.db(), T)
             .await
             .unwrap();
         assert!(list_backups(&dir.db()).unwrap().is_empty());
@@ -393,8 +393,7 @@ mod tests {
         // A directory where the backup should go can't be written to.
         std::fs::create_dir(backup_path(&dir.db(), T)).unwrap();
 
-        let result =
-            migrate_with_backup_using(&sqlx::migrate!("./migrations"), &pool, &dir.db(), T).await;
+        let result = migrate_with_backup_using(&crate::MIGRATOR, &pool, &dir.db(), T).await;
 
         assert!(matches!(result, Err(BackupError::Write { .. })));
         let applied: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
@@ -530,7 +529,7 @@ mod tests {
             .await
             .unwrap();
         let later = T + time::Duration::seconds(5);
-        migrate_with_backup_using(&sqlx::migrate!("./migrations"), &pool, &dir.db(), later)
+        migrate_with_backup_using(&crate::MIGRATOR, &pool, &dir.db(), later)
             .await
             .unwrap();
 

@@ -17,7 +17,7 @@ async fn app(dir: &TempDir) -> TestApp {
     ))
     .await
     .unwrap();
-    sqlx::migrate!("./migrations").run(&db).await.unwrap();
+    db_sqlite::MIGRATOR.run(&db).await.unwrap();
     TestApp::with_db_dir(db, &dir.0).await
 }
 

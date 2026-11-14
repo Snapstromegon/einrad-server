@@ -1,14 +1,13 @@
 use crate::ids::{ActId, ClubId, RiderId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::Actor,
-    fee_waivers::{self, Target},
+    fee_waivers::Target,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -44,10 +43,10 @@ pub struct SetFeeWaivedBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn set_fee_waived(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<SetFeeWaivedBody>,
 ) -> Result<Json<SetFeeWaivedResponse>, HttpError> {
@@ -61,21 +60,7 @@ pub async fn set_fee_waived(
             ));
         }
     };
-    info!("Setting the fee waiver of {target:?} to {:?}", body.reason);
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    fee_waivers::set_waiver(
-        &mut tx,
-        target,
-        body.reason.as_deref(),
-        &Actor::of(&granted),
-    )
-    .await
-    .map_err(|e| match e {
-        fee_waivers::Error::NotFound => HttpError::NotFound,
-        fee_waivers::Error::ReasonMissing => HttpError::ErrorMessages(e.to_string()),
-        fee_waivers::Error::Database(e) => HttpError::DBError(e),
-    })?;
-    tx.commit().await?;
+    repo.set_fee_waiver(&granted.booking_actor(), target, body.reason.as_deref())
+        .await?;
     Ok(Json(SetFeeWaivedResponse {}))
 }

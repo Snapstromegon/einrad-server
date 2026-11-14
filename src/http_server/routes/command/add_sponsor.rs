@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::image_support::{apply_source, competition_id, svg_logo};
+use super::image_support::{apply_source, svg_logo};
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     image_fetch::ImageFetcher,
     images::{self, Slot},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -51,10 +51,10 @@ pub struct AddSponsorResponse {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, fetcher, body))]
+#[instrument(skip(repo, fetcher, body))]
 #[axum::debug_handler]
 pub async fn add_sponsor(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(fetcher): Extension<Arc<ImageFetcher>>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<AddSponsorBody>,
@@ -94,14 +94,15 @@ pub async fn add_sponsor(
         }
     }
 
-    let pool = db.get().await.clone();
-    let competition_id = competition_id(&pool).await?;
-    let id = images::add_sponsor(&pool, &competition_id, &name, link.as_deref()).await?;
+    let id = repo
+        .add_sponsor(&name, link.as_deref())
+        .await?
+        .ok_or(HttpError::NotFound)?;
     if let Some(logo) = preset_logo {
-        images::set_data(&pool, &competition_id, Slot::Sponsor(id), &logo).await?;
+        repo.set_image_data(Slot::Sponsor(id), &logo).await?;
     } else if has_source {
         apply_source(
-            &db,
+            &repo,
             &fetcher,
             Slot::Sponsor(id),
             body.svg.as_deref(),

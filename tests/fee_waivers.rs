@@ -395,21 +395,21 @@ const FEE_WAIVERS_MIGRATION: i64 = 20261026120000;
 #[tokio::test]
 async fn the_migration_keeps_waived_acts_with_a_reason() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!();
+    let migrator = &db_sqlite::MIGRATOR;
     migrator
         .run_to(FEE_WAIVERS_MIGRATION - 1, &db)
         .await
         .unwrap();
     let owner = UserId::new();
     sqlx::query(
-        "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@cup.test', true, 'Max', 'x')",
+        "INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'max@cup.test', true, 'Max', 'x')",
     )
     .bind(owner)
     .execute(&db)
     .await
     .unwrap();
     let rsv = ClubId::new();
-    sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES (?, 'RSV', ?)")
+    sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES ($1, 'RSV', $2)")
         .bind(rsv)
         .bind(owner)
         .execute(&db)
@@ -420,7 +420,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
     for (firstname, waived) in [("Anna", true), ("Berta", false)] {
         let rider = RiderId::new();
         sqlx::query(
-            "INSERT INTO starter (id, firstname, lastname, birthdate, club_id, single_male, single_female, pair) VALUES (?, ?, 'Muster', '2010-01-01', ?, false, true, false)",
+            "INSERT INTO starter (id, firstname, lastname, birthdate, club_id, single_male, single_female, pair) VALUES ($1, $2, 'Muster', '2010-01-01', $3, false, true, false)",
         )
         .bind(rider)
         .bind(firstname)
@@ -430,14 +430,14 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
         .unwrap();
         let act = ActId::new();
         sqlx::query(
-            "INSERT INTO acts (id, name, act_type, withdrawn_at, fee_waived) VALUES (?, '', 'single', datetime('now'), ?)",
+            "INSERT INTO acts (id, name, act_type, withdrawn_at, fee_waived) VALUES ($1, '', 'single', CURRENT_TIMESTAMP, $2)",
         )
         .bind(act)
         .bind(waived)
         .execute(&db)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO act_participants (act_id, starter_id) VALUES (?, ?)")
+        sqlx::query("INSERT INTO act_participants (act_id, starter_id) VALUES ($1, $2)")
             .bind(act)
             .bind(rider)
             .execute(&db)

@@ -1,13 +1,12 @@
 use crate::ids::BookingId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::{self, Actor, Booking, BookingAction},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -33,32 +32,14 @@ pub struct DeleteBookingBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn delete_booking(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<DeleteBookingBody>,
 ) -> Result<Json<DeleteBookingResponse>, HttpError> {
-    let id = body.booking_id;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let before = Booking::load(&mut tx, id)
-        .await?
-        .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    info!("Deleting booking {id}");
-    sqlx::query!("DELETE FROM bookings WHERE id = ?", id)
-        .execute(&mut *tx)
+    repo.delete_booking(&granted.booking_actor(), body.booking_id)
         .await?;
-    bookings::log_change(
-        &mut tx,
-        id,
-        &Actor::of(&granted),
-        BookingAction::Deleted,
-        Some(&before),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
     Ok(Json(DeleteBookingResponse {}))
 }

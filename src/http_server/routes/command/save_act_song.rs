@@ -6,16 +6,15 @@ use axum::{
     extract::{Multipart, Query},
     http::StatusCode,
 };
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tokio::fs::DirBuilder;
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_act_access,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     normalize,
-    reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
 };
 
@@ -64,10 +63,10 @@ pub struct Upload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn save_act_song(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     http_options: Extension<Arc<HttpServerOptions>>,
     auth: Auth,
     capabilities: Capabilities,
@@ -77,9 +76,7 @@ pub async fn save_act_song(
     if !capabilities.can_upload_music {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let reloadable_db = db.clone();
-    let db = db.get().await.clone();
-    ensure_act_access(&mut *db.acquire().await?, &auth, query.act_id).await?;
+    repo.ensure_act_access(&auth.actor(), query.act_id).await?;
     let entry = body
         .next_field()
         .await
@@ -120,33 +117,15 @@ pub async fn save_act_song(
     tokio::fs::write(&path, &data)
         .await
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let previous_normalized = sqlx::query_scalar!(
-        "SELECT song_file_normalized FROM acts WHERE id = ?",
-        query.act_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten();
     let normalized = normalize::normalized_file_name(query.act_id);
-    sqlx::query!(
-        r#"
-        UPDATE acts
-        SET song_file_name = ?, song_file = ?, song_checked = FALSE,
-            song_file_normalized = ?, normalization_status = 'pending'
-        WHERE id = ?
-        "#,
-        file_name,
-        save_file_name,
-        normalized,
-        query.act_id,
-    )
-    .execute(&db)
-    .await?;
+    let previous_normalized = repo
+        .save_act_song(query.act_id, &file_name, &save_file_name, &normalized)
+        .await?;
     if let Some(previous) = previous_normalized {
         normalize::remove_file(&http_options.data_path.join(previous)).await;
     }
     normalize::spawn(
-        reloadable_db,
+        repo.clone(),
         http_options.data_path.clone(),
         query.act_id,
         save_file_name,

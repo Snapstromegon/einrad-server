@@ -1,13 +1,13 @@
 use crate::ids::JudgeId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{self, JuryEnabled},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::JuryEnabled,
     system_status::Capabilities,
 };
 
@@ -33,11 +33,11 @@ pub struct DeleteClubJudgeBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn delete_club_judge(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<DeleteClubJudgeBody>,
@@ -45,14 +45,7 @@ pub async fn delete_club_judge(
     if !capabilities.can_register_judge {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    jury::ensure_judge_access(&mut transaction, &auth, body.judge_id).await?;
     info!("Deleting judge {}", body.judge_id);
-    // The registrations go with it (foreign key).
-    sqlx::query!("DELETE FROM judge WHERE id = ?", body.judge_id)
-        .execute(&mut *transaction)
-        .await?;
-    transaction.commit().await?;
+    repo.delete_judge(&auth.actor(), body.judge_id).await?;
     Ok(Json(DeleteClubJudgeResponse {}))
 }

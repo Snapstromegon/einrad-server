@@ -58,7 +58,7 @@ pub async fn check_db_backup(
     Query(query): Query<CheckDbBackupQuery>,
 ) -> Result<Json<CheckDbBackupResponse>, HttpError> {
     let path = db_backup::resolve_backup(&db_file(&db)?, &query.filename)?;
-    let check = db_restore::check_backup(&path, &sqlx::migrate!("./migrations")).await;
+    let check = db_restore::check_backup(&path, &db_sqlite::MIGRATOR).await;
     // Songs can only be listed from a readable database.
     let missing_songs = if check.blocking.is_empty() {
         db_restore::missing_songs_in_backup(&path, &options.data_path).await?

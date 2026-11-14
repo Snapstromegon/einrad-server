@@ -1,13 +1,16 @@
-use crate::ids::{FinalId, HeatId};
-use axum::{Extension, Json, http::StatusCode};
+use crate::ids::FinalId;
+use axum::{Extension, Json};
+use db_core::{
+    DbHandle,
+    finals::{FinalChange, FinalFields},
+};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    finals::{self, FinalFields},
+    finals, heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -45,96 +48,27 @@ pub struct EditFinalBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_final(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<EditFinalBody>,
 ) -> Result<Json<EditFinalResponse>, HttpError> {
     let new_name = finals::normalize_name(&body.new_name).map_err(HttpError::ErrorMessages)?;
     let fields = body.fields.normalize().map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    let heats = sqlx::query_scalar!(
-        r#"SELECT heat_id as "heat_id!: HeatId" FROM final_slots WHERE final_id = ? ORDER BY position"#,
-        body.id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let Some(name) = finals::name_of(&mut tx, body.id).await? else {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    };
-
     // Without a new code the final keeps its own.
-    let new_code = match body.new_code.as_deref() {
-        Some(code) if !code.trim().is_empty() => {
-            crate::heats::normalize_code(Some(code), &new_name)
-        }
-        _ => {
-            sqlx::query_scalar!(
-                r#"SELECT code as "code!" FROM finals WHERE id = ?"#,
-                body.id
-            )
-            .fetch_one(&mut *tx)
-            .await?
-        }
-    };
-    finals::check_free(&mut tx, Some(body.id), &new_name, &new_code)
-        .await
-        .map_err(HttpError::Conflict)?;
-    if new_name != name {
-        info!("Renaming final {name:?} to {new_name:?}");
-    }
-
-    sqlx::query!(
-        r#"
-        UPDATE finals
-        SET
-            name = ?,
-            code = ?,
-            description = ?,
-            act_type = ?,
-            is_single_male = ?,
-            einfahrzeit_seconds = ?,
-            act_duration_seconds = ?,
-            judge_duration_seconds = ?
-        WHERE id = ?
-        "#,
+    let new_code = body
+        .new_code
+        .as_deref()
+        .filter(|code| !code.trim().is_empty())
+        .map(|code| heats::normalize_code(Some(code), &new_name));
+    repo.edit_final(&FinalChange {
+        id: body.id,
         new_name,
         new_code,
-        fields.description,
-        fields.act_type,
-        fields.is_single_male,
-        fields.einfahrzeit_seconds,
-        fields.act_duration_seconds,
-        fields.judge_duration_seconds,
-        body.id,
-    )
-    .execute(&mut *tx)
+        fields,
+    })
     .await?;
-
-    finals::check_heats(
-        &mut tx,
-        body.id,
-        fields.act_type,
-        fields.is_single_male,
-        &fields.slot_groups,
-    )
-    .await
-    .map_err(HttpError::ErrorMessages)?;
-    if finals::group_slot_ids(heats) != fields.slot_groups {
-        if finals::has_started(&mut tx, body.id).await? {
-            return Err(HttpError::ErrorMessages(
-                "Das Finale hat schon begonnen, seine Finalplätze bleiben, wie sie sind."
-                    .to_string(),
-            ));
-        }
-        info!("Replacing the slots of final {new_name:?}");
-        finals::replace_slots(&mut tx, body.id, &fields.slot_groups).await?;
-    }
-
-    tx.commit().await?;
     Ok(Json(EditFinalResponse {}))
 }

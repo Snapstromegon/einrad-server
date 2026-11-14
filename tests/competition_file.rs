@@ -5,10 +5,11 @@ mod common;
 
 use clap::Parser;
 use common::{TempDir, in_memory_migrated};
+use db_core::CompetitionRepo;
 use einrad_server::{
     competition::Competition,
     config::{CliArgs, ConfigFile, Settings},
-    images::{self, Slot},
+    images::Slot,
     seed::{self, Applied, Report},
 };
 use sqlx::SqlitePool;
@@ -24,6 +25,13 @@ jwt_secret = "test-jwt-secret"
 "#;
 
 const COMPETITION: &str = include_str!("fixtures/competition.toml");
+
+async fn current(db: &SqlitePool) -> Option<Competition> {
+    db_sqlite::SqliteRepo::from_pool(db.clone())
+        .current_competition()
+        .await
+        .unwrap()
+}
 
 /// Starts the server's startup path with `args` (after the binary name)
 /// against `db`, as far as the competition goes.
@@ -61,7 +69,7 @@ async fn a_second_start_with_a_changed_file_keeps_the_competition_and_warns() {
         .await
         .unwrap();
     assert_eq!(first.applied, Applied::Created);
-    let created = Competition::current(&db).await.unwrap().unwrap();
+    let created = current(&db).await.unwrap();
 
     write(
         &dir,
@@ -80,7 +88,7 @@ async fn a_second_start_with_a_changed_file_keeps_the_competition_and_warns() {
         "{:?}",
         second.warnings
     );
-    assert_eq!(Competition::current(&db).await.unwrap().unwrap(), created);
+    assert_eq!(current(&db).await.unwrap(), created);
 }
 
 #[tokio::test]
@@ -110,11 +118,7 @@ async fn replace_competition_applies_the_changed_file() {
         "{:?}",
         report.applied
     );
-    let fee = Competition::current(&db)
-        .await
-        .unwrap()
-        .unwrap()
-        .fee_per_start;
+    let fee = current(&db).await.unwrap().fee_per_start;
     assert_eq!(fee, 20.0);
 }
 
@@ -133,7 +137,7 @@ async fn features_and_photos_come_with_the_competition() {
     start(&db, &dir, &["--competition", &competition])
         .await
         .unwrap();
-    let created = Competition::current(&db).await.unwrap().unwrap();
+    let created = current(&db).await.unwrap();
     assert_eq!(created.features.jury_registration, Some(false));
     let photos = created.photos.unwrap();
     assert_eq!(photos.source, "https://cloud.example.org/s/AbC123");
@@ -185,7 +189,7 @@ async fn a_logo_comes_with_the_file_and_stays_unless_a_replace_sets_it() {
         .unwrap();
     let logo = |db: sqlx::SqlitePool| async move {
         let mut conn = db.acquire().await.unwrap();
-        images::load_single(&mut conn, Slot::Logo)
+        db_sqlite::images::load_single(&mut conn, Slot::Logo)
             .await
             .unwrap()
             .map(|logo| logo.data)
@@ -244,9 +248,8 @@ async fn a_file_with_other_colors_is_ignored_with_a_warning_naming_them() {
         .await
         .unwrap();
     let primary = |db| async move {
-        Competition::current(&db)
+        current(&db)
             .await
-            .unwrap()
             .and_then(|c| c.primary_color)
             .map(|color| color.to_string())
     };
@@ -278,7 +281,7 @@ async fn without_a_competition_an_admin_lets_the_server_start_in_setup_mode() {
     let err = seed::startup_competition(&db).await.unwrap_err();
     assert!(err.contains("setup mode"), "{err}");
 
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'admin@cup.test', true, 'Admin', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'admin@cup.test', true, 'Admin', 'x')")
         .bind(uuid::Uuid::now_v7())
         .execute(&db)
         .await
@@ -310,7 +313,7 @@ async fn a_combined_config_stops_the_start() {
 
     let err = start(&db, &dir, &[]).await.unwrap_err();
     assert!(err.contains("competition file"), "{err}");
-    assert_eq!(Competition::current(&db).await.unwrap(), None);
+    assert_eq!(current(&db).await, None);
 }
 
 #[tokio::test]

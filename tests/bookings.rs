@@ -248,11 +248,11 @@ async fn a_club_sees_only_its_own_payments() {
 #[tokio::test]
 async fn the_migration_turns_paid_totals_into_bookings() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!();
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BOOKINGS_MIGRATION - 1, &db).await.unwrap();
     let owner = UserId::new();
     sqlx::query(
-        "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@cup.test', true, 'Max', 'x')",
+        "INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'max@cup.test', true, 'Max', 'x')",
     )
     .bind(owner)
     .execute(&db)
@@ -261,7 +261,7 @@ async fn the_migration_turns_paid_totals_into_bookings() {
     let rsv = ClubId::new();
     for (name, payment) in [("RSV", Some(120.5)), ("ESV", Some(0.0)), ("SSV", None)] {
         let id = if name == "RSV" { rsv } else { ClubId::new() };
-        sqlx::query("INSERT INTO clubs (id, name, owner_id, payment) VALUES (?, ?, ?, ?)")
+        sqlx::query("INSERT INTO clubs (id, name, owner_id, payment) VALUES ($1, $2, $3, $4)")
             .bind(id)
             .bind(name)
             .bind(owner)

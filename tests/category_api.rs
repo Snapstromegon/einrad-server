@@ -185,7 +185,7 @@ async fn categories_are_deleted_and_moved_by_id() {
     let order_of = |name: &'static str| {
         let app = &app;
         async move {
-            sqlx::query_scalar::<_, i64>("SELECT \"order\" FROM categories WHERE name = ?")
+            sqlx::query_scalar::<_, i64>("SELECT \"order\" FROM categories WHERE name = $1")
                 .bind(name)
                 .fetch_one(&app.db)
                 .await

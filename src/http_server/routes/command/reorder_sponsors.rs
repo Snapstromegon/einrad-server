@@ -1,12 +1,11 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -34,33 +33,18 @@ pub struct ReorderSponsorsResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn reorder_sponsors(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<ReorderSponsorsBody>,
 ) -> Result<Json<ReorderSponsorsResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let mut current: Vec<i64> = images::list(&mut *tx)
-        .await?
-        .into_iter()
-        .filter(|image| image.kind == "sponsor")
-        .map(|image| image.id)
-        .collect();
-    let mut wanted = body.ids.clone();
-    current.sort_unstable();
-    wanted.sort_unstable();
-    if current != wanted {
+    if !repo.reorder_sponsors(&body.ids).await? {
         return Err(HttpError::ErrorMessages(
             "Die Reihenfolge muss alle Sponsoren genau einmal enthalten.".to_string(),
         ));
     }
-    for (position, id) in (0..).zip(&body.ids) {
-        images::set_position(&mut *tx, *id, position).await?;
-    }
-    tx.commit().await?;
     info!("Reordered the sponsors");
     Ok(Json(ReorderSponsorsResponse {}))
 }

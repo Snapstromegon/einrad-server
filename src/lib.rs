@@ -1,22 +1,17 @@
-pub mod act_type;
+pub use db_core::{
+    act_type, acts, bookings, category_ages, fee_waivers, fees, finals, gender, groups, heats, ids,
+    people, roles, timeplan,
+};
+pub use db_sqlite::{db_backup, db_restore, reloadable_sqlite};
+
 pub mod admin_user;
-pub mod bookings;
 pub mod club_mails;
 pub mod colors;
 pub mod competition;
 pub mod config;
-pub mod db_backup;
-pub mod db_restore;
 pub mod demo;
 pub mod export;
-pub mod fee_waivers;
-pub mod fees;
-pub mod finals;
-pub mod gender;
-pub mod groups;
-pub mod heats;
 pub mod http_server;
-pub mod ids;
 pub mod image_fetch;
 pub mod images;
 pub mod jury;
@@ -25,16 +20,11 @@ pub mod logo;
 pub mod mailer;
 pub mod metrics;
 pub mod normalize;
-pub mod people;
 pub mod photos;
 pub mod player;
-pub mod reloadable_sqlite;
-pub mod rider_registration;
-pub mod roles;
 pub mod seed;
 pub mod setup;
 pub mod startup;
 pub mod system_status;
 pub mod templates;
-pub mod timeplan;
 pub mod utils;

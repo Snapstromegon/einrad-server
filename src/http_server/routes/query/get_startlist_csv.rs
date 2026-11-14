@@ -1,21 +1,16 @@
-use crate::ids::ActId;
 use std::collections::HashMap;
 
 use axum::Extension;
+use db_core::DbHandle;
 use time::format_description::StaticFormatDescription;
 use tracing::instrument;
 
 use crate::{
-    act_type::ActType,
     http_server::{
         ClientError, HttpError,
         extractor::startlist::StartlistAccess,
-        routes::{
-            http_types::ActParticipant,
-            query::predict_timeplan::{TimeplanEntry, TimeplanSlot, predict},
-        },
+        routes::query::predict_timeplan::{TimeplanEntry, TimeplanSlot, predict},
     },
-    reloadable_sqlite::ReloadableSqlite,
     timeplan::Audience,
 };
 
@@ -49,30 +44,19 @@ fn csv_field(value: &str) -> String {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_startlist_csv(
     _: StartlistAccess,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
 ) -> Result<String, HttpError> {
-    let db = db.get().await.clone();
     // A printed startlist is public: internal entries are a "Pause".
-    let timeplan = predict(&db, Audience::Public).await?;
-    let details: HashMap<ActId, _> = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: ActId",
-            act_type as "act_type!: ActType",
-            group_name,
-            participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>"
-        FROM view_act
-        WHERE category IS NOT NULL AND withdrawn_at IS NULL
-        "#
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .map(|act| (act.id, act))
-    .collect();
+    let timeplan = predict(repo.as_ref(), Audience::Public).await?;
+    let details: HashMap<_, _> = repo
+        .list_startlist()
+        .await?
+        .into_iter()
+        .map(|act| (act.id, act))
+        .collect();
 
     let mut csv = String::new();
 

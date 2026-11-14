@@ -1,14 +1,12 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
-    rider_registration,
     system_status::Capabilities,
 };
 
@@ -48,7 +46,7 @@ pub struct RequestPairBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn request_pair(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<RequestPairBody>,
@@ -56,15 +54,8 @@ pub async fn request_pair(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
-    let partner_id = rider_registration::request_pair(
-        &mut transaction,
-        body.rider_id,
-        body.partner_name.as_deref(),
-    )
-    .await?;
-    transaction.commit().await?;
+    let partner_id = db
+        .request_pair(&auth.actor(), body.rider_id, body.partner_name.as_deref())
+        .await?;
     Ok(Json(RequestPairResponse { partner_id }))
 }

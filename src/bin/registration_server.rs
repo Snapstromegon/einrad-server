@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use clap::Parser;
+use db_sqlite::SqliteRepo;
 use einrad_server::{
     admin_user::insert_admin_user,
     config::{
@@ -11,7 +12,6 @@ use einrad_server::{
     startup,
 };
 use eyre::eyre;
-use sqlx::migrate;
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
@@ -66,7 +66,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
 
     info!("Running database migrations");
     match sqlx::sqlite::SqliteConnectOptions::from_str(&bootstrap.database_url)?.get_filename() {
-        path if path.as_os_str() == ":memory:" => migrate!("./migrations").run(&db).await?,
+        path if path.as_os_str() == ":memory:" => db_sqlite::MIGRATOR.run(&db).await?,
         path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
     }
 
@@ -89,10 +89,18 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     }
     if let Some(admin) = &admin {
         info!("Inserting admin user with email: {}", admin.email);
-        insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
+        insert_admin_user(
+            &SqliteRepo::from_pool(db.clone()),
+            &admin.name,
+            &admin.email,
+            &admin.password,
+        )
+        .await?;
     }
 
-    if let Some(reason) = setup::pending_reason(&settings, &db).await? {
+    if let Some(reason) =
+        setup::pending_reason(&settings, &db_sqlite::SqliteRepo::from_pool(db.clone())).await?
+    {
         let state = SetupState::new(
             bootstrap.configured_base_url,
             SetupEnv::new(db.clone(), setup_cli),

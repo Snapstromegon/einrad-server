@@ -20,7 +20,7 @@ async fn app(dir: &TempDir) -> TestApp {
     ))
     .await
     .unwrap();
-    sqlx::migrate!("./migrations").run(&db).await.unwrap();
+    db_sqlite::MIGRATOR.run(&db).await.unwrap();
     TestApp::with_db_dir(db, &dir.0).await
 }
 
@@ -183,7 +183,7 @@ async fn corrupt_adminless_and_newer_backups_are_refused_even_with_force() {
 /// The database file at the schema before the latest migration, with an
 /// Admin user, as an older release would have written it.
 async fn old_schema_backup(dir: &TempDir, name: &str) -> String {
-    let full = sqlx::migrate!("./migrations");
+    let full = &db_sqlite::MIGRATOR;
     let ups: Vec<_> = full
         .iter()
         .filter(|m| m.migration_type.is_up_migration())
@@ -198,12 +198,12 @@ async fn old_schema_backup(dir: &TempDir, name: &str) -> String {
         .unwrap();
     older.run(&mut conn).await.unwrap();
     let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'old@example.org', true, 'Alter Admin', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'old@example.org', true, 'Alter Admin', 'x')")
         .bind(id)
         .execute(&mut conn)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO user_roles (user_id, role) VALUES (?, 'admin')")
+    sqlx::query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')")
         .bind(id)
         .execute(&mut conn)
         .await
@@ -257,7 +257,7 @@ async fn an_older_backup_needs_force_and_is_migrated_without_another_backup() {
         .unwrap();
     assert_eq!(
         applied as usize,
-        sqlx::migrate!("./migrations")
+        db_sqlite::MIGRATOR
             .iter()
             .filter(|m| m.migration_type.is_up_migration())
             .count()
@@ -389,8 +389,8 @@ async fn only_admins_can_restore_check_and_manage_missing_songs() {
 /// Sets the song columns of an act directly.
 async fn set_song(app: &TestApp, act: ActId, file: &str, name: &str, normalized: Option<&str>) {
     sqlx::query(
-        "UPDATE acts SET song_file = ?, song_file_name = ?, song_file_normalized = ?, \
-         normalization_status = 'done' WHERE id = ?",
+        "UPDATE acts SET song_file = $1, song_file_name = $2, song_file_normalized = $3, \
+         normalization_status = 'done' WHERE id = $4",
     )
     .bind(file)
     .bind(name)
@@ -444,7 +444,7 @@ async fn missing_songs_are_reported_and_missing_normalized_files_requeued() {
     // The kept song's normalized copy is queued again under a new name.
     let mut conn = open(&dir.0.join("db.sqlite")).await;
     let normalized: Option<String> =
-        sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = ?")
+        sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = $1")
             .bind(kept)
             .fetch_one(&mut conn)
             .await
@@ -473,7 +473,7 @@ async fn a_missing_song_can_be_uploaded_again_or_marked_deleted() {
             Some("n.mp3"),
         )
         .await;
-        sqlx::query("UPDATE acts SET song_checked = TRUE WHERE id = ?")
+        sqlx::query("UPDATE acts SET song_checked = TRUE WHERE id = $1")
             .bind(act)
             .execute(&app.db)
             .await

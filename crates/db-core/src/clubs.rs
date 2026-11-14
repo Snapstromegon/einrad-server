@@ -1,0 +1,152 @@
+//! Clubs: the [`ClubsRepo`] trait, the [`Actor`] who asks and the
+//! [`RegistrationError`] the club-side commands fail with.
+
+use crate::{
+    DbError,
+    ids::{ActId, ClubId, UserId},
+};
+
+/// Who asks, as far as club access is concerned. Built from the logged-in
+/// user by the HTTP layer.
+#[derive(Debug, Clone, Copy)]
+pub struct Actor {
+    pub user_id: UserId,
+    /// The club the user is assigned to.
+    pub club_id: Option<ClubId>,
+    /// The organizer may manage every club.
+    pub manage_registrations: bool,
+}
+
+impl Actor {
+    /// Whether the actor may manage the club owned by `owner_id`: the
+    /// organizer, the club's owner and users assigned to the club.
+    #[must_use]
+    pub fn may_manage_club(&self, club_id: ClubId, owner_id: UserId) -> bool {
+        self.manage_registrations || owner_id == self.user_id || self.club_id == Some(club_id)
+    }
+}
+
+/// Why a club-side command or query failed. `Rejected` carries a German
+/// message for the user.
+#[derive(Debug, thiserror::Error)]
+pub enum RegistrationError {
+    #[error("Not found")]
+    NotFound,
+    #[error("Forbidden")]
+    Forbidden,
+    #[error("{0}")]
+    Rejected(String),
+    /// An entity the request names doesn't exist; the message is German.
+    #[error("{0}")]
+    NotFoundMessage(String),
+    /// The request clashes with the current state; the message is German.
+    #[error("{0}")]
+    Conflict(String),
+    #[error(transparent)]
+    Db(#[from] DbError),
+}
+
+impl From<sqlx::Error> for RegistrationError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Db(error.into())
+    }
+}
+
+/// A club with its owner and contact.
+#[derive(Debug, Clone)]
+pub struct ClubProfile {
+    pub id: ClubId,
+    pub name: String,
+    pub owner_id: UserId,
+    pub fee_waived: bool,
+    pub owner_name: Option<String>,
+    pub owner_email: Option<String>,
+    /// The club's own responsible person, else the owner.
+    pub responsible_name: Option<String>,
+    pub responsible_email: Option<String>,
+}
+
+/// A row of the club list.
+#[derive(Debug, Clone)]
+pub struct ClubRow {
+    pub id: ClubId,
+    pub name: String,
+    pub owner_id: UserId,
+    pub fee_waiver: Option<String>,
+    pub owner_name: String,
+    pub owner_email: String,
+    pub owner_email_verified: bool,
+    pub responsible_name: String,
+    pub responsible_email: String,
+}
+
+#[async_trait::async_trait]
+pub trait ClubsRepo {
+    /// Registers a club owned by the user, who is assigned to it.
+    async fn create_club(&self, owner: UserId, name: &str) -> Result<ClubId, DbError>;
+
+    /// Renames the club. With `only_owner`, only if that user owns it
+    /// (nothing changes otherwise).
+    async fn rename_club(
+        &self,
+        club: ClubId,
+        name: &str,
+        only_owner: Option<UserId>,
+    ) -> Result<(), DbError>;
+
+    /// Sets the club's Vereinsverantwortliche/r (both `None` clears it).
+    async fn set_club_responsible(
+        &self,
+        actor: &Actor,
+        club: ClubId,
+        name: Option<&str>,
+        email: Option<&str>,
+    ) -> Result<(), RegistrationError>;
+
+    async fn find_club(&self, id: ClubId) -> Result<Option<ClubProfile>, DbError>;
+
+    /// All clubs by name.
+    async fn list_clubs(&self) -> Result<Vec<ClubRow>, DbError>;
+
+    /// Fails with `NotFound` for an unknown club and `Forbidden` unless the
+    /// actor may manage it: the organizer, the owner and users assigned to
+    /// the club.
+    async fn ensure_club_access(
+        &self,
+        actor: &Actor,
+        club: ClubId,
+    ) -> Result<(), RegistrationError>;
+
+    /// Fails unless the actor may change the act: the organizer and users
+    /// with access to the club of one of its riders or, for groups, to the
+    /// club that created it.
+    async fn ensure_act_access(&self, actor: &Actor, act: ActId) -> Result<(), RegistrationError>;
+}
+
+/// Letters and digits that can't be confused with each other (no 0/O, 1/I).
+const CLUB_CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// A short code for a club's transfer reference, like "EV-K7Q3".
+///
+/// It comes from the random end of the club's id, so it stays the same when
+/// the club is renamed and needs no storage. Four characters give about a
+/// million codes; with a few dozen clubs a clash is very unlikely, and the
+/// club name is part of the reference anyway.
+///
+/// ```
+/// use db_core::clubs::club_code;
+/// use db_core::ids::ClubId;
+///
+/// let id: ClubId = "0199d4a2-7c3e-7000-8000-00000000abcd".parse().unwrap();
+/// assert_eq!(club_code(&id), club_code(&id));
+/// assert!(club_code(&id).starts_with("EV-"));
+/// assert_eq!(club_code(&id).len(), 7);
+/// ```
+pub fn club_code(id: &ClubId) -> String {
+    let bytes = id.0.as_bytes();
+    let bits = u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+    let code: String = (0..4)
+        .map(|i| CLUB_CODE_ALPHABET[((bits >> (5 * i)) & 31) as usize] as char)
+        .collect();
+    format!("EV-{code}")
+}

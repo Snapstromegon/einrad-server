@@ -1,14 +1,14 @@
 use crate::ids::{CategoryId, HeatId};
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::{DbHandle, heats::HeatChange};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use super::add_heat::normalize_description;
 use crate::{
     heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -50,10 +50,10 @@ pub struct EditHeatBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_heat(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<EditHeatBody>,
 ) -> Result<Json<EditHeatResponse>, HttpError> {
@@ -64,44 +64,20 @@ pub async fn edit_heat(
         .map(heats::check_threshold)
         .transpose()
         .map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let categories = heats::category_names(&mut tx, &body.category_ids).await?;
-
-    let Some(name) = heats::name_of(&mut tx, body.id).await? else {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    };
     // Without a new code the heat keeps its own.
-    let new_code = match body.new_code.as_deref() {
-        Some(code) if !code.trim().is_empty() => heats::normalize_code(Some(code), &new_name),
-        _ => {
-            sqlx::query_scalar!(r#"SELECT code as "code!" FROM heats WHERE id = ?"#, body.id)
-                .fetch_one(&mut *tx)
-                .await?
-        }
-    };
-    heats::check_categories(&mut tx, body.id, &categories)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    heats::set_categories(&mut tx, body.id, &categories).await?;
-
-    heats::check_free(&mut tx, Some(body.id), &new_name, &new_code)
-        .await
-        .map_err(HttpError::Conflict)?;
-    if new_name != name {
-        info!("Renaming heat {name:?} to {new_name:?}");
-    }
-    sqlx::query!(
-        "UPDATE heats SET name = ?, code = ?, description = ?, threshold = coalesce(?, threshold) WHERE id = ?",
+    let new_code = body
+        .new_code
+        .as_deref()
+        .filter(|code| !code.trim().is_empty())
+        .map(|code| heats::normalize_code(Some(code), &new_name));
+    repo.edit_heat(&HeatChange {
+        id: body.id,
         new_name,
         new_code,
         description,
+        category_ids: body.category_ids,
         threshold,
-        body.id
-    )
-    .execute(&mut *tx)
+    })
     .await?;
-
-    tx.commit().await?;
     Ok(Json(EditHeatResponse {}))
 }

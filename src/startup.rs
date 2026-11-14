@@ -8,6 +8,8 @@ use eyre::eyre;
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 
+use db_sqlite::SqliteRepo;
+
 use crate::{
     config::Settings,
     http_server::{HttpServer, HttpServerOptions},
@@ -76,18 +78,19 @@ pub async fn build(
     ));
 
     let db = ReloadableSqlite::new(db, settings.database_url);
+    let repo = SqliteRepo::new(db.clone()).into_handle();
     // Songs uploaded while the server was down or before normalization existed.
-    normalize::resume(&db, &settings.data_path).await?;
+    normalize::resume(&repo, &settings.data_path).await?;
 
     let photos = Photos::new().map_err(|e| eyre!(e))?;
-    let player_hub = PlayerHub::new(db.clone());
+    let player_hub = PlayerHub::new(repo.clone());
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
     }
     // URL images (logo, break image, sponsors) are downloaded in the
     // background, so an unreachable server never delays the start (#291).
-    ImageFetcher::shared().refresh_in_background(db.clone(), None);
-    photos.start(db.clone());
+    ImageFetcher::shared().refresh_in_background(repo.clone(), None);
+    photos.start(repo.clone());
 
     let server = HttpServer::new(
         HttpServerOptions {
@@ -99,6 +102,7 @@ pub async fn build(
             competition_file_id: report.file_id.clone(),
         },
         db,
+        repo,
         jwt.clone(),
         Arc::new(mailer),
         player_hub,

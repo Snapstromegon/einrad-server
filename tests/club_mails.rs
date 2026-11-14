@@ -41,7 +41,7 @@ async fn mail_app() -> TestApp {
 }
 
 async fn set_contact_email(app: &TestApp, email: Option<&str>) {
-    sqlx::query("UPDATE competition SET contact_email = ?")
+    sqlx::query("UPDATE competition SET contact_email = $1")
         .bind(email)
         .execute(&app.db)
         .await
@@ -655,7 +655,7 @@ async fn a_club_with_an_invalid_address_stops_the_mail_before_anything_is_sent()
     let admin = app.create_admin().await;
     let (_, rsv) = club(&app, "Max Mustermann", "RSV Muster", None).await;
     let (_, tv) = club(&app, "Lea Beispiel", "TV Beispiel", None).await;
-    sqlx::query("UPDATE clubs SET responsible_name = 'Erika Muster', responsible_email = 'erika@@cup.test' WHERE id = ?")
+    sqlx::query("UPDATE clubs SET responsible_name = 'Erika Muster', responsible_email = 'erika@@cup.test' WHERE id = $1")
         .bind(tv)
         .execute(&app.db)
         .await

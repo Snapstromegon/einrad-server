@@ -11,7 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId};
+use crate::ids::{ActId, BookingId, ClubId, JuryUnitId, RiderId, UserId};
+use db_core::{GroupsRepo, JuryRepo, RidersRepo, riders::Pair};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -25,9 +26,7 @@ use crate::{
         TimeplanEntryConfig, toml_date, toml_datetime_option,
     },
     gender::Gender,
-    groups,
-    rider_registration::{self, Pair, PartnerClubs},
-    seed,
+    groups, seed,
 };
 
 #[derive(Debug, Deserialize)]
@@ -308,7 +307,7 @@ impl DemoData {
             let started_at = entry.started_at.map(utc);
             let ended_at = entry.ended_at.map(utc);
             sqlx::query!(
-                "UPDATE timeplan SET started_at = ?, ended_at = ? WHERE id = ?",
+                "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
                 started_at,
                 ended_at,
                 id
@@ -352,7 +351,7 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 INSERT INTO users (id, email, email_verified, name, password)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES ($1, $2, $3, $4, $5)
                 "#,
                 id,
                 user.email,
@@ -365,7 +364,7 @@ impl DemoData {
             .map_err(|e| format!("Couldn't insert user {}: {e}", user.name))?;
             for role in &user.roles {
                 sqlx::query!(
-                    "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
+                    "INSERT INTO user_roles (user_id, role) VALUES ($1, $2)",
                     id,
                     role
                 )
@@ -375,7 +374,7 @@ impl DemoData {
             }
             if let Some(token) = user.verification_token {
                 sqlx::query!(
-                    "INSERT INTO mail_verification (id, user_id, created_at) VALUES (?, ?, ?)",
+                    "INSERT INTO mail_verification (id, user_id, created_at) VALUES ($1, $2, $3)",
                     token,
                     id,
                     now
@@ -386,7 +385,7 @@ impl DemoData {
             }
             if let Some(token) = user.password_reset_token {
                 sqlx::query!(
-                    "INSERT INTO password_resets (id, user_id, created_at) VALUES (?, ?, ?)",
+                    "INSERT INTO password_resets (id, user_id, created_at) VALUES ($1, $2, $3)",
                     token,
                     id,
                     now
@@ -417,7 +416,7 @@ impl DemoData {
             })?;
             let club_id = ClubId::new();
             sqlx::query!(
-                "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES (?, ?, ?, ?)",
+                "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES ($1, $2, $3, $4)",
                 club_id,
                 club.name,
                 owner_id,
@@ -430,7 +429,7 @@ impl DemoData {
                 let booking_id = BookingId::new();
                 let date = OffsetDateTime::now_utc().date();
                 sqlx::query!(
-                    "INSERT INTO bookings (id, amount, date, note, club_id) VALUES (?, ?, ?, 'Überweisung', ?)",
+                    "INSERT INTO bookings (id, amount, date, note, club_id) VALUES ($1, $2, $3, 'Überweisung', $4)",
                     booking_id,
                     amount,
                     date,
@@ -441,7 +440,7 @@ impl DemoData {
                 .map_err(|e| format!("Couldn't insert the payment of {}: {e}", club.name))?;
             }
             sqlx::query!(
-                "UPDATE users SET club_id = ? WHERE id = ?",
+                "UPDATE users SET club_id = $1 WHERE id = $2",
                 club_id,
                 owner_id
             )
@@ -474,7 +473,7 @@ impl DemoData {
                     INSERT INTO rider (
                         id, club_id, firstname, lastname, birthdate, gender, checked_in_at,
                         fee_waiver
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     "#,
                     id,
                     club_id,
@@ -496,9 +495,13 @@ impl DemoData {
 
     /// Registers the clubs' judges with the same rules as the API.
     async fn insert_judges(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
-        let competition = crate::competition::Competition::current(db)
-            .await
-            .map_err(|e| e.to_string())?;
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+        // The seed acts as the organizer, like the other registrations.
+        let organizer = db_core::clubs::Actor {
+            user_id: UserId::new(),
+            club_id: None,
+            manage_registrations: true,
+        };
         let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
         let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = sqlx::query!(
             r#"SELECT id as "id!: JuryUnitId", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
@@ -514,7 +517,7 @@ impl DemoData {
                 continue;
             }
             let club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
                 club.name
             )
             .fetch_one(&mut *conn)
@@ -544,12 +547,10 @@ impl DemoData {
                     max_deployments: judge.max_deployments,
                     note: judge.note.clone(),
                     registrations,
-                }
-                .normalize(competition.as_ref())
-                .map_err(|e| format!("Judge {name}: {e}"))?;
-                crate::jury::save_judge(&mut conn, JudgeId::new(), club_id, &fields)
+                };
+                repo.add_judge(&organizer, club_id, fields)
                     .await
-                    .map_err(|e| format!("Judge {name}: {e:?}"))?;
+                    .map_err(|e| format!("Judge {name}: {e}"))?;
             }
         }
         Ok(())
@@ -592,7 +593,13 @@ impl DemoData {
             partners.insert(partner, name);
         }
 
-        let mut transaction = db.begin().await.map_err(|e| e.to_string())?;
+        // The seed acts as the organizer; each call is its own unit of work.
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+        let organizer = db_core::clubs::Actor {
+            user_id: UserId::new(),
+            club_id: None,
+            manage_registrations: true,
+        };
         for (&name, &partner) in &partners {
             // Each pair once.
             if name > partner {
@@ -600,29 +607,24 @@ impl DemoData {
             }
             let partner_id = riders.id(partner, name)?;
             let id = riders.id(name, name)?;
-            rider_registration::link_pair(&mut transaction, id, partner_id, PartnerClubs::Any)
+            repo.link_pair(&organizer, id, partner_id)
                 .await
                 .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
         }
         for (id, rider) in &riders.all {
             let name = rider.full_name();
             if rider.single.is_some() {
-                rider_registration::set_single(&mut transaction, *id, true)
+                repo.set_single(&organizer, *id, true)
                     .await
                     .map_err(|e| format!("Couldn't add the single of {name}: {e}"))?;
             }
             // Riders named as `partner` by their partner are linked above.
             if rider.pair && !partners.contains_key(name.as_str()) {
-                rider_registration::request_pair(
-                    &mut transaction,
-                    *id,
-                    rider.partner_name.as_deref(),
-                )
-                .await
-                .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
+                repo.request_pair(&organizer, *id, rider.partner_name.as_deref())
+                    .await
+                    .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
             }
         }
-        transaction.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -635,13 +637,14 @@ impl DemoData {
     ) -> Result<HashMap<String, ActId>, String> {
         let db_error = |e: sqlx::Error| format!("Database error while seeding groups: {e}");
         let mut connection = db.acquire().await.map_err(db_error)?;
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
         let mut ids = HashMap::new();
         for group in &self.groups {
             let referenced_by = format!("Group {}", group.name);
             let group_name = groups::normalize_group_name(&group.name)
                 .map_err(|e| format!("{referenced_by}: {e}"))?;
             let owner_club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = $1"#,
                 group.owner
             )
             .fetch_optional(&mut *connection)
@@ -658,7 +661,7 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
-                VALUES (?, '', ?, ?, ?)
+                VALUES ($1, '', $2, $3, $4)
                 "#,
                 act_id,
                 group.act_type,
@@ -683,7 +686,7 @@ impl DemoData {
                 sqlx::query!(
                     r#"
                     INSERT INTO act_participants (act_id, rider_id, is_replacement)
-                    VALUES (?, ?, ?)
+                    VALUES ($1, $2, $3)
                     "#,
                     act_id,
                     rider_id,
@@ -695,9 +698,10 @@ impl DemoData {
             }
             // The API only warns about such conflicts; demo groups must not
             // have any.
-            if let Some(conflict) = groups::type_conflict_message(&mut connection, act_id)
+            if let Some(conflict) = repo
+                .group_conflict(act_id)
                 .await
-                .map_err(db_error)?
+                .map_err(|e| format!("Database error while seeding groups: {e}"))?
             {
                 return Err(format!("{referenced_by}: {conflict}"));
             }
@@ -724,8 +728,8 @@ impl DemoData {
                 }
                 (None, Some(rider), Some(act_type)) => {
                     let rider_id = riders.id(rider, "[[acts]]")?;
-                    let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
-                    let starts = rider_registration::starts(&mut conn, rider_id)
+                    let starts = db_sqlite::SqliteRepo::from_pool(db.clone())
+                        .rider_starts(rider_id)
                         .await
                         .map_err(|e| e.to_string())?;
                     let act_id = match (act_type, starts.pair) {
@@ -792,10 +796,10 @@ impl DemoData {
             sqlx::query!(
                 r#"
                 UPDATE acts SET
-                    name = ?, description = ?, song_file = ?, song_file_name = ?,
-                    song_checked = ?, "order" = ?, started_at = ?, ended_at = ?,
-                    fee_waiver = ?
-                WHERE id = ?
+                    name = $1, description = $2, song_file = $3, song_file_name = $4,
+                    song_checked = $5, "order" = $6, started_at = $7, ended_at = $8,
+                    fee_waiver = $9
+                WHERE id = $10
                 "#,
                 name,
                 act.description,
@@ -1121,7 +1125,7 @@ mod tests {
         let data_path = data_dir();
         data.apply(&db, &data_path).await.unwrap();
         let file: String =
-            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file_name = ?")
+            sqlx::query_scalar("SELECT song_file FROM acts WHERE song_file_name = $1")
                 .bind(&cached)
                 .fetch_one(&db)
                 .await

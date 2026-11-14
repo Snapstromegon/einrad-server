@@ -1,13 +1,13 @@
-use crate::ids::{CategoryId, HeatId};
+use crate::ids::CategoryId;
 use axum::{Extension, Json};
+use db_core::{DbHandle, heats::NewHeat};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -47,10 +47,10 @@ pub struct AddHeatBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn add_heat(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<AddHeatBody>,
 ) -> Result<Json<AddHeatResponse>, HttpError> {
@@ -62,50 +62,16 @@ pub async fn add_heat(
         .map(heats::check_threshold)
         .transpose()
         .map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let categories = heats::category_names(&mut tx, &body.category_ids).await?;
-
-    heats::check_free(&mut tx, None, &name, &code)
-        .await
-        .map_err(HttpError::Conflict)?;
-    let threshold = match threshold {
-        Some(threshold) => threshold,
-        None => heats::default_threshold_of(&mut tx, &body.category_ids).await?,
-    };
-
-    info!("Adding heat {name:?}");
-    let id = HeatId::new();
-    sqlx::query!(
-        "INSERT INTO heats (id, name, code, description, threshold) VALUES (?, ?, ?, ?, ?)",
-        id,
+    repo.add_heat(&NewHeat {
         name,
         code,
         description,
-        threshold
-    )
-    .execute(&mut *tx)
+        category_ids: body.category_ids,
+        threshold,
+    })
     .await?;
-    // A refusal rolls the new heat back with the transaction.
-    heats::check_categories(&mut tx, id, &categories)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    heats::set_categories(&mut tx, id, &categories).await?;
-    // Groups start in their final: their Vorlauf is skipped from the start
-    // (#345); the organizer may restore it.
-    if heats::discipline(&mut tx, id)
-        .await?
-        .is_some_and(heats::Discipline::is_group)
-    {
-        sqlx::query!("UPDATE heats SET skip = TRUE WHERE id = ?", id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    tx.commit().await?;
     Ok(Json(AddHeatResponse {}))
 }
-
 /// Trims a description; empty becomes none.
 pub fn normalize_description(description: Option<String>) -> Option<String> {
     description

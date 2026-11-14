@@ -1,12 +1,12 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::{self, Slot},
-    reloadable_sqlite::ReloadableSqlite,
+    images::Slot,
     roles::permit,
 };
 
@@ -26,14 +26,13 @@ pub struct RemoveBreakImageResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn remove_break_image(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Json<RemoveBreakImageResponse>, HttpError> {
-    let db = db.get().await.clone();
-    images::remove(&db, Slot::Break).await?;
+    repo.remove_image(Slot::Break).await?;
     info!("Removed the break image");
     Ok(Json(RemoveBreakImageResponse {}))
 }

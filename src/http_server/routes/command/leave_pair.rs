@@ -1,14 +1,12 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
-    rider_registration,
     system_status::Capabilities,
 };
 
@@ -40,7 +38,7 @@ pub struct LeavePairBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn leave_pair(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<LeavePairBody>,
@@ -48,10 +46,6 @@ pub async fn leave_pair(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
-    rider_registration::leave_pair(&mut transaction, body.rider_id).await?;
-    transaction.commit().await?;
+    db.leave_pair(&auth.actor(), body.rider_id).await?;
     Ok(Json(LeavePairResponse {}))
 }

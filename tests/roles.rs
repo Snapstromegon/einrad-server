@@ -25,13 +25,13 @@ fn strings(value: &Value) -> Vec<&str> {
 #[tokio::test]
 async fn admins_from_before_roles_become_admins() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!();
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(ROLES_MIGRATION - 1, &db).await.unwrap();
     let admin = UserId::new();
     let user = UserId::new();
     for (id, name, is_admin) in [(admin, "Admin", true), (user, "Alex", false)] {
         sqlx::query(
-            "INSERT INTO users (id, email, email_verified, name, password, is_admin) VALUES (?, ?, true, ?, 'x', ?)",
+            "INSERT INTO users (id, email, email_verified, name, password, is_admin) VALUES ($1, $2, true, $3, 'x', $4)",
         )
         .bind(id)
         .bind(email_for(name))

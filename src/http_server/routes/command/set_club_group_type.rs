@@ -1,14 +1,13 @@
+use crate::act_type::ActType;
 use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    act_type::ActType,
-    groups::{ensure_group_owner, ensure_group_type, get_group, type_conflict_message},
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -46,7 +45,7 @@ pub struct SetClubGroupTypeBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_club_group_type(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<SetClubGroupTypeBody>,
@@ -54,31 +53,9 @@ pub async fn set_club_group_type(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-
-    let group = get_group(&mut transaction, body.act_id).await?;
-    ensure_group_owner(&mut transaction, &auth, &group).await?;
-    ensure_group_type(body.act_type)?;
-
-    if group.act_type != body.act_type {
-        info!(
-            "Changing group {:?} from {} to {}",
-            group.group_name,
-            group.act_type.as_str(),
-            body.act_type.as_str()
-        );
-        sqlx::query!(
-            "UPDATE acts SET act_type = ? WHERE id = ?",
-            body.act_type,
-            group.id,
-        )
-        .execute(&mut *transaction)
+    let warning = db
+        .set_group_type(&auth.actor(), body.act_id, body.act_type)
         .await?;
-    }
-    let warning = type_conflict_message(&mut transaction, group.id).await?;
-
-    transaction.commit().await?;
 
     Ok(Json(SetClubGroupTypeResponse { warning }))
 }

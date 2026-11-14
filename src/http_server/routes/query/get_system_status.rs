@@ -1,10 +1,10 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     competition::{Competition, Features},
     http_server::HttpError,
-    reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
 };
 
@@ -33,19 +33,18 @@ pub struct SystemStatus {
         (status=200, content_type="application/json", body=SystemStatus),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_system_status(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     capabilities: Capabilities,
 ) -> Result<Json<SystemStatus>, HttpError> {
-    let db = db.get().await.clone();
-    let competition = Competition::current(&db).await?;
+    let competition = repo.current_competition().await?;
     let features = Features::of(competition.as_ref());
     Ok(Json(SystemStatus {
         capabilities,
         competition,
         jury_registration: features.jury_registration,
         moderation_input: features.moderation_input,
-        startlist_published: Competition::startlist_published(&db).await?,
+        startlist_published: repo.startlist_published().await?,
     }))
 }

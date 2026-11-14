@@ -71,7 +71,7 @@ async fn get_act_returns_category_and_participants() {
 /// Category of the act of the given type the rider takes part in.
 async fn category_of(app: &TestApp, rider_id: RiderId, act_type: &str) -> Value {
     let act_id: ActId = sqlx::query_scalar(
-        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
+        "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = $1 AND act_type = $2",
     )
     .bind(rider_id)
     .bind(act_type)
@@ -160,7 +160,7 @@ async fn get_unknown_act_fails() {
             None,
         )
         .await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -856,4 +856,43 @@ async fn uploaded_song_gets_a_normalized_copy() {
     let normalized = act["song_file_normalized"].as_str().unwrap();
     assert!(app.data_path().join(normalized).exists());
     assert!(app.data_path().join(format!("{single}.mp3")).exists());
+}
+
+#[tokio::test]
+async fn repo_replaces_songs_and_guards_stale_normalization() {
+    use db_core::acts::NormalizationStatus;
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (_, single, _) = club_with_acts(&app).await;
+
+    let previous = app
+        .repo
+        .save_act_song(single, "a.mp3", "a-1.mp3", "n-1.mp3")
+        .await
+        .unwrap();
+    assert_eq!(previous, None);
+    let previous = app
+        .repo
+        .save_act_song(single, "b.mp3", "a-2.mp3", "n-2.mp3")
+        .await
+        .unwrap();
+    assert_eq!(previous.as_deref(), Some("n-1.mp3"));
+
+    // The job of the first upload finishes too late.
+    assert!(
+        !app.repo
+            .finish_normalization(single, "n-1.mp3", NormalizationStatus::Done)
+            .await
+            .unwrap()
+    );
+    assert!(
+        app.repo
+            .finish_normalization(single, "n-2.mp3", NormalizationStatus::Done)
+            .await
+            .unwrap()
+    );
+    let act = app.repo.find_act(single).await.unwrap().unwrap();
+    assert_eq!(act.normalization_status, Some(NormalizationStatus::Done));
+    assert!(app.repo.clear_act_song(single).await.unwrap());
+    assert!(app.repo.list_song_files().await.unwrap().is_empty());
 }
