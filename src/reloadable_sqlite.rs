@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use sqlx::{
     SqlitePool,
@@ -48,6 +48,17 @@ impl ReloadableSqlite {
 
     pub async fn get(&self) -> RwLockReadGuard<'_, SqlitePool> {
         self.db.read().await
+    }
+
+    /// The configured database URL, to reopen the pool.
+    pub fn url(&self) -> &str {
+        &self.path
+    }
+
+    /// The pool's write lock: while held, in-flight requests have finished
+    /// and new ones wait. For swapping the database file.
+    pub async fn write(&self) -> RwLockWriteGuard<'_, SqlitePool> {
+        self.db.write().await
     }
 
     pub async fn reload(&self) -> Result<(), sqlx::Error> {

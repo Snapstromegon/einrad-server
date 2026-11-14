@@ -6,6 +6,7 @@ pub mod colors;
 pub mod competition;
 pub mod config;
 pub mod db_backup;
+pub mod db_restore;
 pub mod demo;
 pub mod export;
 pub mod fee_waivers;

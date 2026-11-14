@@ -35,6 +35,22 @@ pub fn db_file(db: &ReloadableSqlite) -> Result<PathBuf, HttpError> {
     })
 }
 
+impl From<crate::db_restore::RestoreError> for HttpError {
+    fn from(e: crate::db_restore::RestoreError) -> Self {
+        use crate::db_restore::RestoreError;
+        match e {
+            RestoreError::NotAFile => HttpError::Conflict(
+                "Die Datenbank liegt nicht in einer Datei, Backups sind nicht möglich.".into(),
+            ),
+            RestoreError::Backup(e) => e.into(),
+            e => {
+                tracing::error!("Restoring a database backup failed: {e}");
+                HttpError::InternalServerError
+            }
+        }
+    }
+}
+
 impl From<BackupError> for HttpError {
     fn from(e: BackupError) -> Self {
         match e {

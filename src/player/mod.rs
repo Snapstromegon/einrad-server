@@ -755,6 +755,43 @@ impl PlayerHub {
         playback
     }
 
+    /// Whether any player, or a music control in its own browser (if it
+    /// said so lately), is playing right now. The database restore waits for
+    /// the music to stop.
+    pub fn is_playing(&self) -> bool {
+        let inner = self.lock();
+        inner
+            .players
+            .iter()
+            .any(|p| p.info.status.state == PlaybackState::Playing)
+            || inner.local_playback.values().any(|(playback, at)| {
+                playback.state == PlaybackState::Playing && at.elapsed() < LOCAL_PLAYBACK_FRESH
+            })
+    }
+
+    /// Forgets what the hub knew of the old data after a database restore:
+    /// the cue, the songs coming up, the originals' choices and the award
+    /// ceremony queue. The players stay connected; they unload the song. The
+    /// fresh state goes to the controllers, and the song of the restored
+    /// timeplan is cued.
+    pub async fn reset_after_restore(&self) {
+        {
+            let mut inner = self.lock();
+            inner.cue = None;
+            inner.pending_cue = None;
+            inner.originals.clear();
+            inner.queue.clear();
+            inner.music_start = None;
+            inner.local_playback.clear();
+            Self::send_active(&inner, ToPlayer::Clear);
+            Self::set_prefetch(&mut inner, vec![]);
+            self.publish(&inner);
+        }
+        if let Err(e) = self.cue_from_timeplan().await {
+            warn!("Couldn't cue the song after the database restore: {e}");
+        }
+    }
+
     /// Whether the active player plays or is paused mid-song, as it reported
     /// last; also while it is disconnected, as the music may go on.
     fn active_holds_song(inner: &Inner) -> bool {

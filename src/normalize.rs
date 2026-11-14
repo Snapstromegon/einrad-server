@@ -130,6 +130,39 @@ pub async fn resume(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<()>
     Ok(())
 }
 
+/// Queues the normalization again for acts whose original song exists but
+/// whose normalized copy doesn't, e.g. after a database restore (the songs
+/// aren't part of a backup). Returns how many were queued.
+pub async fn requeue_missing(db: &ReloadableSqlite, data_path: &Path) -> sqlx::Result<usize> {
+    let pool = db.get().await.clone();
+    let acts: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, song_file, song_file_normalized FROM acts WHERE song_file IS NOT NULL",
+    )
+    .fetch_all(&pool)
+    .await?;
+    let mut queued = 0;
+    for (id, song_file, normalized) in acts {
+        let original_exists = data_path.join(&song_file).is_file();
+        let normalized_exists = normalized
+            .as_ref()
+            .is_some_and(|n| data_path.join(n).is_file());
+        if !original_exists || normalized_exists {
+            continue;
+        }
+        let target = normalized_file_name(id);
+        sqlx::query(
+            "UPDATE acts SET song_file_normalized = ?, normalization_status = 'pending' WHERE id = ?",
+        )
+        .bind(&target)
+        .bind(id)
+        .execute(&pool)
+        .await?;
+        spawn(db.clone(), data_path.to_owned(), id, song_file, target);
+        queued += 1;
+    }
+    Ok(queued)
+}
+
 /// Deletes a file that may already be gone.
 pub async fn remove_file(path: &Path) {
     if let Err(e) = tokio::fs::remove_file(path).await

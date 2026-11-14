@@ -1,5 +1,6 @@
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+mod check_db_backup;
 mod export_competition;
 mod get_act;
 mod get_club;
@@ -30,6 +31,7 @@ mod list_heats;
 mod list_judges;
 mod list_jury_plan;
 mod list_jury_units;
+mod list_missing_songs;
 mod list_pair_requests;
 mod list_riders;
 mod list_sponsors;
@@ -54,6 +56,8 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_jury_units::list_jury_units))
         .routes(routes!(list_users::list_users))
         .routes(routes!(list_db_backups::list_db_backups))
+        .routes(routes!(check_db_backup::check_db_backup))
+        .routes(routes!(list_missing_songs::list_missing_songs))
         .routes(routes!(whoami::whoami))
         .routes(routes!(get_system_status::get_system_status))
         .routes(routes!(list_riders::list_riders))
