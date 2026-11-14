@@ -274,3 +274,85 @@ async fn heats_take_category_ids_and_list_them_next_to_the_names() {
         .await;
     assert_ne!(unknown.status, StatusCode::OK, "{:?}", unknown.body);
 }
+
+#[tokio::test]
+async fn edit_heat_and_edit_timeplan_entry_take_category_ids() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let emu19 = app.category_id("EMU19").await;
+    let emu21 = app.category_id("EMU21").await;
+
+    let added = app
+        .post(
+            "/api/command/add_heat",
+            json!({"name": "Klasse", "description": null, "category_ids": [emu19]}),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+    let heats = app.get("/api/query/list_heats", None).await;
+    let heat_id = heats
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["name"] == "Klasse")
+        .unwrap()["id"]
+        .clone();
+
+    let edited = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": heat_id,
+                "new_name": "Klasse",
+                "description": null,
+                "category_ids": [emu21],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
+    let heats = app.get("/api/query/list_heats", None).await;
+    let heat = heats
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["id"] == heat_id)
+        .unwrap();
+    assert_eq!(heat["category_ids"], json!([emu21]));
+
+    let entry = app
+        .post(
+            "/api/command/add_timeplan_entry",
+            json!({
+                "earliest_start_time": "2026-04-19T09:00:00Z",
+                "category_id": emu19,
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(entry.status, StatusCode::OK, "{:?}", entry.body);
+    let edited = app
+        .post(
+            "/api/command/edit_timeplan_entry",
+            json!({
+                "id": entry.body["id"],
+                "earliest_start_time": "2026-04-19T09:00:00Z",
+                "category_id": emu21,
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
+    let timeplan = app.get("/api/query/list_timeplan", Some(&admin)).await;
+    let block = timeplan
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == entry.body["id"])
+        .unwrap();
+    assert_eq!(block["category_id"], json!(emu21));
+}

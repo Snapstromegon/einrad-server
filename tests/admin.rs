@@ -560,7 +560,7 @@ async fn delete_unknown_category_is_not_found() {
     let response = app
         .post(
             "/api/command/delete_category",
-            json!({ "name": "DOES-NOT-EXIST" }),
+            json!({ "category_id": uuid::Uuid::now_v7() }),
             Some(&admin),
         )
         .await;

@@ -521,6 +521,11 @@ impl TestApp {
             .unwrap_or_else(|e| panic!("no category {name}: {e}"))
     }
 
+    /// A shim that exists only to keep legacy tests readable (they name
+    /// categories, the API takes IDs). The real request shape, with IDs, is
+    /// covered per endpoint in `category_api.rs` and `category_ids.rs`. An
+    /// unknown name panics, so a test can't silently test something else.
+    ///
     /// Lets a test name categories where the admin API takes IDs: `post`
     /// swaps `category` (timeplan entries), `categories` (heats) and the
     /// `name` of `edit_category`, `delete_category` and the `move_category_*`
@@ -545,19 +550,12 @@ impl TestApp {
                     let mut ids = vec![];
                     for name in names {
                         // Like the server did: names are trimmed, empty ones
-                        // dropped; a name no category has gives an unknown ID.
+                        // dropped.
                         let name = name.as_str().unwrap().trim();
                         if name.is_empty() {
                             continue;
                         }
-                        let id: CategoryId =
-                            sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
-                                .bind(name)
-                                .fetch_optional(&self.db)
-                                .await
-                                .unwrap()
-                                .unwrap_or_else(CategoryId::new);
-                        ids.push(id);
+                        ids.push(self.category_id(name).await);
                     }
                     object.insert("category_ids".into(), json!(ids));
                 }
@@ -566,14 +564,7 @@ impl TestApp {
                 if !object.contains_key("category_id")
                     && let Some(name) = object.remove("name")
                 {
-                    // A name no category has gives an ID no category has.
-                    let id: CategoryId =
-                        sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
-                            .bind(name.as_str().unwrap())
-                            .fetch_optional(&self.db)
-                            .await
-                            .unwrap()
-                            .unwrap_or_else(CategoryId::new);
+                    let id = self.category_id(name.as_str().unwrap()).await;
                     object.insert("category_id".into(), json!(id));
                 }
             }

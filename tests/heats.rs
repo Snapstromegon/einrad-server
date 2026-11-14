@@ -630,7 +630,14 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     for (body, message) in [
         (heat_body(" ", &[]), "Namen"),
         (heat_body("JE EW", &[]), "gibt es schon"),
-        (heat_body("X", &["EMU99"]), "gibt es nicht"),
+        (
+            json!({
+                "name": "X",
+                "description": null,
+                "category_ids": [uuid::Uuid::now_v7()],
+            }),
+            "gibt es nicht",
+        ),
         // One act type and gender.
         (heat_body("X", &["EMU17", "EWU19"]), "EWU19"),
         (heat_body("X", &["PU17", "EWU19"]), "EWU19"),
