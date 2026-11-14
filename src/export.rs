@@ -12,6 +12,7 @@
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
 //! progress, finals placements and the jury plan.
 
+use crate::ids::{FinalId, HeatId};
 use time::OffsetDateTime;
 
 use crate::{
@@ -136,7 +137,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     for row in sqlx::query!(
         r#"
         SELECT
-            id as "id!: uuid::Uuid", name as "name!", code as "code!", description, threshold, skip,
+            id as "id!: HeatId", name as "name!", code as "code!", description, threshold, skip,
             jury_registrable as "jury_registrable: bool", jury_deployments,
             jury_needed_technical, jury_needed_performance, jury_needed_dismounts
         FROM heats
@@ -186,7 +187,7 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: uuid::Uuid", name as "name!", code as "code!", description, act_type as "act_type: ActType",
+            id as "id!: FinalId", name as "name!", code as "code!", description, act_type as "act_type: ActType",
             is_single_male, einfahrzeit_seconds, act_duration_seconds,
             judge_duration_seconds,
             jury_registrable as "jury_registrable: bool", jury_deployments,
@@ -237,7 +238,8 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     let timeplan = sqlx::query!(
         r#"
         SELECT
-            kind as "kind: EntryKind", category,
+            kind as "kind: EntryKind",
+            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
             (SELECT code FROM finals WHERE finals.id = timeplan.final_id) as final_name,
             label, duration_seconds,
             einfahrzeit_seconds, show_photos, internal,

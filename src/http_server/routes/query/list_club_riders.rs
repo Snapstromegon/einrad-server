@@ -1,6 +1,6 @@
+use crate::ids::{ClubId, RiderId};
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     gender::Gender,
@@ -11,8 +11,8 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubRider {
-    id: Uuid,
-    club_id: Uuid,
+    id: RiderId,
+    club_id: ClubId,
     firstname: String,
     lastname: String,
     #[serde(with = "time::serde::iso8601")]
@@ -30,7 +30,7 @@ pub struct ClubRider {
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubRidersQuery {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 /// List the riders of a club, with their birthdates.
@@ -63,8 +63,8 @@ pub async fn list_club_riders(
         ClubRider,
         r#"
         SELECT
-            rider.id as "id!: Uuid",
-            rider.club_id as "club_id!: Uuid",
+            rider.id as "id!: RiderId",
+            rider.club_id as "club_id!: ClubId",
             rider.firstname,
             rider.lastname,
             rider.birthdate,

@@ -1,8 +1,8 @@
+use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -22,7 +22,7 @@ pub struct SetClubGroupTypeResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetClubGroupTypeBody {
-    act_id: Uuid,
+    act_id: ActId,
     /// `group_small` (Kleingruppe) or `group_large` (Großgruppe).
     act_type: ActType,
 }

@@ -1,8 +1,8 @@
+use crate::ids::HeatId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     heats,
@@ -17,7 +17,7 @@ pub struct DeleteHeatResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteHeatBody {
-    id: Uuid,
+    id: HeatId,
 }
 
 /// Delete a heat; its categories belong to no heat afterwards.
@@ -59,7 +59,7 @@ pub async fn delete_heat(
             names.join(", ")
         )));
     }
-    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Heat, body.id).await?;
+    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Heat, body.id.into()).await?;
     info!("Deleting heat {}", body.id);
     // Its categories leave it (foreign key).
     let result = sqlx::query!("DELETE FROM heats WHERE id = ?", body.id)

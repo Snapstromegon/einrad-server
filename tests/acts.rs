@@ -4,14 +4,15 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, closed_registration, rider_body};
+use einrad_server::ids::{ActId, RiderId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-async fn get_act(app: &TestApp, act_id: Uuid) -> Value {
+async fn get_act(app: &TestApp, act_id: ActId) -> Value {
     get_act_as(app, None, act_id).await
 }
 
-async fn get_act_as(app: &TestApp, cookie: Option<&str>, act_id: Uuid) -> Value {
+async fn get_act_as(app: &TestApp, cookie: Option<&str>, act_id: ActId) -> Value {
     let response = app
         .get(&format!("/api/query/get_act?act_id={act_id}"), cookie)
         .await;
@@ -26,7 +27,7 @@ async fn list_acts(app: &TestApp) -> Vec<Value> {
 }
 
 /// Creates a club with one single act and one pair act.
-async fn club_with_acts(app: &TestApp) -> (String, Uuid, Uuid) {
+async fn club_with_acts(app: &TestApp) -> (String, ActId, ActId) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let single = app.add_single_act(&cookie, club_id, "Anna").await;
     let berta = app
@@ -68,8 +69,8 @@ async fn get_act_returns_category_and_participants() {
 }
 
 /// Category of the act of the given type the rider takes part in.
-async fn category_of(app: &TestApp, rider_id: Uuid, act_type: &str) -> Value {
-    let act_id: Uuid = sqlx::query_scalar(
+async fn category_of(app: &TestApp, rider_id: RiderId, act_type: &str) -> Value {
+    let act_id: ActId = sqlx::query_scalar(
         "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE rider_id = ? AND act_type = ?",
     )
     .bind(rider_id)
@@ -746,7 +747,7 @@ async fn startlist_csv_contains_header_sections_and_acts() {
 
     // Every timeplan entry gets a section line, except empty categories.
     let timeplan_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM timeplan WHERE category IS NULL OR category IN (SELECT category FROM view_act)",
+        "SELECT COUNT(*) FROM timeplan WHERE category_id IS NULL OR category_id IN (SELECT category_id FROM view_act)",
     )
     .fetch_one(&app.db)
     .await

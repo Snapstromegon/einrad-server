@@ -1,3 +1,4 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -23,7 +24,8 @@ pub struct EditCategoryResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditCategoryBody {
-    name: String, // Primary key - category to edit
+    /// The category to edit.
+    category_id: CategoryId,
     new_name: String,
     description: Option<String>,
     /// See `AddCategoryBody::min_age`.
@@ -65,27 +67,8 @@ pub async fn edit_category(
     check_ages(&mut tx, &body.new_name, body.min_age, body.under_age).await?;
     check_heat(&mut tx, &body).await?;
 
-    sqlx::query!("PRAGMA defer_foreign_keys = ON")
-        .execute(&mut *tx)
-        .await?;
-
-    // Update timeplan table first to maintain foreign key constraint
-    if body.new_name != body.name {
-        sqlx::query!(
-            r#"
-            UPDATE timeplan 
-            SET category = $1 
-            WHERE category = $2
-            "#,
-            body.new_name,
-            body.name,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Update the category
-    sqlx::query!(
+    // A rename is a plain update: everything refers to the category by its ID.
+    let updated = sqlx::query!(
         r#"
         UPDATE categories 
         SET 
@@ -98,7 +81,7 @@ pub async fn edit_category(
             einfahrzeit_seconds = $7,
             act_duration_seconds = $8,
             judge_duration_seconds = $9
-        WHERE name = $10
+        WHERE id = $10
         "#,
         body.new_name,
         body.description,
@@ -109,10 +92,13 @@ pub async fn edit_category(
         body.einfahrzeit_seconds,
         body.act_duration_seconds,
         body.judge_duration_seconds,
-        body.name,
+        body.category_id,
     )
     .execute(&mut *tx)
     .await?;
+    if updated.rows_affected() == 0 {
+        return Err(HttpError::NotFound);
+    }
 
     let warnings = seed::stored_coverage_warnings(&mut tx)
         .await
@@ -130,11 +116,11 @@ async fn check_heat(
 ) -> Result<(), HttpError> {
     let Some(row) = sqlx::query!(
         r#"
-        SELECT heats.name as "heat!", act_type as "act_type: ActType", is_single_male
+        SELECT heats.name as "heat!", categories.name as "name!", act_type as "act_type: ActType", is_single_male
         FROM categories JOIN heats ON heats.id = categories.heat_id
-        WHERE categories.name = ?
+        WHERE categories.id = ?
         "#,
-        body.name
+        body.category_id
     )
     .fetch_optional(conn)
     .await?
@@ -146,7 +132,7 @@ async fn check_heat(
     {
         return Err(HttpError::ErrorMessages(format!(
             "{} gehört zur Vorlaufklasse „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
-            body.name, row.heat
+            row.name, row.heat
         )));
     }
     Ok(())

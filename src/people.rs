@@ -2,6 +2,7 @@
 //! ignoring case and surrounding spaces. Clubs read "Max Müller ist bereits
 //! gemeldet." instead of a database error.
 
+use crate::ids::ClubId;
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
@@ -36,7 +37,7 @@ pub enum Person {
 pub async fn ensure_name_is_free(
     conn: &mut SqliteConnection,
     person: Person,
-    club_id: Uuid,
+    club_id: ClubId,
     firstname: &str,
     lastname: &str,
     except_id: Option<Uuid>,

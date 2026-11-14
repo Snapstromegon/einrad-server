@@ -7,9 +7,9 @@
 //! The helpers take a `&mut SqliteConnection`, so commands can run them inside
 //! their transaction and roll back when a check fails.
 
+use crate::ids::{ActId, ClubId, RiderId, UserId};
 use axum::http::StatusCode;
 use sqlx::SqliteConnection;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -107,10 +107,10 @@ pub fn group_name_sort_key(name: &str) -> (String, String) {
 pub async fn ensure_club_access(
     conn: &mut SqliteConnection,
     auth: &Auth,
-    club_id: Uuid,
+    club_id: ClubId,
 ) -> Result<(), HttpError> {
     let owner_id = sqlx::query_scalar!(
-        r#"SELECT owner_id as "owner_id!: Uuid" FROM clubs WHERE id = ?"#,
+        r#"SELECT owner_id as "owner_id!: UserId" FROM clubs WHERE id = ?"#,
         club_id
     )
     .fetch_optional(&mut *conn)
@@ -134,10 +134,10 @@ pub async fn ensure_club_access(
 pub async fn ensure_rider_access(
     conn: &mut SqliteConnection,
     auth: &Auth,
-    rider_id: Uuid,
-) -> Result<Uuid, HttpError> {
+    rider_id: RiderId,
+) -> Result<ClubId, HttpError> {
     let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: Uuid" FROM rider WHERE id = ?"#,
+        r#"SELECT club_id as "club_id!: ClubId" FROM rider WHERE id = ?"#,
         rider_id
     )
     .fetch_optional(&mut *conn)
@@ -155,7 +155,7 @@ pub async fn ensure_rider_access(
 pub async fn ensure_act_access(
     conn: &mut SqliteConnection,
     auth: &Auth,
-    act_id: Uuid,
+    act_id: ActId,
 ) -> Result<(), HttpError> {
     let allowed = sqlx::query_scalar!(
         r#"
@@ -192,22 +192,22 @@ pub async fn ensure_act_access(
 /// A group act as needed by the group commands.
 #[derive(Debug)]
 pub struct Group {
-    pub id: Uuid,
+    pub id: ActId,
     pub group_name: String,
     pub act_type: ActType,
-    pub owner_club_id: Option<Uuid>,
+    pub owner_club_id: Option<ClubId>,
 }
 
 /// Loads a group act. Fails with 404 if the act doesn't exist or isn't a group.
-pub async fn get_group(conn: &mut SqliteConnection, act_id: Uuid) -> Result<Group, HttpError> {
+pub async fn get_group(conn: &mut SqliteConnection, act_id: ActId) -> Result<Group, HttpError> {
     sqlx::query_as!(
         Group,
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: ActId",
             group_name as "group_name!",
             act_type as "act_type!: ActType",
-            owner_club_id as "owner_club_id: Uuid"
+            owner_club_id as "owner_club_id: ClubId"
         FROM acts
         WHERE id = ? AND group_name IS NOT NULL
         "#,
@@ -240,7 +240,7 @@ pub async fn ensure_group_owner(
 pub async fn ensure_group_name_is_free(
     conn: &mut SqliteConnection,
     group_name: &str,
-    except_act_id: Option<Uuid>,
+    except_act_id: Option<ActId>,
 ) -> Result<(), HttpError> {
     // The NOCASE index only folds ASCII letters, so „Ü“ and „ü“ are compared
     // here. There are only a few dozen groups.
@@ -286,7 +286,7 @@ pub fn ensure_group_type(act_type: ActType) -> Result<(), HttpError> {
 /// (German) message naming the riders, their clubs and the other groups.
 pub async fn type_conflict_message(
     conn: &mut SqliteConnection,
-    act_id: Uuid,
+    act_id: ActId,
 ) -> Result<Option<String>, sqlx::Error> {
     let conflicts = sqlx::query!(
         r#"

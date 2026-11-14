@@ -1,8 +1,8 @@
+use crate::ids::{ActId, CategoryId, ClubId, RiderId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -13,11 +13,12 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubGroup {
-    id: Uuid,
+    id: ActId,
     group_name: String,
     act_type: ActType,
     /// `null` for incomplete groups (fewer than 3 regular riders) and groups
     /// with a `conflict`.
+    category_id: Option<CategoryId>,
     category: Option<String>,
     /// Age in whole years of the oldest rider (replacements included) on the
     /// determining day.
@@ -29,7 +30,7 @@ pub struct ClubGroup {
     /// The act's title.
     name: String,
     song_file: Option<String>,
-    owner_club_id: Option<Uuid>,
+    owner_club_id: Option<ClubId>,
     owner_club_name: Option<String>,
     /// Whether the queried club created the group (and may rename or delete it).
     is_owner: bool,
@@ -39,10 +40,10 @@ pub struct ClubGroup {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubGroupMember {
-    rider_id: Uuid,
+    rider_id: RiderId,
     firstname: String,
     lastname: String,
-    club_id: Uuid,
+    club_id: ClubId,
     club_name: String,
     is_replacement: bool,
     /// Only for the queried club's own riders.
@@ -52,7 +53,7 @@ pub struct ClubGroupMember {
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubGroupsQuery {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 /// List the groups of a club.
@@ -84,14 +85,15 @@ pub async fn list_club_groups(
     let groups = sqlx::query!(
         r#"
         SELECT
-            view_act.id as "id!: Uuid",
+            view_act.id as "id!: ActId",
             view_act.group_name as "group_name!",
             view_act.act_type as "act_type!: ActType",
-            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category: String",
+            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: CategoryId",
+            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category?: String",
             view_act.max_age as "max_age: f64",
             view_act.name,
             view_act.song_file,
-            view_act.owner_club_id as "owner_club_id: Uuid",
+            view_act.owner_club_id as "owner_club_id: ClubId",
             owner.name as "owner_club_name?"
         FROM view_act
         LEFT JOIN clubs AS owner ON owner.id = view_act.owner_club_id
@@ -114,11 +116,11 @@ pub async fn list_club_groups(
     let members = sqlx::query!(
         r#"
         SELECT
-            act_participants.act_id as "act_id!: Uuid",
-            rider.id as "rider_id!: Uuid",
+            act_participants.act_id as "act_id!: ActId",
+            rider.id as "rider_id!: RiderId",
             rider.firstname,
             rider.lastname,
-            rider.club_id as "club_id!: Uuid",
+            rider.club_id as "club_id!: ClubId",
             clubs.name as club_name,
             act_participants.is_replacement,
             rider.birthdate
@@ -142,7 +144,7 @@ pub async fn list_club_groups(
     .fetch_all(&mut *connection)
     .await?;
 
-    let mut members_by_group: HashMap<Uuid, Vec<ClubGroupMember>> = HashMap::new();
+    let mut members_by_group: HashMap<ActId, Vec<ClubGroupMember>> = HashMap::new();
     for member in members {
         members_by_group
             .entry(member.act_id)
@@ -165,6 +167,7 @@ pub async fn list_club_groups(
             id: group.id,
             group_name: group.group_name,
             act_type: group.act_type,
+            category_id: group.category_id,
             category: group.category,
             // Whole years are enough to tell U15 from 15+; the exact age
             // would give away the birthdate of other clubs' riders.

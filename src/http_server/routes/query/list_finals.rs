@@ -1,8 +1,8 @@
+use crate::ids::{ActId, FinalId, FinalSlotId, HeatId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Final {
-    id: Uuid,
+    id: FinalId,
     /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
     name: String,
     /// The short code, unique, e.g. "E EM".
@@ -42,18 +42,18 @@ pub struct Final {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct FinalSlot {
-    id: Uuid,
+    id: FinalSlotId,
     /// "3. Finalist (E EM 1)".
     label: String,
     /// The heat whose acts fill the slot, by id.
-    heat_id: Uuid,
+    heat_id: HeatId,
     /// The heat's short code, as the label has it.
     group_label: String,
     /// Counts within the group.
     number: i64,
     /// The placed act. Before the placement is published, only for who
     /// manages results.
-    act_id: Option<Uuid>,
+    act_id: Option<ActId>,
     started: bool,
 }
 
@@ -75,19 +75,19 @@ pub async fn list_finals(
     let db = db.get().await.clone();
     // One read transaction, so the finals and their slots match.
     let mut tx = db.begin().await?;
-    let mut slots: HashMap<Uuid, Vec<FinalSlot>> = HashMap::new();
+    let mut slots: HashMap<FinalId, Vec<FinalSlot>> = HashMap::new();
     // The heat of each slot, by id, name and code, for the slot groups.
-    let mut slot_heats: HashMap<Uuid, Vec<(Uuid, String, String)>> = HashMap::new();
+    let mut slot_heats: HashMap<FinalId, Vec<(HeatId, String, String)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
-            final_slots.id as "id!: Uuid",
-            final_slots.final_id as "final_id!: Uuid",
-            final_slots.heat_id as "heat_id!: Uuid",
+            final_slots.id as "id!: FinalSlotId",
+            final_slots.final_id as "final_id!: FinalId",
+            final_slots.heat_id as "heat_id!: HeatId",
             heats.name as "heat!",
             heats.code as "heat_code!",
             number,
-            act_id as "act_id: Uuid",
+            act_id as "act_id: ActId",
             final_slots.started_at IS NOT NULL as "started!: bool",
             finals.placement_published
         FROM final_slots
@@ -116,10 +116,10 @@ pub async fn list_finals(
             started: row.started,
         });
     }
-    let mut categories: HashMap<Uuid, Vec<String>> = HashMap::new();
+    let mut categories: HashMap<FinalId, Vec<String>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT DISTINCT final_slots.final_id as "final_id!: Uuid", categories.name as "category!", categories."order"
+        SELECT DISTINCT final_slots.final_id as "final_id!: FinalId", categories.name as "category!", categories."order"
         FROM final_slots
         JOIN categories ON categories.heat_id = final_slots.heat_id
         ORDER BY final_slots.final_id, categories."order", categories.name
@@ -136,7 +136,7 @@ pub async fn list_finals(
     let rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: FinalId",
             name as "name!",
             code as "code!",
             description,

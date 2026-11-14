@@ -5,6 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::HeatId;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -351,7 +352,7 @@ fn heat_body(name: &str, categories: &[&str]) -> Value {
     json!({ "name": name, "description": null, "categories": categories })
 }
 
-fn edit_body(id: Uuid, new_name: &str, categories: &[&str]) -> Value {
+fn edit_body(id: HeatId, new_name: &str, categories: &[&str]) -> Value {
     json!({
         "id": id,
         "new_name": new_name,
@@ -395,6 +396,11 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "code": "JE EW",
                 "description": "Junior Expert Einzel Weiblich (U11–U15)",
                 "categories": ["EWU11", "EWU13", "EWU15"],
+                "category_ids": [
+                    app.category_id("EWU11").await,
+                    app.category_id("EWU13").await,
+                    app.category_id("EWU15").await,
+                ],
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": final_,
@@ -409,6 +415,7 @@ async fn heats_are_seeded_with_their_categories_and_finals() {
                 "code": "E EW",
                 "description": null,
                 "categories": ["EWU17"],
+                "category_ids": [app.category_id("EWU17").await],
                 "act_type": "single",
                 "is_single_male": false,
                 "finals": final_,
@@ -623,7 +630,6 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
     for (body, message) in [
         (heat_body(" ", &[]), "Namen"),
         (heat_body("JE EW", &[]), "gibt es schon"),
-        (heat_body("X", &["EMU99"]), "EMU99"),
         // One act type and gender.
         (heat_body("X", &["EMU17", "EWU19"]), "EWU19"),
         (heat_body("X", &["PU17", "EWU19"]), "EWU19"),
@@ -653,6 +659,49 @@ async fn a_heat_keeps_to_one_discipline_and_its_categories_to_one_heat() {
         )
         .await;
     rejected(&response, "„JE EW“");
+}
+
+#[tokio::test]
+async fn an_unknown_category_answers_404_naming_its_id() {
+    let app = TestApp::new(common::in_memory_migrated().await).await;
+    let admin = app.create_admin().await;
+    let unknown = uuid::Uuid::now_v7();
+
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            json!({ "name": "X", "description": null, "category_ids": [unknown] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    rejected(&response, &format!("Die Kategorie {unknown} gibt es nicht"));
+
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": app.heat_id("E EW").await,
+                "new_name": "E EW",
+                "description": null,
+                "category_ids": [unknown],
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        response.body
+    );
+    rejected(&response, &format!("Die Kategorie {unknown} gibt es nicht"));
+    assert_eq!(names(&list_heats(&app).await), ["JE EW", "E EW"]);
 }
 
 #[tokio::test]

@@ -69,6 +69,7 @@ export function errorMessage(error: unknown, status?: number): string {
     switch (error.type) {
       case "Generic":
       case "Conflict":
+      case "NotFoundMessage":
         return undebug(error.message).trim() || "Unbekannter Fehler";
       case "StatusCode":
         return statusMessages[error.message] ?? statusFallback(error.message);
@@ -163,7 +164,9 @@ export async function unwrap<T>(call: Promise<{ data: T }>): Promise<T> {
         errorMessage(error.data, error.status),
         error.status,
         isClientError(error.data) &&
-          (error.data.type === "Generic" || error.data.type === "Conflict"),
+          (error.data.type === "Generic" ||
+            error.data.type === "Conflict" ||
+            error.data.type === "NotFoundMessage"),
       );
     }
     throw error;

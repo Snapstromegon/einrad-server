@@ -4,17 +4,18 @@ mod common;
 
 use axum::http::StatusCode;
 use common::TestApp;
+use einrad_server::ids::{BookingId, ClubId, UserId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// The migration that replaced `clubs.payment` with bookings.
 const BOOKINGS_MIGRATION: i64 = 20261024120000;
 
-fn booking(club_id: Option<Uuid>, amount: f64) -> Value {
+fn booking(club_id: Option<ClubId>, amount: f64) -> Value {
     json!({ "club_id": club_id, "amount": amount, "date": "2027-03-01", "note": "Überweisung" })
 }
 
-async fn create(app: &TestApp, cookie: &str, body: Value) -> Uuid {
+async fn create(app: &TestApp, cookie: &str, body: Value) -> BookingId {
     let response = app
         .post("/api/command/create_booking", body, Some(cookie))
         .await;
@@ -22,7 +23,7 @@ async fn create(app: &TestApp, cookie: &str, body: Value) -> Uuid {
     response.body["id"].as_str().unwrap().parse().unwrap()
 }
 
-async fn edit(app: &TestApp, cookie: &str, booking_id: Uuid, booking: Value) {
+async fn edit(app: &TestApp, cookie: &str, booking_id: BookingId, booking: Value) {
     let response = app
         .post(
             "/api/command/edit_booking",
@@ -33,7 +34,7 @@ async fn edit(app: &TestApp, cookie: &str, booking_id: Uuid, booking: Value) {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 }
 
-async fn delete(app: &TestApp, cookie: &str, booking_id: Uuid) {
+async fn delete(app: &TestApp, cookie: &str, booking_id: BookingId) {
     let response = app
         .post(
             "/api/command/delete_booking",
@@ -70,7 +71,7 @@ async fn log(app: &TestApp, cookie: &str, query: &str) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-async fn treasurer(app: &TestApp) -> (Uuid, String) {
+async fn treasurer(app: &TestApp) -> (UserId, String) {
     let id = app.create_user_with_roles("Kim", &["treasurer"]).await;
     (id, app.cookie_for(id))
 }
@@ -165,7 +166,7 @@ async fn invalid_bookings_are_refused() {
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
         (ignored_payment, StatusCode::INTERNAL_SERVER_ERROR),
-        (booking(Some(Uuid::now_v7()), 10.0), StatusCode::NOT_FOUND),
+        (booking(Some(ClubId::new()), 10.0), StatusCode::NOT_FOUND),
     ] {
         let response = app
             .post("/api/command/create_booking", body.clone(), Some(&kasse))
@@ -249,7 +250,7 @@ async fn the_migration_turns_paid_totals_into_bookings() {
     let db = common::in_memory().await;
     let migrator = sqlx::migrate!();
     migrator.run_to(BOOKINGS_MIGRATION - 1, &db).await.unwrap();
-    let owner = Uuid::now_v7();
+    let owner = UserId::new();
     sqlx::query(
         "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@cup.test', true, 'Max', 'x')",
     )
@@ -257,9 +258,9 @@ async fn the_migration_turns_paid_totals_into_bookings() {
     .execute(&db)
     .await
     .unwrap();
-    let rsv = Uuid::now_v7();
+    let rsv = ClubId::new();
     for (name, payment) in [("RSV", Some(120.5)), ("ESV", Some(0.0)), ("SSV", None)] {
-        let id = if name == "RSV" { rsv } else { Uuid::now_v7() };
+        let id = if name == "RSV" { rsv } else { ClubId::new() };
         sqlx::query("INSERT INTO clubs (id, name, owner_id, payment) VALUES (?, ?, ?, ?)")
             .bind(id)
             .bind(name)

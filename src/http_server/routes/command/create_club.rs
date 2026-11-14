@@ -1,8 +1,8 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateClubResponse {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -46,7 +46,7 @@ pub async fn create_club(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let db = db.get().await.clone();
-    let club_id = Uuid::now_v7();
+    let club_id = ClubId::new();
     sqlx::query!(
         r#"
         INSERT INTO clubs (id, name, owner_id) VALUES (?, ?, ?);

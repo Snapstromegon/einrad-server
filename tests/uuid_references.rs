@@ -111,10 +111,14 @@ async fn the_migration_turns_name_references_into_ids() {
         .await,
         ["Finale EM E EM 1", "Finale EM E EM 2"]
     );
-    // The slots keep their ids (acts placed in them, live state).
+    // The slots get valid v7 ids in the later re-mint (#355), one each.
     assert_eq!(
-        texts(&db, "SELECT hex(id) FROM final_slots ORDER BY position").await,
-        ["A1", "A2"]
+        texts(
+            &db,
+            "SELECT CAST(COUNT(DISTINCT id) AS TEXT) FROM final_slots WHERE length(id) = 16"
+        )
+        .await,
+        ["2"]
     );
     assert_eq!(
         texts(

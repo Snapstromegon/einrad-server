@@ -1,6 +1,6 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -11,7 +11,7 @@ use crate::{
 /// A rider waiting for a pair partner who isn't linked yet (Paaranfrage).
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct PairRequest {
-    pub(super) rider_id: Uuid,
+    pub(super) rider_id: RiderId,
     /// The partner the club entered, if any.
     pub(super) partner_name: Option<String>,
 }
@@ -36,7 +36,7 @@ pub async fn list_pair_requests(
     let db = db.get().await.clone();
     let requests = sqlx::query_as!(
         PairRequest,
-        r#"SELECT rider_id as "rider_id!: Uuid", partner_name FROM pair_requests"#
+        r#"SELECT rider_id as "rider_id!: RiderId", partner_name FROM pair_requests"#
     )
     .fetch_all(&db)
     .await?;

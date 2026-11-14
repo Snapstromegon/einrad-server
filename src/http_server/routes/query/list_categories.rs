@@ -1,3 +1,4 @@
+use crate::ids::{CategoryId, HeatId};
 use axum::{Extension, Json};
 use tracing::instrument;
 
@@ -9,6 +10,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Category {
+    id: CategoryId,
     name: String,
     description: Option<String>,
     /// The age on the determining day from which on riders belong to the
@@ -24,7 +26,7 @@ pub struct Category {
     act_duration_seconds: Option<i64>,
     judge_duration_seconds: Option<i64>,
     /// The heat it belongs to, if any, by id; clubs never pick it.
-    heat_id: Option<uuid::Uuid>,
+    heat_id: Option<HeatId>,
     /// The name of its heat.
     heat: Option<String>,
 }
@@ -49,7 +51,7 @@ pub async fn list_categories(
     let club_categories = sqlx::query_as!(
         Category,
         r#"
-        SELECT name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: uuid::Uuid", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
+        SELECT id as "id!: CategoryId", name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: HeatId", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
         FROM categories ORDER BY "order" ASC
         "#
     )

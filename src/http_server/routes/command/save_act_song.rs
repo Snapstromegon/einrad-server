@@ -1,3 +1,4 @@
+use crate::ids::ActId;
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use axum::{
@@ -9,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::DirBuilder;
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_act_access,
@@ -24,7 +24,7 @@ pub struct SaveActSongResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SaveActSongQuery {
-    act_id: Uuid,
+    act_id: ActId,
 }
 
 /// The largest song file a club can upload.

@@ -1,8 +1,8 @@
+use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::{ensure_group_name_is_free, ensure_group_owner, get_group, normalize_group_name},
@@ -16,7 +16,7 @@ pub struct RenameClubGroupResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RenameClubGroupBody {
-    act_id: Uuid,
+    act_id: ActId,
     group_name: String,
 }
 

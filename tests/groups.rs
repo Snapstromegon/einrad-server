@@ -8,14 +8,15 @@ use std::collections::{BTreeSet, HashMap};
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
+use einrad_server::ids::{ActId, ClubId, RiderId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-async fn get_act(app: &TestApp, act_id: Uuid) -> Value {
+async fn get_act(app: &TestApp, act_id: ActId) -> Value {
     get_act_as(app, None, act_id).await
 }
 
-async fn get_act_as(app: &TestApp, cookie: Option<&str>, act_id: Uuid) -> Value {
+async fn get_act_as(app: &TestApp, cookie: Option<&str>, act_id: ActId) -> Value {
     let response = app
         .get(&format!("/api/query/get_act?act_id={act_id}"), cookie)
         .await;
@@ -29,7 +30,7 @@ async fn list_acts(app: &TestApp) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-async fn list_club_acts(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_club_acts(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_acts?club_id={club_id}"),
@@ -40,7 +41,7 @@ async fn list_club_acts(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value
     response.body.as_array().unwrap().clone()
 }
 
-async fn list_club_riders(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_club_riders(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_riders?club_id={club_id}"),
@@ -57,7 +58,7 @@ async fn list_groups(app: &TestApp, cookie: &str) -> Vec<Value> {
     response.body.as_array().unwrap().clone()
 }
 
-async fn list_club_groups(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn list_club_groups(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_groups?club_id={club_id}"),
@@ -72,10 +73,10 @@ async fn list_club_groups(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Val
 async fn add_rider_born(
     app: &TestApp,
     cookie: &str,
-    club_id: Uuid,
+    club_id: ClubId,
     firstname: &str,
     birthdate: &str,
-) -> Uuid {
+) -> RiderId {
     let mut body = rider_body(club_id, firstname, false, false);
     body["birthdate"] = json!(birthdate);
     app.add_rider(cookie, body).await
@@ -112,8 +113,8 @@ fn participant_ids(act: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-fn id_set(ids: &[Uuid]) -> BTreeSet<String> {
-    ids.iter().map(Uuid::to_string).collect()
+fn id_set(ids: &[impl ToString]) -> BTreeSet<String> {
+    ids.iter().map(ToString::to_string).collect()
 }
 
 fn keys(value: &Value) -> BTreeSet<&str> {
@@ -466,7 +467,7 @@ async fn clubs_only_change_their_own_riders_in_a_shared_group() {
         .await;
     assert_ok(&response);
     assert_eq!(response.body, json!({ "warning": null }));
-    let all: Vec<Uuid> = a.iter().chain(&b).copied().collect();
+    let all: Vec<RiderId> = a.iter().chain(&b).copied().collect();
     assert_eq!(participant_ids(&get_act(&app, group).await), id_set(&all));
 
     // Setting a club's riders keeps the riders of other clubs.
@@ -491,7 +492,7 @@ async fn clubs_only_change_their_own_riders_in_a_shared_group() {
         .await;
     assert_status(&response, StatusCode::FORBIDDEN);
     let response = app
-        .set_group_members(&owner, Uuid::now_v7(), group, &[], &[])
+        .set_group_members(&owner, ClubId::new(), group, &[], &[])
         .await;
     assert_status(&response, StatusCode::NOT_FOUND);
     // A rider can be in the group only once.
@@ -501,7 +502,7 @@ async fn clubs_only_change_their_own_riders_in_a_shared_group() {
     assert_error(&response, "nur einmal");
     // Only groups can be joined.
     let single = app.add_single_act(&owner, club_id, "Solo").await;
-    for act_id in [single, Uuid::now_v7()] {
+    for act_id in [single, ActId::new()] {
         let response = app
             .set_group_members(&owner, club_id, act_id, &a[1..2], &[])
             .await;
@@ -600,7 +601,7 @@ async fn only_the_owner_club_or_an_admin_renames_and_deletes() {
 
     // Unknown acts and acts that aren't groups can't be renamed or deleted.
     let single = app.add_single_act(&owner, club_id, "Solo").await;
-    for act_id in [single, Uuid::now_v7()] {
+    for act_id in [single, ActId::new()] {
         let response = app
             .post(
                 "/api/command/rename_club_group",
@@ -1238,6 +1239,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
         BTreeSet::from([
             "act_type",
             "category",
+            "category_id",
             "club_names",
             "group_name",
             "id",
@@ -1254,6 +1256,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
             "group_name": "Alpha",
             "act_type": "group_small",
             "category": "KGU15",
+            "category_id": app.category_id("KGU15").await,
             "owner_club_id": club_id,
             "owner_club_name": "RSV",
             "regular_count": 4,
@@ -1276,6 +1279,7 @@ async fn groups_are_listed_without_rider_data_and_per_club_with_members() {
         BTreeSet::from([
             "act_type",
             "category",
+            "category_id",
             "conflict",
             "group_name",
             "id",

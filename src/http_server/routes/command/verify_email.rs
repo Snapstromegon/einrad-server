@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ids::UserId;
 use axum::{Extension, Json};
 use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct VerifyMailResponse {
-    user_id: Uuid,
+    user_id: UserId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -47,7 +48,7 @@ pub async fn verify_email(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT user_id as "user_id!: Uuid" FROM mail_verification WHERE id = ?
+        SELECT user_id as "user_id!: UserId" FROM mail_verification WHERE id = ?
         "#,
         body.token
     )

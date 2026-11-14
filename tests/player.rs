@@ -8,6 +8,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use axum::http::StatusCode;
 use common::TestApp;
+use einrad_server::ids::ActId;
 use einrad_server::player::Timing;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -262,7 +263,7 @@ fn status(state: &str, position: f64) -> Value {
 }
 
 /// The song of a single act by `firstname` that has no normalized copy (yet).
-fn original_song(act_id: Uuid, firstname: &str) -> Value {
+fn original_song(act_id: ActId, firstname: &str) -> Value {
     json!({
         "act_id": act_id,
         "file": format!("{act_id}.mp3"),
@@ -285,13 +286,13 @@ fn act_ids(songs: &Value) -> Vec<String> {
         .collect()
 }
 
-fn ids(acts: &[Uuid]) -> Vec<String> {
-    acts.iter().map(Uuid::to_string).collect()
+fn ids(acts: &[ActId]) -> Vec<String> {
+    acts.iter().map(ToString::to_string).collect()
 }
 
 /// Single acts in EWU13, in this order, each with an uploaded (fake) mp3.
 /// The timeplan is just their category, instead of the seeded one.
-async fn acts_with_songs(app: &TestApp, admin: &str, firstnames: &[&str]) -> Vec<Uuid> {
+async fn acts_with_songs(app: &TestApp, admin: &str, firstnames: &[&str]) -> Vec<ActId> {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let mut acts = vec![];
     for (order, firstname) in firstnames.iter().enumerate() {
@@ -337,7 +338,7 @@ async fn acts_with_songs(app: &TestApp, admin: &str, firstnames: &[&str]) -> Vec
 
 /// Lets the (failing) normalization of an act's song finish, then pretends
 /// it worked. Returns the normalized file.
-async fn pretend_normalized(app: &TestApp, act_id: Uuid) -> String {
+async fn pretend_normalized(app: &TestApp, act_id: ActId) -> String {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let status: Option<String> =
@@ -365,7 +366,7 @@ async fn pretend_normalized(app: &TestApp, act_id: Uuid) -> String {
 }
 
 /// The song of a single act by `firstname`, normalized into `file`.
-fn normalized_song(act_id: Uuid, firstname: &str, file: &str) -> Value {
+fn normalized_song(act_id: ActId, firstname: &str, file: &str) -> Value {
     json!({
         "act_id": act_id,
         "file": file,
@@ -390,8 +391,8 @@ struct BertaWaiting {
     controller: Ws,
     tonpult: Ws,
     tonpult_id: Value,
-    anna: Uuid,
-    berta: Uuid,
+    anna: ActId,
+    berta: ActId,
 }
 
 async fn berta_waiting(app: &TestApp, admin: &str, state: &str) -> BertaWaiting {

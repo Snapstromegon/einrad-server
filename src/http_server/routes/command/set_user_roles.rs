@@ -1,8 +1,8 @@
+use crate::ids::UserId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -15,7 +15,7 @@ pub struct SetUserRolesResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetUserRolesBody {
-    user_id: Uuid,
+    user_id: UserId,
     /// Every role the user holds afterwards.
     roles: Vec<Role>,
 }

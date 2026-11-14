@@ -7,12 +7,12 @@ use std::collections::HashMap;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, rider_body};
+use einrad_server::ids::{ClubId, RiderId, UserId};
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 /// A club with Anna (single), Berta and Carla (pair). Returns the owner's
 /// cookie, the club id and the rider ids.
-async fn club_with_riders(app: &TestApp) -> (String, Uuid, [Uuid; 3]) {
+async fn club_with_riders(app: &TestApp) -> (String, ClubId, [RiderId; 3]) {
     let (cookie, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app
         .add_rider(&cookie, rider_body(club_id, "Anna", true, false))
@@ -29,7 +29,7 @@ async fn club_with_riders(app: &TestApp) -> (String, Uuid, [Uuid; 3]) {
 async fn set_checked_in(
     app: &TestApp,
     cookie: Option<&str>,
-    rider_ids: &[Uuid],
+    rider_ids: &[RiderId],
     checked_in: bool,
 ) -> TestResponse {
     app.post(
@@ -41,7 +41,7 @@ async fn set_checked_in(
 }
 
 /// The check-in time of every rider (`null` if not checked in), by id.
-async fn check_ins(app: &TestApp, admin: &str) -> HashMap<Uuid, Value> {
+async fn check_ins(app: &TestApp, admin: &str) -> HashMap<RiderId, Value> {
     let response = app.get("/api/query/list_check_ins", Some(admin)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     response
@@ -59,7 +59,7 @@ async fn check_ins(app: &TestApp, admin: &str) -> HashMap<Uuid, Value> {
 }
 
 /// Ids of the riders that are checked in.
-async fn checked_in(app: &TestApp, admin: &str) -> Vec<Uuid> {
+async fn checked_in(app: &TestApp, admin: &str) -> Vec<RiderId> {
     let mut ids: Vec<_> = check_ins(app, admin)
         .await
         .into_iter()
@@ -70,7 +70,7 @@ async fn checked_in(app: &TestApp, admin: &str) -> Vec<Uuid> {
     ids
 }
 
-fn sorted(ids: &[Uuid]) -> Vec<Uuid> {
+fn sorted(ids: &[RiderId]) -> Vec<RiderId> {
     let mut ids = ids.to_vec();
     ids.sort();
     ids
@@ -168,7 +168,7 @@ async fn unknown_riders_fail_the_whole_call() {
     let app = TestApp::new(db).await;
     let (_, _, [anna, berta, _]) = club_with_riders(&app).await;
     let admin = app.create_admin().await;
-    let unknown = Uuid::now_v7();
+    let unknown = RiderId::new();
 
     let response = set_checked_in(&app, Some(&admin), &[anna, unknown, berta], true).await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
@@ -197,7 +197,7 @@ async fn list_riders_shows_the_check_in() {
     let response = app.get("/api/query/list_riders", Some(&admin)).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let riders = response.body.as_array().unwrap();
-    let checked_in_at = |id: Uuid| {
+    let checked_in_at = |id: RiderId| {
         riders.iter().find(|s| s["id"] == id.to_string()).unwrap()["checked_in_at"].clone()
     };
     assert_eq!(checked_in_at(anna), anna_at);
@@ -240,7 +240,7 @@ async fn public_endpoints_do_not_expose_the_check_in() {
         .set_group_members(&owner, club_id, group, &group_riders, &[])
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let all: Vec<Uuid> = riders.iter().chain(&group_riders).copied().collect();
+    let all: Vec<RiderId> = riders.iter().chain(&group_riders).copied().collect();
     let response = set_checked_in(&app, Some(&admin), &all, true).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     let single = app.act_of(riders[0]).await;
@@ -305,7 +305,7 @@ async fn list_clubs_shows_clubs_with_owners_to_admins() {
     assert_eq!(clubs[0]["id"], other_club_id.to_string());
     assert_eq!(clubs[0]["paid"], 0.0);
     let rsv = &clubs[1];
-    let owner_id: Uuid = rsv["owner_id"].as_str().unwrap().parse().unwrap();
+    let owner_id: UserId = rsv["owner_id"].as_str().unwrap().parse().unwrap();
     assert_eq!(
         *rsv,
         json!({

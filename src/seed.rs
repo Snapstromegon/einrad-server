@@ -6,6 +6,7 @@
 //! purpose with `--replace-competition` or the admin UI's import. See
 //! [`apply`] and [`preview`].
 
+use crate::ids::{CategoryId, FinalId, HeatId, JudgeId, JuryUnitId};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -13,7 +14,6 @@ use std::{
 
 use time::{Date, Month, OffsetDateTime, macros::format_description};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -1207,7 +1207,8 @@ impl Snapshot {
             )
             .await?,
             timeplan: rows(
-                r#"SELECT json_array(earliest_start_time, duration_seconds, label, category,
+                r#"SELECT json_array(earliest_start_time, duration_seconds, label,
+                    (SELECT name FROM categories WHERE categories.id = timeplan.category_id),
                     (SELECT code FROM finals WHERE finals.id = timeplan.final_id),
                     kind, show_photos, internal, einfahrzeit_seconds)
                 FROM timeplan ORDER BY position, id"#,
@@ -1313,7 +1314,7 @@ async fn write(
     let registrations = sqlx::query!(
         r#"
         SELECT
-            judge.id as "judge_id!: Uuid",
+            judge.id as "judge_id!: JudgeId",
             clubs.name as "club!",
             judge.firstname as "firstname!",
             judge.lastname as "lastname!",
@@ -1393,13 +1394,15 @@ async fn write(
         }
         for (index, category) in resolved.iter().enumerate() {
             let order = index as i64 + 1;
+            let category_id = CategoryId::new();
             sqlx::query!(
                 r#"
                 INSERT INTO categories (
-                    name, description, min_age, under_age, act_type,
+                    id, name, description, min_age, under_age, act_type,
                     is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
+                category_id,
                 category.name,
                 category.description,
                 category.min_age,
@@ -1423,7 +1426,7 @@ async fn write(
 
     let heats = resolve_heats(&file.heats, categories)?;
     // The file names heats and finals; the database refers to them by id.
-    let mut heat_ids: HashMap<String, Uuid> = HashMap::new();
+    let mut heat_ids: HashMap<String, HeatId> = HashMap::new();
     for heat in &heats {
         if heat.categories.is_empty() {
             warn!(
@@ -1431,7 +1434,7 @@ async fn write(
                 heat.name
             );
         }
-        let heat_id = Uuid::new_v4();
+        let heat_id = HeatId::new();
         heat_ids.insert(heat.code.clone(), heat_id);
         sqlx::query!(
             r#"
@@ -1475,7 +1478,7 @@ async fn write(
     if !finals.is_empty() {
         let resolved = resolve_finals(finals, &heats)?;
         for (order, item) in (1_i64..).zip(&resolved) {
-            let final_id = Uuid::new_v4();
+            let final_id = FinalId::new();
             sqlx::query!(
                 r#"
                 INSERT INTO finals (
@@ -1544,22 +1547,24 @@ async fn write(
             let kind = entry_kind(entry);
             // `validate_timeplan` checked that the final exists.
             let final_id = match &entry.final_name {
-                Some(name) => sqlx::query_scalar!(
-                    r#"SELECT id as "id: Uuid" FROM finals WHERE code = ?"#,
-                    name
-                )
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db_error)?,
+                Some(name) => Some(
+                    sqlx::query_scalar!(
+                        r#"SELECT id as "id: FinalId" FROM finals WHERE code = ?"#,
+                        name
+                    )
+                    .fetch_one(&mut *conn)
+                    .await
+                    .map_err(db_error)?,
+                ),
                 None => None,
             };
             sqlx::query!(
                 r#"
                 INSERT INTO timeplan (
-                    earliest_start_time, duration_seconds, label, category, final_id, kind,
+                    earliest_start_time, duration_seconds, label, category_id, final_id, kind,
                     show_photos, internal, position, einfahrzeit_seconds
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?, ?)
                 "#,
                 entry.earliest_start,
                 duration_seconds,
@@ -1584,7 +1589,7 @@ async fn write(
 
     for registration in registrations {
         let unit = sqlx::query_scalar!(
-            r#"SELECT id as "id!: Uuid" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
+            r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
             registration.unit_kind,
             registration.unit_name
         )
@@ -2308,7 +2313,7 @@ mod tests {
                 .bind(act),
             sqlx::query("UPDATE final_slots SET act_id = ? WHERE position = 1").bind(act),
             sqlx::query("INSERT INTO bookings (id, amount, date, club_id) VALUES (?, 15, '2027-01-01', ?)")
-                .bind(uuid::Uuid::new_v4())
+                .bind(uuid::Uuid::now_v7())
                 .bind(club),
         ];
         for statement in statements {

@@ -1,9 +1,9 @@
+use crate::ids::ActId;
 use std::collections::HashMap;
 
 use axum::Extension;
 use time::format_description::StaticFormatDescription;
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -57,10 +57,10 @@ pub async fn get_startlist_csv(
     let db = db.get().await.clone();
     // A printed startlist is public: internal entries are a "Pause".
     let timeplan = predict(&db, Audience::Public).await?;
-    let details: HashMap<Uuid, _> = sqlx::query!(
+    let details: HashMap<ActId, _> = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: ActId",
             act_type as "act_type!: ActType",
             group_name,
             participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>"

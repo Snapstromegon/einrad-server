@@ -1,8 +1,8 @@
+use crate::ids::{ActId, CategoryId, FinalId, HeatId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -43,7 +43,7 @@ pub struct Discipline {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct FinalNode {
-    id: Uuid,
+    id: FinalId,
     /// The readable name.
     name: String,
     /// The short code.
@@ -61,7 +61,7 @@ pub struct FinalNode {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HeatNode {
-    id: Uuid,
+    id: HeatId,
     /// The readable name.
     name: String,
     /// The short code.
@@ -78,6 +78,7 @@ pub struct HeatNode {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CategoryNode {
+    id: CategoryId,
     name: String,
     description: Option<String>,
     /// Its acts, without withdrawn ones.
@@ -98,7 +99,7 @@ pub struct ActsNode {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ActNode {
-    id: Uuid,
+    id: ActId,
     /// The Kür's name; may be empty.
     name: String,
     /// Groups only.
@@ -111,15 +112,16 @@ pub struct ActNode {
 }
 
 struct CategoryRow {
+    id: CategoryId,
     name: String,
     description: Option<String>,
     discipline: HeatDiscipline,
-    heat_id: Option<Uuid>,
+    heat_id: Option<HeatId>,
 }
 
 /// An act with the category it ranks in, if any.
 struct ActRow {
-    category: Option<String>,
+    category_id: Option<CategoryId>,
     discipline: HeatDiscipline,
     node: ActNode,
 }
@@ -185,7 +187,7 @@ pub async fn get_structure(
     let mut tx = db.begin().await?;
     let categories: Vec<CategoryRow> = sqlx::query!(
         r#"
-        SELECT name as "name!", description, act_type as "act_type: ActType", is_single_male, heat_id as "heat_id: Uuid"
+        SELECT id as "id!: CategoryId", name as "name!", description, act_type as "act_type: ActType", is_single_male, heat_id as "heat_id: HeatId"
         FROM categories
         ORDER BY "order", name
         "#
@@ -194,6 +196,7 @@ pub async fn get_structure(
     .await?
     .into_iter()
     .map(|row| CategoryRow {
+        id: row.id,
         name: row.name,
         description: row.description,
         discipline: HeatDiscipline::new(row.act_type, row.is_single_male),
@@ -203,14 +206,14 @@ pub async fn get_structure(
     // The heats in the order of their first category; those without one have
     // no discipline.
     let heats = sqlx::query!(
-        r#"SELECT id as "id!: Uuid", name as "name!", code as "code!", description, skip FROM heats ORDER BY name"#
+        r#"SELECT id as "id!: HeatId", name as "name!", code as "code!", description, skip FROM heats ORDER BY name"#
     )
     .fetch_all(&mut *tx)
     .await?;
     let final_rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid", name as "name!", code as "code!", description,
+            id as "id!: FinalId", name as "name!", code as "code!", description,
             act_type as "act_type: ActType", is_single_male
         FROM finals
         ORDER BY "order", name
@@ -219,10 +222,10 @@ pub async fn get_structure(
     .fetch_all(&mut *tx)
     .await?;
     // Each final's slot groups in slot order: heat, slots.
-    let mut slot_groups: HashMap<Uuid, Vec<(Uuid, i64)>> = HashMap::new();
+    let mut slot_groups: HashMap<FinalId, Vec<(HeatId, i64)>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT final_id as "final_id!: Uuid", heat_id as "heat_id!: Uuid", COUNT(*) as "slots!: i64"
+        SELECT final_id as "final_id!: FinalId", heat_id as "heat_id!: HeatId", COUNT(*) as "slots!: i64"
         FROM final_slots
         GROUP BY final_id, heat_id
         ORDER BY final_id, MIN(position)
@@ -239,12 +242,12 @@ pub async fn get_structure(
     let acts: Vec<ActRow> = sqlx::query!(
         r#"
         SELECT
-            view_act.id as "id!: Uuid",
+            view_act.id as "id!: ActId",
             view_act."order" as "order",
             view_act.name,
             view_act.group_name,
             view_act.act_type as "act_type!: ActType",
-            view_act.category,
+            view_act.category_id as "category_id: CategoryId",
             view_act.participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>",
             view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool",
             COALESCE((
@@ -259,7 +262,7 @@ pub async fn get_structure(
     .await?
     .into_iter()
     .map(|row| ActRow {
-        category: row.category,
+        category_id: row.category_id,
         discipline: HeatDiscipline::new(row.act_type, row.male),
         node: ActNode {
             id: row.id,
@@ -273,10 +276,10 @@ pub async fn get_structure(
     .collect();
     tx.commit().await?;
 
-    let mut acts_of: HashMap<String, Vec<ActNode>> = HashMap::new();
+    let mut acts_of: HashMap<CategoryId, Vec<ActNode>> = HashMap::new();
     let mut uncategorized: Vec<(HeatDiscipline, ActNode)> = Vec::new();
     for act in acts {
-        match act.category {
+        match act.category_id {
             Some(category) => acts_of.entry(category).or_default().push(act.node),
             None => uncategorized.push((act.discipline, act.node)),
         }
@@ -285,13 +288,14 @@ pub async fn get_structure(
     let mut disciplines = Vec::new();
     for (act_type, single_male) in DISCIPLINES {
         let discipline = HeatDiscipline::new(act_type, single_male);
-        let mut nodes: HashMap<&str, CategoryNode> = HashMap::new();
+        let mut nodes: HashMap<CategoryId, CategoryNode> = HashMap::new();
         for category in categories.iter().filter(|c| c.discipline == discipline) {
-            let mut acts = acts_of.remove(&category.name).unwrap_or_default();
+            let mut acts = acts_of.remove(&category.id).unwrap_or_default();
             sort_acts(&mut acts);
             nodes.insert(
-                &category.name,
+                category.id,
                 CategoryNode {
+                    id: category.id,
                     name: category.name.clone(),
                     description: category.description.clone(),
                     act_count: count(&acts),
@@ -300,17 +304,17 @@ pub async fn get_structure(
             );
         }
         // The slots of each heat in its final (a heat feeds at most one).
-        let slots_of: HashMap<Uuid, i64> = slot_groups
+        let slots_of: HashMap<HeatId, i64> = slot_groups
             .values()
             .flatten()
             .map(|(heat, slots)| (*heat, *slots))
             .collect();
-        let mut heat_nodes: HashMap<Uuid, HeatNode> = HashMap::new();
+        let mut heat_nodes: HashMap<HeatId, HeatNode> = HashMap::new();
         for heat in &heats {
             let members: Vec<CategoryNode> = categories
                 .iter()
                 .filter(|c| c.discipline == discipline && c.heat_id == Some(heat.id))
-                .filter_map(|c| nodes.remove(c.name.as_str()))
+                .filter_map(|c| nodes.remove(&c.id))
                 .collect();
             if members.is_empty() {
                 continue;
@@ -359,13 +363,13 @@ pub async fn get_structure(
         let position = |heat: &HeatNode| {
             categories
                 .iter()
-                .position(|c| c.name == heat.categories[0].name)
+                .position(|c| c.id == heat.categories[0].id)
         };
         let mut heats_without_final: Vec<HeatNode> = heat_nodes.into_values().collect();
         heats_without_final.sort_by_key(position);
         let without_heat: Vec<CategoryNode> = categories
             .iter()
-            .filter_map(|c| nodes.remove(c.name.as_str()))
+            .filter_map(|c| nodes.remove(&c.id))
             .collect();
         let mut without_category: Vec<ActNode> = Vec::new();
         let mut rest = Vec::new();

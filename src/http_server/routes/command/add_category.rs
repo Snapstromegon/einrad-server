@@ -1,3 +1,4 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -14,6 +15,8 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddCategoryResponse {
+    /// The new category's ID.
+    category_id: CategoryId,
     /// Gaps and overlaps between the categories' birthday bounds, derived
     /// from the determining day, as the import reports them.
     warnings: Vec<String>,
@@ -61,9 +64,11 @@ pub async fn add_category(
     let mut transaction = begin_write(&db).await?;
     check_ages(&mut transaction, &body.name, body.min_age, body.under_age).await?;
 
+    let category_id = CategoryId::new();
     sqlx::query!(
         r#"
         INSERT INTO categories (
+            id,
             name, 
             description, 
             min_age,
@@ -76,10 +81,11 @@ pub async fn add_category(
             "order"
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
             (SELECT COALESCE(MAX("order"), 0) + 1 FROM categories)
         )
         "#,
+        category_id,
         body.name,
         body.description,
         body.min_age,
@@ -97,7 +103,10 @@ pub async fn add_category(
         .map_err(HttpError::ErrorMessages)?;
     transaction.commit().await?;
 
-    Ok(Json(AddCategoryResponse { warnings }))
+    Ok(Json(AddCategoryResponse {
+        category_id,
+        warnings,
+    }))
 }
 
 /// Rejects ages the import rejects, e.g. a `min_age` not below `under_age`.

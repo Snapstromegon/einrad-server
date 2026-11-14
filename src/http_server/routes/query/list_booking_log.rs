@@ -1,6 +1,6 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     bookings::{self, BookingLogEntry},
@@ -12,7 +12,7 @@ use crate::{
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListBookingLogQuery {
     /// Only changes to payments of this club, before or after the change.
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
 }
 
 /// The payment log: every change to a booking with the values before and

@@ -1,8 +1,8 @@
+use crate::ids::ActId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -16,7 +16,7 @@ pub struct SetActMusicStartedResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ActMusicStartedBody {
-    act_id: Uuid,
+    act_id: ActId,
 }
 
 /// Reports that the music of a running act just started in the music

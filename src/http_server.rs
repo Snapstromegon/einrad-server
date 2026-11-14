@@ -18,6 +18,10 @@ pub enum HttpError {
     TemplateError(#[from] askama::Error),
     #[error("Not found")]
     NotFound,
+    /// An entity the request names doesn't exist (404), with a German
+    /// message for the user.
+    #[error("{0}")]
+    NotFoundMessage(String),
     #[error("Internal server error")]
     InternalServerError,
     #[error("Database error: {0}")]
@@ -47,6 +51,9 @@ impl IntoResponse for HttpError {
 pub enum ClientError {
     #[error("Not found")]
     NotFound,
+    /// An entity the request names doesn't exist; the message is German.
+    #[error("{0}")]
+    NotFoundMessage(String),
     #[error("Internal server error")]
     InternalServerError,
     #[error("Invalid credentials")]
@@ -65,6 +72,7 @@ impl From<HttpError> for ClientError {
         match e {
             HttpError::TemplateError(e) => ClientError::Generic(format!("Template error: {:?}", e)),
             HttpError::NotFound => ClientError::NotFound,
+            HttpError::NotFoundMessage(e) => ClientError::NotFoundMessage(e),
             HttpError::InternalServerError => ClientError::InternalServerError,
             HttpError::DBError(e) => ClientError::Generic(format!("Database error: {:?}", e)),
             HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
@@ -80,7 +88,7 @@ impl IntoResponse for ClientError {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         (
             match &self {
-                Self::NotFound => axum::http::StatusCode::NOT_FOUND,
+                Self::NotFound | Self::NotFoundMessage(_) => axum::http::StatusCode::NOT_FOUND,
                 Self::InternalServerError => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Self::Generic(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Self::Conflict(_) => axum::http::StatusCode::CONFLICT,

@@ -3,6 +3,7 @@
 //! `fee_waiver` column. Granting and revoking a waiver writes a payment log
 //! entry in the same transaction.
 
+use crate::ids::{ActId, ClubId, RiderId};
 use sqlx::SqliteConnection;
 use uuid::Uuid;
 
@@ -25,9 +26,9 @@ pub enum WaiverLevel {
 /// The target of a waiver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    Club(Uuid),
-    Rider(Uuid),
-    Act(Uuid),
+    Club(ClubId),
+    Rider(RiderId),
+    Act(ActId),
 }
 
 impl Target {
@@ -43,7 +44,9 @@ impl Target {
     #[must_use]
     pub fn id(self) -> Uuid {
         match self {
-            Target::Club(id) | Target::Rider(id) | Target::Act(id) => id,
+            Target::Club(id) => id.0,
+            Target::Rider(id) => id.0,
+            Target::Act(id) => id.0,
         }
     }
 }
@@ -51,7 +54,7 @@ impl Target {
 /// A club a waiver concerns, by its name at the time.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct WaiverClub {
-    pub id: Uuid,
+    pub id: ClubId,
     pub name: String,
 }
 
@@ -193,7 +196,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
         Target::Club(_) => {
             sqlx::query_as!(
                 WaiverClub,
-                r#"SELECT id as "id!: Uuid", name FROM clubs WHERE id = ?"#,
+                r#"SELECT id as "id!: ClubId", name FROM clubs WHERE id = ?"#,
                 id
             )
             .fetch_all(tx)
@@ -203,7 +206,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
             sqlx::query_as!(
                 WaiverClub,
                 r#"
-                SELECT clubs.id as "id!: Uuid", clubs.name
+                SELECT clubs.id as "id!: ClubId", clubs.name
                 FROM rider JOIN clubs ON clubs.id = rider.club_id
                 WHERE rider.id = ?
                 "#,
@@ -216,7 +219,7 @@ async fn clubs_of(tx: &mut SqliteConnection, target: Target) -> sqlx::Result<Vec
             sqlx::query_as!(
                 WaiverClub,
                 r#"
-                SELECT DISTINCT clubs.id as "id!: Uuid", clubs.name
+                SELECT DISTINCT clubs.id as "id!: ClubId", clubs.name
                 FROM act_participants p
                 JOIN rider s ON s.id = p.rider_id
                 JOIN clubs ON clubs.id = s.club_id

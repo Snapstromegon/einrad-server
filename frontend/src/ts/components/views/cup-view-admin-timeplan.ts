@@ -239,7 +239,7 @@ const applyCarryOver = async (carry: ReturnType<typeof carryOver>) => {
       body: {
         id: entry.id,
         earliest_start_time: start,
-        category: entry.category ?? null,
+        category_id: entry.category_id ?? null,
         final_id: entry.final_id ?? null,
         label: entry.label ?? null,
         duration_seconds: entry.duration_seconds ?? null,
@@ -1968,6 +1968,10 @@ export default class CupViewAdminTimeplan extends LitElement {
     const finalId = draftFinal(draft.category);
     const category =
       custom || draft.category === BLOCK || finalId ? null : draft.category;
+    // The select holds names; the server takes the category's ID.
+    const categoryId = category
+      ? (data.categories.get(category)?.id ?? null)
+      : null;
     // edit_timeplan_entry overwrites every field, so the earliest start is
     // sent back exactly as the server returned it unless it was touched.
     const body = {
@@ -1975,7 +1979,7 @@ export default class CupViewAdminTimeplan extends LitElement {
         ? toServerTime(draft.earliest)
         : (original?.earliest_start_time ?? null),
       kind: custom ? ("custom" as const) : ("acts" as const),
-      category,
+      category_id: categoryId,
       final_id: finalId,
       label: draft.label.trim() || null,
       duration_seconds: custom ? parseDuration(draft.duration) : null,

@@ -1,10 +1,10 @@
+use crate::ids::FinalId;
 use std::sync::Arc;
 
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals,
@@ -20,7 +20,7 @@ pub struct SetFinalPublishedResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFinalPublishedBody {
     /// The final.
-    id: Uuid,
+    id: FinalId,
     published: bool,
 }
 

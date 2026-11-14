@@ -1,6 +1,6 @@
+use crate::ids::{ClubId, RiderId};
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use super::list_pair_requests::PairRequest;
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubPairRequestsQuery {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 /// The pair requests of a club's riders.
@@ -42,7 +42,7 @@ pub async fn list_club_pair_requests(
     let requests = sqlx::query_as!(
         PairRequest,
         r#"
-        SELECT pair_requests.rider_id as "rider_id!: Uuid", pair_requests.partner_name
+        SELECT pair_requests.rider_id as "rider_id!: RiderId", pair_requests.partner_name
         FROM pair_requests JOIN rider ON rider.id = pair_requests.rider_id
         WHERE rider.club_id = ?
         "#,

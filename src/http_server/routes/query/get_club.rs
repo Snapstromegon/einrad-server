@@ -1,6 +1,6 @@
+use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     bookings::{Payment, payments_of_club, round_cents},
@@ -15,9 +15,9 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Club {
-    id: Uuid,
+    id: ClubId,
     name: String,
-    owner_id: Uuid,
+    owner_id: UserId,
     /// The sum of the club's payments. Only for the club itself and the
     /// organizer.
     paid: Option<f64>,
@@ -47,7 +47,7 @@ pub struct Club {
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct GetClubQuery {
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
 }
 
 /// Get information about a club. The owner's and the Vereinsverantwortliche's
@@ -80,9 +80,9 @@ pub async fn get_club(
         let row = sqlx::query!(
             r#"
         SELECT
-            clubs.id as "id!: Uuid",
+            clubs.id as "id!: ClubId",
             clubs.name,
-            clubs.owner_id as "owner_id: Uuid",
+            clubs.owner_id as "owner_id: UserId",
             clubs.fee_waiver IS NOT NULL as "fee_waived!: bool",
             users.name as "owner_name?: String",
             users.email as "owner_email?: String",

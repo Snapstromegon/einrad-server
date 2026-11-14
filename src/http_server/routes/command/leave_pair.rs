@@ -1,8 +1,8 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_rider_access,
@@ -17,7 +17,7 @@ pub struct LeavePairResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct LeavePairBody {
-    rider_id: Uuid,
+    rider_id: RiderId,
 }
 
 /// Takes a rider out of the pair competition: their pair request goes, or

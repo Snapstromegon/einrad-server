@@ -1,6 +1,6 @@
+use crate::ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId};
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{
@@ -15,9 +15,10 @@ use crate::{
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct TimeplanAct {
     pub status: TimeplanItemStatus,
-    pub id: Uuid,
+    pub id: ActId,
     pub name: String,
     /// The act's own category; in a mixed block it differs from the block's.
+    pub category_id: CategoryId,
     pub category: String,
     pub category_description: String,
     pub act_duration_seconds: i64,
@@ -68,14 +69,14 @@ pub struct TimeplanBreak {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct TimeplanFinalist {
     pub status: TimeplanItemStatus,
-    pub id: Uuid,
+    pub id: FinalSlotId,
     /// "3. Finalist (E EM 1)".
     pub label: String,
-    pub final_id: Uuid,
+    pub final_id: FinalId,
     pub final_name: String,
     pub final_description: String,
     /// The heat the finalist comes from, by id.
-    pub heat_id: Uuid,
+    pub heat_id: HeatId,
     /// The name of the heat the finalist comes from, e.g. "E EM 1".
     pub group_label: String,
     /// Counts within the group.
@@ -105,9 +106,10 @@ pub struct TimeplanFinalist {
 /// The act placed in a final's slot. Its song plays in the slot.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct TimeplanFinalistAct {
-    pub id: Uuid,
+    pub id: ActId,
     pub name: String,
     /// The act's category, from its heat.
+    pub category_id: CategoryId,
     pub category: String,
     pub category_description: String,
 }
@@ -129,11 +131,12 @@ pub enum TimeplanEntry {
         /// What to show: the label, otherwise the home category's (or
         /// final's) description.
         description: String,
-        /// The category whose acts run here by default.
+        /// The category whose acts run here by default, by id and name.
+        home_category_id: Option<CategoryId>,
         home_category: Option<String>,
         /// The final running here instead of a category (by id and name);
         /// its slots are `Finalist` slots.
-        final_id: Option<Uuid>,
+        final_id: Option<FinalId>,
         final_name: Option<String>,
         /// The categories of the block's acts, in order of appearance.
         categories: Vec<String>,
@@ -176,7 +179,7 @@ impl TimeplanEntry {
 
     /// The acts whose songs play in a start block, in order: its acts and
     /// the acts placed in its finalist slots, each with its slot's status.
-    pub fn songs(&self) -> impl Iterator<Item = (Uuid, &TimeplanItemStatus)> {
+    pub fn songs(&self) -> impl Iterator<Item = (ActId, &TimeplanItemStatus)> {
         let slots = match self {
             TimeplanEntry::Acts { slots, .. } => slots.as_slice(),
             TimeplanEntry::Custom { .. } => &[],
@@ -378,7 +381,7 @@ pub fn predict_from(
 
                     match slot {
                         Slot::Act(act) => {
-                            let category = loaded.categories.get(&act.category);
+                            let category = loaded.categories.get(&act.category_id);
                             let act_duration = time::Duration::seconds(
                                 category.map_or(0, |c| c.act_duration_seconds),
                             );
@@ -392,6 +395,7 @@ pub fn predict_from(
                                 status: TimeplanItemStatus::of(act.started_at, act.ended_at)?,
                                 id: act.id,
                                 name: act.name.clone(),
+                                category_id: act.category_id,
                                 category: act.category.clone(),
                                 category_description: category.map_or_else(
                                     || act.category.clone(),
@@ -462,10 +466,11 @@ pub fn predict_from(
                                 act: finalist.act.as_ref().map(|act| TimeplanFinalistAct {
                                     id: act.id,
                                     name: act.name.clone(),
+                                    category_id: act.category_id,
                                     category: act.category.clone(),
                                     category_description: loaded
                                         .categories
-                                        .get(&act.category)
+                                        .get(&act.category_id)
                                         .map_or_else(
                                             || act.category.clone(),
                                             |c| c.description.clone(),
@@ -492,9 +497,8 @@ pub fn predict_from(
                 }
 
                 let home = entry
-                    .category
-                    .as_ref()
-                    .and_then(|name| loaded.categories.get(name))
+                    .category_id
+                    .and_then(|id| loaded.categories.get(&id))
                     .or_else(|| entry.final_id.as_ref().and_then(|id| loaded.finals.get(id)));
                 let description = entry
                     .label
@@ -507,6 +511,7 @@ pub fn predict_from(
                 TimeplanEntry::Acts {
                     label: entry.label,
                     description,
+                    home_category_id: entry.category_id,
                     home_category: entry.category,
                     final_id: entry.final_id,
                     final_name: entry.final_name,
