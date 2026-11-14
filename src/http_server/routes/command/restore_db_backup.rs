@@ -15,7 +15,7 @@ use crate::{
     player::PlayerHub,
     roles::permit,
 };
-use db_core::{acts::MissingSong, backups::BackupsError};
+use db_core::acts::MissingSong;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RestoreDbBackupResponse {
@@ -72,12 +72,7 @@ pub async fn restore_db_backup(
     }
     let restored = backups
         .restore(&body.filename, body.force, &|| player_hub.is_playing())
-        .await
-        .inspect_err(|e| {
-            if let BackupsError::RolledBack(cause) = e {
-                warn!("Restoring {} failed, rolled back: {cause}", body.filename);
-            }
-        })?;
+        .await?;
     let snapshot_filename = restored.snapshot;
 
     player_hub.reset_after_restore().await;

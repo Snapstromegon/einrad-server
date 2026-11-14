@@ -45,7 +45,7 @@ impl From<db_core::clubs::RegistrationError> for HttpError {
     fn from(error: db_core::clubs::RegistrationError) -> Self {
         use db_core::clubs::RegistrationError;
         match error {
-            RegistrationError::NotFound => HttpError::StatusCode(axum::http::StatusCode::NOT_FOUND),
+            RegistrationError::NotFound => HttpError::NotFound,
             RegistrationError::Forbidden => {
                 HttpError::StatusCode(axum::http::StatusCode::FORBIDDEN)
             }
@@ -94,7 +94,7 @@ impl From<HttpError> for ClientError {
             HttpError::NotFound => ClientError::NotFound,
             HttpError::NotFoundMessage(e) => ClientError::NotFoundMessage(e),
             HttpError::InternalServerError => ClientError::InternalServerError,
-            HttpError::Db(e) => ClientError::Generic(format!("Database error: {:?}", e)),
+            HttpError::Db(e) => ClientError::Generic(format!("Database error: {e}")),
             HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
             HttpError::ErrorMessages(e) => ClientError::Generic(format!("{e:?}")),
             HttpError::Conflict(e) => ClientError::Conflict(e),
@@ -268,5 +268,15 @@ mod tests {
                 .unwrap()
                 .starts_with("Database error:")
         );
+        // Displayed, not Debug-printed.
+        assert!(!body["message"].as_str().unwrap().contains("Sqlx("));
+    }
+
+    #[tokio::test]
+    async fn a_missing_entity_keeps_the_not_found_body() {
+        let (status, body) =
+            response_parts(db_core::clubs::RegistrationError::NotFound.into()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body, serde_json::json!({ "type": "NotFound" }));
     }
 }
