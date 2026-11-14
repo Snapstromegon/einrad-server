@@ -16,8 +16,17 @@ use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
+/// A plain `main`: the local UTC offset (for backup names) can only be read
+/// before any thread exists, so it is read here, then the runtime is built.
+fn main() -> eyre::Result<()> {
+    let offset = einrad_server::db_backup::init_local_offset();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(offset.is_ok()))
+}
+
+async fn run(local_offset_known: bool) -> eyre::Result<()> {
     color_eyre::install()?;
     dotenvy::dotenv().ok();
     let cli = CliArgs::parse();
@@ -29,6 +38,9 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     info!("Starting registration system.");
+    if !local_offset_known {
+        warn!("Couldn't determine the local time zone: backups are named in UTC");
+    }
     let config_file = ConfigFile::load(cli.config.as_deref()).map_err(|e| eyre!(e))?;
     let bootstrap = Bootstrap::resolve(&cli, &config_file);
     // An incomplete config doesn't stop the server: it starts in first-run

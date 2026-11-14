@@ -6,11 +6,14 @@
 //! the name works on every file system). It is written with `VACUUM INTO`: a
 //! consistent single-file copy, which fits the rollback-journal setup.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use sqlx::{SqlitePool, migrate::Migrator};
 use thiserror::Error;
-use time::{OffsetDateTime, PrimitiveDateTime, macros::format_description};
+use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset, macros::format_description};
 
 #[derive(Debug, Error)]
 pub enum BackupError {
@@ -29,12 +32,30 @@ pub enum BackupError {
     Migrate(#[from] sqlx::migrate::MigrateError),
 }
 
-/// The current local time without sub-seconds. If the local offset can't be
-/// determined (the `time` crate refuses while other threads run on Unix), this
-/// falls back to UTC.
-pub fn now_local() -> PrimitiveDateTime {
-    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+static LOCAL_OFFSET: OnceLock<UtcOffset> = OnceLock::new();
+
+/// Determines the local UTC offset and remembers it for [`now_local`].
+///
+/// The `time` crate only reads the offset soundly while the process is
+/// single-threaded (on Unix), so binaries call this first thing in a plain
+/// `fn main`, before building a multi-threaded runtime. Returns the offset, or
+/// an error if it couldn't be determined; then [`now_local`] uses UTC.
+pub fn init_local_offset() -> Result<UtcOffset, time::error::IndeterminateOffset> {
+    let offset = UtcOffset::current_local_offset()?;
+    Ok(*LOCAL_OFFSET.get_or_init(|| offset))
+}
+
+/// `now` in the offset found by [`init_local_offset`] (UTC if there is none),
+/// without sub-seconds.
+fn local_time(now: OffsetDateTime) -> PrimitiveDateTime {
+    let now = now.to_offset(LOCAL_OFFSET.get().copied().unwrap_or(UtcOffset::UTC));
     PrimitiveDateTime::new(now.date(), now.time().replace_nanosecond(0).unwrap())
+}
+
+/// The current local time without sub-seconds. Falls back to UTC if
+/// [`init_local_offset`] wasn't called or failed.
+pub fn now_local() -> PrimitiveDateTime {
+    local_time(OffsetDateTime::now_utc())
 }
 
 /// The part of a database file's name before the extension.
@@ -213,6 +234,15 @@ mod tests {
             .collect::<Vec<_>>()
             .into();
         m
+    }
+
+    #[test]
+    fn local_time_uses_the_stored_offset_and_drops_subseconds() {
+        use time::macros::offset;
+        // OnceLock: this is the only test that sets it; others never read it.
+        let _ = LOCAL_OFFSET.set(offset!(+2));
+        let utc = datetime!(2026-11-14 23:30:00.75).assume_utc();
+        assert_eq!(local_time(utc), datetime!(2026-11-15 01:30:00));
     }
 
     #[test]

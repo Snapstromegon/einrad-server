@@ -33,14 +33,26 @@ struct Args {
     data: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
+/// A plain `main`: the local UTC offset (for backup names) can only be read
+/// before any thread exists, so it is read here, then the runtime is built.
+fn main() -> eyre::Result<()> {
+    let offset = einrad_server::db_backup::init_local_offset();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(offset.is_ok()))
+}
+
+async fn run(local_offset_known: bool) -> eyre::Result<()> {
     color_eyre::install()?;
     dotenvy::dotenv().ok();
     let args = Args::parse();
     FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .init();
+    if !local_offset_known {
+        tracing::warn!("Couldn't determine the local time zone: backups are named in UTC");
+    }
 
     let config_file = ConfigFile::load(args.config.as_deref()).map_err(|e| eyre!(e))?;
     let database_url = args
