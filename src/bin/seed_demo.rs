@@ -60,7 +60,7 @@ async fn main() -> eyre::Result<()> {
     demo.fetch_songs(&songs).map_err(|e| eyre!(e))?;
 
     let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
-    let filename = options.get_filename();
+    let filename = options.get_filename().to_path_buf();
     if filename.as_os_str() == ":memory:" {
         info!("Using an in-memory database");
     } else {
@@ -83,7 +83,11 @@ async fn main() -> eyre::Result<()> {
 
     let db = sqlx::SqlitePool::connect_with(options).await?;
     info!("Running database migrations");
-    migrate!("./migrations").run(&db).await?;
+    if filename.as_os_str() == ":memory:" {
+        migrate!("./migrations").run(&db).await?;
+    } else {
+        einrad_server::db_backup::migrate_with_backup(&db, &filename).await?;
+    }
 
     info!("Applying demo data from {}", args.demo.display());
     demo.apply(&db, &data_path).await.map_err(|e| eyre!(e))?;

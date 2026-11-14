@@ -5,6 +5,7 @@ pub mod club_mails;
 pub mod colors;
 pub mod competition;
 pub mod config;
+pub mod db_backup;
 pub mod demo;
 pub mod export;
 pub mod fee_waivers;

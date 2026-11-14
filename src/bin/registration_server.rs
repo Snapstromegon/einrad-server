@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use clap::Parser;
 use einrad_server::{
     admin_user::insert_admin_user,
@@ -51,7 +53,10 @@ async fn main() -> eyre::Result<()> {
         .expect("Couldn't connect to database");
 
     info!("Running database migrations");
-    migrate!("./migrations").run(&db).await?;
+    match sqlx::sqlite::SqliteConnectOptions::from_str(&bootstrap.database_url)?.get_filename() {
+        path if path.as_os_str() == ":memory:" => migrate!("./migrations").run(&db).await?,
+        path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
+    }
 
     let mut report = None;
     if let Ok(settings) = &settings {

@@ -2,6 +2,8 @@
 /static
 .env
 *.sqlite
+# Backups taken before migrations (already covered by *.sqlite, kept explicit)
+*.backup-*.sqlite
 openapi.json
 /data
 /2025/
