@@ -11,8 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId, UserId};
-use db_core::{GroupsRepo, RidersRepo, riders::Pair};
+use crate::ids::{ActId, BookingId, ClubId, JuryUnitId, RiderId, UserId};
+use db_core::{GroupsRepo, JuryRepo, RidersRepo, riders::Pair};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -495,9 +495,13 @@ impl DemoData {
 
     /// Registers the clubs' judges with the same rules as the API.
     async fn insert_judges(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
-        let competition = crate::competition::Competition::current(db)
-            .await
-            .map_err(|e| e.to_string())?;
+        let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+        // The seed acts as the organizer, like the other registrations.
+        let organizer = db_core::clubs::Actor {
+            user_id: UserId::new(),
+            club_id: None,
+            manage_registrations: true,
+        };
         let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
         let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = sqlx::query!(
             r#"SELECT id as "id!: JuryUnitId", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
@@ -543,12 +547,10 @@ impl DemoData {
                     max_deployments: judge.max_deployments,
                     note: judge.note.clone(),
                     registrations,
-                }
-                .normalize(competition.as_ref())
-                .map_err(|e| format!("Judge {name}: {e}"))?;
-                crate::jury::save_judge(&mut conn, JudgeId::new(), club_id, &fields)
+                };
+                repo.add_judge(&organizer, club_id, fields)
                     .await
-                    .map_err(|e| format!("Judge {name}: {e:?}"))?;
+                    .map_err(|e| format!("Judge {name}: {e}"))?;
             }
         }
         Ok(())

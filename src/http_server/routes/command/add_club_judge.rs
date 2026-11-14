@@ -1,14 +1,13 @@
 use crate::ids::{ClubId, JudgeId};
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{self, JudgeFields, JuryEnabled, ensure_club_access},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JudgeFields, JuryEnabled},
     system_status::Capabilities,
 };
 
@@ -39,11 +38,11 @@ pub struct AddClubJudgeBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn add_club_judge(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<AddClubJudgeBody>,
@@ -51,17 +50,9 @@ pub async fn add_club_judge(
     if !capabilities.can_register_judge {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
-    let competition = Competition::current(&mut *transaction).await?;
-    let fields = body
-        .fields
-        .normalize(competition.as_ref())
-        .map_err(HttpError::ErrorMessages)?;
-    let judge_id = JudgeId::new();
-    info!("Adding judge {judge_id} to club {}", body.club_id);
-    jury::save_judge(&mut transaction, judge_id, body.club_id, &fields).await?;
-    transaction.commit().await?;
+    info!("Adding a judge to club {}", body.club_id);
+    let judge_id = repo
+        .add_judge(&auth.actor(), body.club_id, body.fields)
+        .await?;
     Ok(Json(AddClubJudgeResponse { judge_id }))
 }

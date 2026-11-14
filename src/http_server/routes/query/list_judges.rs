@@ -1,10 +1,10 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, ClubJudge, JuryEnabled},
-    reloadable_sqlite::ReloadableSqlite,
+    jury::{ClubJudge, JuryEnabled},
     roles::permit,
 };
 
@@ -21,13 +21,11 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_judges(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
 ) -> Result<Json<Vec<ClubJudge>>, HttpError> {
-    let db = db.get().await.clone();
-    let mut conn = db.acquire().await?;
-    Ok(Json(jury::list_judges(&mut conn, None).await?))
+    Ok(Json(repo.list_judges(None).await?))
 }

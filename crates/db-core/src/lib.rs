@@ -41,6 +41,7 @@ pub use clubs::ClubsRepo;
 pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
 pub use heats_finals::HeatsFinalsRepo;
+pub use jury::JuryRepo;
 pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
 pub use timeplan::TimeplanRepo;
@@ -68,6 +69,7 @@ pub trait Db:
     + HeatsFinalsRepo
     + ActsRepo
     + TimeplanRepo
+    + JuryRepo
     + Send
     + Sync
     + 'static

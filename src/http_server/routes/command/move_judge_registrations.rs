@@ -1,13 +1,13 @@
 use crate::ids::{JudgeId, JuryUnitId};
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JuryEnabled, JuryUnitKind},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JuryEnabled, JuryUnitKind},
     roles::permit,
 };
 
@@ -38,53 +38,19 @@ pub struct MoveJudgeRegistrationsBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn move_judge_registrations(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<MoveJudgeRegistrationsBody>,
 ) -> Result<Json<MoveJudgeRegistrationsResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    match jury::unit_is_registrable(&mut transaction, body.to_kind, body.to_id).await? {
-        None => return Err(HttpError::StatusCode(StatusCode::NOT_FOUND)),
-        Some(false) if body.from_id != body.to_id => return Err(jury::not_registrable()),
-        Some(_) => {}
-    }
-    let (to_heat, to_final) = jury::unit_columns(body.to_kind, body.to_id);
     info!(
         "Moving the registrations of judge {} from {:?} {} to {:?} {}",
         body.judge_id, body.from_kind, body.from_id, body.to_kind, body.to_id
     );
-    if body.from_id == body.to_id {
-        return Ok(Json(MoveJudgeRegistrationsResponse {}));
-    }
-    sqlx::query!(
-        r#"
-        INSERT INTO judge_registration (judge_id, heat_id, final_id, task)
-        SELECT judge_id, $1, $2, task FROM judge_registration
-        WHERE judge_id = $3 AND unit_id = $4
-        ON CONFLICT DO NOTHING
-        "#,
-        to_heat,
-        to_final,
-        body.judge_id,
-        body.from_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
-    let result = sqlx::query!(
-        "DELETE FROM judge_registration WHERE judge_id = $1 AND unit_id = $2",
-        body.judge_id,
-        body.from_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    transaction.commit().await?;
+    repo.move_judge_registrations(body.judge_id, body.from_id, body.to_kind, body.to_id)
+        .await?;
     Ok(Json(MoveJudgeRegistrationsResponse {}))
 }

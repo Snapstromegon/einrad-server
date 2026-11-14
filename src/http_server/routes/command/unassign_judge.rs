@@ -1,5 +1,6 @@
 use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -7,7 +8,6 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryEnabled,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -33,27 +33,18 @@ pub struct UnassignJudgeBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn unassign_judge(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<UnassignJudgeBody>,
 ) -> Result<Json<UnassignJudgeResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
     info!(
         "Removing judge {} from jury unit {}",
         body.judge_id, body.unit_id
     );
-    sqlx::query!(
-        "DELETE FROM jury_assignments WHERE judge_id = $1 AND unit_id = $2",
-        body.judge_id,
-        body.unit_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
+    repo.unassign_judge(body.judge_id, body.unit_id).await?;
     Ok(Json(UnassignJudgeResponse {}))
 }

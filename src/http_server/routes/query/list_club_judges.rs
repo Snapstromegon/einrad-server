@@ -5,8 +5,7 @@ use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{self, ClubJudge, JuryEnabled},
-    reloadable_sqlite::ReloadableSqlite,
+    jury::{ClubJudge, JuryEnabled},
 };
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -28,19 +27,14 @@ pub struct ListClubJudgesQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(repo, db))]
+#[instrument(skip(repo))]
 pub async fn list_club_judges(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     Query(query): Query<ListClubJudgesQuery>,
 ) -> Result<Json<Vec<ClubJudge>>, HttpError> {
     repo.ensure_club_access(&auth.actor(), query.club_id)
         .await?;
-    let db = db.get().await.clone();
-    let mut conn = db.acquire().await?;
-    Ok(Json(
-        jury::list_judges(&mut conn, Some(query.club_id)).await?,
-    ))
+    Ok(Json(repo.list_judges(Some(query.club_id)).await?))
 }

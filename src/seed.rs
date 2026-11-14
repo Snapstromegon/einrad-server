@@ -678,19 +678,7 @@ impl Dropped {
     }
 }
 
-/// A judge registration a replace dropped, as in the remap file. Filling in
-/// `jury_unit` (`heat: <name>` or `final: <name>`) says which new heat's
-/// Vorlauf or final the judge belongs to.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct RemapRegistration {
-    pub club: String,
-    pub firstname: String,
-    pub lastname: String,
-    pub task: JudgeTask,
-    pub old_jury_unit: String,
-    /// Empty until filled in.
-    pub jury_unit: String,
-}
+pub use db_core::jury::RemapRegistration;
 
 /// The remap file of dropped judge registrations.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -21,6 +21,7 @@ mod clubs;
 mod fees;
 mod groups;
 mod heats_finals;
+mod jury;
 mod riders;
 mod settings;
 mod timeplan;

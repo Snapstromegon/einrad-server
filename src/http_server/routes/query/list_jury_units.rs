@@ -4,7 +4,6 @@ use tracing::instrument;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     jury::{self, JuryEnabled, JuryUnit},
-    reloadable_sqlite::ReloadableSqlite,
 };
 
 /// List the jury units judges register for: the Vorlauf of every heat and
@@ -21,13 +20,11 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, repo))]
+#[instrument(skip(repo))]
 pub async fn list_jury_units(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
     Extension(repo): Extension<db_core::DbHandle>,
     _auth: Auth,
 ) -> Result<Json<Vec<JuryUnit>>, HttpError> {
-    let db = db.get().await.clone();
-    Ok(Json(jury::list_units(&db, repo.as_ref()).await?))
+    Ok(Json(jury::list_units(repo.as_ref()).await?))
 }

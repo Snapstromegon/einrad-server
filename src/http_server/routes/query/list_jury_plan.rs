@@ -1,4 +1,4 @@
-use crate::ids::{ClubId, JudgeId, JuryUnitId};
+use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query, http::StatusCode};
 use db_core::DbHandle;
 use time::OffsetDateTime;
@@ -9,8 +9,7 @@ use crate::{
         ClientError, HttpError,
         extractor::auth::{Auth, Granted},
     },
-    jury::{JudgeTask, JuryAssignment, JuryEnabled, JuryUnitKind},
-    reloadable_sqlite::ReloadableSqlite,
+    jury::{JuryAssignment, JuryEnabled},
     roles::permit,
 };
 
@@ -43,11 +42,10 @@ pub struct JuryPlan {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(repo, db))]
+#[instrument(skip(repo))]
 pub async fn list_jury_plan(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    Extension(db): Extension<ReloadableSqlite>,
     auth: Auth,
     jury_lead: Option<Granted<permit::ManageJury>>,
     Query(query): Query<ListJuryPlanQuery>,
@@ -57,38 +55,14 @@ pub async fn list_jury_plan(
         None if jury_lead.is_some() => {}
         None => return Err(HttpError::StatusCode(StatusCode::FORBIDDEN)),
     }
-    let db = db.get().await.clone();
-    let mut conn = db.acquire().await?;
-    let published_at = sqlx::query_scalar!(
-        r#"SELECT jury_plan_published_at as "published_at: OffsetDateTime" FROM competition ORDER BY start_date DESC LIMIT 1"#
-    )
-    .fetch_optional(&mut *conn)
-    .await?
-    .flatten();
+    let published_at = repo.jury_plan_published_at().await?;
     if published_at.is_none() && jury_lead.is_none() {
         return Ok(Json(JuryPlan {
             published_at,
             assignments: vec![],
         }));
     }
-    let assignments = sqlx::query_as!(
-        JuryAssignment,
-        r#"
-        SELECT
-            jury_assignments.judge_id as "judge_id!: JudgeId",
-            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
-            jury_assignments.unit_id as "unit_id!: JuryUnitId",
-            jury_assignments.task as "task!: JudgeTask"
-        FROM jury_assignments
-        JOIN judge ON judge.id = jury_assignments.judge_id
-        JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
-        WHERE ?1 IS NULL OR judge.club_id = ?1
-        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.task, judge.lastname, judge.firstname
-        "#,
-        query.club_id
-    )
-    .fetch_all(&mut *conn)
-    .await?;
+    let assignments = repo.list_jury_assignments(query.club_id).await?;
     Ok(Json(JuryPlan {
         published_at,
         assignments,
