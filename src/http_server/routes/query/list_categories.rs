@@ -1,35 +1,8 @@
-use crate::ids::{CategoryId, HeatId};
 use axum::{Extension, Json};
 use tracing::instrument;
 
-use crate::{
-    act_type::ActType,
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
-};
-
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct Category {
-    id: CategoryId,
-    name: String,
-    description: Option<String>,
-    /// The age on the determining day from which on riders belong to the
-    /// category; `None` for no lower age. Fractions are months.
-    min_age: Option<f64>,
-    /// The age riders are under on the determining day; `None` for no
-    /// upper age.
-    under_age: Option<f64>,
-    act_type: ActType,
-    is_single_male: bool,
-    order: Option<i64>,
-    einfahrzeit_seconds: Option<i64>,
-    act_duration_seconds: Option<i64>,
-    judge_duration_seconds: Option<i64>,
-    /// The heat it belongs to, if any, by id; clubs never pick it.
-    heat_id: Option<HeatId>,
-    /// The name of its heat.
-    heat: Option<String>,
-}
+use crate::http_server::{ClientError, HttpError, extractor::auth::Auth};
+use db_core::{DbHandle, categories::Category};
 
 /// Get information about a club.
 #[utoipa::path(
@@ -42,20 +15,10 @@ pub struct Category {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_categories(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     auth: Option<Auth>,
 ) -> Result<Json<Vec<Category>>, HttpError> {
-    let db = db.get().await.clone();
-    let club_categories = sqlx::query_as!(
-        Category,
-        r#"
-        SELECT id as "id!: CategoryId", name as "name!", description, min_age, under_age, act_type as "act_type: ActType", is_single_male, "order", einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds, heat_id as "heat_id: HeatId", (SELECT name FROM heats WHERE heats.id = categories.heat_id) as heat
-        FROM categories ORDER BY "order" ASC NULLS FIRST
-        "#
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(club_categories))
+    Ok(Json(repo.list_categories().await?))
 }

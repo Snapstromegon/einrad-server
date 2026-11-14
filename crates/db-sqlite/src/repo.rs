@@ -13,11 +13,13 @@ use crate::reloadable_sqlite::ReloadableSqlite;
 
 mod auth;
 mod bookings;
+mod categories;
 mod check_in;
 mod club_mails;
 mod clubs;
 mod fees;
 mod groups;
+mod heats_finals;
 mod riders;
 mod settings;
 mod users;

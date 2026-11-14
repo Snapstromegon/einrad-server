@@ -1,14 +1,12 @@
 use crate::ids::FinalId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    finals,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JuryUnitKind},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -36,34 +34,13 @@ pub struct DeleteFinalBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn delete_final(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteFinalBody>,
 ) -> Result<Json<DeleteFinalResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    if finals::has_started(&mut tx, body.id).await? {
-        return Err(HttpError::Conflict(
-            "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
-        ));
-    }
-    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, body.id.into()).await?;
-    info!("Deleting final {}", body.id);
-    sqlx::query!("DELETE FROM timeplan WHERE final_id = $1", body.id)
-        .execute(&mut *tx)
-        .await?;
-    // Its slots go with it (foreign key).
-    let result = sqlx::query!("DELETE FROM finals WHERE id = $1", body.id)
-        .execute(&mut *tx)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-
-    tx.commit().await?;
+    repo.delete_final(body.id).await?;
     Ok(Json(DeleteFinalResponse {}))
 }

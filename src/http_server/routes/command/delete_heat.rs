@@ -1,14 +1,12 @@
 use crate::ids::HeatId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JuryUnitKind},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -36,39 +34,13 @@ pub struct DeleteHeatBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn delete_heat(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteHeatBody>,
 ) -> Result<Json<DeleteHeatResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    let finals = heats::finals_of(&mut tx, body.id).await?;
-    if !finals.is_empty() {
-        let names: Vec<String> = finals.iter().map(|(name, _)| format!("„{name}“")).collect();
-        return Err(HttpError::Conflict(format!(
-            "Die Vorlaufklasse füllt Finalplätze in {} {}; bitte sie dort zuerst durch einen anderen ersetzen.",
-            if names.len() == 1 {
-                "dem Finale"
-            } else {
-                "den Finals"
-            },
-            names.join(", ")
-        )));
-    }
-    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Heat, body.id.into()).await?;
-    info!("Deleting heat {}", body.id);
-    // Its categories leave it (foreign key).
-    let result = sqlx::query!("DELETE FROM heats WHERE id = $1", body.id)
-        .execute(&mut *tx)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-
-    tx.commit().await?;
+    repo.delete_heat(body.id).await?;
     Ok(Json(DeleteHeatResponse {}))
 }

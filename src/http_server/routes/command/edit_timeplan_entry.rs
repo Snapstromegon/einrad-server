@@ -5,7 +5,6 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    finals,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
@@ -84,7 +83,7 @@ pub async fn edit_timeplan_entry(
     let db = db.get().await.clone();
     let mut tx = begin_write(&db).await?;
     if let Some(final_id) = fields.final_id {
-        finals::check_plannable(&mut tx, final_id, Some(body.id))
+        db_sqlite::structure::check_final_plannable(&mut tx, final_id, Some(body.id))
             .await
             .map_err(HttpError::ErrorMessages)?;
     }

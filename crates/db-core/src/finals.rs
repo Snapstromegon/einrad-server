@@ -13,13 +13,11 @@
 //! (`finals.placement_published`): then the timeplan shows the acts in their
 //! slots and the player plays their songs.
 
-use crate::ids::{ActId, FinalId, HeatId};
-use std::collections::HashMap;
+use crate::ids::{ActId, FinalId, FinalSlotId, HeatId};
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqliteConnection;
 
-use crate::{act_type::ActType, heats::Discipline};
+use crate::act_type::ActType;
 
 /// Most slots a final can have.
 pub const MAX_SLOTS: i64 = 50;
@@ -105,43 +103,10 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
     }
 }
 
-/// Checks that no other final (not `except`) has the name or the code. The
-/// message is German.
-pub async fn check_free(
-    conn: &mut SqliteConnection,
-    except: Option<FinalId>,
-    name: &str,
-    code: &str,
-) -> Result<(), String> {
-    let name_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE name = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        name,
-        except
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|e| e.to_string())?;
-    if name_taken {
-        return Err(format!("Ein Finale „{name}“ gibt es schon."));
-    }
-    let code_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM finals WHERE code = ?1 AND id IS NOT ?2) as "taken!: bool""#,
-        code,
-        except
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|e| e.to_string())?;
-    if code_taken {
-        return Err(format!("Ein Finale mit dem Kürzel „{code}“ gibt es schon."));
-    }
-    Ok(())
-}
-
 /// The name of a reserved slot, after its heat's code.
 ///
 /// ```
-/// use einrad_server::finals::finalist_label;
+/// use db_core::finals::finalist_label;
 ///
 /// assert_eq!(finalist_label(3, "E EM 1"), "3. Finalist (E EM 1)");
 /// ```
@@ -183,182 +148,10 @@ fn check_total(counts: impl Iterator<Item = i64> + Clone) -> Result<(), String> 
 }
 
 /// Checks the counts of the slot groups the admin API sends (the heats are
-/// checked against the database, see [`check_heats`]).
+/// checked against the database by the backend).
 pub fn check_counts(groups: &[SlotGroupInput]) -> Result<Vec<SlotGroupInput>, String> {
     check_total(groups.iter().map(|group| group.count))?;
     Ok(groups.to_vec())
-}
-
-/// Replaces the slots of a final with new ones for `groups`, in order. A
-/// slot keeps its placed act if the new slots have one with the same heat
-/// and number. The caller checks that none of the old ones has started and
-/// that the heats exist.
-pub async fn replace_slots(
-    conn: &mut SqliteConnection,
-    final_id: FinalId,
-    groups: &[SlotGroupInput],
-) -> sqlx::Result<()> {
-    let placed: HashMap<(HeatId, i64), ActId> = sqlx::query!(
-        r#"
-        SELECT heat_id as "heat_id!: HeatId", number, act_id as "act_id!: ActId"
-        FROM final_slots
-        WHERE final_id = $1 AND act_id IS NOT NULL
-        "#,
-        final_id
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(|row| ((row.heat_id, row.number), row.act_id))
-    .collect();
-    sqlx::query!("DELETE FROM final_slots WHERE final_id = $1", final_id)
-        .execute(&mut *conn)
-        .await?;
-    let mut position = 0_i64;
-    for group in groups {
-        for number in 1..=group.count {
-            position += 1;
-            let id = HeatId::new();
-            let act_id = placed.get(&(group.heat_id, number));
-            sqlx::query!(
-                r#"
-                INSERT INTO final_slots (id, final_id, position, heat_id, number, act_id)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                "#,
-                id,
-                final_id,
-                position,
-                group.heat_id,
-                number,
-                act_id,
-            )
-            .execute(&mut *conn)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-/// Checks that the heats of the final `final_id`'s slot groups exist, share
-/// its discipline (an empty heat fits any) and fill no other final. The
-/// message is German.
-pub async fn check_heats(
-    conn: &mut SqliteConnection,
-    final_id: FinalId,
-    act_type: ActType,
-    is_single_male: bool,
-    groups: &[SlotGroupInput],
-) -> Result<(), String> {
-    let discipline = Discipline::new(act_type, is_single_male);
-    for group in groups {
-        let Some(heat) = crate::heats::name_of(&mut *conn, group.heat_id)
-            .await
-            .map_err(|e| e.to_string())?
-        else {
-            return Err("Die Vorlaufklasse gibt es nicht.".to_string());
-        };
-        let heat_discipline = crate::heats::discipline(&mut *conn, group.heat_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        if heat_discipline.is_some_and(|heat| heat != discipline) {
-            return Err(format!(
-                "Die Vorlaufklasse „{heat}“ hat einen anderen Typ oder ein anderes Geschlecht als das Finale."
-            ));
-        }
-        let other = sqlx::query_scalar!(
-            r#"
-            SELECT finals.name as "name!" FROM final_slots
-            JOIN finals ON finals.id = final_slots.final_id
-            WHERE final_slots.heat_id = $1 AND final_slots.final_id != $2 LIMIT 1
-            "#,
-            group.heat_id,
-            final_id
-        )
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|e| e.to_string())?;
-        if let Some(other) = other {
-            return Err(format!(
-                "Die Vorlaufklasse „{heat}“ füllt schon Finalplätze im Finale „{other}“; eine Vorlaufklasse füllt höchstens ein Finale."
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Whether the final has started: a slot, its timeplan block, or one of its
-/// direct acts (an act of a skipped heat that fills it). A final that runs
-/// only direct acts (group finals, skipped heats) has no started slot.
-pub async fn has_started(conn: &mut SqliteConnection, final_id: FinalId) -> sqlx::Result<bool> {
-    sqlx::query_scalar!(
-        r#"
-        SELECT
-            EXISTS (
-                SELECT 1 FROM final_slots WHERE final_id = ?1 AND started_at IS NOT NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM timeplan WHERE final_id = ?1 AND started_at IS NOT NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM acts
-                JOIN view_act ON view_act.id = acts.id
-                JOIN categories ON categories.id = view_act.category_id
-                JOIN heats ON heats.id = categories.heat_id
-                WHERE heats.skip AND acts.started_at IS NOT NULL
-                    AND view_act.withdrawn_at IS NULL
-                    AND heats.id IN (SELECT heat_id FROM final_slots WHERE final_id = ?1)
-            ) as "started!: bool"
-        "#,
-        final_id
-    )
-    .fetch_one(conn)
-    .await
-}
-
-/// The name of a final, or `None` if there is none with that id.
-pub async fn name_of(
-    conn: &mut SqliteConnection,
-    final_id: FinalId,
-) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar!(
-        r#"SELECT name as "name!" FROM finals WHERE id = $1"#,
-        final_id
-    )
-    .fetch_optional(conn)
-    .await
-}
-
-/// Checks that a final exists and runs in no timeplan block other than
-/// `except` (the block being edited). The message is German.
-pub async fn check_plannable(
-    conn: &mut SqliteConnection,
-    final_id: FinalId,
-    except: Option<i64>,
-) -> Result<(), String> {
-    let Some(final_name) = name_of(&mut *conn, final_id)
-        .await
-        .map_err(|e| e.to_string())?
-    else {
-        return Err("Das Finale gibt es nicht.".to_string());
-    };
-    let planned = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM timeplan WHERE final_id = $1 AND id IS NOT $2
-        ) as "planned!: bool"
-        "#,
-        final_id,
-        except
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|e| e.to_string())?;
-    if planned {
-        return Err(format!(
-            "Das Finale „{final_name}“ ist schon im Zeitplan; jedes Finale läuft in einem Block."
-        ));
-    }
-    Ok(())
 }
 
 /// The slot groups of slots in order, by heat id: consecutive slots of the
@@ -398,7 +191,7 @@ pub fn group_slot_infos<'a>(
 /// has them: consecutive slots of the same heat form a group.
 ///
 /// ```
-/// use einrad_server::finals::{SlotGroup, group_slots};
+/// use db_core::finals::{SlotGroup, group_slots};
 ///
 /// let groups = group_slots(["E EM 1", "E EM 1", "E EM 2"]);
 /// assert_eq!(
@@ -421,6 +214,79 @@ pub fn group_slots<'a>(heats: impl IntoIterator<Item = &'a str>) -> Vec<SlotGrou
         }
     }
     groups
+}
+
+/// A reserved slot of a final.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct FinalSlot {
+    pub id: FinalSlotId,
+    /// "3. Finalist (E EM 1)".
+    pub label: String,
+    /// The heat whose acts fill the slot, by id.
+    pub heat_id: HeatId,
+    /// The heat's short code, as the label has it.
+    pub group_label: String,
+    /// Counts within the group.
+    pub number: i64,
+    /// The placed act. Before the placement is published, only for who
+    /// manages results.
+    pub act_id: Option<ActId>,
+    pub started: bool,
+}
+
+/// A final as the API lists it.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct Final {
+    pub id: FinalId,
+    /// The readable name, unique, e.g. "Finale Einzel männlich Expert".
+    pub name: String,
+    /// The short code, unique, e.g. "E EM".
+    pub code: String,
+    pub description: Option<String>,
+    pub act_type: ActType,
+    pub is_single_male: bool,
+    pub order: i64,
+    pub einfahrzeit_seconds: i64,
+    pub act_duration_seconds: i64,
+    pub judge_duration_seconds: i64,
+    /// The reserved slots in start order, e.g. 5 × "JE EM".
+    pub slot_groups: Vec<SlotGroupInfo>,
+    /// The categories of its heats, whose acts can be placed in the slots.
+    pub categories: Vec<String>,
+    /// The slots in start order, with their placed acts.
+    pub slots: Vec<FinalSlot>,
+    /// Whether the placement is published: the timeplan shows the acts.
+    pub placement_published: bool,
+    /// Whether a slot has started: the slot groups can't change any more.
+    pub started: bool,
+    /// The timeplan block it runs in, if it is planned.
+    pub timeplan_id: Option<i64>,
+}
+
+/// A final to add; name and code are normalized.
+#[derive(Debug, Clone)]
+pub struct NewFinal {
+    pub name: String,
+    pub code: String,
+    pub fields: FinalFields,
+}
+
+/// What an edit of a final sets; the name is normalized.
+#[derive(Debug, Clone)]
+pub struct FinalChange {
+    pub id: FinalId,
+    pub new_name: String,
+    /// The new normalized code; without, it stays.
+    pub new_code: Option<String>,
+    pub fields: FinalFields,
+}
+
+/// A change of the act placed in a slot.
+#[derive(Debug, Clone, Copy)]
+pub struct SlotPlacement {
+    pub slot_id: FinalSlotId,
+    /// `None` empties the slot.
+    pub act_id: Option<ActId>,
 }
 
 #[cfg(test)]

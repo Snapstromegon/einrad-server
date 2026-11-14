@@ -157,7 +157,7 @@ pub async fn set_block_order(
                         )));
                     }
                     (None, Some(direct)) => {
-                        let direct = crate::finals::name_of(&mut tx, *direct)
+                        let direct = db_sqlite::structure::final_name_of(&mut tx, *direct)
                             .await?
                             .unwrap_or_default();
                         return Err(invalid(&format!(
@@ -186,7 +186,7 @@ pub async fn set_block_order(
                 // open.
                 let heat_name = match heat {
                     Some(code) => code.to_string(),
-                    None => crate::heats::code_of(&mut tx, *heat_id)
+                    None => db_sqlite::structure::heat_code_of(&mut tx, *heat_id)
                         .await?
                         .unwrap_or_default(),
                 };

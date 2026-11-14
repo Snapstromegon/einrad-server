@@ -10,6 +10,7 @@ mod group_rules;
 mod registration;
 pub mod reloadable_sqlite;
 mod repo;
+pub mod structure;
 
 pub use repo::SqliteRepo;
 

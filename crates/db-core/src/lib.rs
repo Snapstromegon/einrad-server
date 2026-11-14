@@ -6,30 +6,39 @@
 use std::sync::Arc;
 
 pub mod act_type;
+pub mod acts;
 pub mod auth;
 pub mod bookings;
+pub mod categories;
+pub mod category_ages;
 pub mod check_in;
 pub mod club_mails;
 pub mod clubs;
 pub mod fee_waivers;
 pub mod fees;
+pub mod finals;
 pub mod gender;
 pub mod groups;
+pub mod heats;
+pub mod heats_finals;
 pub mod ids;
 pub mod jury;
 pub mod people;
 pub mod riders;
 pub mod roles;
 pub mod settings;
+pub mod structure;
 pub mod users;
 
 pub use auth::AuthRepo;
 pub use bookings::BookingsRepo;
+pub use categories::CategoriesRepo;
 pub use check_in::CheckInRepo;
 pub use club_mails::ClubMailsRepo;
 pub use clubs::ClubsRepo;
 pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
+pub use heats_finals::HeatsFinalsRepo;
 pub use riders::RidersRepo;
 pub use settings::SettingsRepo;
 pub use users::UsersRepo;
@@ -52,6 +61,8 @@ pub trait Db:
     + FeesRepo
     + CheckInRepo
     + ClubMailsRepo
+    + CategoriesRepo
+    + HeatsFinalsRepo
     + Send
     + Sync
     + 'static

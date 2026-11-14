@@ -404,36 +404,6 @@ pub fn not_registrable() -> HttpError {
     )
 }
 
-/// Refuses (409, German message) to delete the heat or final `id` while
-/// judges are registered or assigned to its jury unit (D4).
-pub async fn ensure_unit_unused(
-    conn: &mut sqlx::SqliteConnection,
-    kind: JuryUnitKind,
-    id: JuryUnitId,
-) -> Result<(), HttpError> {
-    let used = sqlx::query_scalar!(
-        r#"
-        SELECT (
-            (SELECT COUNT(*) FROM judge_registration r JOIN view_jury_unit u ON u.id = r.unit_id
-                WHERE u.kind = ?1 AND u.id = ?2)
-            + (SELECT COUNT(*) FROM jury_assignments a JOIN view_jury_unit u ON u.id = a.unit_id
-                WHERE u.kind = ?1 AND u.id = ?2)
-        ) as "count!: i64"
-        "#,
-        kind,
-        id
-    )
-    .fetch_one(conn)
-    .await?;
-    if used > 0 {
-        return Err(HttpError::Conflict(
-            "Für die Jury dieser Vorlaufklasse oder dieses Finales sind JurorInnen gemeldet oder eingeteilt. Erst das ändern, dann löschen."
-                .to_string(),
-        ));
-    }
-    Ok(())
-}
-
 // Transitional helpers of the judges' SQL, which moves behind the Db trait
 // with the jury group (#238). Until then they work on a connection.
 

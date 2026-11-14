@@ -52,6 +52,8 @@ impl From<db_core::clubs::RegistrationError> for HttpError {
                 HttpError::StatusCode(axum::http::StatusCode::FORBIDDEN)
             }
             RegistrationError::Rejected(message) => HttpError::ErrorMessages(message),
+            RegistrationError::NotFoundMessage(message) => HttpError::NotFoundMessage(message),
+            RegistrationError::Conflict(message) => HttpError::Conflict(message),
             RegistrationError::Db(error) => HttpError::Db(error),
         }
     }

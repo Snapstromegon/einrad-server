@@ -1,18 +1,15 @@
-use crate::ids::{ActId, FinalId, FinalSlotId, HeatId};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use crate::ids::{ActId, FinalId, FinalSlotId};
+use std::sync::Arc;
 
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::{DbHandle, finals::SlotPlacement};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     player::PlayerHub,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -53,136 +50,23 @@ pub struct SetFinalPlacementBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, player_hub))]
+#[instrument(skip(repo, player_hub))]
 #[axum::debug_handler]
 pub async fn set_final_placement(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
     _: Granted<permit::ManageResults>,
     Json(body): Json<SetFinalPlacementBody>,
 ) -> Result<Json<SetFinalPlacementResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    let Some(final_name) = crate::finals::name_of(&mut tx, body.id).await? else {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    };
-
-    let slots = sqlx::query!(
-        r#"
-        SELECT
-            final_slots.id as "id!: FinalSlotId",
-            final_slots.heat_id as "heat_id!: HeatId",
-            heats.code as "heat!",
-            number,
-            act_id as "act_id: ActId",
-            final_slots.started_at IS NOT NULL as "started!: bool"
-        FROM final_slots
-        JOIN heats ON heats.id = final_slots.heat_id
-        WHERE final_id = $1
-        "#,
-        body.id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    // The heat of each category.
-    let heats: HashMap<String, HeatId> = sqlx::query!(
-        r#"SELECT name as "name!", heat_id as "heat_id!: HeatId" FROM categories WHERE heat_id IS NOT NULL"#
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .map(|row| (row.name, row.heat_id))
-    .collect();
-
-    // The placement after the change, to check it as a whole.
-    let mut placement: HashMap<FinalSlotId, Option<ActId>> =
-        slots.iter().map(|slot| (slot.id, slot.act_id)).collect();
-    let mut changed = vec![];
-    for change in &body.slots {
-        let Some(slot) = slots.iter().find(|slot| slot.id == change.slot_id) else {
-            return Err(HttpError::ErrorMessages(
-                "Diesen Finalplatz gibt es in diesem Finale nicht.".to_string(),
-            ));
-        };
-        if slot.act_id == change.act_id {
-            continue;
-        }
-        let label = crate::finals::finalist_label(slot.number, &slot.heat);
-        if slot.started {
-            return Err(HttpError::ErrorMessages(format!(
-                "„{label}“ hat schon begonnen, die Kür bleibt."
-            )));
-        }
-        if let Some(act_id) = change.act_id {
-            // Withdrawn acts don't start: they count as without category.
-            let category = sqlx::query_scalar!(
-                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
-                FROM view_act WHERE id = $1"#,
-                act_id
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
-            match category {
-                None => {
-                    return Err(HttpError::ErrorMessages(format!(
-                        "Die Kür für „{label}“ gibt es nicht."
-                    )));
-                }
-                Some(None) => {
-                    return Err(HttpError::ErrorMessages(format!(
-                        "Die Kür für „{label}“ ist zurückgezogen oder unvollständig."
-                    )));
-                }
-                Some(Some(category)) if heats.get(&category) != Some(&slot.heat_id) => {
-                    return Err(HttpError::ErrorMessages(format!(
-                        "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zur Vorlaufklasse „{}“ gehört.",
-                        slot.heat
-                    )));
-                }
-                Some(Some(_)) => {}
-            }
-        }
-        placement.insert(slot.id, change.act_id);
-        changed.push((slot.id, change.act_id));
-    }
-    let mut seen = HashSet::new();
-    if placement
-        .values()
-        .flatten()
-        .any(|act_id| !seen.insert(*act_id))
-    {
-        return Err(HttpError::ErrorMessages(
-            "Eine Kür kann nur einen Finalplatz eines Finales bekommen.".to_string(),
-        ));
-    }
-
-    info!(
-        "Placing acts in {} slots of final {:?}",
-        changed.len(),
-        final_name
-    );
-    // Empty the changed slots first, so acts can swap slots without
-    // clashing in the unique index.
-    for (slot_id, _) in &changed {
-        sqlx::query!(
-            "UPDATE final_slots SET act_id = NULL WHERE id = $1",
-            slot_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    for (slot_id, act_id) in &changed {
-        sqlx::query!(
-            "UPDATE final_slots SET act_id = $1 WHERE id = $2",
-            act_id,
-            slot_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
+    let changes: Vec<SlotPlacement> = body
+        .slots
+        .iter()
+        .map(|slot| SlotPlacement {
+            slot_id: slot.slot_id,
+            act_id: slot.act_id,
+        })
+        .collect();
+    repo.set_final_placement(body.id, &changes).await?;
     // A published final's songs coming up may have changed.
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");

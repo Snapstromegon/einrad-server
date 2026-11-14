@@ -36,6 +36,12 @@ pub enum RegistrationError {
     Forbidden,
     #[error("{0}")]
     Rejected(String),
+    /// An entity the request names doesn't exist; the message is German.
+    #[error("{0}")]
+    NotFoundMessage(String),
+    /// The request clashes with the current state; the message is German.
+    #[error("{0}")]
+    Conflict(String),
     #[error(transparent)]
     Db(#[from] DbError),
 }

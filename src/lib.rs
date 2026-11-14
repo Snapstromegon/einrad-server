@@ -1,4 +1,7 @@
-pub use db_core::{act_type, bookings, fee_waivers, fees, gender, groups, ids, people, roles};
+pub use db_core::{
+    act_type, acts, bookings, category_ages, fee_waivers, fees, finals, gender, groups, heats, ids,
+    people, roles,
+};
 pub use db_sqlite::{db_backup, db_restore, reloadable_sqlite};
 
 pub mod admin_user;
@@ -8,8 +11,6 @@ pub mod competition;
 pub mod config;
 pub mod demo;
 pub mod export;
-pub mod finals;
-pub mod heats;
 pub mod http_server;
 pub mod image_fetch;
 pub mod images;

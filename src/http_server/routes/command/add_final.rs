@@ -1,13 +1,15 @@
-use crate::ids::FinalId;
 use axum::{Extension, Json};
+use db_core::{
+    DbHandle,
+    finals::{FinalFields, NewFinal},
+};
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    finals::{self, FinalFields},
+    finals, heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -41,56 +43,16 @@ pub struct AddFinalBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn add_final(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<AddFinalBody>,
 ) -> Result<Json<AddFinalResponse>, HttpError> {
     let name = finals::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
-    let code = crate::heats::normalize_code(body.code.as_deref(), &name);
+    let code = heats::normalize_code(body.code.as_deref(), &name);
     let fields = body.fields.normalize().map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    finals::check_free(&mut tx, None, &name, &code)
-        .await
-        .map_err(HttpError::Conflict)?;
-
-    info!("Adding final {name:?}");
-    let id = FinalId::new();
-    sqlx::query!(
-        r#"
-        INSERT INTO finals (
-            id, name, code, description, act_type, is_single_male, "order",
-            einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX("order"), 0) + 1 FROM finals), $7, $8, $9)
-        "#,
-        id,
-        name,
-        code,
-        fields.description,
-        fields.act_type,
-        fields.is_single_male,
-        fields.einfahrzeit_seconds,
-        fields.act_duration_seconds,
-        fields.judge_duration_seconds,
-    )
-    .execute(&mut *tx)
-    .await?;
-    finals::check_heats(
-        &mut tx,
-        id,
-        fields.act_type,
-        fields.is_single_male,
-        &fields.slot_groups,
-    )
-    .await
-    .map_err(HttpError::ErrorMessages)?;
-    finals::replace_slots(&mut tx, id, &fields.slot_groups).await?;
-
-    tx.commit().await?;
+    repo.add_final(&NewFinal { name, code, fields }).await?;
     Ok(Json(AddFinalResponse {}))
 }

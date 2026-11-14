@@ -1,16 +1,15 @@
 use crate::ids::FinalId;
 use std::sync::Arc;
 
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 use utoipa::ToSchema;
 
 use crate::{
-    finals,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     player::PlayerHub,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -42,38 +41,15 @@ pub struct SetFinalPublishedBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, player_hub))]
+#[instrument(skip(repo, player_hub))]
 #[axum::debug_handler]
 pub async fn set_final_published(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
     _: Granted<permit::ManageResults>,
     Json(body): Json<SetFinalPublishedBody>,
 ) -> Result<Json<SetFinalPublishedResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-
-    if !body.published && finals::has_started(&mut tx, body.id).await? {
-        return Err(HttpError::ErrorMessages(
-            "Das Finale hat schon begonnen, seine Platzierung bleibt veröffentlicht.".to_string(),
-        ));
-    }
-    info!(
-        "Setting the placement of final {} published: {}",
-        body.id, body.published
-    );
-    let result = sqlx::query!(
-        "UPDATE finals SET placement_published = $1 WHERE id = $2",
-        body.published,
-        body.id
-    )
-    .execute(&mut *tx)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-
-    tx.commit().await?;
+    repo.set_final_published(body.id, body.published).await?;
     // The final's songs may be coming up now (or no longer).
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");

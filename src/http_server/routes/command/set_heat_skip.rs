@@ -1,16 +1,15 @@
 use crate::ids::HeatId;
 use std::sync::Arc;
 
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 use utoipa::ToSchema;
 
 use crate::{
-    heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     player::PlayerHub,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -45,49 +44,19 @@ pub struct SetHeatSkipBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, player_hub))]
+#[instrument(skip(repo, player_hub))]
 #[axum::debug_handler]
 pub async fn set_heat_skip(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<SetHeatSkipBody>,
 ) -> Result<Json<SetHeatSkipResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let heat = sqlx::query!(
-        r#"SELECT name as "name!", skip FROM heats WHERE id = $1"#,
-        body.id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    let skip = heat.skip;
-    if skip == body.skip {
-        return Ok(Json(SetHeatSkipResponse {}));
-    }
-    if heats::has_started(&mut tx, body.id).await? {
-        return Err(HttpError::ErrorMessages(format!(
-            "In der Vorlaufklasse „{}“ oder ihrem Finale hat schon eine Kür begonnen; ob ihr Vorlauf entfällt, lässt sich nicht mehr ändern.",
-            heat.name
-        )));
-    }
-    info!(
-        "Setting the Vorlauf of heat {:?} skipped: {}",
-        heat.name, body.skip
-    );
-    sqlx::query!(
-        "UPDATE heats SET skip = $1 WHERE id = $2",
-        body.skip,
-        body.id
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    // The next act may be another one now.
-    if let Err(e) = player_hub.cue_from_timeplan().await {
-        warn!("Couldn't cue the next song: {e}");
+    if repo.set_heat_skip(body.id, body.skip).await? {
+        // The next act may be another one now.
+        if let Err(e) = player_hub.cue_from_timeplan().await {
+            warn!("Couldn't cue the next song: {e}");
+        }
     }
     Ok(Json(SetHeatSkipResponse {}))
 }

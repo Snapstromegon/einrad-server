@@ -8,12 +8,16 @@
 
 use crate::ids::{CategoryId, FinalId, HeatId, JudgeId, JuryUnitId};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
-use time::{Date, Month, OffsetDateTime, macros::format_description};
+use time::{Date, OffsetDateTime, macros::format_description};
 use tracing::{info, warn};
+
+pub use db_core::category_ages::{
+    ResolvedCategory, birthday_bounds, coverage_warnings, years_before,
+};
 
 use crate::{
     act_type::ActType,
@@ -39,53 +43,6 @@ pub const OPEN_FROM_BIRTHDAY: Date = time::macros::date!(1900 - 01 - 01);
 /// The upper birthday bound older competition files and databases stored
 /// for categories without a minimum age.
 pub const OPEN_TO_BIRTHDAY: Date = time::macros::date!(9999 - 12 - 31);
-
-/// A category from the config with its birthday bounds derived from the
-/// determining day; they are never stored (#256).
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedCategory {
-    pub name: String,
-    pub description: Option<String>,
-    pub act_type: ActType,
-    pub single_male: bool,
-    /// `None` for an open end at the bottom, e.g. "70+" has no `under_age`.
-    pub min_age: Option<f64>,
-    /// `None` for an open end at the top, e.g. "U11" has no `min_age`.
-    pub under_age: Option<f64>,
-    /// Inclusive, from `under_age`; `None` for no lower bound.
-    pub from_birthday: Option<Date>,
-    /// Exclusive, from `min_age`; `None` for no upper bound.
-    pub to_birthday: Option<Date>,
-    pub einfahrzeit_seconds: i64,
-    pub act_duration_seconds: i64,
-    pub judge_duration_seconds: i64,
-}
-
-/// The date `years` years before `day`. Fractions are rounded to whole months,
-/// so `9.5` means 9 years and 6 months. Days that don't exist in the target
-/// month (e.g. 29 February) move to the month's last day.
-///
-/// ```
-/// use einrad_server::seed::years_before;
-/// use time::macros::date;
-///
-/// assert_eq!(years_before(date!(2027 - 06 - 01), 15.0), date!(2012 - 06 - 01));
-/// assert_eq!(years_before(date!(2027 - 06 - 01), 9.5), date!(2017 - 12 - 01));
-/// assert_eq!(years_before(date!(2028 - 02 - 29), 1.0), date!(2027 - 02 - 28));
-/// ```
-pub fn years_before(day: Date, years: f64) -> Date {
-    let months = (years * 12.0).round() as i32;
-    let total = day.year() * 12 + (day.month() as i32 - 1) - months;
-    let year = total.div_euclid(12);
-    let month = Month::try_from((total.rem_euclid(12) + 1) as u8).expect("valid month");
-    let mut day_of_month = day.day();
-    loop {
-        if let Ok(date) = Date::from_calendar_date(year, month, day_of_month) {
-            return date;
-        }
-        day_of_month -= 1;
-    }
-}
 
 /// The age (AGE-4) that a birthday bound of an older competition file or
 /// database stands for: its whole months before `determining_day`, e.g.
@@ -124,44 +81,6 @@ fn minutes_to_seconds(minutes: f64, field: &str, category: &str) -> Result<i64, 
         ));
     }
     Ok((minutes * 60.0).round() as i64)
-}
-
-/// Checks a category's ages and derives its birthday bounds from
-/// `determining_day` (AGE-2): `(from_birthday, to_birthday)`, the first
-/// inclusive, the second exclusive, `None` for an open end.
-///
-/// A rider whose N-th birthday is on the determining day remains in the
-/// younger category, so `under_age = N` gives
-/// `from_birthday = determining_day - N years`. `min_age = M` gives
-/// `to_birthday = determining_day - M years`.
-pub fn birthday_bounds(
-    name: &str,
-    min_age: Option<f64>,
-    under_age: Option<f64>,
-    determining_day: Date,
-) -> Result<(Option<Date>, Option<Date>), String> {
-    for age in [min_age, under_age].into_iter().flatten() {
-        if age < 0.0 || !age.is_finite() {
-            return Err(format!("Category {name}: ages must not be negative."));
-        }
-    }
-    if let (Some(min), Some(under)) = (min_age, under_age)
-        && min >= under
-    {
-        return Err(format!(
-            "Category {name}: min_age ({min}) must be lower than under_age ({under})."
-        ));
-    }
-    let from_birthday = under_age.map(|under| years_before(determining_day, under));
-    let to_birthday = min_age.map(|min| years_before(determining_day, min));
-    if let (Some(from), Some(to)) = (from_birthday, to_birthday)
-        && from >= to
-    {
-        return Err(format!(
-            "Category {name}: min_age and under_age must be at least a month apart."
-        ));
-    }
-    Ok((from_birthday, to_birthday))
 }
 
 /// Calculates the birthday bounds of all categories against `determining_day`
@@ -431,96 +350,6 @@ pub fn resolve_finals(
             })
         })
         .collect()
-}
-
-/// Finds overlapping or missing birthday ranges among categories that compete
-/// for the same riders (same act type and gender filter).
-pub fn coverage_warnings(categories: &[ResolvedCategory]) -> Vec<String> {
-    let mut groups: BTreeMap<(&str, bool), Vec<&ResolvedCategory>> = BTreeMap::new();
-    for category in categories {
-        groups
-            .entry((category.act_type.as_str(), category.single_male))
-            .or_default()
-            .push(category);
-    }
-
-    // Open ends as the earliest and latest possible birthday.
-    let from = |c: &ResolvedCategory| c.from_birthday.unwrap_or(Date::MIN);
-    let to = |c: &ResolvedCategory| c.to_birthday.unwrap_or(Date::MAX);
-    let mut warnings = Vec::new();
-    for ((act_type, single_male), mut group) in groups {
-        group.sort_by_key(|c| from(c));
-        let label = format!("{act_type}{}", if single_male { ", male" } else { "" });
-        if let Some(first) = group[0].from_birthday {
-            warnings.push(format!(
-                "Categories ({label}): riders born before {first} match no category."
-            ));
-        }
-        for pair in group.windows(2) {
-            let (current, next) = (pair[0], pair[1]);
-            if from(next) < to(current) {
-                warnings.push(format!(
-                    "Categories ({label}): {} and {} overlap.",
-                    current.name, next.name
-                ));
-            } else if from(next) > to(current) {
-                warnings.push(format!(
-                    "Categories ({label}): riders born from {} to before {} match neither {} nor {}.",
-                    to(current),
-                    from(next),
-                    current.name,
-                    next.name
-                ));
-            }
-        }
-        let last = group
-            .iter()
-            .max_by_key(|c| to(c))
-            .expect("group isn't empty");
-        if let Some(last) = last.to_birthday {
-            warnings.push(format!(
-                "Categories ({label}): riders born on or after {last} match no category."
-            ));
-        }
-    }
-    warnings
-}
-
-/// [`coverage_warnings`] for the categories in the database, with the bounds
-/// derived from the competition's determining day: the check the import
-/// runs, for edits in the admin UI. Empty without a competition.
-pub async fn stored_coverage_warnings(
-    conn: &mut sqlx::SqliteConnection,
-) -> Result<Vec<String>, String> {
-    let Some(competition) = Competition::current(&mut *conn).await.map_err(db_error)? else {
-        return Ok(vec![]);
-    };
-    let categories = sqlx::query!(
-        r#"
-        SELECT name as "name!", act_type as "act_type: ActType", is_single_male, min_age, under_age
-        FROM categories ORDER BY "order" NULLS FIRST, name
-        "#
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(db_error)?
-    .into_iter()
-    .map(|row| CategoryConfig {
-        name: row.name,
-        description: None,
-        act_type: row.act_type,
-        single_male: row.is_single_male,
-        min_age: row.min_age,
-        under_age: row.under_age,
-        einfahrzeit_minutes: 0.0,
-        act_duration_minutes: 0.0,
-        judge_duration_minutes: 0.0,
-    })
-    .collect::<Vec<_>>();
-    Ok(coverage_warnings(&resolve_categories(
-        &categories,
-        competition.determining_day,
-    )?))
 }
 
 /// The act types (singles split by gender) that need at least one category.
@@ -1458,7 +1287,7 @@ async fn write(
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
-        heats::set_categories(conn, heat_id, &heat.categories)
+        db_sqlite::structure::set_heat_categories(conn, heat_id, &heat.categories)
             .await
             .map_err(db_error)?;
     }
@@ -1517,7 +1346,7 @@ async fn write(
                     count: group.count,
                 })
                 .collect();
-            finals::replace_slots(conn, final_id, &groups)
+            db_sqlite::structure::replace_final_slots(conn, final_id, &groups)
                 .await
                 .map_err(db_error)?;
         }
