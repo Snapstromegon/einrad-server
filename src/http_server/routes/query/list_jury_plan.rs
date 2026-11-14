@@ -1,8 +1,7 @@
-use crate::ids::{ClubId, JudgeId};
+use crate::ids::{ClubId, JudgeId, JuryUnitId};
 use axum::{Extension, Json, extract::Query, http::StatusCode};
 use time::OffsetDateTime;
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_club_access,
@@ -77,7 +76,7 @@ pub async fn list_jury_plan(
         SELECT
             jury_assignments.judge_id as "judge_id!: JudgeId",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
-            jury_assignments.unit_id as "unit_id!: Uuid",
+            jury_assignments.unit_id as "unit_id!: JuryUnitId",
             jury_assignments.task as "task!: JudgeTask"
         FROM jury_assignments
         JOIN judge ON judge.id = jury_assignments.judge_id

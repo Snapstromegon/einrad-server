@@ -523,7 +523,7 @@ impl PlayerHub {
             None => {
                 let id = id
                     .filter(|id| !id.0.is_nil() && !inner.players.iter().any(|p| p.info.id == *id))
-                    .unwrap_or_default();
+                    .unwrap_or_else(PlayerId::new);
                 info!("Player {name:?} ({kind:?}) connected");
                 inner.players.push(PlayerEntry {
                     info: PlayerInfo {

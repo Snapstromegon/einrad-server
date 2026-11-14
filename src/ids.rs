@@ -3,6 +3,13 @@
 //!
 //! The newtypes are transparent for serde and sqlx, and render in the OpenAPI
 //! schema as a plain `string`/`uuid`.
+//!
+//! There is deliberately no `Default` (it would mint a random ID) and no
+//! `From<Uuid>`; build one explicitly with `XId(uuid)` or [`XId::new`].
+//!
+//! Note that `query!` binds accept any transparent newtype, so these types
+//! protect function signatures and struct fields, not SQL parameters: binding
+//! a `HeatId` where a final's ID belongs still compiles.
 
 use uuid::Uuid;
 
@@ -31,12 +38,6 @@ macro_rules! typed_ids {
             }
         }
 
-        impl Default for $name {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 self.0.fmt(f)
@@ -48,12 +49,6 @@ macro_rules! typed_ids {
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 s.parse().map(Self)
-            }
-        }
-
-        impl From<Uuid> for $name {
-            fn from(id: Uuid) -> Self {
-                Self(id)
             }
         }
 
