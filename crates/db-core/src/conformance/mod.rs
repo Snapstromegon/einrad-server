@@ -26,8 +26,10 @@ use crate::{
 
 mod access;
 mod registration;
+mod timeplan;
 pub use access::*;
 pub use registration::*;
+pub use timeplan::*;
 
 /// A shared set of users, clubs and actors to seed a test from.
 pub struct World {
@@ -110,6 +112,9 @@ macro_rules! conformance_list {
             link_pair_rules,
             leave_and_dissolve_pairs,
             replace_act_rider_rules,
+            timeplan_forward_and_backward,
+            timeplan_entries_move_and_insert,
+            timeplan_started_block_keeps_its_order,
         }
     };
 }
