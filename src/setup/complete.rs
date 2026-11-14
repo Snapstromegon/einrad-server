@@ -34,7 +34,6 @@ const TEST_MAIL_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct SetupEnv {
     /// The database behind the repository traits.
     pub repo: DbHandle,
-    sqlite: db_sqlite::SqliteRepo,
     pub cli: CliArgs,
     /// `--config`/`CONFIG`, default `./config.toml`.
     pub config_path: PathBuf,
@@ -42,14 +41,13 @@ pub struct SetupEnv {
 
 impl SetupEnv {
     #[must_use]
-    pub fn new(sqlite: db_sqlite::SqliteRepo, cli: CliArgs) -> Self {
+    pub fn new(repo: DbHandle, cli: CliArgs) -> Self {
         let config_path = cli
             .config
             .clone()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
         Self {
-            repo: sqlite.clone().into_handle(),
-            sqlite,
+            repo,
             cli,
             config_path,
         }
@@ -803,7 +801,7 @@ async fn hand_over(
         .await
         .map_err(|e| clean(&e))?;
     let normal = startup::build(
-        env.sqlite.clone(),
+        env.repo.clone(),
         settings,
         &report,
         &super::config_dir(Some(&env.config_path)),

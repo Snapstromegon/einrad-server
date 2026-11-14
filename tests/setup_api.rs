@@ -127,7 +127,10 @@ async fn harness(cli: CliArgs, config: Option<&str>) -> Harness {
     let db = in_memory_migrated().await;
     let state = SetupState::new(
         None,
-        SetupEnv::new(db_sqlite::SqliteRepo::from_pool(db.clone()), cli.clone()),
+        SetupEnv::new(
+            db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+            cli.clone(),
+        ),
     );
     state.write_token_file().unwrap();
     Harness {
@@ -588,7 +591,10 @@ async fn an_unwritable_config_path_returns_the_content() {
     let db = in_memory_migrated().await;
     let state = SetupState::new(
         None,
-        SetupEnv::new(db_sqlite::SqliteRepo::from_pool(db.clone()), cli),
+        SetupEnv::new(
+            db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+            cli,
+        ),
     );
     let h = Harness {
         app: router(state.clone()),
@@ -691,7 +697,7 @@ async fn after_a_partial_failure_only_the_admin_is_missing() {
     let state = SetupState::new(
         None,
         SetupEnv::new(
-            db_sqlite::SqliteRepo::from_pool(h.db.clone()),
+            db_sqlite::SqliteRepo::from_pool(h.db.clone()).into_handle(),
             h.cli.clone(),
         ),
     );

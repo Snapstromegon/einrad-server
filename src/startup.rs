@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use db_sqlite::SqliteRepo;
+use db_core::DbHandle;
 use eyre::eyre;
 use tracing::{info, warn};
 
@@ -36,7 +36,7 @@ pub struct NormalMode {
 /// # Errors
 /// If the mailer's SMTP server setting is invalid or a component can't start.
 pub async fn build(
-    sqlite: SqliteRepo,
+    repo: DbHandle,
     settings: Settings,
     report: &Report,
     config_dir: &std::path::Path,
@@ -51,7 +51,7 @@ pub async fn build(
     )
     .map_err(|e| eyre!("The SMTP server setting is invalid: {e}"))?;
 
-    match seed::startup_competition(&sqlite)
+    match seed::startup_competition(repo.as_ref())
         .await
         .map_err(|e| eyre!(e))?
     {
@@ -65,7 +65,6 @@ pub async fn build(
         ),
     }
 
-    let repo = sqlite.into_handle();
     info!("Build JWT config");
     let jwt_algorithm = jsonwebtoken::Algorithm::HS512;
     let mut validator = jsonwebtoken::Validation::new(jwt_algorithm);

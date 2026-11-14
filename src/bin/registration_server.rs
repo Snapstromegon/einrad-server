@@ -100,7 +100,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     if let Some(reason) = setup::pending_reason(&settings, &repo).await? {
         let state = SetupState::new(
             bootstrap.configured_base_url,
-            SetupEnv::new(repo.clone(), setup_cli),
+            SetupEnv::new(repo.clone().into_handle(), setup_cli),
         );
         state.announce(&reason);
         let listener = tokio::net::TcpListener::bind(&bootstrap.http_address).await?;
@@ -111,7 +111,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
-    let mut normal = startup::build(repo, settings, &report, &config_dir).await?;
+    let mut normal = startup::build(repo.into_handle(), settings, &report, &config_dir).await?;
 
     info!("Starting HTTP server");
     normal.server.start(shutdown_signal()).await?;

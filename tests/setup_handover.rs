@@ -69,7 +69,10 @@ impl Server {
         let db = in_memory_migrated().await;
         let state = SetupState::new(
             None,
-            SetupEnv::new(db_sqlite::SqliteRepo::from_pool(db.clone()), cli),
+            SetupEnv::new(
+                db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+                cli,
+            ),
         );
         Self {
             app: router(state.clone()),
@@ -615,7 +618,7 @@ async fn normal_start(dir: &TempDir, db: &SqlitePool) {
     .await
     .unwrap();
     einrad_server::startup::build(
-        db_sqlite::SqliteRepo::from_pool(db.clone()),
+        db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
         settings,
         &report,
         &dir.0,
