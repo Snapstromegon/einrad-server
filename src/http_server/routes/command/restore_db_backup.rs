@@ -69,31 +69,35 @@ pub async fn restore_db_backup(
     if player_hub.is_playing() {
         return Err(HttpError::Conflict("Wiedergabe zuerst stoppen.".into()));
     }
-    let restored = match db_restore::restore(&db, &path, body.force).await {
-        Ok(restored) => restored,
-        Err(RestoreError::Blocking(reasons)) => {
-            return Err(HttpError::Conflict(format!(
-                "Das Backup kann nicht wiederhergestellt werden: {}",
-                reasons.join(" ")
-            )));
-        }
-        Err(RestoreError::PendingMigrations(names)) => {
-            return Err(HttpError::Conflict(format!(
-                "Das Backup hat einen älteren Stand. Beim Wiederherstellen werden diese \
+    let restored =
+        match db_restore::restore(&db, &path, body.force, || player_hub.is_playing()).await {
+            Ok(restored) => restored,
+            Err(RestoreError::Blocking(reasons)) => {
+                return Err(HttpError::Conflict(format!(
+                    "Das Backup kann nicht wiederhergestellt werden: {}",
+                    reasons.join(" ")
+                )));
+            }
+            Err(RestoreError::Playing) => {
+                return Err(HttpError::Conflict("Wiedergabe zuerst stoppen.".into()));
+            }
+            Err(RestoreError::PendingMigrations(names)) => {
+                return Err(HttpError::Conflict(format!(
+                    "Das Backup hat einen älteren Stand. Beim Wiederherstellen werden diese \
                  Migrationen angewendet (Bestätigung nötig): {}",
-                names.join(", ")
-            )));
-        }
-        Err(RestoreError::RolledBack(cause)) => {
-            warn!("Restoring {} failed, rolled back: {cause}", body.filename);
-            return Err(HttpError::Conflict(
-                "Die Wiederherstellung ist fehlgeschlagen. Der vorherige Stand wurde wieder \
+                    names.join(", ")
+                )));
+            }
+            Err(RestoreError::RolledBack(cause)) => {
+                warn!("Restoring {} failed, rolled back: {cause}", body.filename);
+                return Err(HttpError::Conflict(
+                    "Die Wiederherstellung ist fehlgeschlagen. Der vorherige Stand wurde wieder \
                  eingesetzt."
-                    .into(),
-            ));
-        }
-        Err(e) => return Err(e.into()),
-    };
+                        .into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
     let snapshot_filename = restored
         .snapshot
         .file_name()

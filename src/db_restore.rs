@@ -55,6 +55,9 @@ pub enum RestoreError {
     NotAFile,
     #[error(transparent)]
     Backup(#[from] BackupError),
+    /// Music started playing; refused under the write lock.
+    #[error("music is playing")]
+    Playing,
     /// Failed before anything changed.
     #[error("{0}")]
     Before(String),
@@ -241,10 +244,14 @@ pub struct Restored {
 }
 
 /// Restores `backup` with the embedded migrations. See [`restore_using`].
+///
+/// `is_playing` is asked again under the write lock; `true` refuses with
+/// [`RestoreError::Playing`] before anything changes.
 pub async fn restore(
     db: &ReloadableSqlite,
     backup: &Path,
     force: bool,
+    is_playing: impl Fn() -> bool + Send,
 ) -> Result<Restored, RestoreError> {
     restore_using(
         db,
@@ -252,6 +259,7 @@ pub async fn restore(
         force,
         &sqlx::migrate!("./migrations"),
         db_backup::now_local(),
+        is_playing,
     )
     .await
 }
@@ -267,9 +275,28 @@ pub async fn restore_using(
     force: bool,
     migrator: &Migrator,
     now: PrimitiveDateTime,
+    is_playing: impl Fn() -> bool + Send,
+) -> Result<Restored, RestoreError> {
+    restore_with(db, backup, force, migrator, now, is_playing, &replace_file).await
+}
+
+/// How a file is put over the database; a seam for tests.
+type ReplaceFile<'a> = &'a (dyn Fn(&Path, &Path) -> Result<(), String> + Sync);
+
+async fn restore_with(
+    db: &ReloadableSqlite,
+    backup: &Path,
+    force: bool,
+    migrator: &Migrator,
+    now: PrimitiveDateTime,
+    is_playing: impl Fn() -> bool + Send,
+    replace: ReplaceFile<'_>,
 ) -> Result<Restored, RestoreError> {
     let db_path = db.file_path().ok_or(RestoreError::NotAFile)?;
     let mut pool = db.write().await;
+    if is_playing() {
+        return Err(RestoreError::Playing);
+    }
 
     let check = check_backup(backup, migrator).await;
     if !check.blocking.is_empty() {
@@ -292,18 +319,25 @@ pub async fn restore_using(
     db_backup::create_backup_at(&pool, &snapshot).await?;
 
     pool.close().await;
-    let swapped = swap_in(db, &db_path, backup, migrator).await;
+    let swapped = swap_in(db, &db_path, backup, migrator, replace).await;
     match swapped {
         Ok(new_pool) => {
             *pool = new_pool;
             Ok(Restored { snapshot })
         }
-        Err(cause) => match swap_in_snapshot(db, &db_path, &snapshot).await {
+        Err(cause) => match swap_in_snapshot(db, &db_path, &snapshot, replace).await {
             Ok(old_pool) => {
                 *pool = old_pool;
                 Err(RestoreError::RolledBack(cause))
             }
-            Err(rollback) => Err(RestoreError::RollbackFailed { cause, rollback }),
+            Err(rollback) => {
+                // Don't leave the closed pool behind: serve whatever is at
+                // the database path now, if it opens.
+                if let Ok(fallback) = reloadable_sqlite::connect(db.url()).await {
+                    *pool = fallback;
+                }
+                Err(RestoreError::RollbackFailed { cause, rollback })
+            }
         },
     }
 }
@@ -315,11 +349,31 @@ fn replace_file(db_path: &Path, source: &Path) -> Result<(), String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let temp = db_path.with_file_name(format!("{name}.restore-tmp"));
-    std::fs::copy(source, &temp).map_err(|e| format!("copy: {e}"))?;
+    let copy = || -> std::io::Result<()> {
+        std::fs::copy(source, &temp)?;
+        // Durable before it replaces the database.
+        std::fs::File::open(&temp)?.sync_all()
+    };
+    if let Err(e) = copy() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("copy: {e}"));
+    }
     std::fs::rename(&temp, db_path).map_err(|e| {
         let _ = std::fs::remove_file(&temp);
         format!("rename: {e}")
-    })
+    })?;
+    // Persist the rename itself.
+    if let Some(parent) = db_path.parent() {
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        std::fs::File::open(parent)
+            .and_then(|d| d.sync_all())
+            .map_err(|e| format!("sync directory: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Steps 4 to 6: replace the file, reopen, migrate. On failure the new pool
@@ -329,8 +383,9 @@ async fn swap_in(
     db_path: &Path,
     backup: &Path,
     migrator: &Migrator,
+    replace: ReplaceFile<'_>,
 ) -> Result<SqlitePool, String> {
-    replace_file(db_path, backup)?;
+    replace(db_path, backup)?;
     let pool = reloadable_sqlite::connect(db.url())
         .await
         .map_err(|e| format!("reconnect: {e}"))?;
@@ -346,8 +401,9 @@ async fn swap_in_snapshot(
     db: &ReloadableSqlite,
     db_path: &Path,
     snapshot: &Path,
+    replace: ReplaceFile<'_>,
 ) -> Result<SqlitePool, String> {
-    replace_file(db_path, snapshot)?;
+    replace(db_path, snapshot)?;
     reloadable_sqlite::connect(db.url())
         .await
         .map_err(|e| format!("reconnect: {e}"))
@@ -429,7 +485,7 @@ mod tests {
         add_admin(&pool, "Nach dem Backup").await;
         let backup_bytes = std::fs::read(&backup).unwrap();
 
-        let result = restore_using(&db, &backup, true, &failing_migrator(), T).await;
+        let result = restore_using(&db, &backup, true, &failing_migrator(), T, || false).await;
 
         assert!(
             matches!(result, Err(RestoreError::RolledBack(_))),
@@ -441,5 +497,63 @@ mod tests {
         assert!(db_backup::backup_path(&path, T).exists());
         assert_eq!(std::fs::read(&backup).unwrap(), backup_bytes);
         assert!(!path.with_file_name("db.sqlite.restore-tmp").exists());
+    }
+
+    #[tokio::test]
+    async fn a_failed_rollback_still_leaves_a_working_pool() {
+        let dir = TempDir::new();
+        let path = dir.0.join("db.sqlite");
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+        let pool = reloadable_sqlite::connect(&url).await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        add_admin(&pool, "Vorher").await;
+        let db = ReloadableSqlite::new(pool.clone(), url);
+        let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
+        db_backup::create_backup_at(&pool, &backup).await.unwrap();
+
+        // The swap works, the migration fails, the rollback's copy fails.
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let replace = |db_path: &Path, source: &Path| {
+            if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                replace_file(db_path, source)
+            } else {
+                Err("copy: disk full".into())
+            }
+        };
+        let result = restore_with(
+            &db,
+            &backup,
+            true,
+            &failing_migrator(),
+            T,
+            || false,
+            &replace,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(RestoreError::RollbackFailed { .. })),
+            "{result:?}"
+        );
+        assert_eq!(names(&db).await, ["Vorher"]);
+    }
+
+    #[tokio::test]
+    async fn playing_music_refuses_under_the_lock() {
+        let dir = TempDir::new();
+        let path = dir.0.join("db.sqlite");
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+        let pool = reloadable_sqlite::connect(&url).await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        add_admin(&pool, "Vorher").await;
+        let db = ReloadableSqlite::new(pool.clone(), url);
+        let backup = db_backup::backup_path(&path, datetime!(2026-01-01 00:00:00));
+        db_backup::create_backup_at(&pool, &backup).await.unwrap();
+
+        let result = restore_using(&db, &backup, true, &failing_migrator(), T, || true).await;
+
+        assert!(matches!(result, Err(RestoreError::Playing)), "{result:?}");
+        assert_eq!(names(&db).await, ["Vorher"]);
+        assert!(!db_backup::backup_path(&path, T).exists());
     }
 }
