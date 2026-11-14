@@ -56,12 +56,12 @@ endif
 endif
 
 test: migrate-db
-	cargo test --features player-client
+	cargo test --workspace --features einrad-server/player-client
 	cd frontend && npm test
 
 # After the frontend build: the type check needs the generated API client.
 lint: frontend
-	cargo clippy
+	cargo clippy --workspace --all-targets -- -D warnings
 	cd frontend && npm run check
 
 clean-frontend:
