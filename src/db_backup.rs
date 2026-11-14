@@ -191,10 +191,28 @@ async fn applied_versions(pool: &SqlitePool) -> Result<Vec<i64>, sqlx::Error> {
         .await
 }
 
+/// Whether the database file, or its journal if there is one, was written
+/// after `since`. Anything unreadable counts as modified.
+fn modified_since(db_path: &Path, since: std::time::SystemTime) -> bool {
+    let mut journal = db_path.as_os_str().to_owned();
+    journal.push("-journal");
+    [db_path.to_path_buf(), PathBuf::from(journal)]
+        .iter()
+        .any(|path| match std::fs::metadata(path) {
+            Ok(meta) => meta.modified().map_or(true, |at| at > since),
+            Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+        })
+}
+
 /// The newest backup of `db_path` whose applied migrations are exactly the
-/// live database's, if there is one. Anything unreadable counts as "no".
+/// live database's and that the database hasn't been written to since, if
+/// there is one. Anything unreadable counts as "no".
 async fn newest_backup_with_same_state(pool: &SqlitePool, db_path: &Path) -> Option<PathBuf> {
     let newest = list_backups(db_path).ok()?.pop()?;
+    let written = std::fs::metadata(&newest).ok()?.modified().ok()?;
+    if modified_since(db_path, written) {
+        return None;
+    }
     let live = applied_versions(pool).await.ok()?;
     let backup_pool = SqlitePool::connect_with(
         sqlx::sqlite::SqliteConnectOptions::new()
@@ -227,7 +245,7 @@ pub async fn migrate_with_backup_using(
             // A failing migration under a restart loop would otherwise write
             // a full copy on every start.
             tracing::info!(
-                "Pending migrations: skipping the backup, {} has the same migration state",
+                "Pending migrations: skipping the backup, {} has the same migration state and the database is unchanged since",
                 existing.display()
             );
         } else {
@@ -486,6 +504,39 @@ mod tests {
         assert_eq!(
             list_backups(&dir.db()).unwrap(),
             vec![backup_path(&dir.db(), T), backup_path(&dir.db(), later)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_write_since_the_newest_backup_gets_a_new_backup() {
+        let dir = TempDir::new();
+        let pool = open(&dir.db()).await;
+        partial(1).run(&pool).await.unwrap();
+
+        // A manual backup at the current migration state, long ago.
+        let manual = backup_path(&dir.db(), T);
+        create_backup_at(&pool, &manual).await.unwrap();
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&manual)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+
+        // Weeks of data follow, then a release with a new migration.
+        sqlx::query("CREATE TABLE weeks_of_data (x)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let later = T + time::Duration::seconds(5);
+        migrate_with_backup_using(&sqlx::migrate!("./migrations"), &pool, &dir.db(), later)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            list_backups(&dir.db()).unwrap(),
+            vec![manual, backup_path(&dir.db(), later)]
         );
     }
 }
