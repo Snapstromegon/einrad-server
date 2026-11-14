@@ -471,7 +471,7 @@ mod tests {
 
     #[tokio::test]
     async fn metrics_are_off_without_a_token() {
-        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
         let options = HttpServerOptions {
             bind_address: String::new(),
             base_url: String::new(),

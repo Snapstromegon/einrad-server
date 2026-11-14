@@ -18,7 +18,7 @@ fn data_dir() -> PathBuf {
 
 #[tokio::test]
 async fn demo_file_fills_every_table() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = DemoData::parse(DEMO).unwrap();
     let data_path = data_dir();
     data.apply(&SqliteRepo::from_pool(db.clone()), &data_path)
@@ -123,7 +123,7 @@ async fn demo_file_fills_every_table() {
 
 #[tokio::test]
 async fn demo_structure_has_no_loose_ends() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = DemoData::parse(DEMO).unwrap();
     let data_path = data_dir();
     data.apply(&SqliteRepo::from_pool(db.clone()), &data_path)
@@ -158,7 +158,7 @@ async fn demo_structure_has_no_loose_ends() {
 
 #[tokio::test]
 async fn unknown_partner_is_rejected() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let mut data = DemoData::parse(DEMO).unwrap();
     let rider = &mut data.clubs[0].riders[0];
     rider.pair = true;
@@ -173,7 +173,7 @@ async fn unknown_partner_is_rejected() {
 
 #[tokio::test]
 async fn demo_groups_follow_the_group_rules() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let mut data = DemoData::parse(DEMO).unwrap();
     // Emma Wagner already rides in a small group.
     let incomplete = data
@@ -191,7 +191,7 @@ async fn demo_groups_follow_the_group_rules() {
 
 #[tokio::test]
 async fn fetched_songs_are_stored() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let mut data = DemoData::parse(DEMO).unwrap();
     // No downloads in tests: one song is in the cache already, the
     // other's download fails.

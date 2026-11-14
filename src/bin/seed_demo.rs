@@ -36,7 +36,7 @@ struct Args {
 /// A plain `main`: the local UTC offset (for backup names) can only be read
 /// before any thread exists, so it is read here, then the runtime is built.
 fn main() -> eyre::Result<()> {
-    let offset = einrad_server::db_backup::init_local_offset();
+    let offset = db_sqlite::db_backup::init_local_offset();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -98,7 +98,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     if filename.as_os_str() == ":memory:" {
         db_sqlite::MIGRATOR.run(&db).await?;
     } else {
-        einrad_server::db_backup::migrate_with_backup(&db, &filename).await?;
+        db_sqlite::db_backup::migrate_with_backup(&db, &filename).await?;
     }
 
     info!("Applying demo data from {}", args.demo.display());

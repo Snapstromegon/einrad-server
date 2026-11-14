@@ -2,7 +2,6 @@ pub use db_core::{
     act_type, acts, bookings, category_ages, fee_waivers, fees, finals, gender, groups, heats, ids,
     people, roles, timeplan,
 };
-pub use db_sqlite::{db_backup, db_restore, reloadable_sqlite};
 
 pub mod admin_user;
 pub mod club_mails;

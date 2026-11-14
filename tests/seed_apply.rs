@@ -96,7 +96,7 @@ async fn count(db: &sqlx::SqlitePool, table: &str) -> i64 {
 
 #[tokio::test]
 async fn migrations_leave_tables_empty() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     for table in [
         "competition",
         "categories",
@@ -112,7 +112,7 @@ async fn migrations_leave_tables_empty() {
 
 #[tokio::test]
 async fn a_changed_file_on_the_next_start_changes_nothing_and_warns() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     let created = apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
     assert_eq!(created.applied, Applied::Created);
@@ -149,7 +149,7 @@ async fn a_changed_file_on_the_next_start_changes_nothing_and_warns() {
 
 #[tokio::test]
 async fn any_changed_detail_counts_as_a_difference() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, &planned_competition(), false, &data.0)
         .await
@@ -187,7 +187,7 @@ async fn any_changed_detail_counts_as_a_difference() {
 
 #[tokio::test]
 async fn an_invalid_file_on_the_next_start_is_ignored_with_a_warning() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
 
@@ -204,7 +204,7 @@ async fn an_invalid_file_on_the_next_start_is_ignored_with_a_warning() {
 
 #[tokio::test]
 async fn replacing_with_an_unchanged_file_keeps_the_planning() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, &planned_competition(), false, &data.0)
         .await
@@ -222,7 +222,7 @@ async fn replacing_with_an_unchanged_file_keeps_the_planning() {
 
 #[tokio::test]
 async fn a_file_with_another_id_is_ignored_with_a_warning() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
 
@@ -330,7 +330,7 @@ async fn add_club_data_and_planning(db: &sqlx::SqlitePool) {
 
 #[tokio::test]
 async fn replace_keeps_club_data_and_drops_the_planning() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, &planned_competition(), false, &data.0)
         .await
@@ -442,7 +442,7 @@ async fn replace_keeps_club_data_and_drops_the_planning() {
 
 #[tokio::test]
 async fn replace_keeps_the_database_id_and_warns() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
 
@@ -473,7 +473,7 @@ async fn replace_keeps_the_database_id_and_warns() {
 
 #[tokio::test]
 async fn an_invalid_replacement_changes_nothing() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let data = TempDir::new();
     apply_file(&db, &planned_competition(), false, &data.0)
         .await
@@ -493,7 +493,7 @@ async fn an_invalid_replacement_changes_nothing() {
 
 #[tokio::test]
 async fn seeds_empty_database() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     seed_file(&db, COMPETITION).await.unwrap();
 
     let competition = SqliteRepo::from_pool(db.clone())
@@ -517,7 +517,7 @@ async fn seeds_empty_database() {
 
 #[tokio::test]
 async fn invalid_competition_dates_write_nothing() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let broken = COMPETITION.replace(
         "registration_end = 2027-04-30T23:59:59+02:00",
         "registration_end = 2027-12-20T23:59:59+01:00",
@@ -529,7 +529,7 @@ async fn invalid_competition_dates_write_nothing() {
 
 #[tokio::test]
 async fn invalid_config_writes_nothing() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let invalid = COMPETITION.replace("category = \"15+\"", "category = \"missing\"");
     let err = seed_file(&db, &invalid).await.unwrap_err();
     assert!(err.contains("missing"), "{err}");
@@ -564,7 +564,7 @@ fn with_heats(heats_and_finals: &str) -> String {
 
 #[tokio::test]
 async fn heats_are_seeded_with_their_categories() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let file = with_heats(
         r#"
         [[heats]]
@@ -644,7 +644,7 @@ const NAMED_HEATS: &str = r#"
 
 #[tokio::test]
 async fn heats_and_finals_take_name_and_code_and_files_refer_to_the_code() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     seed_file(&db, &with_heats(NAMED_HEATS)).await.unwrap();
 
     let heats: Vec<(String, String)> = sqlx::query_as("SELECT code, name FROM heats ORDER BY code")
@@ -690,7 +690,7 @@ async fn references_name_the_code_not_the_readable_name() {
             "Finale Einzel",
         ),
     ] {
-        let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+        let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
         let file = with_heats(&NAMED_HEATS.replace(from, to));
         let err = seed_file(&db, &file).await.unwrap_err();
         assert!(err.contains(message), "{err}");
@@ -699,7 +699,7 @@ async fn references_name_the_code_not_the_readable_name() {
 
 #[tokio::test]
 async fn codes_must_be_unique() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let file = with_heats(&NAMED_HEATS.replace(
         "name = \"Einzel – Expert (15+)\"",
         "name = \"Einzel – Expert (15+)\"\ncode = \"J\"",
@@ -710,7 +710,7 @@ async fn codes_must_be_unique() {
 
 #[tokio::test]
 async fn heats_take_their_threshold_and_skip_from_the_file() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let file = with_heats(
         r#"
         [[heats]]
@@ -747,7 +747,7 @@ async fn heats_take_their_threshold_and_skip_from_the_file() {
 
 #[tokio::test]
 async fn heats_of_groups_skip_their_vorlauf_unless_the_file_says_otherwise() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     let file = with_heats(
         r#"
         [[heats]]
@@ -767,7 +767,7 @@ async fn heats_of_groups_skip_their_vorlauf_unless_the_file_says_otherwise() {
         .unwrap();
     assert!(skip);
 
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     seed_file(
         &db,
         &file.replace(
@@ -832,7 +832,7 @@ async fn the_import_checks_heats_and_names_the_offender() {
             "Final Gruppe",
         ),
     ] {
-        let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+        let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
         let err = seed_file(&db, &with_heats(&file)).await.unwrap_err();
         assert!(err.contains(message), "{message}: {err}");
         assert_eq!(count(&db, "competition").await, 0);
@@ -841,7 +841,7 @@ async fn the_import_checks_heats_and_names_the_offender() {
 
 #[tokio::test]
 async fn age_uses_determining_day_of_competition() {
-    let db = einrad_server::reloadable_sqlite::in_memory_migrated().await;
+    let db = db_sqlite::reloadable_sqlite::in_memory_migrated().await;
     seed_file(&db, COMPETITION).await.unwrap();
     let age: f64 = sqlx::query_scalar(
         "SELECT (julianday((SELECT determining_day FROM competition ORDER BY start_date DESC LIMIT 1)) - julianday('2012-06-01')) / 365.2425",

@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
 use clap::Parser;
-use db_sqlite::SqliteRepo;
+use db_sqlite::{SqliteRepo, db_backup, reloadable_sqlite};
 use einrad_server::{
     admin_user::insert_admin_user,
     config::{
         Bootstrap, CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, competition_file_path,
     },
-    reloadable_sqlite, seed,
+    seed,
     setup::{self, SetupEnv, SetupState},
     startup,
 };
@@ -19,7 +19,7 @@ use tracing_subscriber::FmtSubscriber;
 /// A plain `main`: the local UTC offset (for backup names) can only be read
 /// before any thread exists, so it is read here, then the runtime is built.
 fn main() -> eyre::Result<()> {
-    let offset = einrad_server::db_backup::init_local_offset();
+    let offset = db_backup::init_local_offset();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -67,7 +67,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     info!("Running database migrations");
     match sqlx::sqlite::SqliteConnectOptions::from_str(&bootstrap.database_url)?.get_filename() {
         path if path.as_os_str() == ":memory:" => db_sqlite::MIGRATOR.run(&db).await?,
-        path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
+        path => db_backup::migrate_with_backup(&db, path).await?,
     }
 
     let repo = SqliteRepo::new(reloadable_sqlite::ReloadableSqlite::new(

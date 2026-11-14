@@ -9,7 +9,7 @@ pub mod mailpit;
 
 /// Every test gets its own database in memory.
 #[allow(unused_imports)]
-pub use einrad_server::reloadable_sqlite::{in_memory, in_memory_migrated};
+pub use db_sqlite::reloadable_sqlite::{in_memory, in_memory_migrated};
 
 use std::{
     path::{Path, PathBuf},
@@ -22,6 +22,7 @@ use axum::{
     http::{HeaderMap, Method, Request, StatusCode, header},
 };
 use db_sqlite::SqliteRepo;
+use db_sqlite::reloadable_sqlite::ReloadableSqlite;
 use einrad_server::ids::{ActId, CategoryId, ClubId, FinalId, HeatId, RiderId, UserId};
 use einrad_server::{
     config::CompetitionFile,
@@ -30,7 +31,6 @@ use einrad_server::{
     mailer::Mailer,
     photos::{Photos, PhotosSettings},
     player::PlayerHub,
-    reloadable_sqlite::ReloadableSqlite,
     seed,
     system_status::StatusOptions,
 };

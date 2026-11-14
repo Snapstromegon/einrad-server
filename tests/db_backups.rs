@@ -11,7 +11,7 @@ const NEW: &str = "db.backup-2026-11-15T08-00-00.sqlite";
 
 async fn app(dir: &TempDir) -> TestApp {
     // A real file, as in production: VACUUM INTO needs one.
-    let db = einrad_server::reloadable_sqlite::connect(&format!(
+    let db = db_sqlite::reloadable_sqlite::connect(&format!(
         "sqlite://{}?mode=rwc",
         dir.0.join("db.sqlite").display()
     ))

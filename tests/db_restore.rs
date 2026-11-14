@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 async fn app(dir: &TempDir) -> TestApp {
     // A real file, as in production: VACUUM INTO and the swap need one.
-    let db = einrad_server::reloadable_sqlite::connect(&format!(
+    let db = db_sqlite::reloadable_sqlite::connect(&format!(
         "sqlite://{}?mode=rwc",
         dir.0.join("db.sqlite").display()
     ))
