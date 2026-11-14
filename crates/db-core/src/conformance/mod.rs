@@ -12,8 +12,10 @@
 //! Rules for tests here: they only use trait methods (no SQL, no pool), seed
 //! their data through the trait, and share nothing between tests.
 //!
-//! To add a test: write `pub async fn name(db: &dyn Db)` in a submodule and
-//! list `name` in the macro below.
+//! To add a test: write `pub async fn name(db: &dyn Db)` in a submodule,
+//! `pub use` the module and list `name` in `conformance_list!` below. That
+//! list is the only registration; the `registered_tests` unit test fails when
+//! a `pub async fn` of this directory is missing from it.
 
 use crate::{
     Db,
@@ -23,7 +25,9 @@ use crate::{
 };
 
 mod access;
+mod registration;
 pub use access::*;
+pub use registration::*;
 
 /// A shared set of users, clubs and actors to seed a test from.
 pub struct World {
@@ -88,6 +92,37 @@ impl World {
     }
 }
 
+/// The one list of conformance tests. Calls `$mac!($($prefix)* names...)`
+/// with every test name (as `a, b, c,`).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! conformance_list {
+    ($($mac:tt)::+, $($prefix:tt)*) => {
+        $($mac)::+! {$($prefix)*
+            club_access_decisions,
+            rider_access_decisions,
+            judge_access_decisions,
+            act_access_decisions,
+            group_access_decisions,
+            rider_names_are_unique_per_club,
+            single_on_and_off,
+            pair_requests_match_waiting_riders,
+            link_pair_rules,
+            leave_and_dissolve_pairs,
+            replace_act_rider_rules,
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! conformance_names {
+    ($($name:ident,)*) => { &[$(stringify!($name)),*] };
+}
+
+/// The names of all registered tests, from [`conformance_list!`].
+pub const REGISTERED: &[&str] = conformance_list!(crate::conformance_names,);
+
 /// Runs every conformance test as its own `#[tokio::test]` against a fresh
 /// database from `$make`, an expression that is an async constructor
 /// returning a `DbHandle`.
@@ -97,13 +132,7 @@ macro_rules! conformance_tests {
         mod conformance {
             #[allow(unused_imports)]
             use super::*;
-            $crate::conformance_tests!(@each $make;
-                club_access_decisions,
-                rider_access_decisions,
-                judge_access_decisions,
-                act_access_decisions,
-                group_access_decisions,
-            );
+            $crate::conformance_list!($crate::conformance_tests, @each $make;);
         }
     };
     (@each $make:expr; $($name:ident,)*) => {
@@ -115,4 +144,40 @@ macro_rules! conformance_tests {
             }
         )*
     };
+}
+
+#[cfg(test)]
+mod registered_tests {
+    use super::REGISTERED;
+
+    /// Every `pub async fn name(db: &dyn Db)` in this directory is a test and
+    /// has to be in `conformance_list!`, else it would silently never run.
+    #[test]
+    fn every_conformance_test_is_registered() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/conformance");
+        let mut written = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|ext| ext != "rs") {
+                continue;
+            }
+            for line in std::fs::read_to_string(&path).unwrap().lines() {
+                // Only test functions take the database; `World::seed` and
+                // helpers don't match.
+                if let Some(rest) = line.strip_prefix("pub async fn ")
+                    && let Some((name, args)) = rest.split_once('(')
+                    && args.starts_with("db: &dyn Db)")
+                {
+                    written.push(name.to_string());
+                }
+            }
+        }
+        written.sort();
+        let mut registered: Vec<String> = REGISTERED.iter().map(ToString::to_string).collect();
+        registered.sort();
+        assert_eq!(
+            written, registered,
+            "conformance tests written (left) vs listed in conformance_list! (right)"
+        );
+    }
 }

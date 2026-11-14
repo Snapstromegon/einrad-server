@@ -32,6 +32,7 @@ pub mod jury;
 pub mod media;
 pub mod metrics;
 pub mod people;
+pub mod registration_rules;
 pub mod riders;
 pub mod roles;
 pub mod seed;
