@@ -168,8 +168,103 @@ macro_rules! conformance_tests {
 mod registered_tests {
     use super::REGISTERED;
 
-    /// Every `pub async fn name(db: &dyn Db)` in this directory is a test and
-    /// has to be in `conformance_list!`, else it would silently never run.
+    /// The names of the conformance tests written in `source`: every
+    /// `pub async fn` at column 0 whose only parameter is a `&dyn` reference
+    /// to `Db` (whatever the parameter name, a path in front of `Db` or line
+    /// breaks). A column-0 `pub` function that mentions `dyn` but is not
+    /// exactly that is an error, instead of a test that silently never runs;
+    /// helpers are `pub(super)` or indented.
+    fn scan_tests(source: &str) -> Result<Vec<String>, String> {
+        let lines: Vec<&str> = source.lines().collect();
+        let mut names = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.starts_with("pub ") {
+                continue;
+            }
+            // The header runs to the body or the end of the item.
+            let header: String = lines[index..]
+                .iter()
+                .scan(false, |done, line| {
+                    if *done {
+                        return None;
+                    }
+                    *done = line.contains('{') || line.contains(';');
+                    Some(*line)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let header = header.split(['{', ';']).next().unwrap_or("").to_string();
+            if !header.contains("dyn") {
+                continue;
+            }
+            let near_miss = |why: &str| {
+                Err(format!(
+                    "line {}: `{}` looks like a conformance test but {why}; \
+                     use `pub async fn name(db: &dyn Db)` or make the helper `pub(super)`",
+                    index + 1,
+                    line.trim()
+                ))
+            };
+            let compact: String = header.chars().filter(|c| !c.is_whitespace()).collect();
+            let Some(rest) = compact.strip_prefix("pubasyncfn") else {
+                return near_miss("is not a `pub async fn`");
+            };
+            let Some((name, params)) = rest.split_once('(') else {
+                return near_miss("has no parameter list");
+            };
+            let Some((params, _)) = params.split_once(')') else {
+                return near_miss("has no parameter list");
+            };
+            let params = params.trim_end_matches(',');
+            let Some((_, ty)) = params.split_once(':') else {
+                return near_miss("takes no typed parameter");
+            };
+            let is_db = ty
+                .strip_prefix("&dyn")
+                .is_some_and(|path| path == "Db" || path.ends_with("::Db"));
+            if !is_db || name.is_empty() {
+                return near_miss("does not take exactly `&dyn Db`");
+            }
+            names.push(name.to_string());
+        }
+        Ok(names)
+    }
+
+    #[test]
+    fn the_scanner_finds_tests_and_rejects_near_misses() {
+        let scan = |source| scan_tests(source);
+        assert_eq!(scan("pub async fn a(db: &dyn Db) {\n}").unwrap(), ["a"]);
+        assert_eq!(scan("pub async fn b(database:&dyn  Db){}").unwrap(), ["b"]);
+        assert_eq!(scan("pub async fn c(db: &dyn crate::Db) {").unwrap(), ["c"]);
+        assert_eq!(
+            scan("pub async fn d(db: &dyn crate::Db,\n) {").unwrap(),
+            ["d"]
+        );
+        assert_eq!(
+            scan("pub async fn e(\n    db: &dyn Db,\n) {\n}").unwrap(),
+            ["e"]
+        );
+        // Not tests: helpers, methods, other functions.
+        assert!(
+            scan("pub(super) async fn h(db: &dyn Db, x: u8) {}\n    pub async fn m(db: &dyn Db) {}\nasync fn p(db: &dyn Db) {}\npub fn plain(x: u8) {}")
+                .unwrap()
+                .is_empty()
+        );
+        // Near misses fail.
+        for source in [
+            "pub async fn f(db: &dyn Db, extra: u8) {}",
+            "pub async fn g(db: &mut dyn Db) {}",
+            "pub async fn h(db: Arc<dyn Db>) {}",
+            "pub fn i(db: &dyn Db) {}",
+            "pub async fn j(db: &dyn Database) {}",
+            "pub async fn k(_: &dyn Db) -> u8 {\n}\npub async fn l(&dyn Db) {}",
+        ] {
+            assert!(scan(source).is_err(), "{source}");
+        }
+    }
+
+    /// Every conformance test written in this directory has to be in
+    /// `conformance_list!`, else it would silently never run.
     #[test]
     fn every_conformance_test_is_registered() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/conformance");
@@ -179,16 +274,10 @@ mod registered_tests {
             if path.extension().is_none_or(|ext| ext != "rs") {
                 continue;
             }
-            for line in std::fs::read_to_string(&path).unwrap().lines() {
-                // Only test functions take the database; `World::seed` and
-                // helpers don't match.
-                if let Some(rest) = line.strip_prefix("pub async fn ")
-                    && let Some((name, args)) = rest.split_once('(')
-                    && args.starts_with("db: &dyn Db)")
-                {
-                    written.push(name.to_string());
-                }
-            }
+            let source = std::fs::read_to_string(&path).unwrap();
+            written.extend(
+                scan_tests(&source).unwrap_or_else(|error| panic!("{}: {error}", path.display())),
+            );
         }
         written.sort();
         let mut registered: Vec<String> = REGISTERED.iter().map(ToString::to_string).collect();
