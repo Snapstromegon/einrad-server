@@ -55,7 +55,7 @@ impl PartnerClubs {
     /// riders, everybody else their club's.
     #[must_use]
     pub fn of(actor: &Actor) -> Self {
-        if actor.manage_registrations {
+        if actor.manage_registrations() {
             Self::Any
         } else {
             Self::Same
@@ -289,7 +289,7 @@ pub fn check_replacement_club(
     old_club: ClubId,
     new_club: ClubId,
 ) -> Result<(), RegistrationError> {
-    if old_club != new_club && !actor.manage_registrations {
+    if old_club != new_club && !actor.manage_registrations() {
         Err(replacement_of_other_club())
     } else {
         Ok(())
@@ -398,11 +398,16 @@ mod tests {
     }
 
     fn actor(manage_registrations: bool) -> Actor {
-        Actor {
-            user_id: UserId::new(),
-            club_id: None,
-            manage_registrations,
-        }
+        Actor::new(
+            UserId::new(),
+            "Max Müller",
+            if manage_registrations {
+                vec![crate::roles::Role::Admin]
+            } else {
+                vec![]
+            },
+            None,
+        )
     }
 
     #[test]

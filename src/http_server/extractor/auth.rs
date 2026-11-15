@@ -34,22 +34,19 @@ impl Auth {
             .any(|r| r.permissions().contains(&permission))
     }
 
-    /// Who asks, as far as club access is concerned.
-    pub fn actor(&self) -> db_core::clubs::Actor {
-        db_core::clubs::Actor {
-            user_id: self.user_id,
-            club_id: self.club_id,
-            manage_registrations: self.can(Permission::ManageRegistrations),
-        }
+    /// Who asks: the user, their roles and club.
+    pub fn actor(&self) -> db_core::actor::Actor {
+        db_core::actor::Actor::new(
+            self.user_id,
+            self.name.clone(),
+            self.roles.clone(),
+            self.club_id,
+        )
     }
 
     /// Who changes a booking: the user and their roles now.
-    pub fn booking_actor(&self) -> db_core::bookings::Actor<'_> {
-        db_core::bookings::Actor {
-            user_id: self.user_id,
-            name: &self.name,
-            roles: &self.roles,
-        }
+    pub fn booking_actor(&self) -> db_core::actor::Actor {
+        self.actor()
     }
 
     /// Sorted.

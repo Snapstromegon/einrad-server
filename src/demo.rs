@@ -428,11 +428,12 @@ impl DemoData {
     /// Registers the clubs' judges with the same rules as the API.
     async fn insert_judges(&self, repo: &dyn Db) -> Result<(), String> {
         // The seed acts as the organizer, like the other registrations.
-        let organizer = db_core::clubs::Actor {
-            user_id: UserId::new(),
-            club_id: None,
-            manage_registrations: true,
-        };
+        let organizer = db_core::actor::Actor::new(
+            UserId::new(),
+            "Demo-Import",
+            vec![db_core::roles::Role::Admin],
+            None,
+        );
         let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = repo
             .jury_unit_rows()
             .await
@@ -522,11 +523,12 @@ impl DemoData {
         }
 
         // The seed acts as the organizer; each call is its own unit of work.
-        let organizer = db_core::clubs::Actor {
-            user_id: UserId::new(),
-            club_id: None,
-            manage_registrations: true,
-        };
+        let organizer = db_core::actor::Actor::new(
+            UserId::new(),
+            "Demo-Import",
+            vec![db_core::roles::Role::Admin],
+            None,
+        );
         for (&name, &partner) in &partners {
             // Each pair once.
             if name > partner {

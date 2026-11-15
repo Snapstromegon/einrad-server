@@ -130,13 +130,9 @@ impl BookingAction {
     }
 }
 
-/// Who changes a booking: the user and their roles at the time.
-#[derive(Debug, Clone)]
-pub struct Actor<'a> {
-    pub user_id: UserId,
-    pub name: &'a str,
-    pub roles: &'a [Role],
-}
+/// Who changes a booking: the user and their roles at the time. The one
+/// [`Actor`](crate::actor::Actor) now (#238).
+pub use crate::actor::Actor;
 
 /// One entry of the payment log: a change to a booking or to a fee waiver.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
@@ -207,7 +203,7 @@ pub trait BookingsRepo {
     /// exist. `input` is already [`BookingInput::checked`].
     async fn create_booking(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         input: &BookingInput,
     ) -> Result<BookingId, RegistrationError>;
 
@@ -215,17 +211,13 @@ pub trait BookingsRepo {
     /// unknown booking or club.
     async fn edit_booking(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         id: BookingId,
         input: &BookingInput,
     ) -> Result<(), RegistrationError>;
 
     /// Deletes a booking; the log keeps it. `NotFound` for an unknown one.
-    async fn delete_booking(
-        &self,
-        actor: &Actor<'_>,
-        id: BookingId,
-    ) -> Result<(), RegistrationError>;
+    async fn delete_booking(&self, actor: &Actor, id: BookingId) -> Result<(), RegistrationError>;
 
     /// All bookings, newest first.
     async fn list_bookings(&self) -> Result<Vec<ListedBooking>, DbError>;
@@ -245,7 +237,7 @@ pub trait BookingsRepo {
     /// for an unknown target, `Rejected` for a blank reason.
     async fn set_fee_waiver(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         target: Target,
         reason: Option<&str>,
     ) -> Result<(), RegistrationError>;

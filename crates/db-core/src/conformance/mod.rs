@@ -73,16 +73,16 @@ impl World {
         let stranger_id = Self::user(db, "Lea Fischer").await;
         let club_a = db.create_club(owner_a_id, "RSV Adorf").await.unwrap();
         let club_b = db.create_club(owner_b_id, "RC Beistadt").await.unwrap();
-        let actor = |user_id: UserId, club_id: Option<ClubId>| Actor {
-            user_id,
-            club_id,
-            manage_registrations: false,
+        let actor = |user_id: UserId, club_id: Option<ClubId>| {
+            Actor::new(user_id, "Max Müller", Vec::new(), club_id)
         };
         Self {
-            organizer: Actor {
-                manage_registrations: true,
-                ..actor(organizer, None)
-            },
+            organizer: Actor::new(
+                organizer,
+                "Erika Musterfrau",
+                vec![crate::roles::Role::Admin],
+                None,
+            ),
             owner_a: actor(owner_a_id, Some(club_a)),
             club_a,
             owner_b: actor(owner_b_id, Some(club_b)),

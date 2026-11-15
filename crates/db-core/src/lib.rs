@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 pub mod act_type;
+pub mod actor;
 pub mod acts;
 pub mod auth;
 pub mod backups;
@@ -17,9 +18,11 @@ pub mod check_in;
 pub mod club_mails;
 pub mod clubs;
 pub mod colors;
+pub mod commands;
 pub mod competition;
 #[cfg(feature = "conformance")]
 pub mod conformance;
+pub mod error;
 pub mod fee_waivers;
 pub mod fees;
 pub mod finals;
@@ -32,6 +35,8 @@ pub mod jury;
 pub mod media;
 pub mod metrics;
 pub mod people;
+pub mod prelude;
+pub mod queries;
 pub mod registration_rules;
 pub mod riders;
 pub mod roles;
@@ -39,6 +44,7 @@ pub mod seed;
 pub mod settings;
 pub mod structure;
 pub mod structure_rules;
+pub mod support;
 pub mod timeplan;
 pub mod users;
 
@@ -65,6 +71,12 @@ pub use users::UsersRepo;
 /// What every database backend provides: the per-domain repository traits
 /// (#238) as supertraits, plus the backend's own housekeeping.
 ///
+/// The contract is moving to CQRS: [`commands::Commands`] and
+/// [`queries::Queries`] (one method per API endpoint, grouped in small area
+/// traits) and [`support::Support`] (non-endpoint callers) replace the `*Repo`
+/// traits area by area; callers import [`prelude`]. The `*Repo` traits go away
+/// at the end of that migration.
+///
 /// The traits speak in domain types. They never expose a transaction, a pool
 /// or a driver type: one method is one unit of work, and the implementation
 /// decides how to make it atomic.
@@ -90,6 +102,9 @@ pub trait Db:
     + MetricsRepo
     + SeedRepo
     + ExportRepo
+    + commands::Commands
+    + queries::Queries
+    + support::Support
     + Send
     + Sync
     + 'static

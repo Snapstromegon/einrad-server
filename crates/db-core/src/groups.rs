@@ -196,7 +196,7 @@ pub fn check_group_deletable(
     group_name: &str,
     foreign_riders: i64,
 ) -> Result<(), RegistrationError> {
-    if !actor.manage_registrations && foreign_riders > 0 {
+    if !actor.manage_registrations() && foreign_riders > 0 {
         return Err(RegistrationError::Rejected(format!(
             "Die Gruppe „{group_name}“ kann nicht gelöscht werden, solange noch FahrerInnen anderer Vereine in ihr angemeldet sind."
         )));
@@ -382,11 +382,16 @@ mod tests {
     }
 
     fn actor(manage_registrations: bool) -> Actor {
-        Actor {
-            user_id: crate::ids::UserId::new(),
-            club_id: None,
-            manage_registrations,
-        }
+        Actor::new(
+            crate::ids::UserId::new(),
+            "Max Müller",
+            if manage_registrations {
+                vec![crate::roles::Role::Admin]
+            } else {
+                vec![]
+            },
+            None,
+        )
     }
 
     #[test]

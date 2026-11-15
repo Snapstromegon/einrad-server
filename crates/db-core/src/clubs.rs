@@ -6,16 +6,9 @@ use crate::{
     ids::{ActId, ClubId, UserId},
 };
 
-/// Who asks, as far as club access is concerned. Built from the logged-in
-/// user by the HTTP layer.
-#[derive(Debug, Clone, Copy)]
-pub struct Actor {
-    pub user_id: UserId,
-    /// The club the user is assigned to.
-    pub club_id: Option<ClubId>,
-    /// The organizer may manage every club.
-    pub manage_registrations: bool,
-}
+/// The one [`Actor`](crate::actor::Actor); kept under this path during the
+/// CQRS migration (#238).
+pub use crate::actor::Actor;
 
 /// A club as far as access decisions go: what the backend loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +50,7 @@ impl Actor {
     /// organizer, the club's owner and users assigned to the club.
     #[must_use]
     pub fn may_manage_club(&self, club_id: ClubId, owner_id: UserId) -> bool {
-        self.manage_registrations || owner_id == self.user_id || self.club_id == Some(club_id)
+        self.manage_registrations() || owner_id == self.user_id || self.club_id == Some(club_id)
     }
 
     /// Decides access to a club; `None` is an unknown club.
@@ -90,7 +83,7 @@ impl Actor {
     /// organizer changes it).
     #[must_use]
     pub fn may_change_group(&self, owner_club: Option<ClubFacts>) -> Access {
-        if self.manage_registrations {
+        if self.manage_registrations() {
             Access::Allowed
         } else if owner_club.is_none() {
             Access::Forbidden
@@ -107,7 +100,7 @@ impl Actor {
         match act {
             None => Access::NotFound,
             Some(act)
-                if self.manage_registrations
+                if self.manage_registrations()
                     || act.clubs.iter().any(|club| {
                         club.owner_id == self.user_id || Some(club.id) == self.club_id
                     }) =>
@@ -119,31 +112,9 @@ impl Actor {
     }
 }
 
-/// Why a club-side command or query failed. `Rejected` carries a German
-/// message for the user.
-#[derive(Debug, thiserror::Error)]
-pub enum RegistrationError {
-    #[error("Not found")]
-    NotFound,
-    #[error("Forbidden")]
-    Forbidden,
-    #[error("{0}")]
-    Rejected(String),
-    /// An entity the request names doesn't exist; the message is German.
-    #[error("{0}")]
-    NotFoundMessage(String),
-    /// The request clashes with the current state; the message is German.
-    #[error("{0}")]
-    Conflict(String),
-    #[error(transparent)]
-    Db(#[from] DbError),
-}
-
-impl From<sqlx::Error> for RegistrationError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Db(error.into())
-    }
-}
+/// The former name of [`CommandError`], kept while the repo traits exist
+/// (#238).
+pub use crate::error::CommandError as RegistrationError;
 
 /// A club with its owner and contact.
 #[derive(Debug, Clone)]
@@ -258,11 +229,16 @@ mod access_tests {
     }
 
     fn actor(user: u8, club: Option<u8>, organizer: bool) -> Actor {
-        Actor {
-            user_id: id(user),
-            club_id: club.map(id),
-            manage_registrations: organizer,
-        }
+        Actor::new(
+            id(user),
+            "Max Müller",
+            if organizer {
+                vec![crate::roles::Role::Admin]
+            } else {
+                vec![]
+            },
+            club.map(id),
+        )
     }
 
     fn club(club: u8, owner: u8) -> ClubFacts {

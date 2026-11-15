@@ -79,7 +79,75 @@ impl SqliteRepo {
     async fn begin_write(&self) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, DbError> {
         Ok(crate::reloadable_sqlite::begin_write(&self.pool().await).await?)
     }
+
+    /// Begins a read transaction: every statement in it sees one snapshot.
+    #[allow(dead_code)] // used by `read_tx!`, from the first query on
+    async fn begin_read(&self) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, DbError> {
+        Ok(self.pool().await.begin().await?)
+    }
 }
+
+/// The "begin write -> body -> commit" shape of a command:
+/// `write_tx!(self, tx, { ... })` evaluates the block with `tx` bound to a
+/// `BEGIN IMMEDIATE` transaction (`&mut *tx` is the connection), commits and
+/// yields the block's value. An early `?` in the block drops `tx`, which rolls
+/// back. Begin and commit errors are returned with `?`, so the enclosing
+/// function's error type needs `From<sqlx::Error>` or `From<DbError>`.
+#[allow(unused_macros)] // first used by the migrated commands
+macro_rules! write_tx {
+    ($repo:expr, $tx:ident, $body:block) => {{
+        let mut $tx = $repo.begin_write().await?;
+        let value = $body;
+        $tx.commit().await?;
+        value
+    }};
+}
+
+/// The read counterpart of [`write_tx!`]: one read transaction, so a query
+/// that combines several reads sees one snapshot. Nothing to commit; the
+/// transaction ends with the block.
+#[allow(unused_macros)] // first used by the migrated queries
+macro_rules! read_tx {
+    ($repo:expr, $tx:ident, $body:block) => {{
+        let mut $tx = $repo.begin_read().await?;
+        $body
+    }};
+}
+#[allow(unused_imports)]
+pub(crate) use {read_tx, write_tx};
+
+// The CQRS area traits (#238): empty until the endpoints migrate, one impl
+// per area, in the area's own file from then on.
+
+impl db_core::commands::ClubCommands for SqliteRepo {}
+impl db_core::queries::ClubQueries for SqliteRepo {}
+impl db_core::commands::GroupCommands for SqliteRepo {}
+impl db_core::queries::GroupQueries for SqliteRepo {}
+impl db_core::commands::PaymentCommands for SqliteRepo {}
+impl db_core::queries::PaymentQueries for SqliteRepo {}
+impl db_core::commands::CheckInCommands for SqliteRepo {}
+impl db_core::queries::CheckInQueries for SqliteRepo {}
+impl db_core::commands::CategoryCommands for SqliteRepo {}
+impl db_core::queries::CategoryQueries for SqliteRepo {}
+impl db_core::commands::HeatCommands for SqliteRepo {}
+impl db_core::queries::HeatQueries for SqliteRepo {}
+impl db_core::commands::FinalCommands for SqliteRepo {}
+impl db_core::queries::FinalQueries for SqliteRepo {}
+impl db_core::commands::TimeplanCommands for SqliteRepo {}
+impl db_core::queries::TimeplanQueries for SqliteRepo {}
+impl db_core::commands::JuryCommands for SqliteRepo {}
+impl db_core::queries::JuryQueries for SqliteRepo {}
+impl db_core::commands::CompetitionCommands for SqliteRepo {}
+impl db_core::queries::CompetitionQueries for SqliteRepo {}
+impl db_core::commands::MediaCommands for SqliteRepo {}
+impl db_core::queries::MediaQueries for SqliteRepo {}
+impl db_core::commands::UserCommands for SqliteRepo {}
+impl db_core::queries::UserQueries for SqliteRepo {}
+impl db_core::commands::AdminCommands for SqliteRepo {}
+impl db_core::queries::AdminQueries for SqliteRepo {}
+impl db_core::commands::ActCommands for SqliteRepo {}
+impl db_core::queries::ActQueries for SqliteRepo {}
+impl db_core::support::Support for SqliteRepo {}
 
 #[async_trait::async_trait]
 impl Db for SqliteRepo {
@@ -90,5 +158,47 @@ impl Db for SqliteRepo {
     fn backups(&self) -> Option<&dyn db_core::backups::Backups> {
         self.backups
             .then_some(self as &dyn db_core::backups::Backups)
+    }
+}
+
+#[cfg(test)]
+mod tx_tests {
+    use super::*;
+
+    async fn repo() -> SqliteRepo {
+        let pool = crate::reloadable_sqlite::in_memory().await;
+        sqlx::query("CREATE TABLE t (x INTEGER)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        SqliteRepo::from_pool(pool)
+    }
+
+    async fn insert(repo: &SqliteRepo, fail: bool) -> Result<(), DbError> {
+        write_tx!(repo, tx, {
+            sqlx::query("INSERT INTO t VALUES (1)")
+                .execute(&mut *tx)
+                .await?;
+            if fail {
+                sqlx::query("NOT SQL").execute(&mut *tx).await?;
+            }
+        });
+        Ok(())
+    }
+
+    async fn count(repo: &SqliteRepo) -> Result<i64, DbError> {
+        Ok(read_tx!(repo, tx, {
+            sqlx::query_scalar("SELECT COUNT(*) FROM t")
+                .fetch_one(&mut *tx)
+                .await?
+        }))
+    }
+
+    #[tokio::test]
+    async fn write_tx_commits_and_rolls_back_on_an_early_error() {
+        let repo = repo().await;
+        insert(&repo, false).await.unwrap();
+        assert!(insert(&repo, true).await.is_err());
+        assert_eq!(count(&repo).await.unwrap(), 1);
     }
 }

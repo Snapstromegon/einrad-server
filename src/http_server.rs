@@ -41,18 +41,16 @@ pub enum HttpError {
     StatusCode(axum::http::StatusCode),
 }
 
-impl From<db_core::clubs::RegistrationError> for HttpError {
-    fn from(error: db_core::clubs::RegistrationError) -> Self {
-        use db_core::clubs::RegistrationError;
+impl From<db_core::error::CommandError> for HttpError {
+    fn from(error: db_core::error::CommandError) -> Self {
+        use db_core::error::CommandError;
         match error {
-            RegistrationError::NotFound => HttpError::NotFound,
-            RegistrationError::Forbidden => {
-                HttpError::StatusCode(axum::http::StatusCode::FORBIDDEN)
-            }
-            RegistrationError::Rejected(message) => HttpError::ErrorMessages(message),
-            RegistrationError::NotFoundMessage(message) => HttpError::NotFoundMessage(message),
-            RegistrationError::Conflict(message) => HttpError::Conflict(message),
-            RegistrationError::Db(error) => HttpError::Db(error),
+            CommandError::NotFound => HttpError::NotFound,
+            CommandError::Forbidden => HttpError::StatusCode(axum::http::StatusCode::FORBIDDEN),
+            CommandError::Rejected(message) => HttpError::ErrorMessages(message),
+            CommandError::NotFoundMessage(message) => HttpError::NotFoundMessage(message),
+            CommandError::Conflict(message) => HttpError::Conflict(message),
+            CommandError::Db(error) => HttpError::Db(error),
         }
     }
 }

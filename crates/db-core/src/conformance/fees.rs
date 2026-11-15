@@ -62,12 +62,13 @@ async fn category(db: &dyn Db) -> crate::ids::CategoryId {
     .0
 }
 
-fn treasurer<'a>(w: &World, roles: &'a [crate::roles::Role]) -> bookings::Actor<'a> {
-    bookings::Actor {
-        user_id: w.organizer.user_id,
-        name: "Erika Musterfrau",
-        roles,
-    }
+fn treasurer(w: &World, roles: &[crate::roles::Role]) -> bookings::Actor {
+    bookings::Actor::new(
+        w.organizer.user_id,
+        "Erika Musterfrau",
+        roles.to_vec(),
+        None,
+    )
 }
 
 async fn fees(db: &dyn Db, club: ClubId, jury_registration: bool) -> ClubFees {

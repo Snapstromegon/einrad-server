@@ -20,7 +20,7 @@ use super::SqliteRepo;
 impl BookingsRepo for SqliteRepo {
     async fn create_booking(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         input: &BookingInput,
     ) -> Result<BookingId, RegistrationError> {
         let mut tx = self.begin_write().await?;
@@ -61,7 +61,7 @@ impl BookingsRepo for SqliteRepo {
 
     async fn edit_booking(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         id: BookingId,
         input: &BookingInput,
     ) -> Result<(), RegistrationError> {
@@ -105,11 +105,7 @@ impl BookingsRepo for SqliteRepo {
         Ok(())
     }
 
-    async fn delete_booking(
-        &self,
-        actor: &Actor<'_>,
-        id: BookingId,
-    ) -> Result<(), RegistrationError> {
+    async fn delete_booking(&self, actor: &Actor, id: BookingId) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
         let before = load_booking(&mut tx, id)
             .await?
@@ -237,7 +233,7 @@ impl BookingsRepo for SqliteRepo {
 
     async fn set_fee_waiver(
         &self,
-        actor: &Actor<'_>,
+        actor: &Actor,
         target: Target,
         reason: Option<&str>,
     ) -> Result<(), RegistrationError> {
@@ -344,7 +340,7 @@ async fn load_booking(tx: &mut SqliteConnection, id: BookingId) -> sqlx::Result<
 async fn log_change(
     tx: &mut SqliteConnection,
     id: BookingId,
-    actor: &Actor<'_>,
+    actor: &Actor,
     action: BookingAction,
     before: Option<&Booking>,
     after: Option<&Booking>,
@@ -356,7 +352,7 @@ async fn log_change(
             .map_err(|e| sqlx::Error::Encode(e.into()))
     };
     let (before, after) = (json(before)?, json(after)?);
-    let roles = serde_json::to_string(actor.roles).map_err(|e| sqlx::Error::Encode(e.into()))?;
+    let roles = serde_json::to_string(&actor.roles).map_err(|e| sqlx::Error::Encode(e.into()))?;
     let at = OffsetDateTime::now_utc();
     sqlx::query!(
         r#"
@@ -366,7 +362,7 @@ async fn log_change(
         id,
         at,
         actor.user_id,
-        actor.name,
+        &actor.name,
         roles,
         action,
         before,
@@ -380,12 +376,12 @@ async fn log_change(
 /// Writes the log entry for granting or revoking `waiver`.
 async fn log_waiver(
     tx: &mut SqliteConnection,
-    actor: &Actor<'_>,
+    actor: &Actor,
     action: BookingAction,
     waiver: &FeeWaiver,
 ) -> Result<(), sqlx::Error> {
     let waiver = serde_json::to_string(waiver).map_err(|e| sqlx::Error::Encode(e.into()))?;
-    let roles = serde_json::to_string(actor.roles).map_err(|e| sqlx::Error::Encode(e.into()))?;
+    let roles = serde_json::to_string(&actor.roles).map_err(|e| sqlx::Error::Encode(e.into()))?;
     let at = OffsetDateTime::now_utc();
     sqlx::query!(
         r#"
@@ -394,7 +390,7 @@ async fn log_waiver(
         "#,
         at,
         actor.user_id,
-        actor.name,
+        &actor.name,
         roles,
         action,
         waiver,
