@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::ResetBlockOrder, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 use utoipa::ToSchema;
@@ -44,10 +44,16 @@ pub struct ResetBlockOrderBody {
 pub async fn reset_block_order(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::PlanCompetition>,
+    auth: Granted<permit::PlanCompetition>,
     Json(body): Json<ResetBlockOrderBody>,
 ) -> Result<Json<ResetBlockOrderResponse>, HttpError> {
-    repo.reset_block_order(body.timeplan_id).await?;
+    repo.reset_block_order(
+        &auth.actor(),
+        ResetBlockOrder {
+            timeplan_id: body.timeplan_id,
+        },
+    )
+    .await?;
 
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");

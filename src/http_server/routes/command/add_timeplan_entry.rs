@@ -1,14 +1,16 @@
 use crate::ids::{CategoryId, FinalId};
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::AddTimeplanEntry, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::EntryKind,
+    },
     roles::permit,
-    timeplan::{EntryFields, EntryKind},
+    timeplan::EntryFields,
     utils::parse_start_time,
 };
 
@@ -69,11 +71,11 @@ pub struct AddTimeplanEntryBody {
 #[axum::debug_handler]
 pub async fn add_timeplan_entry(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    auth: Granted<permit::PlanCompetition>,
     Json(body): Json<AddTimeplanEntryBody>,
 ) -> Result<Json<AddTimeplanEntryResponse>, HttpError> {
     let fields = EntryFields::new(
-        body.kind,
+        body.kind.map(Into::into),
         body.category_id,
         body.final_id,
         body.label,
@@ -88,7 +90,14 @@ pub async fn add_timeplan_entry(
     .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let earliest_start_time = parse_start_time(body.earliest_start_time.as_deref())?;
     let id = repo
-        .add_timeplan_entry(&fields, earliest_start_time, body.after_id)
+        .add_timeplan_entry(
+            &auth.actor(),
+            AddTimeplanEntry {
+                fields,
+                earliest_start_time,
+                after_id: body.after_id,
+            },
+        )
         .await?;
 
     Ok(Json(AddTimeplanEntryResponse { id }))

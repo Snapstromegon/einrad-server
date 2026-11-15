@@ -35,24 +35,4 @@ impl SettingsRepo for SqliteRepo {
         .await?
         .unwrap_or(false))
     }
-
-    async fn set_startlist_published(
-        &self,
-        published: bool,
-        now: time::OffsetDateTime,
-    ) -> Result<bool, DbError> {
-        let mut tx = self.begin_write().await?;
-        let published_at = published.then_some(now);
-        let result = sqlx::query!(
-            "UPDATE competition SET startlist_published_at = $1",
-            published_at
-        )
-        .execute(&mut *tx)
-        .await?;
-        if result.rows_affected() == 0 {
-            return Ok(false);
-        }
-        tx.commit().await?;
-        Ok(true)
-    }
 }

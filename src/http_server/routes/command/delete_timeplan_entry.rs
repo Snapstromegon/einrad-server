@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::DeleteTimeplanEntry, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -37,10 +37,11 @@ pub struct DeleteTimeplanEntryBody {
 #[axum::debug_handler]
 pub async fn delete_timeplan_entry(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    auth: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteTimeplanEntryBody>,
 ) -> Result<Json<DeleteTimeplanEntryResponse>, HttpError> {
-    repo.delete_timeplan_entry(body.id).await?;
+    repo.delete_timeplan_entry(&auth.actor(), DeleteTimeplanEntry { id: body.id })
+        .await?;
 
     Ok(Json(DeleteTimeplanEntryResponse {}))
 }

@@ -269,3 +269,34 @@ impl From<FinalFields> for db_core::finals::FinalFields {
         }
     }
 }
+
+/// The kind of a timeplan entry, stored as text in `timeplan.kind`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryKind {
+    /// A start block: acts and breaks.
+    Acts,
+    /// A break, an award ceremony, …: a label and a duration.
+    Custom,
+}
+
+impl From<EntryKind> for db_core::timeplan::EntryKind {
+    fn from(kind: EntryKind) -> Self {
+        match kind {
+            EntryKind::Acts => Self::Acts,
+            EntryKind::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<db_core::timeplan::EntryKind> for EntryKind {
+    fn from(kind: db_core::timeplan::EntryKind) -> Self {
+        use db_core::timeplan::EntryKind as Db;
+        match kind {
+            Db::Acts => Self::Acts,
+            Db::Custom => Self::Custom,
+        }
+    }
+}

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
@@ -37,10 +37,10 @@ pub struct SetTimeplanForwardResponse {}
 pub async fn timeplan_forward(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::ControlMusic>,
+    auth: Granted<permit::ControlMusic>,
 ) -> Result<Json<SetTimeplanForwardResponse>, HttpError> {
     info!("Forwarding timeplan");
-    let ended_act = repo.timeplan_forward().await?;
+    let ended_act = repo.timeplan_forward(&auth.actor()).await?;
     // A remote player gets the song of the act now due; it doesn't start.
     // Judging starts in silence.
     let cued = if ended_act {

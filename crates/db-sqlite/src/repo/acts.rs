@@ -150,39 +150,7 @@ impl ActsRepo for SqliteRepo {
 
     async fn list_startlist(&self) -> Result<Vec<StartlistAct>, DbError> {
         let pool = self.pool().await;
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                view_act.id as "id!: ActId",
-                view_act."order" as "act_order",
-                categories."order" as "category_order",
-                view_act.name,
-                view_act.group_name,
-                view_act.act_type as "act_type!: ActType",
-                view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
-                view_act.category_id as "category_id: CategoryId",
-                view_act.category as "category?: String"
-            FROM view_act JOIN categories ON view_act.category_id = categories.id
-            WHERE view_act.withdrawn_at IS NULL
-            ORDER BY categories."order" NULLS FIRST, view_act."order" ASC NULLS FIRST
-            "#
-        )
-        .fetch_all(&pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| StartlistAct {
-                id: row.id,
-                name: row.name,
-                group_name: row.group_name,
-                act_type: row.act_type,
-                participants: row.participants.0,
-                category_id: row.category_id,
-                category: row.category,
-                act_order: row.act_order,
-                category_order: row.category_order,
-            })
-            .collect())
+        Ok(list_startlist_in(&mut *pool.acquire().await?).await?)
     }
 
     async fn set_act_order(&self, id: ActId, order: Option<i64>) -> Result<(), DbError> {
@@ -343,4 +311,44 @@ impl ActsRepo for SqliteRepo {
         let pool = self.pool().await;
         Ok(crate::db_restore::act_songs(&pool).await?)
     }
+}
+
+/// The startlist acts on one connection, so a query can combine them with
+/// other reads in one transaction.
+pub(super) async fn list_startlist_in(
+    conn: &mut sqlx::SqliteConnection,
+) -> sqlx::Result<Vec<StartlistAct>> {
+    let rows = sqlx::query!(
+            r#"
+            SELECT
+                view_act.id as "id!: ActId",
+                view_act."order" as "act_order",
+                categories."order" as "category_order",
+                view_act.name,
+                view_act.group_name,
+                view_act.act_type as "act_type!: ActType",
+                view_act.participants as "participants!: sqlx::types::Json<Vec<StartlistActParticipant>>",
+                view_act.category_id as "category_id: CategoryId",
+                view_act.category as "category?: String"
+            FROM view_act JOIN categories ON view_act.category_id = categories.id
+            WHERE view_act.withdrawn_at IS NULL
+            ORDER BY categories."order" NULLS FIRST, view_act."order" ASC NULLS FIRST
+            "#
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| StartlistAct {
+            id: row.id,
+            name: row.name,
+            group_name: row.group_name,
+            act_type: row.act_type,
+            participants: row.participants.0,
+            category_id: row.category_id,
+            category: row.category,
+            act_order: row.act_order,
+            category_order: row.category_order,
+        })
+        .collect())
 }

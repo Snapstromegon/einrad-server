@@ -265,6 +265,7 @@ macro_rules! conformance_list {
             timeplan_forward_and_backward,
             timeplan_entries_move_and_insert,
             timeplan_started_block_keeps_its_order,
+            timeplan_list_delete_and_publish,
             fees_and_amount_due,
             jury_obligation_counts_acts_and_judges,
             jury_obligation_edge_cases,

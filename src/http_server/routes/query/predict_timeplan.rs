@@ -1,6 +1,6 @@
 use crate::ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId};
 use axum::{Extension, Json, extract::Query};
-use db_core::{Db, DbHandle};
+use db_core::{prelude::*, queries::timeplan::PredictTimeplan};
 use tracing::instrument;
 
 use crate::{
@@ -276,13 +276,19 @@ pub async fn predict_timeplan(
     } else {
         Audience::Public
     };
-    Ok(Json(predict(repo.as_ref(), audience).await?))
+    let actor = internal.as_ref().map(|granted| granted.actor());
+    let loaded = repo
+        .predict_timeplan(actor.as_ref(), PredictTimeplan { audience })
+        .await?;
+    Ok(Json(predict_from(loaded, time::OffsetDateTime::now_utc())?))
 }
 
 /// The prediction behind `predict_timeplan`, also used by the startlist CSV,
 /// the player hub and the metrics.
 pub async fn predict(repo: &dyn Db, audience: Audience) -> Result<Timeplan, HttpError> {
-    let loaded = repo.load_timeplan(audience).await?;
+    let loaded = repo
+        .predict_timeplan(None, PredictTimeplan { audience })
+        .await?;
     predict_from(loaded, time::OffsetDateTime::now_utc())
 }
 

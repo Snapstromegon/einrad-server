@@ -1,6 +1,6 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::SetActMusicStarted, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -36,10 +36,18 @@ pub struct ActMusicStartedBody {
 #[axum::debug_handler]
 pub async fn set_act_music_started(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ControlMusic>,
+    auth: Granted<permit::ControlMusic>,
     Json(body): Json<ActMusicStartedBody>,
 ) -> Result<Json<SetActMusicStartedResponse>, HttpError> {
-    if repo.mark_music_started(body.act_id, 0.0).await? {
+    if repo
+        .set_act_music_started(
+            &auth.actor(),
+            SetActMusicStarted {
+                act_id: body.act_id,
+            },
+        )
+        .await?
+    {
         info!("Music of act {} started", body.act_id);
     }
     Ok(Json(SetActMusicStartedResponse {}))

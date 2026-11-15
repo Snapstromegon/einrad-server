@@ -1,5 +1,5 @@
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::SetStartlistPublished, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -35,12 +35,18 @@ pub struct SetStartlistPublishedBody {
 #[instrument(skip(repo))]
 pub async fn set_startlist_published(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    auth: Granted<permit::PlanCompetition>,
     Json(body): Json<SetStartlistPublishedBody>,
 ) -> Result<Json<SetStartlistPublishedResponse>, HttpError> {
     info!("Start list published: {}", body.published);
     if !repo
-        .set_startlist_published(body.published, time::OffsetDateTime::now_utc())
+        .set_startlist_published(
+            &auth.actor(),
+            SetStartlistPublished {
+                published: body.published,
+                at: time::OffsetDateTime::now_utc(),
+            },
+        )
         .await?
     {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));

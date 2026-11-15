@@ -1,17 +1,14 @@
 use std::collections::HashMap;
 
 use axum::Extension;
-use db_core::DbHandle;
+use db_core::prelude::*;
 use time::format_description::StaticFormatDescription;
 use tracing::instrument;
 
-use crate::{
-    http_server::{
-        ClientError, HttpError,
-        extractor::startlist::StartlistAccess,
-        routes::query::predict_timeplan::{TimeplanEntry, TimeplanSlot, predict},
-    },
-    timeplan::Audience,
+use crate::http_server::{
+    ClientError, HttpError,
+    extractor::startlist::StartlistAccess,
+    routes::query::predict_timeplan::{TimeplanEntry, TimeplanSlot, predict_from},
 };
 
 static TIME_FORMAT: StaticFormatDescription =
@@ -50,13 +47,10 @@ pub async fn get_startlist_csv(
     Extension(repo): Extension<DbHandle>,
 ) -> Result<String, HttpError> {
     // A printed startlist is public: internal entries are a "Pause".
-    let timeplan = predict(repo.as_ref(), Audience::Public).await?;
-    let details: HashMap<_, _> = repo
-        .list_startlist()
-        .await?
-        .into_iter()
-        .map(|act| (act.id, act))
-        .collect();
+    // One query: the public timeplan and the acts in one snapshot.
+    let data = repo.get_startlist_csv(None).await?;
+    let timeplan = predict_from(data.timeplan, time::OffsetDateTime::now_utc())?;
+    let details: HashMap<_, _> = data.acts.into_iter().map(|act| (act.id, act)).collect();
 
     let mut csv = String::new();
 

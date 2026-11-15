@@ -4,7 +4,10 @@
 
 use time::macros::datetime;
 
-use super::{World, admin, timeplan::create_competition_with};
+use super::{
+    World, admin,
+    timeplan::{add_entry, create_competition_with},
+};
 use crate::{
     Db,
     act_type::ActType,
@@ -17,11 +20,13 @@ use crate::{
         club::{AddRider, SetSingle},
         finals::{AddFinal, DeleteFinal, EditFinal, SetFinalPlacement, SetFinalPublished},
         heat::{AddHeat, DeleteHeat, EditHeat, SetHeatSkip},
+        timeplan::EditTimeplanEntry,
     },
     finals::{FinalFields, SlotGroupInput, SlotPlacement},
     gender::Gender,
     ids::{CategoryId, FinalId, HeatId},
     jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryUnitKind},
+    queries::timeplan::PredictTimeplan,
     timeplan::{Audience, EntryFields},
 };
 
@@ -692,14 +697,14 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
 
     // A final runs in one block only.
     let block = EntryFields::new(None, None, Some(finale), None, None, None).unwrap();
-    db.add_timeplan_entry(&block, None, None).await.unwrap();
+    add_entry(db, &block, None).await.unwrap();
     assert_eq!(
-        message(db.add_timeplan_entry(&block, None, None).await),
+        message(add_entry(db, &block, None).await),
         "Das Finale „Finale EF“ ist schon im Zeitplan; jedes Finale läuft in einem Block."
     );
     let missing = EntryFields::new(None, None, Some(FinalId::new()), None, None, None).unwrap();
     assert_eq!(
-        message(db.add_timeplan_entry(&missing, None, None).await),
+        message(add_entry(db, &missing, None).await),
         "Das Finale gibt es nicht."
     );
     let entry = db
@@ -709,7 +714,16 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
         .entries[0]
         .id;
     // Editing its own block is fine.
-    db.edit_timeplan_entry(entry, &block, None).await.unwrap();
+    db.edit_timeplan_entry(
+        &admin(),
+        EditTimeplanEntry {
+            id: entry,
+            fields: block.clone(),
+            earliest_start_time: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // Once it started: no skip changes, no new slots, no delete, and the
     // placement stays published.
@@ -722,7 +736,7 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
     )
     .await
     .unwrap();
-    db.timeplan_forward().await.unwrap();
+    db.timeplan_forward(&admin()).await.unwrap();
     assert!(
         message(
             db.set_heat_skip(

@@ -1,5 +1,5 @@
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::timeplan::MoveTimeplanUp, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -35,10 +35,13 @@ pub struct MoveTimeplanUpBody {
 #[axum::debug_handler]
 pub async fn move_timeplan_up(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    auth: Granted<permit::PlanCompetition>,
     Json(body): Json<MoveTimeplanUpBody>,
 ) -> Result<Json<MoveTimeplanUpResponse>, HttpError> {
-    if !repo.move_timeplan_entry(body.id, true).await? {
+    if !repo
+        .move_timeplan_up(&auth.actor(), MoveTimeplanUp { id: body.id })
+        .await?
+    {
         // No neighbour to swap with.
         return Err(HttpError::StatusCode(StatusCode::BAD_REQUEST));
     }

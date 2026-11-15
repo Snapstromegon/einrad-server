@@ -41,13 +41,11 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DbError, clubs::RegistrationError};
+use crate::{DbError, clubs::RegistrationError, commands::timeplan::BlockSlotInput};
 use time::OffsetDateTime;
 
 /// The kind of a timeplan entry, stored as text in `timeplan.kind`.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "TEXT", rename_all = "snake_case")]
 pub enum EntryKind {
@@ -76,7 +74,7 @@ impl EntryKind {
 }
 
 /// The fields of a timeplan entry as stored, checked for its kind.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryFields {
     pub kind: EntryKind,
     /// The home category, by id.
@@ -499,59 +497,6 @@ pub enum Audience {
     Public,
 }
 
-/// The label an internal timeplan entry has for the public.
-/// A timeplan entry as the list shows it, without its content.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct TimeplanListEntry {
-    pub id: i64,
-    pub kind: EntryKind,
-    #[serde(with = "time::serde::iso8601::option")]
-    pub earliest_start_time: Option<OffsetDateTime>,
-    pub duration_seconds: Option<i64>,
-    pub label: Option<String>,
-    /// Start blocks only: the home category, by id and name.
-    pub category_id: Option<CategoryId>,
-    pub category: Option<String>,
-    /// Start blocks only: the final running here instead of a category, by
-    /// id and name.
-    pub final_id: Option<FinalId>,
-    pub final_name: Option<String>,
-    /// Start blocks only: overrides the home category's (or final's)
-    /// Einfahrzeit.
-    pub einfahrzeit_seconds: Option<i64>,
-    /// Custom entries: photos next to the clock on the info board.
-    pub show_photos: bool,
-    /// Custom entries: an internal timeplan entry. Only the organizer team
-    /// gets it as it is; everyone else gets a "Pause" of the same length.
-    pub internal: bool,
-    /// Start blocks only: the order was edited by hand (`set_block_order`),
-    /// so the category's start order no longer applies to it.
-    pub manually_ordered: bool,
-    #[serde(with = "time::serde::iso8601::option")]
-    pub started_at: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::iso8601::option")]
-    pub ended_at: Option<OffsetDateTime>,
-}
-
-/// One slot of a start block, as sent to `set_block_order`.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub enum BlockSlotInput {
-    /// An act, from this block or any other (if it hasn't started). In a
-    /// final's block: an act of a heat whose Vorlauf is skipped, which
-    /// starts directly in this final.
-    Act { act_id: ActId },
-    /// A final's block only: one of its finalist slots, by heat and number
-    /// ("2. Finalist (E EM 1)").
-    Finalist { heat_id: HeatId, number: i64 },
-    /// A break. With `id`: an existing break of this block, whose label and
-    /// duration change, also while it runs. Without: a new break.
-    Break {
-        id: Option<i64>,
-        label: String,
-        duration_seconds: i64,
-    },
-}
-
 fn invalid(message: &str) -> RegistrationError {
     RegistrationError::Rejected(message.to_string())
 }
@@ -724,60 +669,10 @@ pub fn own_breaks(block: &Entry) -> HashSet<i64> {
         .collect()
 }
 
-/// The live timeplan and its entries (#238). Every method is one unit of
-/// work; "Weiter" and "Zurück" read and write in one transaction, so two
-/// operators can't both act on the same state.
+/// What the player still takes from the timeplan area (#238); moves to
+/// `Support` with the player.
 #[async_trait::async_trait]
 pub trait TimeplanRepo: Send + Sync {
-    /// The whole timeplan with every block's content, read consistently, as
-    /// `audience` may see it.
-    async fn load_timeplan(&self, audience: Audience) -> Result<Timeplan, DbError>;
-
-    /// The entries in order, without their content.
-    async fn list_timeplan(&self, audience: Audience) -> Result<Vec<TimeplanListEntry>, DbError>;
-
-    /// Adds an entry at the end, or after entry `after_id` (`NotFound` if
-    /// there is none). A final must exist and run in no other block.
-    async fn add_timeplan_entry(
-        &self,
-        fields: &EntryFields,
-        earliest_start_time: Option<OffsetDateTime>,
-        after_id: Option<i64>,
-    ) -> Result<i64, RegistrationError>;
-
-    /// Overwrites an entry. Acts leaving its block must be able to go back
-    /// to a home block that hasn't ended. `NotFound` for an unknown entry.
-    async fn edit_timeplan_entry(
-        &self,
-        id: i64,
-        fields: &EntryFields,
-        earliest_start_time: Option<OffsetDateTime>,
-    ) -> Result<(), RegistrationError>;
-
-    /// Deletes an entry; its acts go back to their home blocks.
-    async fn delete_timeplan_entry(&self, id: i64) -> Result<(), RegistrationError>;
-
-    /// Swaps an entry with its previous (`up`) or next one. `false` if there
-    /// is no such neighbour.
-    async fn move_timeplan_entry(&self, id: i64, up: bool) -> Result<bool, DbError>;
-
-    /// Sets which acts and breaks run in a start block, in which order.
-    async fn set_block_order(
-        &self,
-        timeplan_id: i64,
-        slots: &[BlockSlotInput],
-    ) -> Result<(), RegistrationError>;
-
-    /// Puts a start block back to category order.
-    async fn reset_block_order(&self, timeplan_id: i64) -> Result<(), RegistrationError>;
-
-    /// One step forward in the live timeplan. Returns whether an act (or
-    /// finalist) was ended in it, so the caller can stop the music.
-    async fn timeplan_forward(&self) -> Result<bool, DbError>;
-
-    /// Undoes the last forward step.
-    async fn timeplan_backward(&self) -> Result<(), DbError>;
-
     /// Records that the music of a running act started `seconds_ago`, unless
     /// it did before. Returns whether it was recorded.
     async fn mark_music_started(&self, act_id: ActId, seconds_ago: f64) -> Result<bool, DbError>;

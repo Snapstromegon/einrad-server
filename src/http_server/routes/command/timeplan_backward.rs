@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::{instrument, warn};
 use utoipa::ToSchema;
@@ -36,9 +36,9 @@ pub struct SetTimeplanBackwardResponse {}
 pub async fn timeplan_backward(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::ControlMusic>,
+    auth: Granted<permit::ControlMusic>,
 ) -> Result<Json<SetTimeplanBackwardResponse>, HttpError> {
-    repo.timeplan_backward().await?;
+    repo.timeplan_backward(&auth.actor()).await?;
     // A remote player gets the song of the act now due; it doesn't start.
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");
