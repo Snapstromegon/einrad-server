@@ -1,10 +1,7 @@
 //! Clubs: the [`ClubsRepo`] trait, the [`Actor`] who asks and the
 //! [`RegistrationError`] the club-side commands fail with.
 
-use crate::{
-    DbError,
-    ids::{ActId, ClubId, UserId},
-};
+use crate::ids::{ActId, ClubId, UserId};
 
 /// The one [`Actor`](crate::actor::Actor); kept under this path during the
 /// CQRS migration (#238).
@@ -51,6 +48,13 @@ impl Actor {
     #[must_use]
     pub fn may_manage_club(&self, club_id: ClubId, owner_id: UserId) -> bool {
         self.manage_registrations() || owner_id == self.user_id || self.club_id == Some(club_id)
+    }
+
+    /// Whether the actor sees a club's payments, fees and contacts: the
+    /// organizer and users assigned to the club.
+    #[must_use]
+    pub fn may_see_club_details(&self, club_id: ClubId) -> bool {
+        self.manage_registrations() || self.club_id == Some(club_id)
     }
 
     /// Decides access to a club; `None` is an unknown club.
@@ -116,62 +120,8 @@ impl Actor {
 /// (#238).
 pub use crate::error::CommandError as RegistrationError;
 
-/// A club with its owner and contact.
-#[derive(Debug, Clone)]
-pub struct ClubProfile {
-    pub id: ClubId,
-    pub name: String,
-    pub owner_id: UserId,
-    pub fee_waived: bool,
-    pub owner_name: Option<String>,
-    pub owner_email: Option<String>,
-    /// The club's own responsible person, else the owner.
-    pub responsible_name: Option<String>,
-    pub responsible_email: Option<String>,
-}
-
-/// A row of the club list.
-#[derive(Debug, Clone)]
-pub struct ClubRow {
-    pub id: ClubId,
-    pub name: String,
-    pub owner_id: UserId,
-    pub fee_waiver: Option<String>,
-    pub owner_name: String,
-    pub owner_email: String,
-    pub owner_email_verified: bool,
-    pub responsible_name: String,
-    pub responsible_email: String,
-}
-
 #[async_trait::async_trait]
 pub trait ClubsRepo {
-    /// Registers a club owned by the user, who is assigned to it.
-    async fn create_club(&self, owner: UserId, name: &str) -> Result<ClubId, DbError>;
-
-    /// Renames the club. With `only_owner`, only if that user owns it
-    /// (nothing changes otherwise).
-    async fn rename_club(
-        &self,
-        club: ClubId,
-        name: &str,
-        only_owner: Option<UserId>,
-    ) -> Result<(), DbError>;
-
-    /// Sets the club's Vereinsverantwortliche/r (both `None` clears it).
-    async fn set_club_responsible(
-        &self,
-        actor: &Actor,
-        club: ClubId,
-        name: Option<&str>,
-        email: Option<&str>,
-    ) -> Result<(), RegistrationError>;
-
-    async fn find_club(&self, id: ClubId) -> Result<Option<ClubProfile>, DbError>;
-
-    /// All clubs by name.
-    async fn list_clubs(&self) -> Result<Vec<ClubRow>, DbError>;
-
     /// Fails with `NotFound` for an unknown club and `Forbidden` unless the
     /// actor may manage it: the organizer, the owner and users assigned to
     /// the club.

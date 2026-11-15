@@ -92,36 +92,6 @@ pub struct StartlistAct {
     pub category_order: Option<i64>,
 }
 
-/// An act of a club with the data the club's own page shows.
-#[derive(Debug, Clone)]
-pub struct ClubActRecord {
-    pub id: ActId,
-    pub name: String,
-    pub group_name: Option<String>,
-    pub owner_club_id: Option<ClubId>,
-    pub description: Option<String>,
-    pub song_file_name: Option<String>,
-    pub song_file: Option<String>,
-    pub song_file_normalized: Option<String>,
-    pub normalization_status: Option<NormalizationStatus>,
-    pub act_type: ActType,
-    pub created_at: time::OffsetDateTime,
-    pub withdrawn: bool,
-    pub fee_waived: bool,
-    pub participants: Vec<ClubActParticipantRecord>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClubActParticipantRecord {
-    pub id: RiderId,
-    pub firstname: String,
-    pub lastname: String,
-    pub club_id: ClubId,
-    pub club_name: String,
-    pub is_replacement: bool,
-    pub birthdate: time::OffsetDateTime,
-}
-
 /// An act with an uploaded song, and where its file should be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActSong {
@@ -183,22 +153,6 @@ pub trait ActsRepo {
 
     /// The acts with a category that start, in start order.
     async fn list_startlist(&self) -> Result<Vec<StartlistAct>, DbError>;
-
-    /// Every act with a rider of the club or created by it, with
-    /// participants. Unfiltered: what the club may see is up to the caller.
-    async fn list_club_acts(&self, club_id: ClubId) -> Result<Vec<ClubActRecord>, DbError>;
-
-    /// Renames an act. `description` is only stored when `set_description`.
-    async fn edit_act(
-        &self,
-        id: ActId,
-        name: &str,
-        set_description: bool,
-        description: Option<&str>,
-    ) -> Result<(), DbError>;
-
-    /// Withdraws an act (or takes it back). `false` if the act doesn't exist.
-    async fn set_act_withdrawn(&self, id: ActId, withdrawn: bool) -> Result<bool, DbError>;
 
     async fn set_act_order(&self, id: ActId, order: Option<i64>) -> Result<(), DbError>;
 

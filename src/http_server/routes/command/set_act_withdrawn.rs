@@ -1,6 +1,6 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::admin::SetActWithdrawn, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -42,13 +42,18 @@ pub struct SetActWithdrawnBody {
 #[axum::debug_handler]
 pub async fn set_act_withdrawn(
     Extension(db): Extension<DbHandle>,
-    _: Granted<permit::ManageRegistrations>,
+    auth: Granted<permit::ManageRegistrations>,
     Json(body): Json<SetActWithdrawnBody>,
 ) -> Result<Json<SetActWithdrawnResponse>, HttpError> {
     info!("Setting act {} withdrawn = {}", body.act_id, body.withdrawn);
-    if !db.set_act_withdrawn(body.act_id, body.withdrawn).await? {
-        return Err(HttpError::NotFound);
-    }
+    db.set_act_withdrawn(
+        &auth.actor(),
+        SetActWithdrawn {
+            act_id: body.act_id,
+            withdrawn: body.withdrawn,
+        },
+    )
+    .await?;
 
     Ok(Json(SetActWithdrawnResponse {}))
 }

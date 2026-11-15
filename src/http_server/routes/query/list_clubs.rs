@@ -1,10 +1,9 @@
 use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{prelude::*, queries::club::ClubListEntry};
 use tracing::instrument;
 
 use crate::{
-    competition::Features,
     fees::AmountDue,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryObligation,
@@ -64,29 +63,31 @@ pub struct ClubContacts {
 #[instrument(skip(repo))]
 pub async fn list_clubs(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ViewClubs>,
+    auth: Granted<permit::ViewClubs>,
     balances: Option<Granted<permit::ViewClubBalances>>,
     contacts: Option<Granted<permit::ViewClubContacts>>,
     jury: Option<Granted<permit::ManageJury>>,
 ) -> Result<Json<Vec<ClubOverview>>, HttpError> {
     let (balances, contacts) = (balances.is_some(), contacts.is_some());
     let jury = balances || jury.is_some();
-    let rows = repo.list_clubs().await?;
-    let paid = repo.paid_by_club().await?;
-    let features = Features::from_repo(&*repo).await?;
-    let mut fees = repo.fees_by_club(features.jury_registration).await?;
-    let clubs = rows
+    let clubs = repo
+        .list_clubs(&auth.actor())
+        .await?
         .into_iter()
-        .map(|row| {
-            let club_fees = fees.remove(&row.id).unwrap_or_default();
+        .map(|entry| {
+            let ClubListEntry {
+                club: row,
+                paid,
+                fees,
+            } = entry;
             ClubOverview {
                 code: club_code(&row.id),
-                amount_due: balances.then_some(club_fees.amount_due),
+                amount_due: balances.then_some(fees.amount_due),
                 fee_waiver: row.fee_waiver.filter(|_| balances),
-                jury: club_fees.jury.filter(|_| jury),
+                jury: fees.jury.filter(|_| jury),
                 id: row.id,
                 name: row.name,
-                paid: balances.then(|| paid.get(&row.id).copied().unwrap_or(0.0)),
+                paid: balances.then_some(paid),
                 owner_id: row.owner_id,
                 contacts: contacts.then_some(ClubContacts {
                     contact_name: row.owner_name,

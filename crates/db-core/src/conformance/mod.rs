@@ -31,17 +31,27 @@
 
 use crate::{
     Db,
+    act_type::ActType,
     auth::NewUser,
     clubs::Actor,
-    ids::{ClubId, UserId},
+    commands::{
+        club::CreateClub,
+        group::{
+            CreateClubGroup, DeleteClubGroup, GroupMember, RenameClubGroup, SetClubGroupMembers,
+        },
+    },
+    error::CommandError,
+    ids::{ActId, ClubId, UserId},
 };
 
 mod access;
+mod clubs;
 mod fees;
 mod registration;
 mod structure;
 mod timeplan;
 pub use access::*;
+pub use clubs::*;
 pub use fees::*;
 pub use registration::*;
 pub use structure::*;
@@ -71,8 +81,25 @@ impl World {
         let owner_b_id = Self::user(db, "Maria Beispiel").await;
         let member_a_id = Self::user(db, "Jonas Schmidt").await;
         let stranger_id = Self::user(db, "Lea Fischer").await;
-        let club_a = db.create_club(owner_a_id, "RSV Adorf").await.unwrap();
-        let club_b = db.create_club(owner_b_id, "RC Beistadt").await.unwrap();
+        let owner = |user_id: UserId| Actor::new(user_id, "Max Müller", Vec::new(), None);
+        let club_a = db
+            .create_club(
+                &owner(owner_a_id),
+                CreateClub {
+                    name: "RSV Adorf".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let club_b = db
+            .create_club(
+                &owner(owner_b_id),
+                CreateClub {
+                    name: "RC Beistadt".into(),
+                },
+            )
+            .await
+            .unwrap();
         let actor = |user_id: UserId, club_id: Option<ClubId>| {
             Actor::new(user_id, "Max Müller", Vec::new(), club_id)
         };
@@ -92,7 +119,7 @@ impl World {
         }
     }
 
-    async fn user(db: &dyn Db, name: &str) -> UserId {
+    pub(super) async fn user(db: &dyn Db, name: &str) -> UserId {
         let id = UserId::new();
         let email = format!("{id}@example.org");
         db.register_user(
@@ -108,6 +135,69 @@ impl World {
         .unwrap();
         id
     }
+}
+
+/// Creates a group of `club`.
+pub(super) async fn create_group(
+    db: &dyn Db,
+    actor: &Actor,
+    club: ClubId,
+    act_type: ActType,
+    name: &str,
+) -> Result<ActId, CommandError> {
+    db.create_club_group(
+        actor,
+        CreateClubGroup {
+            club_id: club,
+            act_type,
+            group_name: name.into(),
+        },
+    )
+    .await
+}
+
+pub(super) async fn rename_group(
+    db: &dyn Db,
+    actor: &Actor,
+    act: ActId,
+    name: &str,
+) -> Result<(), CommandError> {
+    db.rename_club_group(
+        actor,
+        RenameClubGroup {
+            act_id: act,
+            group_name: name.into(),
+        },
+    )
+    .await
+}
+
+pub(super) async fn delete_group(
+    db: &dyn Db,
+    actor: &Actor,
+    act: ActId,
+) -> Result<(), CommandError> {
+    db.delete_club_group(actor, DeleteClubGroup { act_id: act })
+        .await
+}
+
+/// Sets the club's riders in the group; the group's type warning on success.
+pub(super) async fn set_members(
+    db: &dyn Db,
+    actor: &Actor,
+    club: ClubId,
+    act: ActId,
+    members: &[GroupMember],
+) -> Result<Option<String>, CommandError> {
+    db.set_club_group_members(
+        actor,
+        SetClubGroupMembers {
+            club_id: club,
+            act_id: act,
+            members: members.to_vec(),
+        },
+    )
+    .await
 }
 
 /// The one list of conformance tests. Calls `$mac!($($prefix)* names...)`
@@ -136,6 +226,10 @@ macro_rules! conformance_list {
             jury_obligation_counts_acts_and_judges,
             jury_obligation_edge_cases,
             group_delete_and_member_rules,
+            club_create_rename_and_responsible,
+            club_views_and_lists,
+            club_acts_edit_and_withdraw,
+            group_lists_and_type_changes,
             structure_names_and_codes_are_unique,
             heats_and_finals_share_a_discipline,
             units_with_judges_are_not_deletable,

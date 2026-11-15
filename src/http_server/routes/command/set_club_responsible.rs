@@ -1,6 +1,6 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::SetClubResponsible, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -69,9 +69,11 @@ pub async fn set_club_responsible(
     }
     db.set_club_responsible(
         &auth.actor(),
-        body.club_id,
-        name.as_deref(),
-        email.as_deref(),
+        SetClubResponsible {
+            club_id: body.club_id,
+            name,
+            email,
+        },
     )
     .await?;
 

@@ -1,6 +1,6 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::CreateClub, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -45,7 +45,9 @@ pub async fn create_club(
     if !capabilities.can_create_club {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let club_id = db.create_club(auth.user_id, &body.name).await?;
+    let club_id = db
+        .create_club(&auth.actor(), CreateClub { name: body.name })
+        .await?;
 
     Ok(Json(CreateClubResponse { club_id }))
 }

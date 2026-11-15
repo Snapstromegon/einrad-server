@@ -5,19 +5,22 @@
 
 use time::macros::datetime;
 
-use super::{World, timeplan::create_competition_with};
+use super::{World, create_group, delete_group, set_members, timeplan::create_competition_with};
 use crate::{
     Db,
     act_type::ActType,
     bookings,
     categories::CategoryFields,
     clubs::{Actor, RegistrationError},
-    commands::club::{AddRider, LinkPair, RequestPair, SetSingle},
+    commands::{
+        admin::SetActWithdrawn,
+        club::{AddRider, LinkPair, RequestPair, SetSingle},
+        group::GroupMember,
+    },
     competition::JuryRules,
     fee_waivers::Target,
     fees::ClubFees,
     gender::Gender,
-    groups::GroupMember,
     heats::NewHeat,
     ids::{ClubId, RiderId},
     jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryAssignment, JuryUnitKind},
@@ -140,16 +143,15 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
     )
     .await
     .unwrap();
-    let small = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+    let small = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
         .await
         .unwrap();
-    let large = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupLarge, "Sturm")
+    let large = create_group(db, &w.owner_a, w.club_a, ActType::GroupLarge, "Sturm")
         .await
         .unwrap();
     for group in [small, large] {
-        db.set_group_members(
+        set_members(
+            db,
             &w.owner_a,
             w.club_a,
             group,
@@ -479,8 +481,24 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
             .id
     };
     let (berta_act, dora_act) = (act_of("Berta").await, act_of("Dora").await);
-    db.set_act_withdrawn(berta_act, true).await.unwrap();
-    db.set_act_withdrawn(dora_act, true).await.unwrap();
+    db.set_act_withdrawn(
+        &w.organizer,
+        SetActWithdrawn {
+            act_id: berta_act,
+            withdrawn: true,
+        },
+    )
+    .await
+    .unwrap();
+    db.set_act_withdrawn(
+        &w.organizer,
+        SetActWithdrawn {
+            act_id: dora_act,
+            withdrawn: true,
+        },
+    )
+    .await
+    .unwrap();
     let roles = [];
     db.set_fee_waiver(
         &treasurer(&w, &roles),
@@ -496,21 +514,26 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
         rider_id,
         is_replacement,
     };
-    let incomplete = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+    let incomplete = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
         .await
         .unwrap();
-    db.set_group_members(&w.owner_a, w.club_a, incomplete, &[member(gerda, false)])
+    set_members(
+        db,
+        &w.owner_a,
+        w.club_a,
+        incomplete,
+        &[member(gerda, false)],
+    )
+    .await
+    .unwrap();
+    set_members(db, &w.owner_b, w.club_b, incomplete, &[member(hanna, true)])
         .await
         .unwrap();
-    db.set_group_members(&w.owner_b, w.club_b, incomplete, &[member(hanna, true)])
+    let only_replacements = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Ersatz")
         .await
         .unwrap();
-    let only_replacements = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Ersatz")
-        .await
-        .unwrap();
-    db.set_group_members(
+    set_members(
+        db,
         &w.owner_b,
         w.club_b,
         only_replacements,
@@ -574,15 +597,11 @@ pub async fn group_delete_and_member_rules(db: &dyn Db) {
     let w = World::seed(db).await;
     let anna = rider(db, &w.owner_a, w.club_a, "Anna").await;
     let carla = rider(db, &w.owner_b, w.club_b, "Carla").await;
-    let group = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+    let group = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
         .await
         .unwrap();
     assert_eq!(
-        message(
-            db.create_group(&w.owner_b, w.club_b, ActType::GroupLarge, "wirbel")
-                .await
-        ),
+        message(create_group(db, &w.owner_b, w.club_b, ActType::GroupLarge, "wirbel").await),
         "Der Gruppenname „wirbel“ ist bereits vergeben."
     );
     let member = |rider_id| GroupMember {
@@ -591,57 +610,58 @@ pub async fn group_delete_and_member_rules(db: &dyn Db) {
     };
     // Own riders only, each once.
     assert!(
-        message(
-            db.set_group_members(&w.owner_a, w.club_a, group, &[member(carla)])
-                .await
-        )
-        .contains("eigenen FahrerInnen")
+        message(set_members(db, &w.owner_a, w.club_a, group, &[member(carla)]).await)
+            .contains("eigenen FahrerInnen")
     );
     assert!(
         message(
-            db.set_group_members(&w.owner_a, w.club_a, group, &[member(anna), member(anna)])
-                .await
+            set_members(
+                db,
+                &w.owner_a,
+                w.club_a,
+                group,
+                &[member(anna), member(anna)]
+            )
+            .await
         )
         .contains("nur einmal")
     );
     assert!(matches!(
-        db.set_group_members(&w.owner_a, w.club_a, group, &[member(RiderId::new())])
-            .await,
+        set_members(db, &w.owner_a, w.club_a, group, &[member(RiderId::new())]).await,
         Err(RegistrationError::Rejected(_))
     ));
-    db.set_group_members(&w.owner_a, w.club_a, group, &[member(anna)])
+    set_members(db, &w.owner_a, w.club_a, group, &[member(anna)])
         .await
         .unwrap();
-    db.set_group_members(&w.owner_b, w.club_b, group, &[member(carla)])
+    set_members(db, &w.owner_b, w.club_b, group, &[member(carla)])
         .await
         .unwrap();
 
     assert!(
-        message(db.delete_group(&w.owner_a, group).await)
+        message(delete_group(db, &w.owner_a, group).await)
             .contains("Die Gruppe „Wirbel“ kann nicht gelöscht werden")
     );
     assert!(matches!(
-        db.delete_group(&w.owner_b, group).await,
+        delete_group(db, &w.owner_b, group).await,
         Err(RegistrationError::Forbidden)
     ));
     // The other club's riders leave, then the owner may delete.
-    db.set_group_members(&w.owner_b, w.club_b, group, &[])
+    set_members(db, &w.owner_b, w.club_b, group, &[])
         .await
         .unwrap();
-    db.delete_group(&w.owner_a, group).await.unwrap();
-    assert!(db.list_groups().await.unwrap().is_empty());
+    delete_group(db, &w.owner_a, group).await.unwrap();
+    assert!(db.list_groups(&w.organizer).await.unwrap().is_empty());
 
     // The organizer deletes a group with foreign riders.
-    let group = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Sturm")
+    let group = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Sturm")
         .await
         .unwrap();
-    db.set_group_members(&w.owner_b, w.club_b, group, &[member(carla)])
+    set_members(db, &w.owner_b, w.club_b, group, &[member(carla)])
         .await
         .unwrap();
-    db.delete_group(&w.organizer, group).await.unwrap();
+    delete_group(db, &w.organizer, group).await.unwrap();
     assert!(matches!(
-        db.delete_group(&w.organizer, group).await,
+        delete_group(db, &w.organizer, group).await,
         Err(RegistrationError::NotFound)
     ));
 }

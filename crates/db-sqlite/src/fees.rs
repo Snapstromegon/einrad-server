@@ -39,7 +39,17 @@ pub(crate) async fn fees(
     club_id: Option<ClubId>,
 ) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
     let mut tx = db.begin().await?;
-    let conn = &mut *tx;
+    let fees = fees_in(&mut tx, jury_registration, club_id).await?;
+    tx.commit().await?;
+    Ok(fees)
+}
+
+/// [`fees`] on a connection: the caller's transaction gives the snapshot.
+pub(crate) async fn fees_in(
+    conn: &mut SqliteConnection,
+    jury_registration: bool,
+    club_id: Option<ClubId>,
+) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
     let rules = fee_rules(conn).await?;
     let riders = if rules.is_some() {
         rider_facts(conn, club_id).await?
@@ -61,7 +71,6 @@ pub(crate) async fn fees(
         Some(_) => jury_facts(conn, club_id).await?,
         None => JuryFacts::default(),
     };
-    tx.commit().await?;
     Ok(club_fees(
         &FeeFacts {
             rules,

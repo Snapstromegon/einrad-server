@@ -3,7 +3,7 @@
 
 use time::macros::datetime;
 
-use super::World;
+use super::{World, create_group, delete_group, rename_group};
 use crate::{
     Db,
     act_type::ActType,
@@ -198,8 +198,7 @@ pub async fn act_access_decisions(db: &dyn Db) {
 /// riders; renaming and deleting belong to the owner club only.
 pub async fn group_access_decisions(db: &dyn Db) {
     let w = World::seed(db).await;
-    let group = db
-        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbelwind")
+    let group = create_group(db, &w.owner_a, w.club_a, ActType::GroupSmall, "Wirbelwind")
         .await
         .unwrap();
     for allowed in [&w.organizer, &w.owner_a, &w.member_a] {
@@ -207,17 +206,17 @@ pub async fn group_access_decisions(db: &dyn Db) {
     }
     for denied in [&w.owner_b, &w.stranger] {
         assert!(is_forbidden(db.ensure_act_access(denied, group).await));
-        assert!(is_forbidden(db.rename_group(denied, group, "Neu").await));
-        assert!(is_forbidden(db.delete_group(denied, group).await));
+        assert!(is_forbidden(rename_group(db, denied, group, "Neu").await));
+        assert!(is_forbidden(delete_group(db, denied, group).await));
     }
     assert!(is_not_found(
-        db.delete_group(&w.organizer, ActId::new()).await
+        delete_group(db, &w.organizer, ActId::new()).await
     ));
     assert!(is_not_found(
-        db.rename_group(&w.owner_a, ActId::new(), "Neu").await
+        rename_group(db, &w.owner_a, ActId::new(), "Neu").await
     ));
-    db.rename_group(&w.member_a, group, "Sturmwind")
+    rename_group(db, &w.member_a, group, "Sturmwind")
         .await
         .unwrap();
-    db.delete_group(&w.owner_a, group).await.unwrap();
+    delete_group(db, &w.owner_a, group).await.unwrap();
 }

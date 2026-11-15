@@ -1,7 +1,7 @@
 use crate::act_type::ActType;
 use crate::ids::{ActId, ClubId};
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::group::CreateClubGroup, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -54,7 +54,14 @@ pub async fn create_club_group(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let act_id = db
-        .create_group(&auth.actor(), body.club_id, body.act_type, &body.group_name)
+        .create_club_group(
+            &auth.actor(),
+            CreateClubGroup {
+                club_id: body.club_id,
+                act_type: body.act_type,
+                group_name: body.group_name,
+            },
+        )
         .await?;
 
     Ok(Json(CreateClubGroupResponse { act_id }))

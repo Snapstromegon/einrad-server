@@ -1,7 +1,10 @@
 use crate::ids::{ActId, ClubId, RiderId};
 
 use axum::{Extension, Json, http::StatusCode};
-use db_core::{DbHandle, groups::GroupMember};
+use db_core::{
+    commands::group::{GroupMember, SetClubGroupMembers},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -68,14 +71,21 @@ pub async fn set_club_group_members(
     }
     let members: Vec<GroupMember> = body
         .members
-        .iter()
+        .into_iter()
         .map(|member| GroupMember {
             rider_id: member.rider_id,
             is_replacement: member.is_replacement,
         })
         .collect();
     let warning = db
-        .set_group_members(&auth.actor(), body.club_id, body.act_id, &members)
+        .set_club_group_members(
+            &auth.actor(),
+            SetClubGroupMembers {
+                club_id: body.club_id,
+                act_id: body.act_id,
+                members,
+            },
+        )
         .await?;
 
     Ok(Json(SetClubGroupMembersResponse { warning }))

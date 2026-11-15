@@ -229,9 +229,6 @@ pub trait BookingsRepo {
     /// payments are missing.
     async fn paid_by_club(&self) -> Result<HashMap<ClubId, f64>, DbError>;
 
-    /// The payments of a club, oldest first.
-    async fn payments_of_club(&self, club: ClubId) -> Result<Vec<Payment>, DbError>;
-
     /// Waives the fees of `target` with `reason`, or charges them again with
     /// `None`. Writes a log entry only if that changes anything. `NotFound`
     /// for an unknown target, `Rejected` for a blank reason.

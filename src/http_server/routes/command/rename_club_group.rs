@@ -1,6 +1,6 @@
 use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::group::RenameClubGroup, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -45,8 +45,14 @@ pub async fn rename_club_group(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.rename_group(&auth.actor(), body.act_id, &body.group_name)
-        .await?;
+    db.rename_club_group(
+        &auth.actor(),
+        RenameClubGroup {
+            act_id: body.act_id,
+            group_name: body.group_name,
+        },
+    )
+    .await?;
 
     Ok(Json(RenameClubGroupResponse {}))
 }

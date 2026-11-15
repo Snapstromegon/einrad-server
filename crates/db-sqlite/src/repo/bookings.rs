@@ -199,36 +199,8 @@ impl BookingsRepo for SqliteRepo {
 
     async fn paid_by_club(&self) -> Result<HashMap<ClubId, f64>, DbError> {
         let pool = self.pool().await;
-        let rows = sqlx::query!(
-            r#"
-            SELECT club_id as "club_id!: ClubId", SUM(amount) as "paid!: f64"
-            FROM bookings
-            WHERE club_id IS NOT NULL
-            GROUP BY club_id
-            "#
-        )
-        .fetch_all(&pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| (row.club_id, round_cents(row.paid)))
-            .collect())
-    }
-
-    async fn payments_of_club(&self, club: ClubId) -> Result<Vec<Payment>, DbError> {
-        let pool = self.pool().await;
-        Ok(sqlx::query_as!(
-            Payment,
-            r#"
-            SELECT id as "id!: BookingId", amount, date as "date: Date", note
-            FROM bookings
-            WHERE club_id = $1
-            ORDER BY date, rowid
-            "#,
-            club
-        )
-        .fetch_all(&pool)
-        .await?)
+        let mut conn = pool.acquire().await?;
+        Ok(paid_by_club(&mut conn).await?)
     }
 
     async fn set_fee_waiver(
@@ -483,4 +455,43 @@ async fn waiver_clubs_of(
         }
     };
     Ok(rows)
+}
+
+/// What every club has paid; clubs without payments are missing.
+pub(crate) async fn paid_by_club(
+    conn: &mut SqliteConnection,
+) -> sqlx::Result<HashMap<ClubId, f64>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT club_id as "club_id!: ClubId", SUM(amount) as "paid!: f64"
+        FROM bookings
+        WHERE club_id IS NOT NULL
+        GROUP BY club_id
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.club_id, round_cents(row.paid)))
+        .collect())
+}
+
+/// The payments of a club, oldest first.
+pub(crate) async fn payments_of_club(
+    conn: &mut SqliteConnection,
+    club: ClubId,
+) -> sqlx::Result<Vec<Payment>> {
+    sqlx::query_as!(
+        Payment,
+        r#"
+        SELECT id as "id!: BookingId", amount, date as "date: Date", note
+        FROM bookings
+        WHERE club_id = $1
+        ORDER BY date, rowid
+        "#,
+        club
+    )
+    .fetch_all(&mut *conn)
+    .await
 }

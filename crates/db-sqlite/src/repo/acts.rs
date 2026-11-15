@@ -2,10 +2,10 @@ use db_core::{
     ActsRepo, DbError,
     act_type::ActType,
     acts::{
-        ActParticipant, ActRecord, ActSong, ClubActParticipantRecord, ClubActRecord,
-        NormalizationStatus, SongFiles, StartlistAct, StartlistActParticipant,
+        ActParticipant, ActRecord, ActSong, NormalizationStatus, SongFiles, StartlistAct,
+        StartlistActParticipant,
     },
-    ids::{ActId, CategoryId, ClubId, RiderId},
+    ids::{ActId, CategoryId, ClubId},
 };
 
 use super::SqliteRepo;
@@ -183,135 +183,6 @@ impl ActsRepo for SqliteRepo {
                 category_order: row.category_order,
             })
             .collect())
-    }
-
-    async fn list_club_acts(&self, club_id: ClubId) -> Result<Vec<ClubActRecord>, DbError> {
-        let pool = self.pool().await;
-        // One read transaction, so the acts and their participants match.
-        let mut tx = pool.begin().await?;
-        let acts = sqlx::query!(
-            r#"
-            SELECT
-                acts.id as "id!: ActId",
-                acts.name,
-                acts.group_name,
-                acts.owner_club_id as "owner_club_id: ClubId",
-                acts.description,
-                acts.song_file_name,
-                acts.song_file,
-                acts.song_file_normalized,
-                acts.normalization_status as "normalization_status: NormalizationStatus",
-                acts.act_type as "act_type: ActType",
-                acts.created_at as "created_at!: time::OffsetDateTime",
-                acts.withdrawn_at IS NOT NULL as "withdrawn!: bool",
-                acts.fee_waiver IS NOT NULL as "fee_waived!: bool"
-            FROM acts
-            WHERE acts.owner_club_id = ?1
-                OR EXISTS (
-                    SELECT 1 FROM act_participants
-                    JOIN rider ON act_participants.rider_id = rider.id
-                    WHERE act_participants.act_id = acts.id AND rider.club_id = ?1
-                )
-            ORDER BY acts.id
-            "#,
-            club_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-
-        let mut records = Vec::with_capacity(acts.len());
-        for act in acts {
-            let participants = sqlx::query!(
-                r#"
-                SELECT
-                    rider.id as "id!: RiderId",
-                    rider.firstname,
-                    rider.lastname,
-                    rider.club_id as "club_id!: ClubId",
-                    clubs.name as club_name,
-                    act_participants.is_replacement,
-                    rider.birthdate
-                FROM act_participants
-                JOIN rider ON act_participants.rider_id = rider.id
-                JOIN clubs ON clubs.id = rider.club_id
-                WHERE act_participants.act_id = $1
-                ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
-                "#,
-                act.id
-            )
-            .fetch_all(&mut *tx)
-            .await?;
-            records.push(ClubActRecord {
-                id: act.id,
-                name: act.name,
-                group_name: act.group_name,
-                owner_club_id: act.owner_club_id,
-                description: act.description,
-                song_file_name: act.song_file_name,
-                song_file: act.song_file,
-                song_file_normalized: act.song_file_normalized,
-                normalization_status: act.normalization_status,
-                act_type: act.act_type,
-                created_at: act.created_at,
-                withdrawn: act.withdrawn,
-                fee_waived: act.fee_waived,
-                participants: participants
-                    .into_iter()
-                    .map(|p| ClubActParticipantRecord {
-                        id: p.id,
-                        firstname: p.firstname,
-                        lastname: p.lastname,
-                        club_id: p.club_id,
-                        club_name: p.club_name,
-                        is_replacement: p.is_replacement,
-                        birthdate: p.birthdate,
-                    })
-                    .collect(),
-            });
-        }
-        Ok(records)
-    }
-
-    async fn edit_act(
-        &self,
-        id: ActId,
-        name: &str,
-        set_description: bool,
-        description: Option<&str>,
-    ) -> Result<(), DbError> {
-        let pool = self.pool().await;
-        sqlx::query!(
-            r#"
-            UPDATE acts
-            SET name = $1,
-                description = CASE WHEN $2 THEN $3 ELSE description END
-            WHERE id = $4
-            "#,
-            name,
-            set_description,
-            description,
-            id,
-        )
-        .execute(&pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn set_act_withdrawn(&self, id: ActId, withdrawn: bool) -> Result<bool, DbError> {
-        let pool = self.pool().await;
-        let updated = sqlx::query!(
-            r#"
-            UPDATE acts
-            SET withdrawn_at = CASE WHEN $1 THEN COALESCE(withdrawn_at, CURRENT_TIMESTAMP) END
-            WHERE id = $2
-            "#,
-            withdrawn,
-            id,
-        )
-        .execute(&pool)
-        .await?
-        .rows_affected();
-        Ok(updated > 0)
     }
 
     async fn set_act_order(&self, id: ActId, order: Option<i64>) -> Result<(), DbError> {

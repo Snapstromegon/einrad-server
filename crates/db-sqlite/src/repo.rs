@@ -12,6 +12,7 @@ use sqlx::SqlitePool;
 use crate::reloadable_sqlite::ReloadableSqlite;
 
 mod acts;
+mod admin_commands;
 mod auth;
 mod backups;
 mod bookings;
@@ -24,6 +25,8 @@ mod clubs;
 mod competition;
 mod export;
 mod fees;
+mod group_commands;
+mod group_queries;
 mod groups;
 mod heats_finals;
 mod jury;
@@ -117,8 +120,6 @@ pub(crate) use {read_tx, write_tx};
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::GroupCommands for SqliteRepo {}
-impl db_core::queries::GroupQueries for SqliteRepo {}
 impl db_core::commands::PaymentCommands for SqliteRepo {}
 impl db_core::queries::PaymentQueries for SqliteRepo {}
 impl db_core::commands::CheckInCommands for SqliteRepo {}
@@ -139,7 +140,6 @@ impl db_core::commands::MediaCommands for SqliteRepo {}
 impl db_core::queries::MediaQueries for SqliteRepo {}
 impl db_core::commands::UserCommands for SqliteRepo {}
 impl db_core::queries::UserQueries for SqliteRepo {}
-impl db_core::commands::AdminCommands for SqliteRepo {}
 impl db_core::queries::AdminQueries for SqliteRepo {}
 impl db_core::commands::ActCommands for SqliteRepo {}
 impl db_core::queries::ActQueries for SqliteRepo {}

@@ -2,13 +2,12 @@ use crate::ids::ActId;
 use std::sync::Arc;
 
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::EditClubAct, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
     system_status::Capabilities,
 };
@@ -52,13 +51,13 @@ pub async fn edit_club_act(
     if !capabilities.can_upload_music {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    repo.ensure_act_access(&auth.actor(), body.id).await?;
-    let moderation_input = Features::from_repo(repo.as_ref()).await?.moderation_input;
-    repo.edit_act(
-        body.id,
-        &body.name,
-        moderation_input,
-        body.description.as_deref(),
+    repo.edit_club_act(
+        &auth.actor(),
+        EditClubAct {
+            act_id: body.id,
+            name: body.name,
+            description: body.description,
+        },
     )
     .await?;
 

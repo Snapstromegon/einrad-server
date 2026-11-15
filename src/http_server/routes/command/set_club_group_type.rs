@@ -1,7 +1,7 @@
 use crate::act_type::ActType;
 use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::group::SetClubGroupType, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -54,7 +54,13 @@ pub async fn set_club_group_type(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let warning = db
-        .set_group_type(&auth.actor(), body.act_id, body.act_type)
+        .set_club_group_type(
+            &auth.actor(),
+            SetClubGroupType {
+                act_id: body.act_id,
+                act_type: body.act_type,
+            },
+        )
         .await?;
 
     Ok(Json(SetClubGroupTypeResponse { warning }))

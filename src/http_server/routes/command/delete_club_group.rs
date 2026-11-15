@@ -1,6 +1,6 @@
 use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::group::DeleteClubGroup, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -45,7 +45,13 @@ pub async fn delete_club_group(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.delete_group(&auth.actor(), body.act_id).await?;
+    db.delete_club_group(
+        &auth.actor(),
+        DeleteClubGroup {
+            act_id: body.act_id,
+        },
+    )
+    .await?;
 
     Ok(Json(DeleteClubGroupResponse {}))
 }

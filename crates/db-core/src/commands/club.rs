@@ -80,6 +80,38 @@ pub struct ReplaceActRider {
     pub new_rider_id: RiderId,
 }
 
+/// Registers a club owned by the actor, who is assigned to it.
+#[derive(Debug, Clone)]
+pub struct CreateClub {
+    pub name: String,
+}
+
+/// Renames a club. The organizer renames every club, a user only the club
+/// they own (nothing changes otherwise, and it is no error).
+#[derive(Debug, Clone)]
+pub struct RenameClub {
+    pub club_id: ClubId,
+    pub name: String,
+}
+
+/// Sets the club's Vereinsverantwortliche/r; both `None` clears it.
+#[derive(Debug, Clone)]
+pub struct SetClubResponsible {
+    pub club_id: ClubId,
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+/// Renames an act and, while the competition takes a moderation input, sets
+/// its description.
+#[derive(Debug, Clone)]
+pub struct EditClubAct {
+    pub act_id: ActId,
+    pub name: String,
+    /// Only stored while the competition's `moderation_input` is on.
+    pub description: Option<String>,
+}
+
 /// The write side of the club area of the API; one method per endpoint.
 #[async_trait::async_trait]
 pub trait ClubCommands: Send + Sync {
@@ -127,4 +159,24 @@ pub trait ClubCommands: Send + Sync {
         actor: &Actor,
         cmd: ReplaceActRider,
     ) -> Result<(), CommandError>;
+
+    /// Registers a club owned by the actor, who is assigned to it.
+    async fn create_club(&self, actor: &Actor, cmd: CreateClub) -> Result<ClubId, CommandError>;
+
+    /// Renames the club: the organizer any club, other users only a club they
+    /// own (nothing changes, and no error, for a club they don't own).
+    async fn rename_club(&self, actor: &Actor, cmd: RenameClub) -> Result<(), CommandError>;
+
+    /// Sets the club's Vereinsverantwortliche/r (both `None` clears it).
+    /// `NotFound` for an unknown club, `Forbidden` unless the actor manages it.
+    async fn set_club_responsible(
+        &self,
+        actor: &Actor,
+        cmd: SetClubResponsible,
+    ) -> Result<(), CommandError>;
+
+    /// Edits an act's title and, with the competition's `moderation_input`
+    /// on, its description. The access check, the flag and the write share
+    /// one transaction.
+    async fn edit_club_act(&self, actor: &Actor, cmd: EditClubAct) -> Result<(), CommandError>;
 }

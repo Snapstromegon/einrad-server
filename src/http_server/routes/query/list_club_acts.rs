@@ -2,12 +2,15 @@ use crate::ids::{ActId, ClubId, RiderId};
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
-use db_core::{DbHandle, acts::NormalizationStatus};
+use db_core::{
+    acts::NormalizationStatus,
+    prelude::*,
+    queries::club::{ClubActs, ListClubActs},
+};
 use tracing::instrument;
 
 use crate::{
     act_type::ActType,
-    competition::Features,
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
 };
 
@@ -83,11 +86,17 @@ pub async fn list_club_acts(
     Query(query): Query<ListClubActsQuery>,
     auth: Auth,
 ) -> Result<Json<Vec<ClubAct>>, HttpError> {
-    repo.ensure_club_access(&auth.actor(), query.club_id)
+    let ClubActs {
+        moderation_input,
+        acts,
+    } = repo
+        .list_club_acts(
+            &auth.actor(),
+            ListClubActs {
+                club_id: query.club_id,
+            },
+        )
         .await?;
-    let moderation_input = Features::from_repo(repo.as_ref()).await?.moderation_input;
-    let acts = repo.list_club_acts(query.club_id).await?;
-
     let club_acts: Vec<ClubAct> = acts
         .into_iter()
         .map(|act| ClubAct {

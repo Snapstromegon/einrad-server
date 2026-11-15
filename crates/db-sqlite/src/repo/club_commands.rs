@@ -4,11 +4,13 @@
 use db_core::{
     actor::Actor,
     commands::club::{
-        AddRider, ClubCommands, DeleteRider, DissolvePair, EditRider, LeavePair, LinkPair,
-        ReplaceActRider, RequestPair, SetSingle,
+        AddRider, ClubCommands, CreateClub, DeleteRider, DissolvePair, EditClubAct, EditRider,
+        LeavePair, LinkPair, RenameClub, ReplaceActRider, RequestPair, SetClubResponsible,
+        SetSingle,
     },
+    competition::Features,
     error::CommandError,
-    ids::{ActId, RiderId},
+    ids::{ActId, ClubId, RiderId},
     registration_rules::{self as rules, PartnerClubs},
 };
 use sqlx::SqliteConnection;
@@ -21,6 +23,34 @@ use crate::registration::{
 
 #[async_trait::async_trait]
 impl ClubCommands for SqliteRepo {
+    async fn create_club(&self, actor: &Actor, cmd: CreateClub) -> Result<ClubId, CommandError> {
+        Ok(write_tx!(self, tx, {
+            create_club(&mut tx, actor, cmd).await?
+        }))
+    }
+
+    async fn rename_club(&self, actor: &Actor, cmd: RenameClub) -> Result<(), CommandError> {
+        write_tx!(self, tx, { rename_club(&mut tx, actor, cmd).await? });
+        Ok(())
+    }
+
+    async fn set_club_responsible(
+        &self,
+        actor: &Actor,
+        cmd: SetClubResponsible,
+    ) -> Result<(), CommandError> {
+        write_tx!(self, tx, {
+            club_access(&mut tx, actor, cmd.club_id).await?;
+            set_club_responsible(&mut tx, cmd).await?;
+        });
+        Ok(())
+    }
+
+    async fn edit_club_act(&self, actor: &Actor, cmd: EditClubAct) -> Result<(), CommandError> {
+        write_tx!(self, tx, { edit_club_act(&mut tx, actor, cmd).await? });
+        Ok(())
+    }
+
     async fn add_rider(&self, actor: &Actor, cmd: AddRider) -> Result<RiderId, CommandError> {
         Ok(write_tx!(self, tx, {
             add_rider(&mut tx, actor, cmd).await?
@@ -178,5 +208,95 @@ async fn replace_act_rider(
     rules::check_act_participants(&participants, old, new)?;
 
     registration::replace_rider(conn, act, old, new).await?;
+    Ok(())
+}
+
+async fn create_club(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    cmd: CreateClub,
+) -> Result<ClubId, CommandError> {
+    let club_id = ClubId::new();
+    sqlx::query!(
+        "INSERT INTO clubs (id, name, owner_id) VALUES ($1, $2, $3)",
+        club_id,
+        cmd.name,
+        actor.user_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE users SET club_id = $1 WHERE id = $2",
+        club_id,
+        actor.user_id
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(club_id)
+}
+
+async fn rename_club(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    cmd: RenameClub,
+) -> Result<(), CommandError> {
+    if actor.manage_registrations() {
+        sqlx::query!(
+            "UPDATE clubs SET name = $1 WHERE id = $2",
+            cmd.name,
+            cmd.club_id
+        )
+        .execute(&mut *conn)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE clubs SET name = $1 WHERE id = $2 AND owner_id = $3",
+            cmd.name,
+            cmd.club_id,
+            actor.user_id,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn set_club_responsible(
+    conn: &mut SqliteConnection,
+    cmd: SetClubResponsible,
+) -> Result<(), CommandError> {
+    sqlx::query!(
+        "UPDATE clubs SET responsible_name = $1, responsible_email = $2 WHERE id = $3",
+        cmd.name,
+        cmd.email,
+        cmd.club_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn edit_club_act(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    cmd: EditClubAct,
+) -> Result<(), CommandError> {
+    act_access(conn, actor, cmd.act_id).await?;
+    let competition = crate::competition::current(&mut *conn).await?;
+    let set_description = Features::of(competition.as_ref()).moderation_input;
+    sqlx::query!(
+        r#"
+        UPDATE acts
+        SET name = $1,
+            description = CASE WHEN $2 THEN $3 ELSE description END
+        WHERE id = $4
+        "#,
+        cmd.name,
+        set_description,
+        cmd.description,
+        cmd.act_id,
+    )
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }

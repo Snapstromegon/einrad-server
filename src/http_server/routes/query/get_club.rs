@@ -1,15 +1,13 @@
 use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json, extract::Query};
-use db_core::DbHandle;
+use db_core::{prelude::*, queries::club::GetClub};
 use tracing::instrument;
 
 use crate::{
     bookings::{Payment, round_cents},
-    competition::Features,
     fees::AmountDue,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     jury::JuryObligation,
-    roles::Permission,
     utils::club_code,
 };
 
@@ -69,51 +67,42 @@ pub async fn get_club(
     Query(query): Query<GetClubQuery>,
     auth: Option<Auth>,
 ) -> Result<Json<Club>, HttpError> {
-    let mut club_id = query.club_id;
-    if let Some(auth) = &auth
-        && club_id.is_none()
-    {
-        club_id = auth.club_id;
-    }
-    if let Some(club_id) = club_id {
-        let row = repo.find_club(club_id).await?.ok_or(HttpError::NotFound)?;
-        let may_see_owner = auth.as_ref().is_some_and(|auth| {
-            auth.can(Permission::ManageRegistrations) || auth.club_id == Some(row.id)
-        });
-        let mut club = Club {
-            id: row.id,
-            name: row.name,
-            owner_id: row.owner_id,
-            paid: None,
-            payments: None,
-            code: club_code(&row.id),
-            owner_name: row.owner_name,
-            owner_email: row.owner_email,
-            responsible_name: row.responsible_name,
-            responsible_email: row.responsible_email,
-            amount_due: None,
-            fee_waived: None,
-            jury: None,
-        };
-        if may_see_owner {
-            let features = Features::from_repo(&*repo).await?;
-            let fees = repo
-                .fees_of_club(features.jury_registration, club.id)
-                .await?;
-            let payments = repo.payments_of_club(club.id).await?;
-            club.paid = Some(round_cents(payments.iter().map(|p| p.amount).sum()));
-            club.payments = Some(payments);
-            club.amount_due = Some(fees.amount_due);
+    let actor = auth.as_ref().map(Auth::actor);
+    let club_id = query
+        .club_id
+        .or_else(|| auth.as_ref().and_then(|auth| auth.club_id))
+        .ok_or(HttpError::NotFound)?;
+    let view = repo.get_club(actor.as_ref(), GetClub { club_id }).await?;
+    let row = view.profile;
+    let mut club = Club {
+        id: row.id,
+        name: row.name,
+        owner_id: row.owner_id,
+        paid: None,
+        payments: None,
+        code: club_code(&row.id),
+        owner_name: row.owner_name,
+        owner_email: row.owner_email,
+        responsible_name: row.responsible_name,
+        responsible_email: row.responsible_email,
+        amount_due: None,
+        fee_waived: None,
+        jury: None,
+    };
+    match view.details {
+        Some(details) => {
+            club.paid = Some(round_cents(details.payments.iter().map(|p| p.amount).sum()));
+            club.payments = Some(details.payments);
+            club.amount_due = Some(details.fees.amount_due);
             club.fee_waived = Some(row.fee_waived);
-            club.jury = fees.jury;
-        } else {
+            club.jury = details.fees.jury;
+        }
+        None => {
             club.owner_name = None;
             club.owner_email = None;
             club.responsible_name = None;
             club.responsible_email = None;
         }
-        Ok(Json(club))
-    } else {
-        Err(HttpError::NotFound)
     }
+    Ok(Json(club))
 }
