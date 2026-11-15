@@ -14,7 +14,10 @@ use db_core::{
     finals::SlotGroupInput,
     heats::{self, CategoryInfo, Discipline},
     ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId, JuryUnitId},
-    structure_rules::{self, FinalPlanFacts, HeatCategoryFacts, NameCode, SlotHeatFacts},
+    structure_rules::{
+        self, ActRunFacts, FeederActFacts, FinalPlanFacts, FinalRunFacts, HeatCategoryFacts,
+        NameCode, SlotHeatFacts,
+    },
 };
 use sqlx::SqliteConnection;
 
@@ -36,37 +39,65 @@ pub(crate) async fn default_threshold_of(
     Ok(heats::default_threshold(under_ages))
 }
 
+/// The slots and timeplan blocks of the finals `heat_id` feeds, with whether
+/// each has started.
+async fn final_run_of_heat(
+    conn: &mut SqliteConnection,
+    heat_id: HeatId,
+) -> sqlx::Result<FinalRunFacts> {
+    let slots_started = sqlx::query_scalar!(
+        r#"
+        SELECT started_at IS NOT NULL as "started!: bool" FROM final_slots
+        WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
+        "#,
+        heat_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let blocks_started = sqlx::query_scalar!(
+        r#"
+        SELECT started_at IS NOT NULL as "started!: bool" FROM timeplan
+        WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
+        "#,
+        heat_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(FinalRunFacts {
+        slots_started,
+        blocks_started,
+    })
+}
+
 /// Whether an act of the heat, or its final (a slot or its block), has
-/// started: then its Vorlauf can no longer be skipped or restored (Q5).
+/// started: then its Vorlauf can no longer be skipped or restored (Q5). The
+/// decision is [`structure_rules::heat_has_started`].
 pub(crate) async fn heat_has_started(
     conn: &mut SqliteConnection,
     heat_id: HeatId,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar!(
+    let acts = sqlx::query!(
         r#"
         SELECT
-            EXISTS (
-                SELECT 1 FROM acts
-                JOIN view_act ON view_act.id = acts.id
-                JOIN categories ON categories.id = view_act.category_id
-                WHERE categories.heat_id = ?1 AND acts.started_at IS NOT NULL
-                    AND view_act.withdrawn_at IS NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM final_slots
-                WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
-                    AND started_at IS NOT NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM timeplan
-                WHERE final_id IN (SELECT final_id FROM final_slots WHERE heat_id = ?1)
-                    AND started_at IS NOT NULL
-            ) as "started!: bool"
+            acts.started_at IS NOT NULL as "started!: bool",
+            view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool"
+        FROM acts
+        JOIN view_act ON view_act.id = acts.id
+        JOIN categories ON categories.id = view_act.category_id
+        WHERE categories.heat_id = ?1
         "#,
         heat_id
     )
-    .fetch_one(conn)
-    .await
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|row| ActRunFacts {
+        started: row.started,
+        withdrawn: row.withdrawn,
+    })
+    .collect::<Vec<_>>();
+    let finals = final_run_of_heat(conn, heat_id).await?;
+    Ok(structure_rules::heat_has_started(&acts, &finals))
 }
 
 /// The name of a heat, or `None` if there is none with that id.
@@ -332,35 +363,56 @@ pub(crate) async fn check_final_heats(
 }
 
 /// Whether the final has started: a slot, its timeplan block, or one of its
-/// direct acts (an act of a skipped heat that fills it). A final that runs
-/// only direct acts (group finals, skipped heats) has no started slot.
+/// direct acts (an act of a skipped heat that fills it). The decision is
+/// [`structure_rules::final_has_started`].
 pub(crate) async fn final_has_started(
     conn: &mut SqliteConnection,
     final_id: FinalId,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar!(
+    let slots_started = sqlx::query_scalar!(
+        r#"SELECT started_at IS NOT NULL as "started!: bool" FROM final_slots WHERE final_id = ?1"#,
+        final_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let blocks_started = sqlx::query_scalar!(
+        r#"SELECT started_at IS NOT NULL as "started!: bool" FROM timeplan WHERE final_id = ?1"#,
+        final_id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let feeder_acts = sqlx::query!(
         r#"
         SELECT
-            EXISTS (
-                SELECT 1 FROM final_slots WHERE final_id = ?1 AND started_at IS NOT NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM timeplan WHERE final_id = ?1 AND started_at IS NOT NULL
-            )
-            OR EXISTS (
-                SELECT 1 FROM acts
-                JOIN view_act ON view_act.id = acts.id
-                JOIN categories ON categories.id = view_act.category_id
-                JOIN heats ON heats.id = categories.heat_id
-                WHERE heats.skip AND acts.started_at IS NOT NULL
-                    AND view_act.withdrawn_at IS NULL
-                    AND heats.id IN (SELECT heat_id FROM final_slots WHERE final_id = ?1)
-            ) as "started!: bool"
+            heats.skip as "heat_skipped!: bool",
+            acts.started_at IS NOT NULL as "started!: bool",
+            view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool"
+        FROM acts
+        JOIN view_act ON view_act.id = acts.id
+        JOIN categories ON categories.id = view_act.category_id
+        JOIN heats ON heats.id = categories.heat_id
+        WHERE heats.id IN (SELECT heat_id FROM final_slots WHERE final_id = ?1)
         "#,
         final_id
     )
-    .fetch_one(conn)
-    .await
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|row| FeederActFacts {
+        heat_skipped: row.heat_skipped,
+        act: ActRunFacts {
+            started: row.started,
+            withdrawn: row.withdrawn,
+        },
+    })
+    .collect::<Vec<_>>();
+    Ok(structure_rules::final_has_started(
+        &FinalRunFacts {
+            slots_started,
+            blocks_started,
+        },
+        &feeder_acts,
+    ))
 }
 
 /// The name of a final, or `None` if there is none with that id.

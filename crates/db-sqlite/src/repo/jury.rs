@@ -13,6 +13,7 @@ use db_core::{
         JuryUnitRow, JuryUnitRows, ListedRegistration, RemapOutcome, RemapProblem,
         RemapRegistration, UnmappedRegistration, already_assigned_message, check_plan_publishable,
         check_task_assignable, check_unit_registration, parse_unit_label, unit_columns,
+        unit_registrable,
     },
     registration_rules::RiderName,
 };
@@ -29,13 +30,19 @@ async fn unit_is_registrable(
     kind: JuryUnitKind,
     id: JuryUnitId,
 ) -> sqlx::Result<Option<bool>> {
-    sqlx::query_scalar!(
-        r#"SELECT registrable as "registrable!: bool" FROM view_jury_unit WHERE kind = $1 AND id = $2"#,
+    Ok(sqlx::query!(
+        r#"
+        SELECT
+            registrable_setting as "registrable_setting!: bool",
+            skipped as "skipped!: bool"
+        FROM view_jury_unit WHERE kind = $1 AND id = $2
+        "#,
         kind,
         id
     )
     .fetch_optional(conn)
-    .await
+    .await?
+    .map(|row| unit_registrable(row.registrable_setting, row.skipped)))
 }
 
 /// The jury's age rule of the current competition; `None` without a
@@ -186,7 +193,6 @@ impl JuryRepo for SqliteRepo {
                 name as "name!",
                 code as "code!",
                 description,
-                registrable as "registrable!: bool",
                 registrable_setting as "registrable_setting!: bool",
                 skipped as "skipped!: bool",
                 deployments as "deployments!: i64",
@@ -205,7 +211,7 @@ impl JuryRepo for SqliteRepo {
             name: row.name,
             code: row.code,
             description: row.description,
-            registrable: row.registrable,
+            registrable: unit_registrable(row.registrable_setting, row.skipped),
             registrable_setting: row.registrable_setting,
             skipped: row.skipped,
             deployments: row.deployments,
@@ -269,7 +275,8 @@ impl JuryRepo for SqliteRepo {
                 judge_registration.unit_id as "unit_id!: JuryUnitId",
                 view_jury_unit.kind as "unit_kind!: JuryUnitKind",
                 judge_registration.task as "task!: JudgeTask",
-                NOT view_jury_unit.registrable as "flagged!: bool"
+                view_jury_unit.registrable_setting as "registrable_setting!: bool",
+                view_jury_unit.skipped as "skipped!: bool"
             FROM judge_registration
             JOIN judge ON judge.id = judge_registration.judge_id
             JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
@@ -288,7 +295,7 @@ impl JuryRepo for SqliteRepo {
                     unit_kind: row.unit_kind,
                     unit_id: row.unit_id,
                     task: row.task,
-                    flagged: row.flagged,
+                    flagged: !unit_registrable(row.registrable_setting, row.skipped),
                 });
         }
         let mut unmapped: HashMap<JudgeId, Vec<UnmappedRegistration>> = HashMap::new();

@@ -253,6 +253,74 @@ pub fn check_slot_groups_change(
     Ok(true)
 }
 
+/// An act as the "has it started" decision sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActRunFacts {
+    pub started: bool,
+    pub withdrawn: bool,
+}
+
+impl ActRunFacts {
+    /// A withdrawn act doesn't count, even if it had started.
+    #[must_use]
+    pub fn counts_as_started(&self) -> bool {
+        self.started && !self.withdrawn
+    }
+}
+
+fn any_counts(acts: &[ActRunFacts]) -> bool {
+    acts.iter().any(ActRunFacts::counts_as_started)
+}
+
+/// What a final's run shows: whether its slots and its timeplan blocks
+/// started.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FinalRunFacts {
+    /// Per slot of the final(s): has it started.
+    pub slots_started: Vec<bool>,
+    /// Per timeplan block running the final(s): has it started.
+    pub blocks_started: Vec<bool>,
+}
+
+impl FinalRunFacts {
+    /// A slot or the block of the final has started.
+    #[must_use]
+    pub fn has_started(&self) -> bool {
+        self.slots_started
+            .iter()
+            .chain(&self.blocks_started)
+            .any(|&s| s)
+    }
+}
+
+/// A heat has started when one of its acts has (a withdrawn one doesn't
+/// count) or when a final it feeds has (a slot, or its block). Then its
+/// Vorlauf can no longer be skipped or restored.
+#[must_use]
+pub fn heat_has_started(heat_acts: &[ActRunFacts], finals: &FinalRunFacts) -> bool {
+    any_counts(heat_acts) || finals.has_started()
+}
+
+/// An act of a heat that feeds a final.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeederActFacts {
+    /// Its heat skips the Vorlauf.
+    pub heat_skipped: bool,
+    pub act: ActRunFacts,
+}
+
+/// A final has started when a slot or its block has, or when an act of a
+/// skipped heat that fills it has (a withdrawn one doesn't count; acts of a
+/// heat with a Vorlauf run there, not in the final). A final that runs only
+/// direct acts (group finals, skipped heats) has no started slot.
+#[must_use]
+pub fn final_has_started(finals: &FinalRunFacts, feeder_acts: &[FeederActFacts]) -> bool {
+    finals.has_started()
+        || feeder_acts
+            .iter()
+            .any(|a| a.heat_skipped && a.act.counts_as_started())
+}
+
 /// Refuses (409) to delete a final that has started or whose jury unit has
 /// judges.
 pub fn check_final_deletable(started: bool, jury_unit_use: i64) -> Result<(), RegistrationError> {
@@ -409,6 +477,43 @@ mod tests {
             | RegistrationError::NotFoundMessage(m) => m,
             other => panic!("no message: {other:?}"),
         }
+    }
+
+    #[test]
+    fn what_counts_as_started() {
+        let run = |started, withdrawn| ActRunFacts { started, withdrawn };
+        let feeder = |heat_skipped, started, withdrawn| FeederActFacts {
+            heat_skipped,
+            act: run(started, withdrawn),
+        };
+        let nothing = FinalRunFacts::default();
+        let slot = FinalRunFacts {
+            slots_started: vec![false, true],
+            blocks_started: vec![],
+        };
+        let block = FinalRunFacts {
+            slots_started: vec![false],
+            blocks_started: vec![true],
+        };
+        // Nothing ran.
+        assert!(!heat_has_started(&[run(false, false)], &nothing));
+        assert!(!final_has_started(&nothing, &[feeder(true, false, false)]));
+        // A started act starts the heat; a withdrawn one doesn't.
+        assert!(heat_has_started(
+            &[run(false, false), run(true, false)],
+            &nothing
+        ));
+        assert!(!heat_has_started(&[run(true, true)], &nothing));
+        // The final's slots or block start the heat and the final.
+        assert!(heat_has_started(&[], &slot));
+        assert!(heat_has_started(&[], &block));
+        assert!(final_has_started(&slot, &[]));
+        assert!(final_has_started(&block, &[]));
+        // Acts of a skipped heat start the final, unless withdrawn.
+        assert!(final_has_started(&nothing, &[feeder(true, true, false)]));
+        assert!(!final_has_started(&nothing, &[feeder(true, true, true)]));
+        // Acts of a heat with a Vorlauf start that, not the final.
+        assert!(!final_has_started(&nothing, &[feeder(false, true, false)]));
     }
 
     fn single(male: bool) -> Discipline {

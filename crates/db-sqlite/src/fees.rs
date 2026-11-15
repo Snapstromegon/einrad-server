@@ -10,7 +10,7 @@ use db_core::{
     ids::{ClubId, JudgeId, JuryUnitId},
     jury::{
         JudgeFacts, JudgeTask, JuryActFacts, JuryClubFacts, JuryFacts, JuryFeeRules,
-        UnitRegistration,
+        JuryParticipantFacts, UnitRegistration,
     },
 };
 use sqlx::{SqliteConnection, SqlitePool};
@@ -132,21 +132,26 @@ async fn jury_facts(
     })
     .collect();
 
-    let mut participant_clubs: HashMap<_, Vec<ClubId>> = HashMap::new();
+    let mut participants: HashMap<_, Vec<JuryParticipantFacts>> = HashMap::new();
     for row in sqlx::query!(
         r#"
-        SELECT p.act_id as "act_id!", s.club_id as "club_id!: ClubId"
+        SELECT
+            p.act_id as "act_id!",
+            s.club_id as "club_id!: ClubId",
+            p.is_replacement as "is_replacement!: bool"
         FROM act_participants p JOIN rider s ON s.id = p.rider_id
-        WHERE NOT p.is_replacement
         "#
     )
     .fetch_all(&mut *conn)
     .await?
     {
-        participant_clubs
+        participants
             .entry(row.act_id)
             .or_default()
-            .push(row.club_id);
+            .push(JuryParticipantFacts {
+                club_id: row.club_id,
+                is_replacement: row.is_replacement,
+            });
     }
     let acts = sqlx::query!(
         r#"
@@ -171,7 +176,7 @@ async fn jury_facts(
         act_type: row.act_type,
         regular_count: row.regular_count,
         owner_club: row.owner_club,
-        participant_clubs: participant_clubs.remove(&row.id).unwrap_or_default(),
+        participants: participants.remove(&row.id).unwrap_or_default(),
     })
     .collect();
 

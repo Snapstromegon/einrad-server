@@ -80,8 +80,15 @@ pub struct JuryActFacts {
     pub regular_count: i64,
     /// The group's creator.
     pub owner_club: Option<ClubId>,
-    /// The clubs of the regular riders.
-    pub participant_clubs: Vec<ClubId>,
+    /// All riders of the act, replacements included.
+    pub participants: Vec<JuryParticipantFacts>,
+}
+
+/// A rider of an act as the jury obligation sees them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JuryParticipantFacts {
+    pub club_id: ClubId,
+    pub is_replacement: bool,
 }
 
 impl JuryActFacts {
@@ -103,8 +110,13 @@ impl JuryActFacts {
     /// those) counts for one of them, the lowest.
     #[must_use]
     pub fn counting_club(&self) -> Option<ClubId> {
-        self.owner_club
-            .or_else(|| self.participant_clubs.iter().min().copied())
+        self.owner_club.or_else(|| {
+            self.participants
+                .iter()
+                .filter(|p| !p.is_replacement)
+                .map(|p| p.club_id)
+                .min()
+        })
     }
 }
 
@@ -237,6 +249,13 @@ pub fn check_task_assignable(is_trained: bool, task: JudgeTask) -> Result<(), Re
             "Nicht geschulte Personen können nur Abstiege zählen.".to_string(),
         ))
     }
+}
+
+/// Whether judges can register for a unit: its setting allows it and it
+/// isn't a Vorlauf that is skipped (a skipped one has no judging of its own).
+#[must_use]
+pub fn unit_registrable(registrable_setting: bool, skipped: bool) -> bool {
+    registrable_setting && !skipped
 }
 
 /// A judge registers for a unit that exists; for one that takes no
@@ -915,7 +934,13 @@ mod obligation_tests {
             act_type: ActType::Single,
             regular_count: riders.len() as i64,
             owner_club: owner,
-            participant_clubs: riders.to_vec(),
+            participants: riders
+                .iter()
+                .map(|&club_id| JuryParticipantFacts {
+                    club_id,
+                    is_replacement: false,
+                })
+                .collect(),
         }
     }
 
@@ -950,6 +975,32 @@ mod obligation_tests {
             club_id: id,
             deployments_override,
         }
+    }
+
+    #[test]
+    fn a_replacement_never_decides_the_counting_club() {
+        let (low, high) = (ClubId::new(), ClubId::new());
+        let (low, high) = (low.min(high), low.max(high));
+        let mut facts = act(None, &[high]);
+        facts.participants.push(JuryParticipantFacts {
+            club_id: low,
+            is_replacement: true,
+        });
+        assert_eq!(facts.counting_club(), Some(high));
+        // Across clubs the lowest regular rider's club counts.
+        facts.participants[1].is_replacement = false;
+        assert_eq!(facts.counting_club(), Some(low));
+        // The creator of a group wins over every rider.
+        facts.owner_club = Some(high);
+        assert_eq!(facts.counting_club(), Some(high));
+    }
+
+    #[test]
+    fn a_skipped_unit_takes_no_registrations() {
+        assert!(unit_registrable(true, false));
+        assert!(!unit_registrable(false, false));
+        assert!(!unit_registrable(true, true));
+        assert!(!unit_registrable(false, true));
     }
 
     #[test]

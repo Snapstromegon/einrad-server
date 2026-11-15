@@ -343,7 +343,10 @@ mod tests {
                     act_type: ActType::Single,
                     regular_count: 1,
                     owner_club: None,
-                    participant_clubs: vec![club],
+                    participants: vec![crate::jury::JuryParticipantFacts {
+                        club_id: club,
+                        is_replacement: false,
+                    }],
                 })
                 .collect(),
             judges: vec![],
