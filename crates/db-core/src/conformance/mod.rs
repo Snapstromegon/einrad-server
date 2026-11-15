@@ -1,9 +1,19 @@
 //! Backend conformance tests (#238): the same tests, written against
 //! `&dyn Db`, run against every backend.
 //!
-//! A backend crate enables the `conformance` feature of `db-core` for its
-//! tests and runs [`conformance_tests!`](crate::conformance_tests) with a
-//! constructor of a fresh, empty, migrated database:
+//! A backend crate needs three things to run the suite:
+//!
+//! 1. the `conformance` feature of `db-core` in its `dev-dependencies`;
+//! 2. `tokio` with the `macros` and `rt` features in its `dev-dependencies`
+//!    (the macro expands to `#[tokio::test]` functions);
+//! 3. one line in a test file (e.g. `tests/conformance.rs`), with a
+//!    constructor of a fresh, empty, migrated database:
+//!
+//! ```toml
+//! [dev-dependencies]
+//! db-core = { workspace = true, features = ["conformance"] }
+//! tokio = { workspace = true, features = ["macros", "rt"] }
+//! ```
 //!
 //! ```ignore
 //! db_core::conformance_tests!(|| async { SqliteRepo::in_memory().await.into_handle() });
@@ -15,7 +25,9 @@
 //! To add a test: write `pub async fn name(db: &dyn Db)` in a submodule,
 //! `pub use` the module and list `name` in `conformance_list!` below. That
 //! list is the only registration; the `registered_tests` unit test fails when
-//! a `pub async fn` of this directory is missing from it.
+//! a `pub async fn` of this directory is missing from it, and also when a
+//! column-0 `pub` function mentions `dyn` without being exactly
+//! `pub async fn name(db: &dyn Db)`. Helpers are `pub(super)` or indented.
 
 use crate::{
     Db,
