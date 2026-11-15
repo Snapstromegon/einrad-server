@@ -2,7 +2,9 @@
 //! (CQRS), one method per command or query endpoint, in exactly one area
 //! trait under `db_core::commands` / `db_core::queries`.
 //!
-//! * The OpenAPI schema snapshot proves the generated client stays unchanged.
+//! * The full OpenAPI snapshot (`tests/openapi_snapshot.json`: paths, parameters,
+//!   request/response schemas, every component schema with fields, types,
+//!   required, enums, formats and docs) proves the generated client stays unchanged.
 //! * The mapping test compares the endpoints with the area traits' methods.
 //!   `NOT_YET_MIGRATED` is a ratchet: it starts with every DB endpoint and
 //!   may only shrink; a migrated endpoint that is still listed fails.
@@ -226,47 +228,71 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-// ── schema snapshot ──
+// ── API snapshot ──
 
-fn snapshot_lines() -> Vec<String> {
-    let openapi = get_api_openapi();
-    let mut lines: Vec<String> = openapi
-        .components
-        .iter()
-        .flat_map(|c| c.schemas.keys())
-        .map(|name| format!("schema {name}"))
-        .collect();
-    lines.extend(openapi.paths.paths.keys().map(|p| format!("path {p}")));
-    lines.sort();
-    lines
+/// The whole OpenAPI document as normalized JSON: object keys sorted
+/// (serde_json's `Value` keeps them in a `BTreeMap`), arrays in the order
+/// utoipa emits them (deterministic: struct field order, path order), and
+/// only `info.version` stripped, since it follows the crate version.
+/// Doc descriptions stay in: they are part of the published API docs and the
+/// generated client, and regenerating is one env var.
+fn normalized_openapi() -> String {
+    let mut value = serde_json::to_value(get_api_openapi()).expect("openapi serializes");
+    if let Some(info) = value.get_mut("info").and_then(|i| i.as_object_mut()) {
+        info.remove("version");
+    }
+    serde_json::to_string_pretty(&value).unwrap() + "\n"
+}
+
+/// Shows the first differing lines, so a changed field is obvious.
+fn line_diff(expected: &str, current: &str) -> String {
+    let e: Vec<&str> = expected.lines().collect();
+    let c: Vec<&str> = current.lines().collect();
+    let mut out = String::new();
+    let mut shown = 0;
+    let (mut i, mut j) = (0, 0);
+    while (i < e.len() || j < c.len()) && shown < 40 {
+        if i < e.len() && j < c.len() && e[i] == c[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        // resync: look ahead for the next common line
+        let sync = (1..200).find_map(|d| {
+            (0..=d).find_map(|k| {
+                let (a, b) = (i + k, j + d - k);
+                (a < e.len() && b < c.len() && e[a] == c[b] && (a > i || b > j)).then_some((a, b))
+            })
+        });
+        let (ni, nj) = sync.unwrap_or((e.len(), c.len()));
+        for l in &e[i..ni] {
+            out.push_str(&format!("- {l}\n"));
+        }
+        for l in &c[j..nj] {
+            out.push_str(&format!("+ {l}\n"));
+        }
+        shown += (ni - i) + (nj - j);
+        (i, j) = (ni, nj);
+    }
+    out
 }
 
 #[test]
-fn the_openapi_schemas_and_paths_match_the_snapshot() {
-    let snapshot_path = root().join("tests/openapi_schemas.txt");
-    let current = snapshot_lines();
+fn the_openapi_document_matches_the_snapshot() {
+    let snapshot_path = root().join("tests/openapi_snapshot.json");
+    let current = normalized_openapi();
     if std::env::var_os("UPDATE_OPENAPI_SNAPSHOT").is_some() {
-        std::fs::write(&snapshot_path, current.join("\n") + "\n").unwrap();
+        std::fs::write(&snapshot_path, &current).unwrap();
         return;
     }
-    let expected: Vec<String> = std::fs::read_to_string(&snapshot_path)
-        .expect("tests/openapi_schemas.txt is missing")
-        .lines()
-        .map(str::to_string)
-        .collect();
-    let current_set: BTreeSet<_> = current.iter().collect();
-    let expected_set: BTreeSet<_> = expected.iter().collect();
-    let mut diff = String::new();
-    for line in expected_set.difference(&current_set) {
-        diff.push_str(&format!("- {line}\n"));
-    }
-    for line in current_set.difference(&expected_set) {
-        diff.push_str(&format!("+ {line}\n"));
-    }
+    let expected = std::fs::read_to_string(&snapshot_path)
+        .expect("tests/openapi_snapshot.json is missing (UPDATE_OPENAPI_SNAPSHOT=1 creates it)");
     assert!(
-        diff.is_empty(),
-        "the OpenAPI document changed (- removed, + added); the generated client changes with it. \
-         If intended, rerun with UPDATE_OPENAPI_SNAPSHOT=1:\n{diff}"
+        expected == current,
+        "the OpenAPI document changed (- snapshot, + current); the generated client changes with it. \
+         If intended, rerun with UPDATE_OPENAPI_SNAPSHOT=1 and review the diff of \
+         tests/openapi_snapshot.json:\n{}",
+        line_diff(&expected, &current)
     );
 }
 
