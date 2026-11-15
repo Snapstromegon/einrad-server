@@ -1,8 +1,8 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -16,7 +16,7 @@ pub struct SetJuryDeploymentsOverrideResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetJuryDeploymentsOverrideBody {
-    club_id: Uuid,
+    club_id: ClubId,
     /// The deployments to credit the club with; null to use the registered
     /// ones again.
     deployments: Option<i64>,

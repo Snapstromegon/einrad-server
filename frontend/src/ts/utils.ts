@@ -66,6 +66,7 @@ export const finalistAct = (
     ? {
         id: finalist.act.id,
         name: finalist.act.name,
+        category_id: finalist.act.category_id,
         category: finalist.act.category,
         category_description: finalist.act.category_description,
         status: finalist.status,

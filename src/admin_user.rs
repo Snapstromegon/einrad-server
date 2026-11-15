@@ -1,9 +1,9 @@
 //! The first admin: inserted from `[admin]`/`ADMIN` at startup, or by the
 //! first-run setup (ADR 0011).
 
+use crate::ids::UserId;
 use password_auth::generate_hash;
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::roles::Role;
 
@@ -78,7 +78,7 @@ pub async fn create_admin_with_hash(
     name: &str,
     email: &str,
     hash: &str,
-) -> sqlx::Result<Option<Uuid>> {
+) -> sqlx::Result<Option<UserId>> {
     let mut tx = db.begin().await?;
     let admins = sqlx::query_scalar!(
         r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
@@ -89,7 +89,7 @@ pub async fn create_admin_with_hash(
     if admins > 0 {
         return Ok(None);
     }
-    let id = Uuid::now_v7();
+    let id = UserId::new();
     sqlx::query!(
         "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, ?, true, ?, ?)",
         id,

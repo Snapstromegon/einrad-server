@@ -1,8 +1,8 @@
+use crate::ids::JudgeId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
@@ -16,7 +16,7 @@ pub struct DeleteClubJudgeResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteClubJudgeBody {
-    judge_id: Uuid,
+    judge_id: JudgeId,
 }
 
 /// Remove a judge with their registrations.

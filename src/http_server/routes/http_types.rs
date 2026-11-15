@@ -1,5 +1,4 @@
-use uuid::Uuid;
-
+use crate::ids::{ActId, CategoryId, ClubId, RiderId, UserId};
 use crate::{
     act_type::ActType,
     normalize::NormalizationStatus,
@@ -8,13 +7,13 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct User {
-    pub id: Uuid,
+    pub id: UserId,
     pub name: String,
     pub email: String,
     pub email_verified: bool,
     /// Sorted.
     pub roles: Vec<Role>,
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
 }
 
 /// The logged-in user with what their roles allow.
@@ -31,8 +30,8 @@ pub struct CurrentUser {
 pub struct ActParticipant {
     pub firstname: String,
     pub lastname: String,
-    pub id: Uuid,
-    pub club_id: Uuid,
+    pub id: RiderId,
+    pub club_id: ClubId,
     pub club_name: String,
     /// Replacement riders (Ersatzfahrer) of a group. Always false for singles
     /// and pairs.
@@ -41,12 +40,12 @@ pub struct ActParticipant {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Act {
-    pub id: Uuid,
+    pub id: ActId,
     pub name: String,
     /// Group acts only.
     pub group_name: Option<String>,
     /// Group acts only: the club that created the group.
-    pub owner_club_id: Option<Uuid>,
+    pub owner_club_id: Option<ClubId>,
     pub song_file: Option<String>,
     pub description: Option<String>,
     pub song_file_name: Option<String>,
@@ -61,8 +60,10 @@ pub struct Act {
     /// would give away the rider's birthdate.
     pub max_age: Option<f64>,
     pub participants: Vec<ActParticipant>,
-    /// `null` for acts no category matches, incomplete groups (fewer than 3
-    /// regular riders) and groups with a `type_conflict`.
+    /// The category's ID and name; `null` for acts no category matches,
+    /// incomplete groups (fewer than 3 regular riders) and groups with a
+    /// `type_conflict`.
+    pub category_id: Option<CategoryId>,
     pub category: Option<String>,
     /// Groups only: a rider is also in another group of the same type (a rider
     /// may start in one small and one large group). Such groups get no
@@ -107,10 +108,10 @@ impl Act {
 /// A row of `view_act` (left-joined with its category) as read by `list_acts`
 /// and `get_act`.
 pub struct DBAct {
-    pub id: Uuid,
+    pub id: ActId,
     pub name: String,
     pub group_name: Option<String>,
-    pub owner_club_id: Option<Uuid>,
+    pub owner_club_id: Option<ClubId>,
     pub song_file: Option<String>,
     pub description: Option<String>,
     pub song_file_name: Option<String>,
@@ -119,6 +120,7 @@ pub struct DBAct {
     pub act_type: ActType,
     pub max_age: Option<f64>,
     pub participants: sqlx::types::Json<Vec<ActParticipant>>,
+    pub category_id: Option<CategoryId>,
     pub category: Option<String>,
     pub type_conflict: bool,
     pub song_checked: bool,
@@ -146,6 +148,7 @@ impl From<DBAct> for Act {
             act_type: db_act.act_type,
             max_age: db_act.max_age,
             participants: db_act.participants.0,
+            category_id: db_act.category_id,
             category: db_act.category,
             type_conflict: db_act.type_conflict,
             song_checked: db_act.song_checked,

@@ -1,8 +1,8 @@
+use crate::ids::BookingId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     bookings::{self, Actor, Booking, BookingAction, BookingInput},
@@ -16,7 +16,7 @@ pub struct EditBookingResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditBookingBody {
-    booking_id: Uuid,
+    booking_id: BookingId,
     booking: BookingInput,
 }
 

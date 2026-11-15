@@ -4,8 +4,8 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::ClubId;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 /// A club whose contact is `contact` and, with `representative`, whose club
 /// representative has that name and email.
@@ -14,7 +14,7 @@ async fn club(
     contact: &str,
     club_name: &str,
     representative: Option<(&str, &str)>,
-) -> (String, Uuid) {
+) -> (String, ClubId) {
     let (cookie, club_id) = app.create_club_owner(contact, club_name).await;
     if let Some((name, email)) = representative {
         let response = app
@@ -163,7 +163,7 @@ async fn answers_go_to_the_contact_email_and_without_one_the_mail_says_not_to_an
 }
 
 /// The club code of `club_id`, as the club list shows it.
-async fn club_code(app: &TestApp, club_id: Uuid) -> String {
+async fn club_code(app: &TestApp, club_id: ClubId) -> String {
     let admin = app.create_admin().await;
     let clubs = app.get("/api/query/list_clubs", Some(&admin)).await;
     clubs

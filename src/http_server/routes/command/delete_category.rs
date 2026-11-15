@@ -1,3 +1,4 @@
+use crate::ids::CategoryId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -14,7 +15,7 @@ pub struct DeleteCategoryResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteCategoryBody {
-    name: String, // Primary key of the category to delete
+    category_id: CategoryId,
 }
 
 /// Delete a category.
@@ -46,9 +47,9 @@ pub async fn delete_category(
     // Delete timeplan entries that reference this category
     sqlx::query!(
         r#"
-        DELETE FROM timeplan WHERE category = $1
+        DELETE FROM timeplan WHERE category_id = $1
         "#,
-        body.name,
+        body.category_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -57,9 +58,9 @@ pub async fn delete_category(
     let result = sqlx::query!(
         r#"
         DELETE FROM categories
-        WHERE name = $1
+        WHERE id = $1
         "#,
-        body.name,
+        body.category_id,
     )
     .execute(&mut *tx)
     .await?;

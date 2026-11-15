@@ -10,14 +10,17 @@ mod add_sponsor;
 mod add_timeplan_entry;
 mod apply_jury_remap;
 mod assign_judge;
+mod clear_act_song;
 mod create_booking;
 mod create_club;
 mod create_club_group;
 mod create_competition;
+mod create_db_backup;
 mod delete_booking;
 mod delete_category;
 mod delete_club_group;
 mod delete_club_judge;
+mod delete_db_backups;
 mod delete_final;
 mod delete_heat;
 mod delete_rider;
@@ -62,6 +65,7 @@ mod resend_mail_validation;
 mod reset_block_order;
 mod reset_password;
 mod resolve_unmapped_registration;
+mod restore_db_backup;
 mod save_act_song;
 mod send_club_mail;
 mod set_act_music_started;
@@ -161,6 +165,10 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(set_block_order::set_block_order))
         .routes(routes!(reset_block_order::reset_block_order))
         .routes(routes!(reload_db::reload_db))
+        .routes(routes!(create_db_backup::create_db_backup))
+        .routes(routes!(restore_db_backup::restore_db_backup))
+        .routes(routes!(clear_act_song::clear_act_song))
+        .routes(routes!(delete_db_backups::delete_db_backups))
         .routes(routes!(
             preview_competition_import::preview_competition_import
         ))

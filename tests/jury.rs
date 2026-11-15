@@ -6,6 +6,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse, closed_registration};
+use einrad_server::ids::{ActId, ClubId};
 use serde_json::{
     Value::{self, Null},
     json,
@@ -218,7 +219,7 @@ async fn the_day_of_a_unit_follows_the_timeplan() {
     let admin = app.create_admin().await;
     // E EW (EWU17) starts on the second day, JE EW (EWU11) on the first.
     sqlx::query(
-        "UPDATE timeplan SET earliest_start_time = '2027-06-06T09:00:00+02:00' WHERE category = 'EWU17'",
+        "UPDATE timeplan SET earliest_start_time = '2027-06-06T09:00:00+02:00' WHERE category_id = (SELECT id FROM categories WHERE name = 'EWU17')",
     )
     .execute(&app.db)
     .await
@@ -322,7 +323,7 @@ async fn jury_endpoints_dont_exist_without_the_flag() {
 
 /// Body for `add_club_judge`; `registrations` are (jury unit, task).
 fn judge_body(
-    club_id: Uuid,
+    club_id: ClubId,
     firstname: &str,
     birthdate: &str,
     is_trained: bool,
@@ -357,7 +358,7 @@ async fn add_judge(app: &TestApp, cookie: &str, body: Value) -> TestResponse {
         .await
 }
 
-async fn club_judges(app: &TestApp, cookie: &str, club_id: Uuid) -> Vec<Value> {
+async fn club_judges(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
     let response = app
         .get(
             &format!("/api/query/list_club_judges?club_id={club_id}"),
@@ -631,7 +632,7 @@ async fn club(app: &TestApp, cookie: &str) -> Value {
 }
 
 /// A club with `singles` single riders, so as many Küren.
-async fn club_with_singles(app: &TestApp, singles: usize) -> (String, Uuid) {
+async fn club_with_singles(app: &TestApp, singles: usize) -> (String, ClubId) {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     for i in 0..singles {
         app.add_rider(
@@ -829,7 +830,7 @@ async fn kueren_count_like_the_start_fee() {
     assert_eq!(club(&app, &owner).await["jury"]["acts"], 3);
 
     // A withdrawn act counts unless its fee is waived.
-    let single: Value = sqlx::query_scalar::<_, Uuid>(
+    let single: Value = sqlx::query_scalar::<_, ActId>(
         "SELECT act_id FROM act_participants JOIN acts ON acts.id = act_id WHERE act_type = 'single' LIMIT 1",
     )
     .fetch_one(&app.db)
@@ -894,7 +895,7 @@ async fn there_is_no_jury_fee_without_the_flag() {
 
 // ---------- Juryplan (#231) ----------
 
-async fn plan(app: &TestApp, cookie: &str, club_id: Option<Uuid>) -> TestResponse {
+async fn plan(app: &TestApp, cookie: &str, club_id: Option<ClubId>) -> TestResponse {
     let uri = match club_id {
         Some(id) => format!("/api/query/list_jury_plan?club_id={id}"),
         None => "/api/query/list_jury_plan".to_string(),

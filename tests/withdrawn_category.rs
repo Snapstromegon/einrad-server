@@ -6,10 +6,10 @@ mod common;
 
 use axum::http::StatusCode;
 use common::TestApp;
+use einrad_server::ids::ActId;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
-async fn withdraw(app: &TestApp, admin: &str, act_id: Uuid) {
+async fn withdraw(app: &TestApp, admin: &str, act_id: ActId) {
     let response = app
         .post(
             "/api/command/set_act_withdrawn",
@@ -21,7 +21,7 @@ async fn withdraw(app: &TestApp, admin: &str, act_id: Uuid) {
 }
 
 /// Anna and Berta, both in EWU13, and Anna withdrawn.
-async fn two_acts_one_withdrawn(app: &TestApp) -> (String, Uuid, Uuid) {
+async fn two_acts_one_withdrawn(app: &TestApp) -> (String, ActId, ActId) {
     let admin = app.create_admin().await;
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app.add_single_act(&owner, club_id, "Anna").await;

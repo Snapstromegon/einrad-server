@@ -1,3 +1,4 @@
+use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -25,7 +26,7 @@ pub struct ResolveUnmappedRegistrationBody {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UnitRef {
     kind: JuryUnitKind,
-    id: uuid::Uuid,
+    id: JuryUnitId,
 }
 
 /// Resolve a registration the migration to jury units could not map (JURY-5):
@@ -54,7 +55,7 @@ pub async fn resolve_unmapped_registration(
     let mut transaction = begin_write(&db).await?;
     let unmapped = sqlx::query!(
         r#"
-        SELECT judge_id as "judge_id!: uuid::Uuid", task as "task!: jury::JudgeTask"
+        SELECT judge_id as "judge_id!: JudgeId", task as "task!: jury::JudgeTask"
         FROM judge_registration_unmapped WHERE id = ?
         "#,
         body.id

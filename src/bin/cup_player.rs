@@ -5,6 +5,7 @@
 
 use std::{io::Cursor, path::PathBuf, sync::mpsc};
 
+use crate::ids::PlayerId;
 use clap::Parser;
 use einrad_server::player::{
     Song, ToPlayer,
@@ -75,10 +76,10 @@ async fn main() -> eyre::Result<()> {
     let name = args.name.unwrap_or_else(computer_name);
     // The same id for the same name: a restarted player gets its active status
     // back if it's quick.
-    let id = Uuid::new_v5(
+    let id = PlayerId(Uuid::new_v5(
         &Uuid::NAMESPACE_URL,
         format!("cup-player:{name}").as_bytes(),
-    );
+    ));
 
     let songs = Songs::default();
     let (commands, commands_rx) = mpsc::channel::<ToPlayer>();

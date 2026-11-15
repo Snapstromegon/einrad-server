@@ -5,6 +5,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
+use einrad_server::ids::{ActId, ClubId, FinalId, HeatId};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
@@ -264,13 +265,13 @@ async fn the_organizer_changes_the_threshold() {
 }
 
 /// The id of the heat `name`; a made-up one for a heat that doesn't exist.
-async fn heat_id_or_unknown(app: &TestApp, name: &str) -> uuid::Uuid {
+async fn heat_id_or_unknown(app: &TestApp, name: &str) -> HeatId {
     sqlx::query_scalar("SELECT id FROM heats WHERE name = ?")
         .bind(name)
         .fetch_optional(&app.db)
         .await
         .unwrap()
-        .unwrap_or_else(uuid::Uuid::new_v4)
+        .unwrap_or_else(HeatId::new)
 }
 
 async fn set_skip(app: &TestApp, admin: &str, name: &str, skip: bool) -> TestResponse {
@@ -342,7 +343,7 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
 /// The body to add or (for a final that exists) edit the final `name` with
 /// one slot for each of the heats named.
 async fn final_body(app: &TestApp, name: &str, heats: &[&str]) -> Value {
-    let id: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM finals WHERE name = ?")
+    let id: Option<FinalId> = sqlx::query_scalar("SELECT id FROM finals WHERE name = ?")
         .bind(name)
         .fetch_optional(&app.db)
         .await
@@ -415,12 +416,7 @@ async fn a_heat_fills_at_most_one_final() {
 // The timeplan.
 
 /// Adds a single female act in EWU17 ("E EW") and returns its id.
-async fn add_ewu17_act(
-    app: &TestApp,
-    owner: &str,
-    club_id: uuid::Uuid,
-    firstname: &str,
-) -> uuid::Uuid {
+async fn add_ewu17_act(app: &TestApp, owner: &str, club_id: ClubId, firstname: &str) -> ActId {
     let mut body = common::rider_body(club_id, firstname, true, false);
     body["birthdate"] = json!("2011-05-01T00:00:00.000Z");
     let rider = app.add_rider(owner, body).await;
@@ -504,7 +500,7 @@ fn skipped(item: &Value) -> bool {
         .unwrap()
 }
 
-fn act(id: uuid::Uuid) -> String {
+fn act(id: ActId) -> String {
     format!("act:{id}")
 }
 
@@ -608,7 +604,7 @@ async fn finalist(app: &TestApp, heat: &str, number: i64) -> Value {
     json!({ "Finalist": { "heat_id": app.heat_id(heat).await, "number": number } })
 }
 
-fn act_input(id: uuid::Uuid) -> Value {
+fn act_input(id: ActId) -> Value {
     json!({ "Act": { "act_id": id } })
 }
 

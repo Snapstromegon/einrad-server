@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ids::UserId;
 use crate::{
     competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions},
@@ -47,7 +48,7 @@ pub async fn request_password_reset(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", name FROM users WHERE email = ?
+        SELECT id as "id!: UserId", name FROM users WHERE email = ?
         "#,
         body.email
     )

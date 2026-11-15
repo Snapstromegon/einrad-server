@@ -1,8 +1,8 @@
+use crate::ids::ActId;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -15,7 +15,7 @@ pub struct SetSongCheckedResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SongCheckedBody {
-    act_id: Uuid,
+    act_id: ActId,
     checked: bool,
 }
 

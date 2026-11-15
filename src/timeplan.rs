@@ -36,12 +36,12 @@
 //! "Weiter" never stops on them. A skipped block is marked as started and
 //! ended at the same time, so "ended and empty" means "skipped".
 
+use crate::ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId};
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqliteConnection;
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 /// The kind of a timeplan entry, stored as text in `timeplan.kind`.
 #[derive(
@@ -78,9 +78,10 @@ impl EntryKind {
 #[derive(Debug, PartialEq, Eq)]
 pub struct EntryFields {
     pub kind: EntryKind,
-    pub category: Option<String>,
+    /// The home category, by id.
+    pub category_id: Option<CategoryId>,
     /// The final the block runs, by id.
-    pub final_id: Option<Uuid>,
+    pub final_id: Option<FinalId>,
     pub label: Option<String>,
     pub duration_seconds: Option<i64>,
     pub einfahrzeit_seconds: Option<i64>,
@@ -97,23 +98,22 @@ impl EntryFields {
     /// duration. Fields that don't belong to the kind are dropped.
     pub fn new(
         kind: Option<EntryKind>,
-        category: Option<String>,
-        final_id: Option<Uuid>,
+        category_id: Option<CategoryId>,
+        final_id: Option<FinalId>,
         label: Option<String>,
         duration_seconds: Option<i64>,
         einfahrzeit_seconds: Option<i64>,
     ) -> Result<Self, &'static str> {
-        let category = category.filter(|c| !c.is_empty());
         let label = label
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty());
-        let kind = EntryKind::derive(kind, category.is_some() || final_id.is_some());
+        let kind = EntryKind::derive(kind, category_id.is_some() || final_id.is_some());
         match kind {
             EntryKind::Acts => {
-                if category.is_some() && final_id.is_some() {
+                if category_id.is_some() && final_id.is_some() {
                     return Err("Ein Startblock hat eine Kategorie oder ein Finale, nicht beides.");
                 }
-                if category.is_none() && final_id.is_none() && label.is_none() {
+                if category_id.is_none() && final_id.is_none() && label.is_none() {
                     return Err(
                         "Ein Startblock braucht eine Kategorie, ein Finale oder eine Bezeichnung.",
                     );
@@ -123,7 +123,7 @@ impl EntryFields {
                 }
                 Ok(Self {
                     kind,
-                    category,
+                    category_id,
                     final_id,
                     label,
                     duration_seconds: None,
@@ -133,7 +133,7 @@ impl EntryFields {
                 })
             }
             EntryKind::Custom => {
-                if category.is_some() || final_id.is_some() {
+                if category_id.is_some() || final_id.is_some() {
                     return Err("Eigene Einträge haben keine Kategorie und kein Finale.");
                 }
                 if label.is_none() || !duration_seconds.is_some_and(|d| d > 0) {
@@ -141,7 +141,7 @@ impl EntryFields {
                 }
                 Ok(Self {
                     kind,
-                    category,
+                    category_id,
                     final_id,
                     label,
                     duration_seconds,
@@ -236,9 +236,11 @@ pub struct CategoryInfo {
 /// An act in a start block.
 #[derive(Debug, Clone)]
 pub struct ActSlot {
-    pub id: Uuid,
+    pub id: ActId,
     pub name: String,
     /// The act's own category, which may differ from the block's.
+    pub category_id: CategoryId,
+    /// Its name, for messages.
     pub category: String,
     pub started_at: Option<OffsetDateTime>,
     pub ended_at: Option<OffsetDateTime>,
@@ -261,10 +263,10 @@ pub struct BreakSlot {
 /// A reserved slot of a final, e.g. "3. Finalist (E EM 1)".
 #[derive(Debug, Clone)]
 pub struct FinalistSlot {
-    pub id: Uuid,
-    pub final_id: Uuid,
+    pub id: FinalSlotId,
+    pub final_id: FinalId,
     pub final_name: String,
-    pub heat_id: Uuid,
+    pub heat_id: HeatId,
     /// The heat's short code.
     pub group_label: String,
     /// Counts within the group.
@@ -347,11 +349,12 @@ pub struct Entry {
     /// Custom entries: their name. Start blocks: an own name instead of the
     /// home category's, e.g. "Nachstarter".
     pub label: Option<String>,
-    /// Start blocks: the home category, if any.
+    /// Start blocks: the home category, if any, by id and name.
+    pub category_id: Option<CategoryId>,
     pub category: Option<String>,
     /// Start blocks: the final running here instead of a category, by id
     /// and name.
-    pub final_id: Option<Uuid>,
+    pub final_id: Option<FinalId>,
     pub final_name: Option<String>,
     /// Start blocks: overrides the home category's Einfahrzeit.
     pub einfahrzeit_override: Option<i64>,
@@ -395,27 +398,27 @@ impl Entry {
 #[derive(Debug)]
 pub struct Timeplan {
     pub entries: Vec<Entry>,
-    pub categories: HashMap<String, CategoryInfo>,
+    pub categories: HashMap<CategoryId, CategoryInfo>,
     /// The finals by id, with their durations.
-    pub finals: HashMap<Uuid, CategoryInfo>,
+    pub finals: HashMap<FinalId, CategoryInfo>,
     /// The acts that have a category, by id.
-    pub acts: HashMap<Uuid, ActSlot>,
+    pub acts: HashMap<ActId, ActSlot>,
     /// Which block each act sits in.
-    pub block_of_act: HashMap<Uuid, i64>,
+    pub block_of_act: HashMap<ActId, i64>,
     /// The acts of skipped heats, with the final they start in directly.
-    pub direct_acts: HashMap<Uuid, Uuid>,
+    pub direct_acts: HashMap<ActId, FinalId>,
 }
 
 /// The home block of each category, from `(id, category, started)` of the
 /// start blocks in order: the first block of the category that has started,
 /// otherwise the first one. So moving or inserting entries never takes
 /// started acts away from their block.
-pub fn home_blocks<'a>(
-    blocks: impl IntoIterator<Item = (i64, &'a str, bool)>,
-) -> HashMap<&'a str, i64> {
-    let mut homes: HashMap<&str, (i64, bool)> = HashMap::new();
+pub fn home_blocks(
+    blocks: impl IntoIterator<Item = (i64, CategoryId, bool)>,
+) -> HashMap<CategoryId, i64> {
+    let mut homes: HashMap<CategoryId, (i64, bool)> = HashMap::new();
     for (id, category, started) in blocks {
-        match homes.get(category) {
+        match homes.get(&category) {
             None => {
                 homes.insert(category, (id, started));
             }
@@ -434,15 +437,15 @@ pub fn home_blocks<'a>(
 impl Timeplan {
     /// The block an act without a stored slot runs in (see [`home_blocks`]),
     /// leaving out the block `without` (about to be deleted or changed).
-    pub fn home_block(&self, category: &str, without: Option<i64>) -> Option<&Entry> {
+    pub fn home_block(&self, category_id: CategoryId, without: Option<i64>) -> Option<&Entry> {
         let homes = home_blocks(self.entries.iter().filter_map(|e| {
             (e.kind == EntryKind::Acts && Some(e.id) != without).then_some((
                 e.id,
-                e.category.as_deref()?,
+                e.category_id?,
                 e.started_at.is_some(),
             ))
         }));
-        let id = homes.get(category)?;
+        let id = homes.get(&category_id)?;
         self.entries.iter().find(|e| e.id == *id)
     }
 
@@ -460,7 +463,7 @@ impl Timeplan {
             // A direct act's home is its final's block, not its category's.
             .filter(|act| !self.direct_acts.contains_key(&act.id))
             .filter(|act| {
-                self.home_block(&act.category, without)
+                self.home_block(act.category_id, without)
                     .is_some_and(|home| home.ended_at.is_some())
             })
             .map(|act| {
@@ -504,10 +507,11 @@ pub async fn load(db: &mut SqliteConnection) -> sqlx::Result<Timeplan> {
 /// effective warm-ups, as `audience` may see it.
 pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Result<Timeplan> {
     let public = audience == Audience::Public;
-    let mut category_order: HashMap<String, i64> = HashMap::new();
-    let categories: HashMap<String, CategoryInfo> = sqlx::query!(
+    let mut category_order: HashMap<CategoryId, i64> = HashMap::new();
+    let categories: HashMap<CategoryId, CategoryInfo> = sqlx::query!(
         r#"
         SELECT
+            id as "id!: CategoryId",
             name as "name!",
             description,
             "order",
@@ -521,9 +525,9 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     .await?
     .into_iter()
     .map(|row| {
-        category_order.insert(row.name.clone(), row.order.unwrap_or(i64::MAX));
+        category_order.insert(row.id, row.order.unwrap_or(i64::MAX));
         (
-            row.name.clone(),
+            row.id,
             CategoryInfo {
                 description: row.description.unwrap_or_else(|| row.name.clone()),
                 einfahrzeit_seconds: row.einfahrzeit_seconds,
@@ -534,10 +538,10 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     })
     .collect();
 
-    let finals: HashMap<Uuid, CategoryInfo> = sqlx::query!(
+    let finals: HashMap<FinalId, CategoryInfo> = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: FinalId",
             name as "name!",
             einfahrzeit_seconds,
             act_duration_seconds,
@@ -564,14 +568,15 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     let acts_in_order: Vec<ActSlot> = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: ActId",
             name,
+            category_id as "category_id!: CategoryId",
             category as "category!",
             started_at as "started_at: OffsetDateTime",
             ended_at as "ended_at: OffsetDateTime",
             music_started_at as "music_started_at: OffsetDateTime"
         FROM view_act
-        WHERE category IS NOT NULL AND withdrawn_at IS NULL
+        WHERE category_id IS NOT NULL AND withdrawn_at IS NULL
         ORDER BY "order"
         "#
     )
@@ -581,6 +586,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     .map(|row| ActSlot {
         id: row.id,
         name: row.name,
+        category_id: row.category_id,
         category: row.category,
         started_at: row.started_at,
         ended_at: row.ended_at,
@@ -588,7 +594,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         stored: false,
     })
     .collect();
-    let acts: HashMap<Uuid, ActSlot> = acts_in_order
+    let acts: HashMap<ActId, ActSlot> = acts_in_order
         .iter()
         .map(|act| (act.id, act.clone()))
         .collect();
@@ -601,8 +607,9 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             earliest_start_time as "earliest_start_time: OffsetDateTime",
             duration_seconds,
             CASE WHEN internal AND ?1 THEN ?2 ELSE label END as "label: String",
-            category,
-            final_id as "final_id: Uuid",
+            category_id as "category_id: CategoryId",
+            (SELECT name FROM categories WHERE categories.id = timeplan.category_id) as category,
+            final_id as "final_id: FinalId",
             (SELECT name FROM finals WHERE finals.id = timeplan.final_id) as final_name,
             einfahrzeit_seconds,
             show_photos,
@@ -621,25 +628,25 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     // Skipped heats whose final is planned: their acts start directly in
     // it, by category. A heat fills at most one final; should old data have
     // more, the first in final order counts.
-    let planned_finals: HashSet<Uuid> = rows
+    let planned_finals: HashSet<FinalId> = rows
         .iter()
         .filter(|row| row.kind == EntryKind::Acts)
         .filter_map(|row| row.final_id)
         .collect();
-    let mut direct_final: HashMap<String, Uuid> = HashMap::new();
-    let mut skipped_heats: HashSet<Uuid> = HashSet::new();
+    let mut direct_final: HashMap<CategoryId, FinalId> = HashMap::new();
+    let mut skipped_heats: HashSet<HeatId> = HashSet::new();
     for row in sqlx::query!(
         r#"
         SELECT
-            heats.id as "heat_id!: Uuid",
-            categories.name as "category?",
+            heats.id as "heat_id!: HeatId",
+            categories.id as "category_id?: CategoryId",
             (
                 SELECT final_slots.final_id
                 FROM final_slots JOIN finals ON finals.id = final_slots.final_id
                 WHERE final_slots.heat_id = heats.id
                 ORDER BY finals."order", finals.name
                 LIMIT 1
-            ) as "final_id?: Uuid"
+            ) as "final_id?: FinalId"
         FROM heats LEFT JOIN categories ON categories.heat_id = heats.id
         WHERE heats.skip
         "#
@@ -651,27 +658,27 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             continue;
         };
         skipped_heats.insert(row.heat_id);
-        if let Some(category) = row.category {
-            direct_final.insert(category, final_id);
+        if let Some(category_id) = row.category_id {
+            direct_final.insert(category_id, final_id);
         }
     }
-    let direct_acts: HashMap<Uuid, Uuid> = acts_in_order
+    let direct_acts: HashMap<ActId, FinalId> = acts_in_order
         .iter()
-        .filter_map(|act| Some((act.id, *direct_final.get(&act.category)?)))
+        .filter_map(|act| Some((act.id, *direct_final.get(&act.category_id)?)))
         .collect();
 
     // The finalist slots of each final, without those of skipped heats.
-    let mut finalists: HashMap<Uuid, Vec<FinalistSlot>> = HashMap::new();
+    let mut finalists: HashMap<FinalId, Vec<FinalistSlot>> = HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
-            final_slots.id as "id!: Uuid",
-            final_slots.final_id as "final_id!: Uuid",
+            final_slots.id as "id!: FinalSlotId",
+            final_slots.final_id as "final_id!: FinalId",
             finals.name as "final_name!",
-            final_slots.heat_id as "heat_id!: Uuid",
+            final_slots.heat_id as "heat_id!: HeatId",
             heats.code as "heat!",
             number,
-            act_id as "act_id: Uuid",
+            act_id as "act_id: ActId",
             finals.placement_published,
             final_slots.started_at as "started_at: OffsetDateTime",
             final_slots.ended_at as "ended_at: OffsetDateTime",
@@ -715,11 +722,12 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     let mut stored: HashMap<i64, Vec<Slot>> = HashMap::new();
     // Acts in a block's slots, also those hidden at the moment: they never
     // show up in their home block on top.
-    let mut placed: HashSet<Uuid> = HashSet::new();
+    let mut placed: HashSet<ActId> = HashSet::new();
     // The direct acts and finalist slots a final's block stores.
-    let mut placed_in_final: HashSet<Uuid> = HashSet::new();
+    let mut placed_in_final: HashSet<FinalSlotId> = HashSet::new();
+    let mut placed_direct: HashSet<ActId> = HashSet::new();
     // The start blocks, with the final running in them.
-    let act_blocks: HashMap<i64, Option<Uuid>> = rows
+    let act_blocks: HashMap<i64, Option<FinalId>> = rows
         .iter()
         .filter(|row| row.kind == EntryKind::Acts)
         .map(|row| (row.id, row.final_id))
@@ -729,12 +737,12 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
         SELECT
             id as "id!",
             timeplan_id,
-            act_id as "act_id: Uuid",
+            act_id as "act_id: ActId",
             label,
             duration_seconds,
             started_at as "started_at: OffsetDateTime",
             ended_at as "ended_at: OffsetDateTime",
-            heat_id as "heat_id: Uuid",
+            heat_id as "heat_id: HeatId",
             number
         FROM timeplan_slots
         ORDER BY timeplan_id, position, id
@@ -752,7 +760,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             // direct act, it runs in its final.
             (Some(act_id), _, _) => match (final_id, direct_acts.get(&act_id)) {
                 (Some(id), Some(direct)) if id == *direct => {
-                    placed_in_final.insert(act_id);
+                    placed_direct.insert(act_id);
                     slots.push(Slot::Act(ActSlot {
                         stored: true,
                         ..acts[&act_id].clone()
@@ -797,7 +805,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
     let homes = home_blocks(rows.iter().filter_map(|row| {
         (row.kind == EntryKind::Acts).then_some((
             row.id,
-            row.category.as_deref()?,
+            row.category_id?,
             row.started_at.is_some(),
         ))
     }));
@@ -824,21 +832,21 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
                     .iter()
                     .filter(|act| {
                         direct_acts.get(&act.id) == Some(&final_id)
-                            && !placed_in_final.contains(&act.id)
+                            && !placed_direct.contains(&act.id)
                     })
                     .collect();
-                direct.sort_by_key(|act| category_order.get(&act.category));
+                direct.sort_by_key(|act| category_order.get(&act.category_id));
                 slots.extend(direct.into_iter().cloned().map(Slot::Act));
                 einfahrzeit_seconds = finals.get(&final_id).map_or(0, |f| f.einfahrzeit_seconds);
             }
-            if let Some(home) = row.category.as_deref() {
-                preliminary_skipped = direct_final.contains_key(home);
-                if homes.get(home) == Some(&row.id) {
+            if let Some(home) = row.category_id {
+                preliminary_skipped = direct_final.contains_key(&home);
+                if homes.get(&home) == Some(&row.id) {
                     slots.extend(
                         acts_in_order
                             .iter()
                             .filter(|act| {
-                                act.category == home
+                                act.category_id == home
                                     && !placed.contains(&act.id)
                                     && !direct_acts.contains_key(&act.id)
                             })
@@ -846,7 +854,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
                             .map(Slot::Act),
                     );
                 }
-                einfahrzeit_seconds = categories.get(home).map_or(0, |c| c.einfahrzeit_seconds);
+                einfahrzeit_seconds = categories.get(&home).map_or(0, |c| c.einfahrzeit_seconds);
             }
             einfahrzeit_seconds = row.einfahrzeit_seconds.unwrap_or(einfahrzeit_seconds);
             // Stable: started slots first, then the others, each in their
@@ -860,6 +868,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             earliest_start_time: row.earliest_start_time,
             duration_seconds: row.duration_seconds,
             label: row.label.clone(),
+            category_id: row.category_id,
             category: row.category.clone(),
             final_id: row.final_id,
             final_name: row.final_name.clone(),
@@ -883,7 +892,7 @@ pub async fn load_for(db: &mut SqliteConnection, audience: Audience) -> sqlx::Re
             // if it has an own Einfahrzeit; a shared warm-up waiting for the
             // next category passes it by.
             EntryKind::Acts
-                if entry.category.is_none()
+                if entry.category_id.is_none()
                     && entry.final_id.is_none()
                     && entry.einfahrzeit_override.is_none() =>
             {
@@ -1104,7 +1113,7 @@ pub async fn reopen_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result
 /// published. Returns whether it was recorded.
 pub async fn mark_music_started(
     db: &sqlx::SqlitePool,
-    act_id: Uuid,
+    act_id: ActId,
     seconds_ago: f64,
 ) -> sqlx::Result<bool> {
     let mut tx = crate::reloadable_sqlite::begin_write(db).await?;
@@ -1199,21 +1208,23 @@ mod tests {
 
     #[test]
     fn a_started_block_stays_the_home_of_its_category() {
-        let homes = home_blocks([(1, "A", false), (2, "B", false), (3, "A", false)]);
-        assert_eq!((homes["A"], homes["B"]), (1, 2));
+        let (a, b) = (CategoryId::new(), CategoryId::new());
+        let homes = home_blocks([(1, a, false), (2, b, false), (3, a, false)]);
+        assert_eq!((homes[&a], homes[&b]), (1, 2));
         // Block 3 started before block 1 moved in front of it.
-        let homes = home_blocks([(1, "A", false), (3, "A", true), (4, "A", true)]);
-        assert_eq!(homes["A"], 3);
+        let homes = home_blocks([(1, a, false), (3, a, true), (4, a, true)]);
+        assert_eq!(homes[&a], 3);
     }
 
     #[test]
     fn entry_fields_are_checked_for_their_kind() {
-        let block = EntryFields::new(None, Some("EMU11".into()), None, None, Some(60), Some(300));
+        let emu11 = CategoryId::new();
+        let block = EntryFields::new(None, Some(emu11), None, None, Some(60), Some(300));
         assert_eq!(
             block,
             Ok(EntryFields {
                 kind: EntryKind::Acts,
-                category: Some("EMU11".into()),
+                category_id: Some(emu11),
                 final_id: None,
                 label: None,
                 duration_seconds: None,
@@ -1251,7 +1262,7 @@ mod tests {
         assert!(
             EntryFields::new(
                 Some(EntryKind::Custom),
-                Some("EMU11".into()),
+                Some(emu11),
                 None,
                 Some("Pause".into()),
                 Some(60),
@@ -1259,22 +1270,15 @@ mod tests {
             )
             .is_err()
         );
-        let pause = EntryFields::new(
-            None,
-            Some(String::new()),
-            None,
-            Some("Pause".into()),
-            Some(60),
-            Some(5),
-        );
+        let pause = EntryFields::new(None, None, None, Some("Pause".into()), Some(60), Some(5));
         assert_eq!(pause.unwrap().einfahrzeit_seconds, None);
 
         // A final's block, without kind: a start block.
-        let id = Uuid::new_v4();
+        let id = FinalId::new();
         let final_block = EntryFields::new(None, None, Some(id), None, None, None);
         assert_eq!(final_block.as_ref().unwrap().kind, EntryKind::Acts);
         assert_eq!(final_block.unwrap().final_id, Some(id));
-        assert!(EntryFields::new(None, Some("EMU11".into()), Some(id), None, None, None).is_err());
+        assert!(EntryFields::new(None, Some(emu11), Some(id), None, None, None).is_err());
         assert!(
             EntryFields::new(
                 Some(EntryKind::Custom),

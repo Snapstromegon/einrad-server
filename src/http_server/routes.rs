@@ -1,5 +1,6 @@
 mod colors;
 pub mod command;
+pub mod db_backups;
 mod etag;
 pub mod http_types;
 mod logo;
@@ -141,6 +142,7 @@ pub fn get_api_router(
             "/api/competition/colors.css",
             get(colors::competition_colors),
         )
+        .route("/api/db-backups/{filename}", get(db_backups::download))
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))

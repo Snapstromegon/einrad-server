@@ -1,3 +1,4 @@
+use crate::ids::UserId;
 use std::sync::Arc;
 
 use axum::{Extension, Json};
@@ -6,13 +7,12 @@ use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{http_server::HttpError, jwt::JWTConfig, reloadable_sqlite::ReloadableSqlite};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LoginResponse {
-    user_id: Uuid,
+    user_id: UserId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -46,7 +46,7 @@ pub async fn login(
     let db = db.get().await.clone();
     let user = sqlx::query!(
         r#"
-        SELECT id as "id!: Uuid", password FROM users WHERE email = ?
+        SELECT id as "id!: UserId", password FROM users WHERE email = ?
         "#,
         body.email,
     )

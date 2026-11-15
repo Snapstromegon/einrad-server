@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ids::UserId;
 use askama::Template;
 use axum::{Extension, Json, http::StatusCode};
 use axum_extra::extract::CookieJar;
@@ -24,7 +25,7 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RegisterResponse {
-    user_id: Uuid,
+    user_id: UserId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -65,7 +66,7 @@ pub async fn register(
     let db = db.get().await.clone();
     check_password(&body.password).map_err(HttpError::ErrorMessages)?;
     check_email_exists(&db, &body.email).await?;
-    let user_id = Uuid::now_v7();
+    let user_id = UserId::new();
     let hashed_password = generate_hash(body.password);
     sqlx::query!(
         r#"

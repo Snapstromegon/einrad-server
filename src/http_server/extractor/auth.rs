@@ -1,3 +1,4 @@
+use crate::ids::{ClubId, UserId};
 use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use axum::{
@@ -7,7 +8,6 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use tracing::error;
-use uuid::Uuid;
 
 use crate::{
     http_server::HttpError,
@@ -18,12 +18,12 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Auth {
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub email: String,
     pub name: String,
     /// Sorted.
     pub roles: Vec<Role>,
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
     pub email_verified: bool,
 }
 
@@ -139,7 +139,7 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for Auth {
             let db = parts.extensions.get::<ReloadableSqlite>().unwrap();
             let user = sqlx::query!(
                 r#"
-                SELECT email, name, club_id as "club_id: Uuid", email_verified FROM users WHERE id = ?
+                SELECT email, name, club_id as "club_id: ClubId", email_verified FROM users WHERE id = ?
                 "#,
                 user_id,
             )

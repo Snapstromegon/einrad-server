@@ -1,8 +1,8 @@
+use crate::ids::{ClubId, JudgeId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     competition::Competition,
@@ -15,12 +15,12 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddClubJudgeResponse {
-    judge_id: Uuid,
+    judge_id: JudgeId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddClubJudgeBody {
-    club_id: Uuid,
+    club_id: ClubId,
     #[serde(flatten)]
     fields: JudgeFields,
 }
@@ -60,7 +60,7 @@ pub async fn add_club_judge(
         .fields
         .normalize(competition.as_ref())
         .map_err(HttpError::ErrorMessages)?;
-    let judge_id = Uuid::new_v4();
+    let judge_id = JudgeId::new();
     info!("Adding judge {judge_id} to club {}", body.club_id);
     jury::save_judge(&mut transaction, judge_id, body.club_id, &fields).await?;
     transaction.commit().await?;

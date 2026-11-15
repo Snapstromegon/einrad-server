@@ -1,8 +1,8 @@
+use crate::ids::{ActId, ClubId, RiderId};
 use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -15,12 +15,12 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubAct {
-    id: Uuid,
+    id: ActId,
     name: String,
     /// Group acts only.
     group_name: Option<String>,
     /// Group acts only: the club that created the group.
-    owner_club_id: Option<Uuid>,
+    owner_club_id: Option<ClubId>,
     description: Option<String>,
     song_file_name: Option<String>,
     song_file: Option<String>,
@@ -42,10 +42,10 @@ pub struct ClubAct {
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubActParticipant {
-    id: Uuid,
+    id: RiderId,
     rider_firstname: String,
     rider_lastname: String,
-    club_id: Uuid,
+    club_id: ClubId,
     club_name: String,
     /// Replacement riders (Ersatzfahrer) of a group.
     is_replacement: bool,
@@ -57,7 +57,7 @@ pub struct ClubActParticipant {
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubActsQuery {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 /// List the acts of a club.
@@ -92,10 +92,10 @@ pub async fn list_club_acts(
     let acts_with_club_participation = sqlx::query!(
         r#"
         SELECT
-            acts.id as "id!: Uuid",
+            acts.id as "id!: ActId",
             acts.name,
             acts.group_name,
-            acts.owner_club_id as "owner_club_id: Uuid",
+            acts.owner_club_id as "owner_club_id: ClubId",
             acts.description,
             acts.song_file_name,
             acts.song_file,
@@ -124,10 +124,10 @@ pub async fn list_club_acts(
         let participants = sqlx::query!(
             r#"
             SELECT
-                rider.id as "id!: Uuid",
+                rider.id as "id!: RiderId",
                 rider.firstname,
                 rider.lastname,
-                rider.club_id as "club_id!: Uuid",
+                rider.club_id as "club_id!: ClubId",
                 clubs.name as club_name,
                 act_participants.is_replacement,
                 rider.birthdate

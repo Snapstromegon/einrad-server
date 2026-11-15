@@ -11,6 +11,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::ids::{ClubId, ClubMailId};
 use minijinja::{
     AutoEscape, Environment, UndefinedBehavior,
     value::{Serde, Value},
@@ -34,7 +35,7 @@ use crate::{
 /// The data of one club a mail can use.
 #[derive(Debug, Clone)]
 pub struct ClubData {
-    pub id: Uuid,
+    pub id: ClubId,
     pub name: String,
     pub code: String,
     pub contact_name: String,
@@ -68,7 +69,7 @@ pub struct ActWithoutMusic {
 /// and the groups it created, without withdrawn ones; by type, then name.
 async fn acts_without_music(
     db: &sqlx::SqlitePool,
-    club_id: Uuid,
+    club_id: ClubId,
 ) -> sqlx::Result<Vec<ActWithoutMusic>> {
     let rows = sqlx::query!(
         r#"
@@ -154,7 +155,7 @@ impl ClubData {
 
     /// A made-up club, to try a template before sending it.
     fn sample() -> Self {
-        let id = Uuid::nil();
+        let id = ClubId(Uuid::nil());
         Self {
             id,
             name: "RSV Muster".to_string(),
@@ -179,7 +180,7 @@ impl ClubData {
         db: &sqlx::SqlitePool,
         jury_registration: bool,
     ) -> sqlx::Result<Vec<Self>> {
-        let ids = sqlx::query_scalar!(r#"SELECT id as "id!: Uuid" FROM clubs ORDER BY name"#)
+        let ids = sqlx::query_scalar!(r#"SELECT id as "id!: ClubId" FROM clubs ORDER BY name"#)
             .fetch_all(db)
             .await?;
         Ok(Self::load(db, &ids, jury_registration)
@@ -191,7 +192,7 @@ impl ClubData {
     /// `jury_registration`: whether the feature is on, see `Features`.
     pub async fn load(
         db: &sqlx::SqlitePool,
-        ids: &[Uuid],
+        ids: &[ClubId],
         jury_registration: bool,
     ) -> sqlx::Result<Option<Vec<Self>>> {
         let competition = Competition::current(db).await?;
@@ -395,7 +396,7 @@ pub struct ClubMailInput {
     /// The clubs to write to: each gets one mail with its data, to its club
     /// contact and club representative.
     #[serde(default)]
-    pub club_ids: Vec<Uuid>,
+    pub club_ids: Vec<ClubId>,
     /// Typed-in addresses, each getting a mail of its own.
     #[serde(default)]
     pub extra_recipients: Vec<ExtraRecipient>,
@@ -408,7 +409,7 @@ pub struct ExtraRecipient {
     /// The club whose data its mail gets; without one, the template can't
     /// use any variable.
     #[serde(default)]
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
 }
 
 /// One mail as it goes out.
@@ -416,7 +417,7 @@ pub struct ExtraRecipient {
 pub struct RenderedMail {
     /// The club whose data it was rendered with; `null` for a typed-in
     /// address without a club.
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
     pub club_name: Option<String>,
     /// Everyone it's addressed to, in one mail.
     pub to: Vec<String>,
@@ -577,7 +578,7 @@ pub async fn prepare(
         )));
     }
 
-    let mut club_ids: Vec<Uuid> = Vec::new();
+    let mut club_ids: Vec<ClubId> = Vec::new();
     for id in input
         .club_ids
         .iter()
@@ -587,7 +588,7 @@ pub async fn prepare(
             club_ids.push(*id);
         }
     }
-    let clubs: HashMap<Uuid, ClubData> = ClubData::load(db, &club_ids, access.jury_registration)
+    let clubs: HashMap<ClubId, ClubData> = ClubData::load(db, &club_ids, access.jury_registration)
         .await?
         .ok_or(HttpError::NotFound)?
         .into_iter()
@@ -596,7 +597,7 @@ pub async fn prepare(
     let reply_to = reply_to(db).await?;
 
     // Each mail once per address: (address, club whose data it has).
-    let mut covered: HashSet<(String, Option<Uuid>)> = HashSet::new();
+    let mut covered: HashSet<(String, Option<ClubId>)> = HashSet::new();
     let mut recipients: Vec<(Option<&ClubData>, Vec<String>)> = Vec::new();
     let mut seen_clubs = HashSet::new();
     for id in &input.club_ids {
@@ -647,7 +648,7 @@ pub async fn prepare(
 /// A club as the mail form lists it, to choose the recipients.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct MailClub {
-    pub id: Uuid,
+    pub id: ClubId,
     pub name: String,
     pub contact_name: String,
     pub contact_email: String,
@@ -746,7 +747,7 @@ pub enum DeliveryStatus {
 /// A club mail in the log: as written, with every mail as it went out.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, utoipa::ToSchema)]
 pub struct SentClubMail {
-    pub id: Uuid,
+    pub id: ClubMailId,
     #[serde(with = "time::serde::rfc3339")]
     pub sent_at: OffsetDateTime,
     pub sender_name: String,
@@ -763,7 +764,7 @@ pub struct SentMail {
     #[serde(skip)]
     id: i64,
     /// The club whose data it was rendered with, and its name at the time.
-    pub club_id: Option<Uuid>,
+    pub club_id: Option<ClubId>,
     pub club_name: Option<String>,
     pub to: Vec<String>,
     pub subject: String,
@@ -782,7 +783,7 @@ pub async fn record(
     input: &ClubMailInput,
     prepared: PreparedMails,
 ) -> sqlx::Result<SentClubMail> {
-    let id = Uuid::now_v7();
+    let id = ClubMailId::new();
     let sent_at = OffsetDateTime::now_utc();
     let mut tx = begin_write(db).await?;
     sqlx::query!(
@@ -890,7 +891,7 @@ pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
     let club_mails = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: ClubMailId",
             sent_at as "sent_at!: OffsetDateTime",
             user_name,
             subject,
@@ -906,8 +907,8 @@ pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
         r#"
         SELECT
             id as "id!: i64",
-            mail_id as "mail_id!: Uuid",
-            club_id as "club_id: Uuid",
+            mail_id as "mail_id!: ClubMailId",
+            club_id as "club_id: ClubId",
             club_name,
             addresses,
             subject,
@@ -920,7 +921,7 @@ pub async fn log(db: &sqlx::SqlitePool) -> sqlx::Result<Vec<SentClubMail>> {
     )
     .fetch_all(db)
     .await?;
-    let mut by_club_mail: HashMap<Uuid, Vec<SentMail>> = HashMap::new();
+    let mut by_club_mail: HashMap<ClubMailId, Vec<SentMail>> = HashMap::new();
     for row in mails {
         by_club_mail.entry(row.mail_id).or_default().push(SentMail {
             id: row.id,

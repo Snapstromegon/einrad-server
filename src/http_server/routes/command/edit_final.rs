@@ -1,8 +1,8 @@
+use crate::ids::{FinalId, HeatId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals::{self, FinalFields},
@@ -17,7 +17,7 @@ pub struct EditFinalResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditFinalBody {
     /// The final to edit.
-    id: Uuid,
+    id: FinalId,
     new_name: String,
     /// The new short code; without, it stays.
     #[serde(default)]
@@ -58,7 +58,7 @@ pub async fn edit_final(
     let mut tx = begin_write(&db).await?;
 
     let heats = sqlx::query_scalar!(
-        r#"SELECT heat_id as "heat_id!: Uuid" FROM final_slots WHERE final_id = ? ORDER BY position"#,
+        r#"SELECT heat_id as "heat_id!: HeatId" FROM final_slots WHERE final_id = ? ORDER BY position"#,
         body.id
     )
     .fetch_all(&mut *tx)

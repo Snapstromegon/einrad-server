@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -414,7 +415,7 @@ impl DemoData {
                     club.name, club.owner
                 )
             })?;
-            let club_id = Uuid::now_v7();
+            let club_id = ClubId::new();
             sqlx::query!(
                 "INSERT INTO clubs (id, name, owner_id, fee_waiver) VALUES (?, ?, ?, ?)",
                 club_id,
@@ -426,7 +427,7 @@ impl DemoData {
             .await
             .map_err(|e| format!("Couldn't insert club {}: {e}", club.name))?;
             if let Some(amount) = club.payment {
-                let booking_id = Uuid::now_v7();
+                let booking_id = BookingId::new();
                 let date = OffsetDateTime::now_utc().date();
                 sqlx::query!(
                     "INSERT INTO bookings (id, amount, date, note, club_id) VALUES (?, ?, ?, 'Überweisung', ?)",
@@ -458,7 +459,7 @@ impl DemoData {
                         "Rider {name}: set either partner or partner_name, not both."
                     ));
                 }
-                let id = Uuid::now_v7();
+                let id = RiderId::new();
                 let birthdate = rider.birthdate.midnight().assume_utc();
                 let checked_in_at = rider.checked_in_at.map(utc);
                 if rider.single.is_some() && rider.gender.is_some_and(|g| Some(g) != rider.single) {
@@ -499,8 +500,8 @@ impl DemoData {
             .await
             .map_err(|e| e.to_string())?;
         let mut conn = db.acquire().await.map_err(|e| e.to_string())?;
-        let units: HashMap<String, (crate::jury::JuryUnitKind, Uuid)> = sqlx::query!(
-            r#"SELECT id as "id!: Uuid", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
+        let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = sqlx::query!(
+            r#"SELECT id as "id!: JuryUnitId", kind as "kind!: crate::jury::JuryUnitKind", name as "name!" FROM view_jury_unit"#
         )
         .fetch_all(&mut *conn)
         .await
@@ -513,7 +514,7 @@ impl DemoData {
                 continue;
             }
             let club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: Uuid" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
                 club.name
             )
             .fetch_one(&mut *conn)
@@ -546,7 +547,7 @@ impl DemoData {
                 }
                 .normalize(competition.as_ref())
                 .map_err(|e| format!("Judge {name}: {e}"))?;
-                crate::jury::save_judge(&mut conn, Uuid::now_v7(), club_id, &fields)
+                crate::jury::save_judge(&mut conn, JudgeId::new(), club_id, &fields)
                     .await
                     .map_err(|e| format!("Judge {name}: {e:?}"))?;
             }
@@ -631,7 +632,7 @@ impl DemoData {
         &self,
         db: &sqlx::SqlitePool,
         riders: &RiderIds<'_>,
-    ) -> Result<HashMap<String, Uuid>, String> {
+    ) -> Result<HashMap<String, ActId>, String> {
         let db_error = |e: sqlx::Error| format!("Database error while seeding groups: {e}");
         let mut connection = db.acquire().await.map_err(db_error)?;
         let mut ids = HashMap::new();
@@ -640,7 +641,7 @@ impl DemoData {
             let group_name = groups::normalize_group_name(&group.name)
                 .map_err(|e| format!("{referenced_by}: {e}"))?;
             let owner_club_id = sqlx::query_scalar!(
-                r#"SELECT id as "id!: Uuid" FROM clubs WHERE name = ?"#,
+                r#"SELECT id as "id!: ClubId" FROM clubs WHERE name = ?"#,
                 group.owner
             )
             .fetch_optional(&mut *connection)
@@ -653,7 +654,7 @@ impl DemoData {
                 ));
             }
 
-            let act_id = Uuid::now_v7();
+            let act_id = ActId::new();
             sqlx::query!(
                 r#"
                 INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
@@ -709,7 +710,7 @@ impl DemoData {
         &self,
         db: &sqlx::SqlitePool,
         riders: &RiderIds<'_>,
-        group_ids: &HashMap<String, Uuid>,
+        group_ids: &HashMap<String, ActId>,
         data_path: &Path,
     ) -> Result<(), String> {
         let mut seen = HashSet::new();
@@ -823,13 +824,13 @@ fn utc(datetime: OffsetDateTime) -> OffsetDateTime {
 /// referenced.
 #[derive(Default)]
 struct RiderIds<'a> {
-    by_name: HashMap<String, Option<(Uuid, &'a DemoRider)>>,
+    by_name: HashMap<String, Option<(RiderId, &'a DemoRider)>>,
     /// Every rider, also those with an ambiguous name.
-    all: Vec<(Uuid, &'a DemoRider)>,
+    all: Vec<(RiderId, &'a DemoRider)>,
 }
 
 impl<'a> RiderIds<'a> {
-    fn insert(&mut self, name: String, id: Uuid, rider: &'a DemoRider) {
+    fn insert(&mut self, name: String, id: RiderId, rider: &'a DemoRider) {
         self.all.push((id, rider));
         self.by_name
             .entry(name)
@@ -841,7 +842,7 @@ impl<'a> RiderIds<'a> {
         self.by_name.len()
     }
 
-    fn get(&self, name: &str, referenced_by: &str) -> Result<(Uuid, &'a DemoRider), String> {
+    fn get(&self, name: &str, referenced_by: &str) -> Result<(RiderId, &'a DemoRider), String> {
         match self.by_name.get(name) {
             Some(Some(entry)) => Ok(*entry),
             Some(None) => Err(format!(
@@ -851,7 +852,7 @@ impl<'a> RiderIds<'a> {
         }
     }
 
-    fn id(&self, name: &str, referenced_by: &str) -> Result<Uuid, String> {
+    fn id(&self, name: &str, referenced_by: &str) -> Result<RiderId, String> {
         self.get(name, referenced_by).map(|(id, _)| id)
     }
 

@@ -1,10 +1,10 @@
+use crate::ids::{ActId, HeatId};
 use std::{collections::HashSet, sync::Arc};
 
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -23,10 +23,10 @@ pub enum BlockSlotInput {
     /// An act, from this block or any other (if it hasn't started). In a
     /// final's block: an act of a heat whose Vorlauf is skipped, which
     /// starts directly in this final.
-    Act { act_id: Uuid },
+    Act { act_id: ActId },
     /// A final's block only: one of its finalist slots, by heat and number
     /// ("2. Finalist (E EM 1)").
-    Finalist { heat_id: Uuid, number: i64 },
+    Finalist { heat_id: HeatId, number: i64 },
     /// A break. With `id`: an existing break of this block, whose label and
     /// duration change, also while it runs. Without: a new break.
     Break {

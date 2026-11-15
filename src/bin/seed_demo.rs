@@ -33,14 +33,26 @@ struct Args {
     data: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
+/// A plain `main`: the local UTC offset (for backup names) can only be read
+/// before any thread exists, so it is read here, then the runtime is built.
+fn main() -> eyre::Result<()> {
+    let offset = einrad_server::db_backup::init_local_offset();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(offset.is_ok()))
+}
+
+async fn run(local_offset_known: bool) -> eyre::Result<()> {
     color_eyre::install()?;
     dotenvy::dotenv().ok();
     let args = Args::parse();
     FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .init();
+    if !local_offset_known {
+        tracing::warn!("Couldn't determine the local time zone: backups are named in UTC");
+    }
 
     let config_file = ConfigFile::load(args.config.as_deref()).map_err(|e| eyre!(e))?;
     let database_url = args
@@ -60,7 +72,7 @@ async fn main() -> eyre::Result<()> {
     demo.fetch_songs(&songs).map_err(|e| eyre!(e))?;
 
     let options = SqliteConnectOptions::from_str(&database_url)?.create_if_missing(true);
-    let filename = options.get_filename();
+    let filename = options.get_filename().to_path_buf();
     if filename.as_os_str() == ":memory:" {
         info!("Using an in-memory database");
     } else {
@@ -83,7 +95,11 @@ async fn main() -> eyre::Result<()> {
 
     let db = sqlx::SqlitePool::connect_with(options).await?;
     info!("Running database migrations");
-    migrate!("./migrations").run(&db).await?;
+    if filename.as_os_str() == ":memory:" {
+        migrate!("./migrations").run(&db).await?;
+    } else {
+        einrad_server::db_backup::migrate_with_backup(&db, &filename).await?;
+    }
 
     info!("Applying demo data from {}", args.demo.display());
     demo.apply(&db, &data_path).await.map_err(|e| eyre!(e))?;

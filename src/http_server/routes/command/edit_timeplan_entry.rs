@@ -1,8 +1,8 @@
+use crate::ids::{CategoryId, FinalId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals,
@@ -21,10 +21,12 @@ pub struct EditTimeplanEntryBody {
     earliest_start_time: Option<String>, // ISO datetime string
     duration_seconds: Option<i64>,
     label: Option<String>,
-    category: Option<String>,
+    /// The start block's home category.
+    #[serde(default)]
+    category_id: Option<CategoryId>,
     /// A start block running this final instead of a category.
     #[serde(default)]
-    final_id: Option<Uuid>,
+    final_id: Option<FinalId>,
     /// Without one: a start block if a category (or final) is set, otherwise
     /// a custom entry. Turning a start block into a custom entry or a final's
     /// block drops its order.
@@ -67,7 +69,7 @@ pub async fn edit_timeplan_entry(
 ) -> Result<Json<EditTimeplanEntryResponse>, HttpError> {
     let fields = EntryFields::new(
         body.kind,
-        body.category,
+        body.category_id,
         body.final_id,
         body.label,
         body.duration_seconds,
@@ -94,11 +96,10 @@ pub async fn edit_timeplan_entry(
     // those of its old category when that changes.
     let timeplan = load(&mut tx).await?;
     if let Some(block) = timeplan.entries.iter().find(|e| e.id == body.id) {
-        let leaving = block
-            .slots
-            .iter()
-            .filter_map(Slot::act)
-            .filter(|act| drops_slots || (fields.category != block.category && !act.stored));
+        let leaving =
+            block.slots.iter().filter_map(Slot::act).filter(|act| {
+                drops_slots || (fields.category_id != block.category_id && !act.stored)
+            });
         timeplan
             .check_way_home(leaving, Some(block.id))
             .map_err(HttpError::ErrorMessages)?;
@@ -111,7 +112,7 @@ pub async fn edit_timeplan_entry(
             earliest_start_time = $1,
             duration_seconds = $2,
             label = $3,
-            category = $4,
+            category_id = $4,
             final_id = $5,
             kind = $6,
             einfahrzeit_seconds = $7,
@@ -122,7 +123,7 @@ pub async fn edit_timeplan_entry(
         body.earliest_start_time,
         fields.duration_seconds,
         fields.label,
-        fields.category,
+        fields.category_id,
         fields.final_id,
         fields.kind,
         fields.einfahrzeit_seconds,

@@ -1,8 +1,8 @@
+use crate::ids::{ActId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_rider_access,
@@ -15,13 +15,13 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LinkPairResponse {
-    act_id: Uuid,
+    act_id: ActId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct LinkPairBody {
-    rider_id: Uuid,
-    partner_id: Uuid,
+    rider_id: RiderId,
+    partner_id: RiderId,
 }
 
 /// Links two riders to a pair act; their pair requests are fulfilled.

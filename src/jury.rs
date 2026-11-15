@@ -3,12 +3,12 @@
 //! obligation and plan the jury. Everything is behind the
 //! `jury_registration` feature of the competition (see `Features`).
 
+use crate::ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId};
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
 };
 use time::{Date, OffsetDateTime};
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -100,7 +100,7 @@ pub fn parse_unit_label(label: &str) -> Option<(JuryUnitKind, &str)> {
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct JuryUnit {
     /// The heat's or the final's id.
-    pub id: Uuid,
+    pub id: JuryUnitId,
     pub kind: JuryUnitKind,
     /// The heat's or the final's readable name; renaming it keeps the
     /// registrations. Judges and the jury lead read this one.
@@ -128,7 +128,7 @@ pub struct JuryUnit {
     pub act_type: Option<ActType>,
     /// The final a heat feeds (one at most); `None` for a final and for a
     /// heat that feeds none.
-    pub final_id: Option<Uuid>,
+    pub final_id: Option<FinalId>,
     /// The day it runs, derived from the timeplan; `None` while it isn't
     /// planned in it.
     #[serde(with = "iso_date::option")]
@@ -222,7 +222,7 @@ impl UnitSettings {
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct JuryUnitFields {
     pub kind: JuryUnitKind,
-    pub id: Uuid,
+    pub id: JuryUnitId,
     pub registrable: bool,
     pub deployments: i64,
     pub needed_technical: i64,
@@ -256,7 +256,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     let rows = sqlx::query!(
         r#"
         SELECT
-            id as "id!: Uuid",
+            id as "id!: JuryUnitId",
             kind as "kind!: JuryUnitKind",
             name as "name!",
             code as "code!",
@@ -274,21 +274,22 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     .fetch_all(&mut *conn)
     .await?;
     let categories = sqlx::query!(
-        r#"SELECT name as "name!", heat_id as "heat_id: Uuid", act_type as "act_type!: ActType"
+        r#"SELECT name as "name!", heat_id as "heat_id: HeatId", act_type as "act_type!: ActType"
             FROM categories ORDER BY "order", name"#
     )
     .fetch_all(&mut *conn)
     .await?;
     let feeds = sqlx::query!(
-        r#"SELECT heat_id as "heat_id!: Uuid", MIN(final_id) as "final_id!: Uuid"
+        r#"SELECT heat_id as "heat_id!: HeatId", MIN(final_id) as "final_id!: FinalId"
         FROM final_slots WHERE heat_id IS NOT NULL GROUP BY heat_id"#
     )
     .fetch_all(&mut *conn)
     .await?;
-    let final_types =
-        sqlx::query!(r#"SELECT id as "id!: Uuid", act_type as "act_type!: ActType" FROM finals"#)
-            .fetch_all(&mut *conn)
-            .await?;
+    let final_types = sqlx::query!(
+        r#"SELECT id as "id!: FinalId", act_type as "act_type!: ActType" FROM finals"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
     drop(conn);
 
     // Where each unit first runs: the position and planned day of its block.
@@ -318,31 +319,32 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                         ..
                     } => categories
                         .iter()
-                        .any(|c| &c.name == category && c.heat_id == Some(row.id)),
+                        .any(|c| &c.name == category && c.heat_id == Some(row.id.as_heat())),
                     _ => false,
                 }),
                 JuryUnitKind::Final => first_block(&|entry| match entry {
                     TimeplanEntry::Acts {
                         final_id: Some(id), ..
-                    } => *id == row.id,
+                    } => *id == row.id.as_final(),
                     _ => false,
                 }),
             };
             let final_id = match row.kind {
                 JuryUnitKind::Heat => feeds
                     .iter()
-                    .find(|f| f.heat_id == row.id)
+                    .find(|f| f.heat_id == row.id.as_heat())
                     .map(|f| f.final_id),
                 JuryUnitKind::Final => None,
             };
-            let own_type = |id: Uuid| final_types.iter().find(|f| f.id == id).map(|f| f.act_type);
+            let own_type =
+                |id: FinalId| final_types.iter().find(|f| f.id == id).map(|f| f.act_type);
             let act_type = match row.kind {
                 JuryUnitKind::Heat => categories
                     .iter()
-                    .find(|c| c.heat_id == Some(row.id))
+                    .find(|c| c.heat_id == Some(row.id.as_heat()))
                     .map(|c| c.act_type)
                     .or_else(|| final_id.and_then(own_type)),
-                JuryUnitKind::Final => own_type(row.id),
+                JuryUnitKind::Final => own_type(row.id.as_final()),
             };
             let unit = JuryUnit {
                 act_type,
@@ -382,7 +384,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
 pub async fn unit_is_registrable(
     conn: &mut sqlx::SqliteConnection,
     kind: JuryUnitKind,
-    id: Uuid,
+    id: JuryUnitId,
 ) -> sqlx::Result<Option<bool>> {
     sqlx::query_scalar!(
         r#"SELECT registrable as "registrable!: bool" FROM view_jury_unit WHERE kind = ? AND id = ?"#,
@@ -406,7 +408,7 @@ pub fn not_registrable() -> HttpError {
 pub async fn ensure_unit_unused(
     conn: &mut sqlx::SqliteConnection,
     kind: JuryUnitKind,
-    id: Uuid,
+    id: JuryUnitId,
 ) -> Result<(), HttpError> {
     let used = sqlx::query_scalar!(
         r#"
@@ -464,7 +466,7 @@ pub enum JudgeTask {
 pub struct JudgeRegistration {
     pub unit_kind: JuryUnitKind,
     /// The heat's or the final's id.
-    pub unit_id: Uuid,
+    pub unit_id: JuryUnitId,
     pub task: JudgeTask,
 }
 
@@ -472,7 +474,7 @@ pub struct JudgeRegistration {
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ListedRegistration {
     pub unit_kind: JuryUnitKind,
-    pub unit_id: Uuid,
+    pub unit_id: JuryUnitId,
     pub task: JudgeTask,
     /// Its unit takes no registrations (a skipped Vorlauf, or switched off):
     /// it still counts, but the jury lead should move it (D7).
@@ -492,8 +494,8 @@ pub struct UnmappedRegistration {
 /// A club's judge with what they registered for.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ClubJudge {
-    pub id: Uuid,
-    pub club_id: Uuid,
+    pub id: JudgeId,
+    pub club_id: ClubId,
     pub club_name: String,
     pub firstname: String,
     pub lastname: String,
@@ -604,10 +606,10 @@ impl JudgeFields {
 pub async fn ensure_judge_access(
     conn: &mut sqlx::SqliteConnection,
     auth: &Auth,
-    judge_id: Uuid,
-) -> Result<Uuid, HttpError> {
+    judge_id: JudgeId,
+) -> Result<ClubId, HttpError> {
     let club_id = sqlx::query_scalar!(
-        r#"SELECT club_id as "club_id!: Uuid" FROM judge WHERE id = ?"#,
+        r#"SELECT club_id as "club_id!: ClubId" FROM judge WHERE id = ?"#,
         judge_id
     )
     .fetch_optional(&mut *conn)
@@ -624,8 +626,8 @@ pub async fn ensure_judge_access(
 /// message.
 pub async fn save_judge(
     conn: &mut sqlx::SqliteConnection,
-    judge_id: Uuid,
-    club_id: Uuid,
+    judge_id: JudgeId,
+    club_id: ClubId,
     fields: &JudgeFields,
 ) -> Result<(), HttpError> {
     people::ensure_name_is_free(
@@ -634,7 +636,7 @@ pub async fn save_judge(
         club_id,
         &fields.firstname,
         &fields.lastname,
-        Some(judge_id),
+        Some(judge_id.0),
     )
     .await?;
     let result = sqlx::query!(
@@ -671,11 +673,11 @@ pub async fn save_judge(
             ));
         }
     }
-    let existing: std::collections::HashSet<(JuryUnitKind, Uuid, JudgeTask)> = sqlx::query!(
+    let existing: std::collections::HashSet<(JuryUnitKind, JuryUnitId, JudgeTask)> = sqlx::query!(
         r#"
         SELECT
             CASE WHEN heat_id IS NULL THEN 'final' ELSE 'heat' END as "kind!: JuryUnitKind",
-            unit_id as "unit_id!: Uuid",
+            unit_id as "unit_id!: JuryUnitId",
             task as "task!: JudgeTask"
         FROM judge_registration WHERE judge_id = ?
         "#,
@@ -738,25 +740,25 @@ pub async fn save_judge(
 }
 
 /// The `heat_id` and `final_id` columns for a unit: exactly one is set.
-pub fn unit_columns(kind: JuryUnitKind, id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+pub fn unit_columns(kind: JuryUnitKind, id: JuryUnitId) -> (Option<HeatId>, Option<FinalId>) {
     match kind {
-        JuryUnitKind::Heat => (Some(id), None),
-        JuryUnitKind::Final => (None, Some(id)),
+        JuryUnitKind::Heat => (Some(HeatId(id.0)), None),
+        JuryUnitKind::Final => (None, Some(FinalId(id.0))),
     }
 }
 
 /// Loads judges with their registrations: of one club, or of all clubs.
 pub async fn list_judges(
     conn: &mut sqlx::SqliteConnection,
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
 ) -> sqlx::Result<Vec<ClubJudge>> {
-    let mut registrations: std::collections::HashMap<Uuid, Vec<ListedRegistration>> =
+    let mut registrations: std::collections::HashMap<JudgeId, Vec<ListedRegistration>> =
         std::collections::HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
-            judge_registration.judge_id as "judge_id!: Uuid",
-            judge_registration.unit_id as "unit_id!: Uuid",
+            judge_registration.judge_id as "judge_id!: JudgeId",
+            judge_registration.unit_id as "unit_id!: JuryUnitId",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
             judge_registration.task as "task!: JudgeTask",
             NOT view_jury_unit.registrable as "flagged!: bool"
@@ -781,13 +783,13 @@ pub async fn list_judges(
                 flagged: row.flagged,
             });
     }
-    let mut unmapped: std::collections::HashMap<Uuid, Vec<UnmappedRegistration>> =
+    let mut unmapped: std::collections::HashMap<JudgeId, Vec<UnmappedRegistration>> =
         std::collections::HashMap::new();
     for row in sqlx::query!(
         r#"
         SELECT
             judge_registration_unmapped.id as "id!: i64",
-            judge_registration_unmapped.judge_id as "judge_id!: Uuid",
+            judge_registration_unmapped.judge_id as "judge_id!: JudgeId",
             judge_registration_unmapped.old_unit as "old_unit!",
             judge_registration_unmapped.task as "task!: JudgeTask"
         FROM judge_registration_unmapped
@@ -812,8 +814,8 @@ pub async fn list_judges(
     let judges = sqlx::query!(
         r#"
         SELECT
-            judge.id as "id!: Uuid",
-            judge.club_id as "club_id!: Uuid",
+            judge.id as "id!: JudgeId",
+            judge.club_id as "club_id!: ClubId",
             clubs.name as club_name,
             judge.firstname,
             judge.lastname,
@@ -933,12 +935,12 @@ pub struct JuryObligation {
 pub async fn obligations(
     conn: &mut sqlx::SqliteConnection,
     rules: &JuryRules,
-    club_id: Option<Uuid>,
-) -> sqlx::Result<std::collections::HashMap<Uuid, JuryObligation>> {
+    club_id: Option<ClubId>,
+) -> sqlx::Result<std::collections::HashMap<ClubId, JuryObligation>> {
     let clubs = sqlx::query!(
         r#"
         SELECT
-            clubs.id as "id!: Uuid",
+            clubs.id as "id!: ClubId",
             clubs.jury_deployments_override,
             (
                 SELECT COUNT(*) FROM view_act AS a
@@ -970,7 +972,7 @@ pub async fn obligations(
     let judges = sqlx::query!(
         r#"
         SELECT
-            judge.club_id as "club_id!: Uuid",
+            judge.club_id as "club_id!: ClubId",
             judge.max_deployments,
             (
                 SELECT COALESCE(SUM(c.deployments), 0) FROM view_jury_unit c
@@ -986,7 +988,7 @@ pub async fn obligations(
     )
     .fetch_all(&mut *conn)
     .await?;
-    let mut registered: std::collections::HashMap<Uuid, i64> = std::collections::HashMap::new();
+    let mut registered: std::collections::HashMap<ClubId, i64> = std::collections::HashMap::new();
     for judge in judges {
         let deployments = counted_deployments(true, judge.deployments, judge.max_deployments);
         *registered.entry(judge.club_id).or_default() += deployments;
@@ -1015,9 +1017,9 @@ pub async fn obligations(
 /// A judge's task in a jury unit of the Juryplan.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct JuryAssignment {
-    pub judge_id: Uuid,
+    pub judge_id: JudgeId,
     pub unit_kind: JuryUnitKind,
     /// The heat's or the final's id.
-    pub unit_id: Uuid,
+    pub unit_id: JuryUnitId,
     pub task: JudgeTask,
 }

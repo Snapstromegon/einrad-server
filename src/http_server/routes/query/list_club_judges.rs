@@ -1,6 +1,6 @@
+use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_club_access,
@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubJudgesQuery {
-    club_id: Uuid,
+    club_id: ClubId,
 }
 
 /// List a club's judges with their registrations. For the club and admins.

@@ -1,8 +1,8 @@
+use crate::ids::FinalId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     finals,
@@ -17,7 +17,7 @@ pub struct DeleteFinalResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteFinalBody {
-    id: Uuid,
+    id: FinalId,
 }
 
 /// Delete a final, with its slots and its timeplan block.
@@ -51,7 +51,7 @@ pub async fn delete_final(
             "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
         ));
     }
-    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, body.id).await?;
+    jury::ensure_unit_unused(&mut tx, JuryUnitKind::Final, body.id.into()).await?;
     info!("Deleting final {}", body.id);
     sqlx::query!("DELETE FROM timeplan WHERE final_id = ?", body.id)
         .execute(&mut *tx)

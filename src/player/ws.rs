@@ -8,6 +8,7 @@
 //! is noticed without a closing handshake. A player connection that a newer
 //! one of the same player (same `id`) replaced is closed with [`REPLACED`].
 
+use crate::ids::PlayerId;
 use std::sync::Arc;
 
 use axum::{
@@ -25,7 +26,6 @@ use tokio::{
     time::{Duration, Instant, Interval, MissedTickBehavior, interval_at, sleep_until},
 };
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use super::{
     ControllerMessage, PlayerConnection, PlayerHub, PlayerKind, PlayerMessage, Timing,
@@ -93,7 +93,7 @@ pub async fn player_ws(
                         RemoteKind::Web => "Web-Player".into(),
                         RemoteKind::Cli => "CLI-Player".into(),
                     });
-                let id = query.id.and_then(|id| Uuid::parse_str(id.trim()).ok());
+                let id = query.id.and_then(|id| id.trim().parse::<PlayerId>().ok());
                 player(socket, hub, id, name, query.kind.into()).await;
             }
         }
@@ -220,7 +220,7 @@ async fn run_controller(mut socket: WebSocket, hub: &PlayerHub, connection: u64)
 async fn player(
     mut socket: WebSocket,
     hub: Arc<PlayerHub>,
-    id: Option<Uuid>,
+    id: Option<PlayerId>,
     name: String,
     kind: PlayerKind,
 ) {

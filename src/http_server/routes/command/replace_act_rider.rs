@@ -1,8 +1,8 @@
+use crate::ids::{ActId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_rider_access,
@@ -18,11 +18,11 @@ pub struct ReplaceActRiderResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReplaceActRiderBody {
-    act_id: Uuid,
+    act_id: ActId,
     /// The rider leaving the act.
-    rider_id: Uuid,
+    rider_id: RiderId,
     /// The rider taking their place, of the same club.
-    new_rider_id: Uuid,
+    new_rider_id: RiderId,
 }
 
 /// Replace a rider of a single or pair, keeping the act with its title,
@@ -82,7 +82,7 @@ pub async fn replace_act_rider(
     }
 
     let participants = sqlx::query_scalar!(
-        r#"SELECT rider_id as "rider_id!: Uuid" FROM act_participants WHERE act_id = ?"#,
+        r#"SELECT rider_id as "rider_id!: RiderId" FROM act_participants WHERE act_id = ?"#,
         body.act_id,
     )
     .fetch_all(&mut *transaction)

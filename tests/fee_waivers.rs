@@ -4,6 +4,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, rider_body};
+use einrad_server::ids::{ActId, ClubId, RiderId, UserId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ async fn waive(app: &TestApp, cookie: &str, body: Value) {
 }
 
 /// The club as the treasurer sees it in `list_clubs`.
-async fn club(app: &TestApp, cookie: &str, club_id: Uuid) -> Value {
+async fn club(app: &TestApp, cookie: &str, club_id: ClubId) -> Value {
     let clubs = app.get("/api/query/list_clubs", Some(cookie)).await;
     assert_eq!(clubs.status, StatusCode::OK, "{:?}", clubs.body);
     clubs
@@ -61,7 +62,7 @@ async fn a_waived_club_owes_nothing_but_keeps_its_jury_obligation() {
     assert_eq!(after["fee_waiver"], "Veranstalter");
 }
 
-async fn start_fees(app: &TestApp, cookie: &str, club_id: Uuid) -> f64 {
+async fn start_fees(app: &TestApp, cookie: &str, club_id: ClubId) -> f64 {
     club(app, cookie, club_id).await["amount_due"]["start_fees"]
         .as_f64()
         .unwrap()
@@ -399,7 +400,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
         .run_to(FEE_WAIVERS_MIGRATION - 1, &db)
         .await
         .unwrap();
-    let owner = Uuid::now_v7();
+    let owner = UserId::new();
     sqlx::query(
         "INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@cup.test', true, 'Max', 'x')",
     )
@@ -407,7 +408,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
     .execute(&db)
     .await
     .unwrap();
-    let rsv = Uuid::now_v7();
+    let rsv = ClubId::new();
     sqlx::query("INSERT INTO clubs (id, name, owner_id) VALUES (?, 'RSV', ?)")
         .bind(rsv)
         .bind(owner)
@@ -417,7 +418,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
     let mut acts = Vec::new();
     // The schema before the fee waivers still calls riders starters.
     for (firstname, waived) in [("Anna", true), ("Berta", false)] {
-        let rider = Uuid::now_v7();
+        let rider = RiderId::new();
         sqlx::query(
             "INSERT INTO starter (id, firstname, lastname, birthdate, club_id, single_male, single_female, pair) VALUES (?, ?, 'Muster', '2010-01-01', ?, false, true, false)",
         )
@@ -427,7 +428,7 @@ async fn the_migration_keeps_waived_acts_with_a_reason() {
         .execute(&db)
         .await
         .unwrap();
-        let act = Uuid::now_v7();
+        let act = ActId::new();
         sqlx::query(
             "INSERT INTO acts (id, name, act_type, withdrawn_at, fee_waived) VALUES (?, '', 'single', datetime('now'), ?)",
         )

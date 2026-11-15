@@ -1,3 +1,4 @@
+use crate::ids::{ActId, FinalId, FinalSlotId, HeatId};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -7,7 +8,6 @@ use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -21,15 +21,15 @@ pub struct SetFinalPlacementResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct FinalSlotPlacement {
-    slot_id: Uuid,
+    slot_id: FinalSlotId,
     /// The act placed in the slot; `null` empties it.
-    act_id: Option<Uuid>,
+    act_id: Option<ActId>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetFinalPlacementBody {
     /// The final.
-    id: Uuid,
+    id: FinalId,
     /// The slots to change; the others keep their acts.
     slots: Vec<FinalSlotPlacement>,
 }
@@ -71,11 +71,11 @@ pub async fn set_final_placement(
     let slots = sqlx::query!(
         r#"
         SELECT
-            final_slots.id as "id!: Uuid",
-            final_slots.heat_id as "heat_id!: Uuid",
+            final_slots.id as "id!: FinalSlotId",
+            final_slots.heat_id as "heat_id!: HeatId",
             heats.code as "heat!",
             number,
-            act_id as "act_id: Uuid",
+            act_id as "act_id: ActId",
             final_slots.started_at IS NOT NULL as "started!: bool"
         FROM final_slots
         JOIN heats ON heats.id = final_slots.heat_id
@@ -86,8 +86,8 @@ pub async fn set_final_placement(
     .fetch_all(&mut *tx)
     .await?;
     // The heat of each category.
-    let heats: HashMap<String, Uuid> = sqlx::query!(
-        r#"SELECT name as "name!", heat_id as "heat_id!: Uuid" FROM categories WHERE heat_id IS NOT NULL"#
+    let heats: HashMap<String, HeatId> = sqlx::query!(
+        r#"SELECT name as "name!", heat_id as "heat_id!: HeatId" FROM categories WHERE heat_id IS NOT NULL"#
     )
     .fetch_all(&mut *tx)
     .await?
@@ -96,7 +96,7 @@ pub async fn set_final_placement(
     .collect();
 
     // The placement after the change, to check it as a whole.
-    let mut placement: HashMap<Uuid, Option<Uuid>> =
+    let mut placement: HashMap<FinalSlotId, Option<ActId>> =
         slots.iter().map(|slot| (slot.id, slot.act_id)).collect();
     let mut changed = vec![];
     for change in &body.slots {
@@ -117,7 +117,7 @@ pub async fn set_final_placement(
         if let Some(act_id) = change.act_id {
             // Withdrawn acts don't start: they count as without category.
             let category = sqlx::query_scalar!(
-                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category: String"
+                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
                 FROM view_act WHERE id = ?"#,
                 act_id
             )

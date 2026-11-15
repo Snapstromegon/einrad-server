@@ -85,10 +85,14 @@ async fn the_migration_takes_the_description_as_name_and_the_old_name_as_code() 
 async fn a_row_inserted_without_a_code_takes_its_name_as_code() {
     let (db, migrator) = before().await;
     migrator.run(&db).await.unwrap();
-    exec(&db, "INSERT INTO heats (name) VALUES ('Neu')").await;
     exec(
         &db,
-        "INSERT INTO finals (name, act_type) VALUES ('Neu', 'pair')",
+        "INSERT INTO heats (id, name) VALUES (x'0190f2d4b1c07abc8def0123456789a1', 'Neu')",
+    )
+    .await;
+    exec(
+        &db,
+        "INSERT INTO finals (id, name, act_type) VALUES (x'0190f2d4b1c07abc8def0123456789a2', 'Neu', 'pair')",
     )
     .await;
 
@@ -107,14 +111,16 @@ async fn codes_are_unique_per_table() {
     let (db, migrator) = before().await;
     migrator.run(&db).await.unwrap();
 
-    let duplicate = sqlx::query("INSERT INTO heats (name, code) VALUES ('Anders', 'E EM 1')")
+    let duplicate = sqlx::query(
+        "INSERT INTO heats (id, name, code) VALUES (x'0190f2d4b1c07abc8def0123456789a3', 'Anders', 'E EM 1')",
+    )
         .execute(&db)
         .await;
     assert!(duplicate.is_err());
     // The same code in the other table is fine.
     exec(
         &db,
-        "INSERT INTO finals (name, code, act_type) VALUES ('Anders', 'E EM 1', 'pair')",
+        "INSERT INTO finals (id, name, code, act_type) VALUES (x'0190f2d4b1c07abc8def0123456789a4', 'Anders', 'E EM 1', 'pair')",
     )
     .await;
 }

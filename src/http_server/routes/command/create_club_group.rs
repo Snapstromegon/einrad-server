@@ -1,8 +1,8 @@
+use crate::ids::{ActId, ClubId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     act_type::ActType,
@@ -16,12 +16,12 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateClubGroupResponse {
-    act_id: Uuid,
+    act_id: ActId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateClubGroupBody {
-    club_id: Uuid,
+    club_id: ClubId,
     group_name: String,
     /// `group_small` (Kleingruppe) or `group_large` (Großgruppe). The type
     /// stays as chosen; the number of riders doesn't change it.
@@ -64,7 +64,7 @@ pub async fn create_club_group(
     let group_name = normalize_group_name(&body.group_name).map_err(HttpError::ErrorMessages)?;
     ensure_group_name_is_free(&mut transaction, &group_name, None).await?;
 
-    let act_id = Uuid::now_v7();
+    let act_id = ActId::new();
     info!(
         "Creating {} {group_name:?} ({act_id}) for club {}",
         body.act_type.as_str(),

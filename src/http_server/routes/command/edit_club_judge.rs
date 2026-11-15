@@ -1,8 +1,8 @@
+use crate::ids::JudgeId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     competition::Competition,
@@ -17,7 +17,7 @@ pub struct EditClubJudgeResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EditClubJudgeBody {
-    judge_id: Uuid,
+    judge_id: JudgeId,
     #[serde(flatten)]
     fields: JudgeFields,
 }

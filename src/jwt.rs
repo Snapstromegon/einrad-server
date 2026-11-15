@@ -1,3 +1,4 @@
+use crate::ids::UserId;
 use std::fmt::Debug;
 
 use axum_extra::extract::{
@@ -5,22 +6,21 @@ use axum_extra::extract::{
     cookie::{Cookie, SameSite},
 };
 use jsonwebtoken::{DecodingKey, EncodingKey};
-use uuid::Uuid;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct JWTClaims {
-    sub: Uuid,
+    sub: UserId,
     exp: u64,
 }
 
 impl JWTClaims {
     #[must_use]
-    pub fn new(sub: Uuid, exp: u64) -> Self {
+    pub fn new(sub: UserId, exp: u64) -> Self {
         Self { sub, exp }
     }
 
     #[must_use]
-    pub fn sub(&self) -> Uuid {
+    pub fn sub(&self) -> UserId {
         self.sub
     }
 
@@ -35,7 +35,7 @@ impl JWTClaims {
 /// ```
 /// use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 /// use einrad_server::jwt::{JWTClaims, JWTConfig};
-/// use uuid::Uuid;
+/// use einrad_server::ids::UserId;
 ///
 /// let secret = b"a-test-secret";
 /// let config = JWTConfig::new(
@@ -46,7 +46,7 @@ impl JWTClaims {
 ///     false,
 /// );
 ///
-/// let user_id = Uuid::new_v4();
+/// let user_id = UserId::new();
 /// let token = config.create_user_token(user_id).unwrap();
 /// let decoded =
 ///     jsonwebtoken::decode::<JWTClaims>(&token, config.decode_key(), config.validation())
@@ -102,7 +102,10 @@ impl JWTConfig {
         &self.validation
     }
 
-    pub fn create_user_token(&self, user_id: Uuid) -> Result<String, jsonwebtoken::errors::Error> {
+    pub fn create_user_token(
+        &self,
+        user_id: UserId,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
         let claims = JWTClaims::new(
             user_id,
             (std::time::SystemTime::now() + self.validity)
@@ -116,7 +119,7 @@ impl JWTConfig {
     pub fn add_jwt_cookie(
         &self,
         cookies: CookieJar,
-        user_id: Uuid,
+        user_id: UserId,
     ) -> Result<CookieJar, jsonwebtoken::errors::Error> {
         Ok(cookies.add(
             Cookie::build(("jwt", self.create_user_token(user_id)?))
@@ -183,7 +186,7 @@ mod tests {
 
     #[test]
     fn claims_accessors_return_constructor_values() {
-        let id = Uuid::new_v4();
+        let id = UserId::new();
         let claims = JWTClaims::new(id, 42);
         assert_eq!(claims.sub(), id);
         assert_eq!(claims.exp(), 42);
@@ -192,7 +195,7 @@ mod tests {
     #[test]
     fn user_token_round_trips_and_expires_in_about_six_months() {
         let config = config(false);
-        let user_id = Uuid::new_v4();
+        let user_id = UserId::new();
         let token = config.create_user_token(user_id).unwrap();
 
         let data =
@@ -215,7 +218,7 @@ mod tests {
             Validation::new(Algorithm::HS512),
             false,
         );
-        let token = other.create_user_token(Uuid::new_v4()).unwrap();
+        let token = other.create_user_token(UserId::new()).unwrap();
         assert!(
             jsonwebtoken::decode::<JWTClaims>(&token, config.decode_key(), config.validation())
                 .is_err()
@@ -225,7 +228,7 @@ mod tests {
     #[test]
     fn expired_token_is_rejected() {
         let config = config(false);
-        let claims = JWTClaims::new(Uuid::new_v4(), now_secs() - 3600);
+        let claims = JWTClaims::new(UserId::new(), now_secs() - 3600);
         let token =
             jsonwebtoken::encode(&config.get_header(), &claims, config.encoding_key()).unwrap();
         let err =
@@ -239,7 +242,7 @@ mod tests {
 
     #[test]
     fn jwt_cookie_has_hardened_attributes() {
-        let user_id = Uuid::new_v4();
+        let user_id = UserId::new();
         let jar = config(false)
             .add_jwt_cookie(CookieJar::new(), user_id)
             .unwrap();
@@ -259,7 +262,7 @@ mod tests {
     #[test]
     fn insecure_cookies_disables_secure_flag() {
         let jar = config(true)
-            .add_jwt_cookie(CookieJar::new(), Uuid::new_v4())
+            .add_jwt_cookie(CookieJar::new(), UserId::new())
             .unwrap();
         assert_eq!(jar.get("jwt").unwrap().secure(), Some(false));
     }
@@ -268,7 +271,7 @@ mod tests {
     fn remove_jwt_cookie_clears_value_and_expires_immediately() {
         let config = config(false);
         let jar = config
-            .add_jwt_cookie(CookieJar::new(), Uuid::new_v4())
+            .add_jwt_cookie(CookieJar::new(), UserId::new())
             .unwrap();
         let jar = config.remove_jwt_cookie(jar).unwrap();
         let cookie = jar.get("jwt").unwrap();

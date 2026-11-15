@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use crate::ids::PlayerId;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
 use tokio::{
@@ -50,7 +51,7 @@ pub struct Options {
     /// Shown in the music control.
     pub name: String,
     /// The same for every connection, so a reconnect keeps the active status.
-    pub id: Uuid,
+    pub id: PlayerId,
 }
 
 /// The songs in memory, by file: the cued one and the ones coming up. A

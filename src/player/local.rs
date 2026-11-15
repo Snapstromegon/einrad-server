@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, mpsc},
 };
 
+use crate::ids::PlayerId;
 use rodio::Decoder;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -21,7 +22,7 @@ use super::{
 /// between threads, so commands reach it through a channel. It registers
 /// with one id for its lifetime and never reconnects.
 pub fn start(hub: Arc<PlayerHub>, data_path: PathBuf, name: String) {
-    let id = Uuid::now_v7();
+    let id = PlayerId::new();
     tokio::spawn(async move {
         let mut connection = hub
             .register(Some(id), name.clone(), PlayerKind::Server)

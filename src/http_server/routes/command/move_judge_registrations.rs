@@ -1,8 +1,8 @@
+use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -16,11 +16,11 @@ pub struct MoveJudgeRegistrationsResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MoveJudgeRegistrationsBody {
-    judge_id: Uuid,
+    judge_id: JudgeId,
     from_kind: JuryUnitKind,
-    from_id: Uuid,
+    from_id: JuryUnitId,
     to_kind: JuryUnitKind,
-    to_id: Uuid,
+    to_id: JuryUnitId,
 }
 
 /// Move all registrations of a judge for one jury unit to another, e.g.

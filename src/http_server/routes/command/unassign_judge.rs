@@ -1,8 +1,8 @@
+use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -16,8 +16,8 @@ pub struct UnassignJudgeResponse {}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UnassignJudgeBody {
-    judge_id: Uuid,
-    unit_id: Uuid,
+    judge_id: JudgeId,
+    unit_id: JuryUnitId,
 }
 
 /// Remove a judge from a jury unit of the Juryplan. Jury lead.

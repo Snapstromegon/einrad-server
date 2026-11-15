@@ -13,6 +13,7 @@ use std::{
 
 use axum::http::StatusCode;
 use common::{PASSWORD, TestApp, email_for};
+use einrad_server::ids::{ActId, PlayerId};
 use einrad_server::player::{
     PlaybackState, PlayerStatus, ToPlayer,
     client::{self, Options, Songs},
@@ -104,7 +105,7 @@ impl FakeOutput {
 fn start_player(
     address: SocketAddr,
     name: &str,
-    id: Uuid,
+    id: PlayerId,
     password: &str,
 ) -> (Songs, FakeOutput, JoinHandle<Result<(), String>>) {
     let songs = Songs::default();
@@ -173,7 +174,7 @@ fn player<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 /// An act with an uploaded song (not a real mp3). Returns the act's id.
-async fn act_with_song(app: &TestApp, song: &[u8]) -> Uuid {
+async fn act_with_song(app: &TestApp, song: &[u8]) -> ActId {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let act_id = app.add_single_act(&owner, club_id, "Anna").await;
     let response = app
@@ -197,7 +198,7 @@ async fn the_cli_player_downloads_the_cued_song_and_plays_it() {
     let act_id = act_with_song(&app, song).await;
     let address = app.serve().await;
     let mut controller = Controller::connect(address, &admin).await;
-    let (songs, output, _player) = start_player(address, "Tonpult", Uuid::now_v7(), PASSWORD);
+    let (songs, output, _player) = start_player(address, "Tonpult", PlayerId::new(), PASSWORD);
 
     let state = controller
         .wait_state("the CLI player", |s| player(s, "Tonpult").is_some())
@@ -229,7 +230,7 @@ async fn a_rejected_login_stops_the_cli_player() {
     let app = TestApp::new(db).await;
     app.create_admin().await;
     let address = app.serve().await;
-    let (_, _, player) = start_player(address, "Tonpult", Uuid::now_v7(), "falsch");
+    let (_, _, player) = start_player(address, "Tonpult", PlayerId::new(), "falsch");
     let result = timeout(TIMEOUT, player).await.unwrap().unwrap();
     assert!(result.unwrap_err().contains("rejected"));
 }
@@ -241,7 +242,7 @@ async fn a_cli_player_with_the_same_id_takes_over() {
     let admin = app.create_admin().await;
     let address = app.serve().await;
     let mut controller = Controller::connect(address, &admin).await;
-    let id = Uuid::now_v7();
+    let id = PlayerId::new();
     let (_, _, first) = start_player(address, "Tonpult", id, PASSWORD);
     controller
         .wait_state("the first player", |s| player(s, "Tonpult").is_some())

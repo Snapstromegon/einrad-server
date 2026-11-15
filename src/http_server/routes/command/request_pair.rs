@@ -1,8 +1,8 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_rider_access,
@@ -16,12 +16,12 @@ use crate::{
 pub struct RequestPairResponse {
     /// The waiting rider of the club the request was matched with, now the
     /// partner of a pair act.
-    partner_id: Option<Uuid>,
+    partner_id: Option<RiderId>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RequestPairBody {
-    rider_id: Uuid,
+    rider_id: RiderId,
     /// The partner the club enters, if it knows them.
     partner_name: Option<String>,
 }

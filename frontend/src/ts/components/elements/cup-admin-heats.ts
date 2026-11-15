@@ -618,9 +618,13 @@ export default class CupAdminHeats extends LitElement {
         "Bitte als Mindestzahl an Küren eine ganze Zahl ab 0 eingeben.";
       return;
     }
+    // The draft holds category names; the server takes their IDs.
+    const idOf = new Map(
+      (this.categories.value ?? []).map((c) => [c.name, c.id]),
+    );
     const fields = {
       description: draft.description.trim() || null,
-      categories: draft.categories,
+      category_ids: draft.categories.flatMap((name) => idOf.get(name) ?? []),
       threshold: threshold ?? null,
     };
     await this.command("Speichern fehlgeschlagen", async () => {

@@ -95,6 +95,15 @@ describe("jury lead", () => {
   });
 });
 
+describe("the backups page", () => {
+  test("needs manage_backups, not manage_users", () => {
+    assert.equal(canOpen("/admin-backups", ["manage_backups"]), true);
+    assert.equal(canOpen("/admin-backups", ["manage_users"]), false);
+    assert.equal(canOpen("/admin", ["manage_backups"]), false);
+    assert.ok(adminPages(["manage_backups"]).includes("/admin-backups"));
+  });
+});
+
 describe("adminPages", () => {
   test("lists the pages a treasurer may open", () => {
     const treasurer = [

@@ -1,6 +1,6 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json};
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CheckIn {
-    rider_id: Uuid,
+    rider_id: RiderId,
     /// `null` if the rider hasn't checked in yet.
     #[serde(with = "time::serde::iso8601::option")]
     checked_in_at: Option<time::OffsetDateTime>,
@@ -39,7 +39,7 @@ pub async fn list_check_ins(
         CheckIn,
         r#"
         SELECT
-            id as "rider_id!: Uuid",
+            id as "rider_id!: RiderId",
             checked_in_at as "checked_in_at: time::OffsetDateTime"
         FROM rider
         "#

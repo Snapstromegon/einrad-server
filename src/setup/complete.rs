@@ -5,6 +5,7 @@
 //! of a completion and the content of a config that couldn't be written (for
 //! the user to save by hand).
 
+use crate::ids::UserId;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -543,13 +544,13 @@ async fn preflight(settings: &Settings) -> Vec<String> {
     ) {
         errors.push(format!("smtp: {e}"));
     }
-    if let Some(path) = &settings.competition_file {
-        if let Err(e) = seed::check_file(path).await {
-            errors.push(format!(
-                "competition: {}",
-                scrub(&e, &[&settings.smtp_password, &settings.jwt_secret])
-            ));
-        }
+    if let Some(path) = &settings.competition_file
+        && let Err(e) = seed::check_file(path).await
+    {
+        errors.push(format!(
+            "competition: {}",
+            scrub(&e, &[&settings.smtp_password, &settings.jwt_secret])
+        ));
     }
     if let Err(e) = crate::photos::Photos::new() {
         errors.push(format!("photos: {}", scrub(&e, &[])));
@@ -684,10 +685,10 @@ pub async fn complete(
     }
     // Everything the handover can refuse without side effects is checked
     // now, so bad input fails before anything is saved.
-    if errors.is_empty() {
-        if let Some(settings) = &resolved {
-            errors.extend(preflight(settings).await);
-        }
+    if errors.is_empty()
+        && let Some(settings) = &resolved
+    {
+        errors.extend(preflight(settings).await);
     }
     if !errors.is_empty() {
         return Err(CompleteError::Invalid(errors));
@@ -784,7 +785,7 @@ pub async fn complete(
 /// the new admin's session cookie, signed with the new secret.
 async fn hand_over(
     state: &SetupState,
-    admin_id: Option<uuid::Uuid>,
+    admin_id: Option<UserId>,
 ) -> Result<Option<CookieJar>, String> {
     let env = &state.env;
     let file = env.load_file()?;

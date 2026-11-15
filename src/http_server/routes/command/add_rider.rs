@@ -1,8 +1,8 @@
+use crate::ids::{ClubId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use crate::{
     gender::Gender,
@@ -15,12 +15,12 @@ use crate::{
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddRiderResponse {
-    rider_id: Uuid,
+    rider_id: RiderId,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddRiderBody {
-    club_id: Uuid,
+    club_id: ClubId,
     firstname: String,
     lastname: String,
     #[serde(with = "time::serde::iso8601")]
@@ -76,7 +76,7 @@ pub async fn add_rider(
     )
     .await?;
 
-    let rider_id = Uuid::now_v7();
+    let rider_id = RiderId::new();
     sqlx::query!(
         r#"
         INSERT INTO rider (id, club_id, firstname, lastname, birthdate, gender)

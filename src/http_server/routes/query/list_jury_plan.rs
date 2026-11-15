@@ -1,7 +1,7 @@
+use crate::ids::{ClubId, JudgeId, JuryUnitId};
 use axum::{Extension, Json, extract::Query, http::StatusCode};
 use time::OffsetDateTime;
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::{
     groups::ensure_club_access,
@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListJuryPlanQuery {
     /// Only this club's judges. Required for everyone but the jury lead.
-    club_id: Option<Uuid>,
+    club_id: Option<ClubId>,
 }
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
@@ -74,9 +74,9 @@ pub async fn list_jury_plan(
         JuryAssignment,
         r#"
         SELECT
-            jury_assignments.judge_id as "judge_id!: Uuid",
+            jury_assignments.judge_id as "judge_id!: JudgeId",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
-            jury_assignments.unit_id as "unit_id!: Uuid",
+            jury_assignments.unit_id as "unit_id!: JuryUnitId",
             jury_assignments.task as "task!: JudgeTask"
         FROM jury_assignments
         JOIN judge ON judge.id = jury_assignments.judge_id

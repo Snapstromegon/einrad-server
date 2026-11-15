@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use sqlx::{
     SqlitePool,
@@ -36,8 +36,29 @@ impl ReloadableSqlite {
         }
     }
 
+    /// The database file, derived from the configured database URL; `None`
+    /// for an in-memory database or an unparsable URL.
+    pub fn file_path(&self) -> Option<std::path::PathBuf> {
+        let path = SqliteConnectOptions::from_str(&self.path)
+            .ok()?
+            .get_filename()
+            .to_path_buf();
+        (path.as_os_str() != ":memory:" && !path.as_os_str().is_empty()).then_some(path)
+    }
+
     pub async fn get(&self) -> RwLockReadGuard<'_, SqlitePool> {
         self.db.read().await
+    }
+
+    /// The configured database URL, to reopen the pool.
+    pub fn url(&self) -> &str {
+        &self.path
+    }
+
+    /// The pool's write lock: while held, in-flight requests have finished
+    /// and new ones wait. For swapping the database file.
+    pub async fn write(&self) -> RwLockWriteGuard<'_, SqlitePool> {
+        self.db.write().await
     }
 
     pub async fn reload(&self) -> Result<(), sqlx::Error> {
