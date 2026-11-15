@@ -14,7 +14,10 @@ use std::{
 use crate::ids::{ActId, ClubId, JuryUnitId, RiderId, UserId};
 use db_core::{
     Db, DbError,
-    commands::club::{LinkPair, RequestPair, SetSingle},
+    commands::{
+        club::{LinkPair, RequestPair, SetSingle},
+        jury::AddClubJudge,
+    },
     riders::Pair,
     seed::{SeedActDetails, SeedClub, SeedGroup, SeedRider, SeedUser},
 };
@@ -436,10 +439,9 @@ impl DemoData {
             None,
         );
         let units: HashMap<String, (crate::jury::JuryUnitKind, JuryUnitId)> = repo
-            .jury_unit_rows()
+            .list_jury_units(&organizer)
             .await
             .map_err(|e| e.to_string())?
-            .units
             .into_iter()
             .map(|unit| {
                 (
@@ -482,7 +484,7 @@ impl DemoData {
                     note: judge.note.clone(),
                     registrations,
                 };
-                repo.add_judge(&organizer, club_id, fields)
+                repo.add_club_judge(&organizer, AddClubJudge { club_id, fields })
                     .await
                     .map_err(|e| format!("Judge {name}: {e}"))?;
             }

@@ -1,13 +1,15 @@
 use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::MoveJudgeRegistrations as MoveRegistrations, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{JuryEnabled, JuryUnitKind},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::JuryUnitKind,
+    },
+    jury::JuryEnabled,
     roles::permit,
 };
 
@@ -43,14 +45,22 @@ pub struct MoveJudgeRegistrationsBody {
 pub async fn move_judge_registrations(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<MoveJudgeRegistrationsBody>,
 ) -> Result<Json<MoveJudgeRegistrationsResponse>, HttpError> {
     info!(
         "Moving the registrations of judge {} from {:?} {} to {:?} {}",
         body.judge_id, body.from_kind, body.from_id, body.to_kind, body.to_id
     );
-    repo.move_judge_registrations(body.judge_id, body.from_id, body.to_kind, body.to_id)
-        .await?;
+    repo.move_judge_registrations(
+        &granted.actor(),
+        MoveRegistrations {
+            judge_id: body.judge_id,
+            from_id: body.from_id,
+            to_kind: body.to_kind.into(),
+            to_id: body.to_id,
+        },
+    )
+    .await?;
     Ok(Json(MoveJudgeRegistrationsResponse {}))
 }

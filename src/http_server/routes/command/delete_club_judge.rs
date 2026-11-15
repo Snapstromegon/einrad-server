@@ -1,6 +1,6 @@
 use crate::ids::JudgeId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::jury::DeleteClubJudge, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -46,6 +46,12 @@ pub async fn delete_club_judge(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     info!("Deleting judge {}", body.judge_id);
-    repo.delete_judge(&auth.actor(), body.judge_id).await?;
+    repo.delete_club_judge(
+        &auth.actor(),
+        DeleteClubJudge {
+            judge_id: body.judge_id,
+        },
+    )
+    .await?;
     Ok(Json(DeleteClubJudgeResponse {}))
 }

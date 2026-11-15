@@ -1,13 +1,15 @@
 use crate::ids::JuryUnitId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::ResolveUnmappedRegistration as Resolve, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{JuryEnabled, JuryUnitKind},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::JuryUnitKind,
+    },
+    jury::JuryEnabled,
     roles::permit,
 };
 
@@ -48,11 +50,17 @@ pub struct UnitRef {
 pub async fn resolve_unmapped_registration(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<ResolveUnmappedRegistrationBody>,
 ) -> Result<Json<ResolveUnmappedRegistrationResponse>, HttpError> {
     info!("Resolving unmapped registration {}", body.id);
-    repo.resolve_unmapped_registration(body.id, body.unit.map(|unit| (unit.kind, unit.id)))
-        .await?;
+    repo.resolve_unmapped_registration(
+        &granted.actor(),
+        Resolve {
+            id: body.id,
+            unit: body.unit.map(|unit| (unit.kind.into(), unit.id)),
+        },
+    )
+    .await?;
     Ok(Json(ResolveUnmappedRegistrationResponse {}))
 }

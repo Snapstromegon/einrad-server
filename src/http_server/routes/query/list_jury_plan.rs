@@ -1,16 +1,14 @@
 use crate::ids::ClubId;
-use axum::{Extension, Json, extract::Query, http::StatusCode};
-use db_core::DbHandle;
+use axum::{Extension, Json, extract::Query};
+use db_core::{prelude::*, queries::jury::ListJuryPlan};
 use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
     http_server::{
-        ClientError, HttpError,
-        extractor::auth::{Auth, Granted},
+        ClientError, HttpError, extractor::auth::Auth, routes::http_types::JuryAssignment,
     },
-    jury::{JuryAssignment, JuryEnabled},
-    roles::permit,
+    jury::JuryEnabled,
 };
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -47,24 +45,18 @@ pub async fn list_jury_plan(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
     auth: Auth,
-    jury_lead: Option<Granted<permit::ManageJury>>,
     Query(query): Query<ListJuryPlanQuery>,
 ) -> Result<Json<JuryPlan>, HttpError> {
-    match query.club_id {
-        Some(club_id) => repo.ensure_club_access(&auth.actor(), club_id).await?,
-        None if jury_lead.is_some() => {}
-        None => return Err(HttpError::StatusCode(StatusCode::FORBIDDEN)),
-    }
-    let published_at = repo.jury_plan_published_at().await?;
-    if published_at.is_none() && jury_lead.is_none() {
-        return Ok(Json(JuryPlan {
-            published_at,
-            assignments: vec![],
-        }));
-    }
-    let assignments = repo.list_jury_assignments(query.club_id).await?;
+    let plan = repo
+        .list_jury_plan(
+            &auth.actor(),
+            ListJuryPlan {
+                club_id: query.club_id,
+            },
+        )
+        .await?;
     Ok(Json(JuryPlan {
-        published_at,
-        assignments,
+        published_at: plan.published_at,
+        assignments: plan.assignments.into_iter().map(Into::into).collect(),
     }))
 }

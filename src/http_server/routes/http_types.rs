@@ -1,6 +1,8 @@
-use crate::ids::{ActId, CategoryId, ClubId, HeatId};
+use crate::ids::{ActId, CategoryId, ClubId, HeatId, JudgeId, JuryUnitId};
 use crate::{act_type::ActType, roles::Permission};
 use db_core::acts::ActRecord;
+use db_core::jury::JudgeTask;
+use time::OffsetDateTime;
 
 pub use db_core::users::User;
 
@@ -297,6 +299,193 @@ impl From<db_core::timeplan::EntryKind> for EntryKind {
         match kind {
             Db::Acts => Self::Acts,
             Db::Custom => Self::Custom,
+        }
+    }
+}
+
+// ── jury ──
+
+/// Which kind of jury unit: a heat's Vorlauf or a final.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum JuryUnitKind {
+    /// The Vorlauf of a heat.
+    Heat,
+    /// A final.
+    Final,
+}
+
+impl From<JuryUnitKind> for db_core::jury::JuryUnitKind {
+    fn from(kind: JuryUnitKind) -> Self {
+        match kind {
+            JuryUnitKind::Heat => Self::Heat,
+            JuryUnitKind::Final => Self::Final,
+        }
+    }
+}
+
+impl From<db_core::jury::JuryUnitKind> for JuryUnitKind {
+    fn from(kind: db_core::jury::JuryUnitKind) -> Self {
+        use db_core::jury::JuryUnitKind as Db;
+        match kind {
+            Db::Heat => Self::Heat,
+            Db::Final => Self::Final,
+        }
+    }
+}
+
+/// A judge's task in a jury unit, as a club registers it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+pub struct JudgeRegistration {
+    pub unit_kind: JuryUnitKind,
+    /// The heat's or the final's id.
+    pub unit_id: JuryUnitId,
+    pub task: JudgeTask,
+}
+
+impl From<JudgeRegistration> for db_core::jury::JudgeRegistration {
+    fn from(registration: JudgeRegistration) -> Self {
+        Self {
+            unit_kind: registration.unit_kind.into(),
+            unit_id: registration.unit_id,
+            task: registration.task,
+        }
+    }
+}
+
+// Shared by `add_club_judge` and `edit_club_judge`.
+/// What clubs set for a judge.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct JudgeFields {
+    pub firstname: String,
+    pub lastname: String,
+    #[serde(with = "time::serde::iso8601")]
+    pub birthdate: OffsetDateTime,
+    pub is_trained: bool,
+    #[serde(default)]
+    pub max_deployments: Option<i64>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub registrations: Vec<JudgeRegistration>,
+}
+
+impl From<JudgeFields> for db_core::jury::JudgeFields {
+    fn from(fields: JudgeFields) -> Self {
+        Self {
+            firstname: fields.firstname,
+            lastname: fields.lastname,
+            birthdate: fields.birthdate,
+            is_trained: fields.is_trained,
+            max_deployments: fields.max_deployments,
+            note: fields.note,
+            registrations: fields.registrations.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+// Shared by `assign_judge` (the body) and `list_jury_plan`.
+/// A judge's task in a jury unit of the Juryplan.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct JuryAssignment {
+    pub judge_id: JudgeId,
+    pub unit_kind: JuryUnitKind,
+    /// The heat's or the final's id.
+    pub unit_id: JuryUnitId,
+    pub task: JudgeTask,
+}
+
+impl From<db_core::queries::jury::JuryAssignment> for JuryAssignment {
+    fn from(assignment: db_core::queries::jury::JuryAssignment) -> Self {
+        Self {
+            judge_id: assignment.judge_id,
+            unit_kind: assignment.unit_kind.into(),
+            unit_id: assignment.unit_id,
+            task: assignment.task,
+        }
+    }
+}
+
+// Shared by `list_club_judges` and `list_judges`.
+/// A registration as listed: with whether the jury lead has to move it.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct ListedRegistration {
+    pub unit_kind: JuryUnitKind,
+    pub unit_id: JuryUnitId,
+    pub task: JudgeTask,
+    /// Its unit takes no registrations (a skipped Vorlauf, or switched off):
+    /// it still counts, but the jury lead should move it (D7).
+    pub flagged: bool,
+}
+
+/// A registration of a migrated jury category that matched no heat or final
+/// (JURY-5), for the jury lead to move to one. It counts for nothing meanwhile.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct UnmappedRegistration {
+    pub id: i64,
+    /// The name of the old jury category.
+    pub old_unit: String,
+    pub task: JudgeTask,
+}
+
+/// A club's judge with what they registered for.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct ClubJudge {
+    pub id: JudgeId,
+    pub club_id: ClubId,
+    pub club_name: String,
+    pub firstname: String,
+    pub lastname: String,
+    #[serde(with = "time::serde::iso8601")]
+    pub birthdate: OffsetDateTime,
+    pub is_trained: bool,
+    pub max_deployments: Option<i64>,
+    pub note: Option<String>,
+    pub registrations: Vec<ListedRegistration>,
+    pub unmapped_registrations: Vec<UnmappedRegistration>,
+    /// What the jury units they registered for are worth (each once).
+    pub registered_deployments: i64,
+    /// What of it counts for the club: see [`counted_deployments`].
+    pub counted_deployments: i64,
+}
+
+impl From<db_core::queries::jury::ClubJudge> for ClubJudge {
+    fn from(judge: db_core::queries::jury::ClubJudge) -> Self {
+        Self {
+            id: judge.id,
+            club_id: judge.club_id,
+            club_name: judge.club_name,
+            firstname: judge.firstname,
+            lastname: judge.lastname,
+            birthdate: judge.birthdate,
+            is_trained: judge.is_trained,
+            max_deployments: judge.max_deployments,
+            note: judge.note,
+            registrations: judge
+                .registrations
+                .into_iter()
+                .map(|r| ListedRegistration {
+                    unit_kind: r.unit_kind.into(),
+                    unit_id: r.unit_id,
+                    task: r.task,
+                    flagged: r.flagged,
+                })
+                .collect(),
+            unmapped_registrations: judge
+                .unmapped_registrations
+                .into_iter()
+                .map(|r| UnmappedRegistration {
+                    id: r.id,
+                    old_unit: r.old_unit,
+                    task: r.task,
+                })
+                .collect(),
+            registered_deployments: judge.registered_deployments,
+            counted_deployments: judge.counted_deployments,
         }
     }
 }

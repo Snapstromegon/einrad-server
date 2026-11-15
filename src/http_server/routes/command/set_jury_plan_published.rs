@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::SetJuryPlanPublished as Publish, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -39,11 +39,17 @@ pub struct SetJuryPlanPublishedBody {
 pub async fn set_jury_plan_published(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<SetJuryPlanPublishedBody>,
 ) -> Result<Json<SetJuryPlanPublishedResponse>, HttpError> {
     info!("Juryplan published: {}", body.published);
-    repo.set_jury_plan_published(body.published, time::OffsetDateTime::now_utc())
-        .await?;
+    repo.set_jury_plan_published(
+        &granted.actor(),
+        Publish {
+            published: body.published,
+            now: time::OffsetDateTime::now_utc(),
+        },
+    )
+    .await?;
     Ok(Json(SetJuryPlanPublishedResponse {}))
 }

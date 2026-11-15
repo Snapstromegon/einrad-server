@@ -1,12 +1,14 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::AssignJudge, prelude::*};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{JuryAssignment, JuryEnabled},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::JuryAssignment,
+    },
+    jury::JuryEnabled,
     roles::permit,
 };
 
@@ -32,13 +34,22 @@ pub struct AssignJudgeResponse {}
 pub async fn assign_judge(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<JuryAssignment>,
 ) -> Result<Json<AssignJudgeResponse>, HttpError> {
     info!(
         "Assigning judge {} to jury unit {:?} {} ({:?})",
         body.judge_id, body.unit_kind, body.unit_id, body.task
     );
-    repo.assign_judge(&body).await?;
+    repo.assign_judge(
+        &granted.actor(),
+        AssignJudge {
+            judge_id: body.judge_id,
+            unit_kind: body.unit_kind.into(),
+            unit_id: body.unit_id,
+            task: body.task,
+        },
+    )
+    .await?;
     Ok(Json(AssignJudgeResponse {}))
 }

@@ -3,7 +3,10 @@
 
 use time::macros::datetime;
 
-use super::{World, create_group, delete_group, rename_group};
+use super::{
+    World, add_judge, club_judges_as, create_group, delete_group, delete_judge, edit_judge,
+    rename_group,
+};
 use crate::{
     Db,
     act_type::ActType,
@@ -52,15 +55,13 @@ fn rider_edit(rider_id: RiderId, firstname: &str) -> EditRider {
 pub async fn club_access_decisions(db: &dyn Db) {
     let w = World::seed(db).await;
     for allowed in [&w.organizer, &w.owner_a, &w.member_a] {
-        db.ensure_club_access(allowed, w.club_a).await.unwrap();
+        club_judges_as(db, allowed, w.club_a).await.unwrap();
     }
     for denied in [&w.owner_b, &w.stranger] {
-        assert!(is_forbidden(db.ensure_club_access(denied, w.club_a).await));
+        assert!(is_forbidden(club_judges_as(db, denied, w.club_a).await));
     }
     for actor in [&w.organizer, &w.owner_a, &w.stranger] {
-        assert!(is_not_found(
-            db.ensure_club_access(actor, ClubId::new()).await
-        ));
+        assert!(is_not_found(club_judges_as(db, actor, ClubId::new()).await));
     }
     // Registering a rider needs access to the rider's club.
     assert!(is_forbidden(
@@ -145,27 +146,25 @@ fn judge_fields() -> JudgeFields {
 pub async fn judge_access_decisions(db: &dyn Db) {
     let w = World::seed(db).await;
     assert!(is_forbidden(
-        db.add_judge(&w.owner_b, w.club_a, judge_fields()).await
+        add_judge(db, &w.owner_b, w.club_a, judge_fields()).await
     ));
     assert!(is_not_found(
-        db.add_judge(&w.organizer, ClubId::new(), judge_fields())
-            .await
+        add_judge(db, &w.organizer, ClubId::new(), judge_fields()).await
     ));
-    let judge = db
-        .add_judge(&w.member_a, w.club_a, judge_fields())
+    let judge = add_judge(db, &w.member_a, w.club_a, judge_fields())
         .await
         .unwrap();
     assert!(is_forbidden(
-        db.edit_judge(&w.owner_b, judge, judge_fields()).await
+        edit_judge(db, &w.owner_b, judge, judge_fields()).await
     ));
-    assert!(is_forbidden(db.delete_judge(&w.stranger, judge).await));
+    assert!(is_forbidden(delete_judge(db, &w.stranger, judge).await));
     assert!(is_not_found(
-        db.delete_judge(&w.organizer, JudgeId::new()).await
+        delete_judge(db, &w.organizer, JudgeId::new()).await
     ));
-    db.edit_judge(&w.owner_a, judge, judge_fields())
+    edit_judge(db, &w.owner_a, judge, judge_fields())
         .await
         .unwrap();
-    db.delete_judge(&w.organizer, judge).await.unwrap();
+    delete_judge(db, &w.organizer, judge).await.unwrap();
 }
 
 /// A pair act is changed by users of either rider's club, and the organizer.

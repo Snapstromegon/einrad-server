@@ -1,6 +1,6 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::SetJuryDeploymentsOverride as Credit, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -41,19 +41,20 @@ pub struct SetJuryDeploymentsOverrideBody {
 pub async fn set_jury_deployments_override(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<SetJuryDeploymentsOverrideBody>,
 ) -> Result<Json<SetJuryDeploymentsOverrideResponse>, HttpError> {
-    if body.deployments.is_some_and(|d| d < 0) {
-        return Err(HttpError::ErrorMessages(
-            "Die angerechneten Einsätze dürfen nicht negativ sein.".to_string(),
-        ));
-    }
     info!(
         "Crediting club {} with {:?} jury deployments",
         body.club_id, body.deployments
     );
-    repo.set_jury_deployments_override(body.club_id, body.deployments)
-        .await?;
+    repo.set_jury_deployments_override(
+        &granted.actor(),
+        Credit {
+            club_id: body.club_id,
+            deployments: body.deployments,
+        },
+    )
+    .await?;
     Ok(Json(SetJuryDeploymentsOverrideResponse {}))
 }

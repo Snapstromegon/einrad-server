@@ -6,8 +6,8 @@
 use time::macros::datetime;
 
 use super::{
-    World, admin, create_group, delete_group, set_fee_waived, set_members,
-    timeplan::create_competition_with,
+    World, add_judge, admin, club_judges, create_group, credit_deployments, delete_group,
+    jury_units, set_fee_waived, set_members, timeplan::create_competition_with,
 };
 use crate::{
     Db,
@@ -20,13 +20,14 @@ use crate::{
         club::{AddRider, LinkPair, RequestPair, SetSingle},
         group::GroupMember,
         heat::AddHeat,
+        jury::AssignJudge,
     },
     competition::JuryRules,
     fee_waivers::Target,
     fees::ClubFees,
     gender::Gender,
     ids::{ClubId, RiderId},
-    jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryAssignment, JuryUnitKind},
+    jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryUnitKind},
 };
 
 fn message<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> String {
@@ -270,7 +271,7 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
     )
     .await
     .unwrap();
-    let heat = db.jury_unit_rows().await.unwrap().units[0].id;
+    let heat = jury_units(db).await[0].id;
     let registration = |task| JudgeRegistration {
         unit_kind: JuryUnitKind::Heat,
         unit_id: heat,
@@ -285,36 +286,39 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
         note: None,
         registrations: tasks.iter().copied().map(registration).collect(),
     };
-    let trained = db
-        .add_judge(
-            &w.owner_a,
-            w.club_a,
-            judge(
-                "Tina",
-                true,
-                None,
-                &[JudgeTask::Technical, JudgeTask::Performance],
-            ),
-        )
-        .await
-        .unwrap();
+    let trained = add_judge(
+        db,
+        &w.owner_a,
+        w.club_a,
+        judge(
+            "Tina",
+            true,
+            None,
+            &[JudgeTask::Technical, JudgeTask::Performance],
+        ),
+    )
+    .await
+    .unwrap();
     // Untrained people and dismount-only registrations count nothing; a
     // maximum of 1 caps Cleo.
-    db.add_judge(
+    add_judge(
+        db,
         &w.owner_a,
         w.club_a,
         judge("Ulla", false, None, &[JudgeTask::Dismounts]),
     )
     .await
     .unwrap();
-    db.add_judge(
+    add_judge(
+        db,
         &w.owner_a,
         w.club_a,
         judge("Dana", true, None, &[JudgeTask::Dismounts]),
     )
     .await
     .unwrap();
-    db.add_judge(
+    add_judge(
+        db,
         &w.owner_a,
         w.club_a,
         judge("Cleo", true, Some(1), &[JudgeTask::Technical]),
@@ -340,7 +344,7 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
     assert!(off.jury.is_none());
     assert_eq!(off.amount_due.total, 30.0);
 
-    let judges = db.list_judges(Some(w.club_a)).await.unwrap();
+    let judges = club_judges(db, w.club_a).await;
     let counted = |name: &str| {
         let j = judges.iter().find(|j| j.firstname == name).unwrap();
         (j.registered_deployments, j.counted_deployments)
@@ -352,34 +356,35 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
 
     // Untrained people only count dismounts.
     let ulla = judges.iter().find(|j| j.firstname == "Ulla").unwrap().id;
-    let assign = |judge_id, task| JuryAssignment {
+    let assign = |judge_id, task| AssignJudge {
         judge_id,
         unit_kind: JuryUnitKind::Heat,
         unit_id: heat,
         task,
     };
     assert_eq!(
-        message(db.assign_judge(&assign(ulla, JudgeTask::Performance)).await),
+        message(
+            db.assign_judge(&admin(), assign(ulla, JudgeTask::Performance))
+                .await
+        ),
         "Nicht geschulte Personen können nur Abstiege zählen."
     );
-    db.assign_judge(&assign(ulla, JudgeTask::Dismounts))
+    db.assign_judge(&admin(), assign(ulla, JudgeTask::Dismounts))
         .await
         .unwrap();
-    db.assign_judge(&assign(trained, JudgeTask::Technical))
+    db.assign_judge(&admin(), assign(trained, JudgeTask::Technical))
         .await
         .unwrap();
     assert_eq!(
         message(
-            db.assign_judge(&assign(trained, JudgeTask::Technical))
+            db.assign_judge(&admin(), assign(trained, JudgeTask::Technical))
                 .await
         ),
         "Die JurorIn ist hier schon eingeteilt."
     );
 
     // An admin's credit replaces the registered deployments.
-    db.set_jury_deployments_override(w.club_a, Some(8))
-        .await
-        .unwrap();
+    credit_deployments(db, w.club_a, Some(8)).await.unwrap();
     let jury = fees(db, w.club_a, true).await.jury.unwrap();
     assert_eq!(
         (
@@ -390,13 +395,9 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
         ),
         (Some(8), 8, 0, 0.0)
     );
-    db.set_jury_deployments_override(w.club_a, Some(0))
-        .await
-        .unwrap();
+    credit_deployments(db, w.club_a, Some(0)).await.unwrap();
     assert_eq!(fees(db, w.club_a, true).await.jury.unwrap().missing, 8);
-    db.set_jury_deployments_override(w.club_a, None)
-        .await
-        .unwrap();
+    credit_deployments(db, w.club_a, None).await.unwrap();
 
     // A waived club keeps its obligation but owes no jury fee.
     let roles = [];

@@ -120,17 +120,10 @@ impl Actor {
 /// (#238).
 pub use crate::error::CommandError as RegistrationError;
 
+/// Only `save_act_song` (a side-effect endpoint, step S10) still needs this;
+/// it goes when that migrates.
 #[async_trait::async_trait]
 pub trait ClubsRepo {
-    /// Fails with `NotFound` for an unknown club and `Forbidden` unless the
-    /// actor may manage it: the organizer, the owner and users assigned to
-    /// the club.
-    async fn ensure_club_access(
-        &self,
-        actor: &Actor,
-        club: ClubId,
-    ) -> Result<(), RegistrationError>;
-
     /// Fails unless the actor may change the act: the organizer and users
     /// with access to the club of one of its riders or, for groups, to the
     /// club that created it.

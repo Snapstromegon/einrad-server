@@ -437,6 +437,80 @@ pub fn home_blocks(
 }
 
 impl Timeplan {
+    /// When each entry is planned to start, in order: the planned half of
+    /// the prediction (`predict_timeplan` in the API), which never looks at
+    /// the clock. `None` where the prediction refuses the timeplan: the first
+    /// entry has no earliest start time, an entry or slot has ended without
+    /// starting, or a custom entry lacks its duration or label.
+    #[must_use]
+    pub fn planned_starts(&self) -> Option<Vec<OffsetDateTime>> {
+        let consistent = |started: Option<OffsetDateTime>, ended: Option<OffsetDateTime>| {
+            started.is_some() || ended.is_none()
+        };
+        let Some(first) = self.entries.first() else {
+            return Some(vec![]);
+        };
+        let mut next = first.earliest_start_time?;
+        let mut starts = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            if let Some(earliest) = entry.earliest_start_time {
+                next = earliest.max(next);
+            }
+            starts.push(next);
+            match entry.kind {
+                EntryKind::Acts => {
+                    let empty = entry.is_empty();
+                    next += time::Duration::seconds(entry.warmup_seconds);
+                    for slot in &entry.slots {
+                        // An empty block is skipped, its breaks too: they take
+                        // no time.
+                        if empty {
+                            if let Slot::Break(pause) = slot
+                                && !consistent(pause.started_at, pause.ended_at)
+                            {
+                                return None;
+                            }
+                            continue;
+                        }
+                        let (started, ended, duration) = match slot {
+                            Slot::Act(act) => {
+                                let category = self.categories.get(&act.category_id);
+                                (act.started_at, act.ended_at, category)
+                            }
+                            Slot::Break(pause) => {
+                                if !consistent(pause.started_at, pause.ended_at) {
+                                    return None;
+                                }
+                                next += time::Duration::seconds(pause.duration_seconds);
+                                continue;
+                            }
+                            Slot::Finalist(finalist) => {
+                                let info = self.finals.get(&finalist.final_id);
+                                (finalist.started_at, finalist.ended_at, info)
+                            }
+                        };
+                        if !consistent(started, ended) {
+                            return None;
+                        }
+                        // The next slot starts after the act and its judging.
+                        next += time::Duration::seconds(
+                            duration
+                                .map_or(0, |c| c.act_duration_seconds + c.judge_duration_seconds),
+                        );
+                    }
+                }
+                EntryKind::Custom => match (entry.duration_seconds, &entry.label) {
+                    (Some(duration), Some(_)) => next += time::Duration::seconds(duration),
+                    _ => return None,
+                },
+            }
+            if !consistent(entry.started_at, entry.ended_at) {
+                return None;
+            }
+        }
+        Some(starts)
+    }
+
     /// The block an act without a stored slot runs in (see [`home_blocks`]),
     /// leaving out the block `without` (about to be deleted or changed).
     pub fn home_block(&self, category_id: CategoryId, without: Option<i64>) -> Option<&Entry> {
@@ -1162,6 +1236,48 @@ mod tests {
 
     fn r(slot: &Slot) -> SlotRef {
         slot.slot_ref()
+    }
+
+    #[test]
+    fn planned_starts_follow_earliest_starts_warmups_and_slots() {
+        let (_, a) = act(None, None);
+        let (_, b) = act(None, None);
+        let mut first = block(1, vec![a, pause(None, None), b]);
+        first.earliest_start_time = t(0);
+        first.warmup_seconds = 100;
+        // No earliest start: it follows the first block; the acts have no
+        // category, so they take no time, the break takes 60 s.
+        let second = block(2, vec![]);
+        let mut third = block(3, vec![]);
+        third.earliest_start_time = t(1000);
+        let mut custom = entry(4, EntryKind::Custom, vec![]);
+        custom.label = Some("Siegerehrung".into());
+        custom.duration_seconds = Some(30);
+        let tp = plan(vec![first, second, third, custom]);
+        let starts = tp.planned_starts().unwrap();
+        let base = t(0).unwrap();
+        let later = base + time::Duration::seconds(160);
+        assert_eq!(starts, [base, later, t(1000).unwrap(), t(1000).unwrap()]);
+        assert_eq!(plan(vec![]).planned_starts(), Some(vec![]));
+    }
+
+    #[test]
+    fn planned_starts_refuse_what_the_prediction_refuses() {
+        // The first entry needs an earliest start.
+        assert_eq!(plan(vec![block(1, vec![])]).planned_starts(), None);
+        // A custom entry needs its label and duration.
+        let mut first = block(1, vec![]);
+        first.earliest_start_time = t(0);
+        let custom = entry(2, EntryKind::Custom, vec![]);
+        assert_eq!(plan(vec![first, custom]).planned_starts(), None);
+        // Ended without having started.
+        let mut ended = block(1, vec![]);
+        ended.earliest_start_time = t(0);
+        ended.ended_at = t(5);
+        assert_eq!(plan(vec![ended]).planned_starts(), None);
+        let mut with_slot = block(1, vec![finalist(None, Some(5))]);
+        with_slot.earliest_start_time = t(0);
+        assert_eq!(plan(vec![with_slot]).planned_starts(), None);
     }
 
     #[test]

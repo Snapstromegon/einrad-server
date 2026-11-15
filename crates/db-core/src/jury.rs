@@ -1,18 +1,17 @@
 //! The jury registration (#225): types and rules of jury units, judges and
-//! the Juryplan, plus the [`JuryRepo`] trait. The SQL that counts a club's
-//! acts and judges lives in the backend.
+//! the Juryplan. The SQL that counts a club's acts and judges lives in the
+//! backend; the commands and queries are in `commands::jury` and
+//! `queries::jury`.
 
 use time::{Date, OffsetDateTime};
 
 use crate::{
-    DbError,
     act_type::ActType,
-    clubs::{Actor, RegistrationError},
-    ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId},
+    clubs::RegistrationError,
+    ids::{ClubId, FinalId, HeatId, JuryUnitId},
     people,
+    queries::jury::JuryUnit,
 };
-
-time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 /// The deployments a judge counts for their club: jury units with a
 /// technical or performance registration, at most their maximum; untrained
@@ -315,16 +314,7 @@ pub fn check_plan_publishable(
 
 /// Which kind of jury unit: a heat's Vorlauf or a final.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-    sqlx::Type,
-    utoipa::ToSchema,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
 )]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "TEXT", rename_all = "snake_case")]
@@ -359,47 +349,6 @@ pub fn parse_unit_label(label: &str) -> Option<(JuryUnitKind, &str)> {
         _ => return None,
     };
     Some((kind, name.trim())).filter(|(_, name)| !name.is_empty())
-}
-
-/// What judges register for and get assigned to: the Vorlauf of a heat or a
-/// final (ADR 0016). Its settings live on the heat or the final.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct JuryUnit {
-    /// The heat's or the final's id.
-    pub id: JuryUnitId,
-    pub kind: JuryUnitKind,
-    /// The heat's or the final's readable name; renaming it keeps the
-    /// registrations. Judges and the jury lead read this one.
-    pub name: String,
-    /// The heat's or the final's short code.
-    pub code: String,
-    pub description: Option<String>,
-    /// Judges can register for it: its setting, and never for a skipped
-    /// Vorlauf.
-    pub registrable: bool,
-    /// The jury lead's setting alone, which a skipped Vorlauf overrides.
-    pub registrable_setting: bool,
-    /// The heat's Vorlauf is skipped ("Vorlauf entfällt"). Registrations it
-    /// already has are flagged for the jury lead to move.
-    pub skipped: bool,
-    /// Jury deployments (Einsätze) it counts for.
-    pub deployments: i64,
-    /// Judges it needs per task.
-    pub needed_technical: i64,
-    pub needed_performance: i64,
-    pub needed_dismounts: i64,
-    /// The discipline: the act type of a heat's categories (the first one's
-    /// if they differ, else the final it feeds) or of a final. `None` for a
-    /// heat without categories that feeds no final.
-    pub act_type: Option<ActType>,
-    /// The final a heat feeds (one at most); `None` for a final and for a
-    /// heat that feeds none.
-    pub final_id: Option<FinalId>,
-    /// The day it runs, derived from the timeplan; `None` while it isn't
-    /// planned in it.
-    #[serde(with = "iso_date::option")]
-    #[schema(value_type = Option<String>, format = Date)]
-    pub day: Option<Date>,
 }
 
 /// A heat's Vorlauf counts 2 jury deployments (Konzept: "Vorlauf entspricht
@@ -485,7 +434,7 @@ impl UnitSettings {
 }
 
 /// What the jury lead sets for a jury unit (JURY-2, D2).
-#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone)]
 pub struct JuryUnitFields {
     pub kind: JuryUnitKind,
     pub id: JuryUnitId,
@@ -515,6 +464,8 @@ impl JuryUnitFields {
 }
 
 /// What a judge does in a jury unit.
+// Still `ToSchema`: `RemapRegistration` (and so `seed::Dropped`, step S11)
+// carries it in the API.
 #[derive(
     Debug,
     Clone,
@@ -562,9 +513,7 @@ impl JudgeTask {
 }
 
 /// A judge's task in a jury unit, as a club registers it.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct JudgeRegistration {
     pub unit_kind: JuryUnitKind,
     /// The heat's or the final's id.
@@ -572,61 +521,15 @@ pub struct JudgeRegistration {
     pub task: JudgeTask,
 }
 
-/// A registration as listed: with whether the jury lead has to move it.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct ListedRegistration {
-    pub unit_kind: JuryUnitKind,
-    pub unit_id: JuryUnitId,
-    pub task: JudgeTask,
-    /// Its unit takes no registrations (a skipped Vorlauf, or switched off):
-    /// it still counts, but the jury lead should move it (D7).
-    pub flagged: bool,
-}
-
-/// A registration of a migrated jury category that matched no heat or final
-/// (JURY-5), for the jury lead to move to one. It counts for nothing meanwhile.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct UnmappedRegistration {
-    pub id: i64,
-    /// The name of the old jury category.
-    pub old_unit: String,
-    pub task: JudgeTask,
-}
-
-/// A club's judge with what they registered for.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct ClubJudge {
-    pub id: JudgeId,
-    pub club_id: ClubId,
-    pub club_name: String,
-    pub firstname: String,
-    pub lastname: String,
-    #[serde(with = "time::serde::iso8601")]
-    pub birthdate: OffsetDateTime,
-    pub is_trained: bool,
-    pub max_deployments: Option<i64>,
-    pub note: Option<String>,
-    pub registrations: Vec<ListedRegistration>,
-    pub unmapped_registrations: Vec<UnmappedRegistration>,
-    /// What the jury units they registered for are worth (each once).
-    pub registered_deployments: i64,
-    /// What of it counts for the club: see [`counted_deployments`].
-    pub counted_deployments: i64,
-}
-
 /// What clubs set for a judge.
-#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone)]
 pub struct JudgeFields {
     pub firstname: String,
     pub lastname: String,
-    #[serde(with = "time::serde::iso8601")]
     pub birthdate: OffsetDateTime,
     pub is_trained: bool,
-    #[serde(default)]
     pub max_deployments: Option<i64>,
-    #[serde(default)]
     pub note: Option<String>,
-    #[serde(default)]
     pub registrations: Vec<JudgeRegistration>,
 }
 
@@ -659,16 +562,6 @@ pub fn unit_columns(kind: JuryUnitKind, id: JuryUnitId) -> (Option<HeatId>, Opti
         JuryUnitKind::Heat => (Some(HeatId(id.0)), None),
         JuryUnitKind::Final => (None, Some(FinalId(id.0))),
     }
-}
-
-/// A judge's task in a jury unit of the Juryplan.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct JuryAssignment {
-    pub judge_id: JudgeId,
-    pub unit_kind: JuryUnitKind,
-    /// The heat's or the final's id.
-    pub unit_id: JuryUnitId,
-    pub task: JudgeTask,
 }
 
 /// The age rule of the competition's jury (Jury-Konzept): trained judges are
@@ -735,6 +628,7 @@ pub const NOT_REGISTRABLE_MESSAGE: &str = "Für diesen Vorlauf oder dieses Final
 /// A judge registration a replace dropped, as in the remap file. Filling in
 /// `jury_unit` (`heat: <name>` or `final: <name>`) says which new heat's
 /// Vorlauf or final the judge belongs to.
+// Still `ToSchema`: `seed::Dropped` (step S11) returns it in the API.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct RemapRegistration {
     pub club: String,
@@ -747,8 +641,7 @@ pub struct RemapRegistration {
 }
 
 /// Why an entry of the remap file wasn't registered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemapProblem {
     /// No judge (or more than one) of that name in that club.
     JudgeNotFound,
@@ -811,7 +704,8 @@ pub struct JuryUnitFinalType {
     pub act_type: ActType,
 }
 
-/// Everything [`JuryRepo::jury_unit_rows`] reads, from one consistent view.
+/// Everything the backend reads for `list_jury_units`, from one consistent
+/// view; [`jury_units`] turns it into the units.
 #[derive(Debug, Clone, Default)]
 pub struct JuryUnitRows {
     pub units: Vec<JuryUnitRow>,
@@ -821,103 +715,109 @@ pub struct JuryUnitRows {
     pub final_types: Vec<JuryUnitFinalType>,
 }
 
-/// Judges, their registrations and the Juryplan.
-#[async_trait::async_trait]
-pub trait JuryRepo {
-    /// The jury units (every heat's Vorlauf and every final) with the
-    /// settings and the data their discipline and day are derived from.
-    async fn jury_unit_rows(&self) -> Result<JuryUnitRows, DbError>;
+/// A block of the timeplan as the jury units need it: what runs in it and the
+/// day it is planned for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedBlock {
+    /// The block's home category, by name.
+    pub home_category: Option<String>,
+    /// The final running in the block.
+    pub final_id: Option<FinalId>,
+    pub day: Date,
+}
 
-    /// Judges with their registrations: of one club, or of all clubs.
-    async fn list_judges(&self, club_id: Option<ClubId>) -> Result<Vec<ClubJudge>, DbError>;
+/// The jury units in the order of the timeplan: by the first block of the
+/// heat's categories or of the final; units the timeplan doesn't run last,
+/// by name. The day is the planned day of that block. `blocks` are the
+/// timeplan's start blocks in order, empty without a plannable timeplan.
+#[must_use]
+pub fn jury_units(rows: JuryUnitRows, blocks: &[PlannedBlock]) -> Vec<JuryUnit> {
+    let JuryUnitRows {
+        units: rows,
+        categories,
+        feeds,
+        final_types,
+    } = rows;
+    // Where each unit first runs: the position and planned day of its block.
+    let first_block = |matches: &dyn Fn(&PlannedBlock) -> bool| {
+        blocks
+            .iter()
+            .enumerate()
+            .find(|(_, block)| matches(block))
+            .map(|(position, block)| (position, block.day))
+    };
+    let mut units: Vec<(Option<(usize, Date)>, JuryUnit)> = rows
+        .into_iter()
+        .map(|row| {
+            let block = match row.kind {
+                JuryUnitKind::Heat => first_block(&|block| match &block.home_category {
+                    Some(category) => categories
+                        .iter()
+                        .any(|c| &c.name == category && c.heat_id == Some(row.id.as_heat())),
+                    None => false,
+                }),
+                JuryUnitKind::Final => {
+                    first_block(&|block| block.final_id.is_some_and(|id| id == row.id.as_final()))
+                }
+            };
+            let final_id = match row.kind {
+                JuryUnitKind::Heat => feeds
+                    .iter()
+                    .find(|f| f.heat_id == row.id.as_heat())
+                    .map(|f| f.final_id),
+                JuryUnitKind::Final => None,
+            };
+            let own_type =
+                |id: FinalId| final_types.iter().find(|f| f.id == id).map(|f| f.act_type);
+            let act_type = match row.kind {
+                JuryUnitKind::Heat => categories
+                    .iter()
+                    .find(|c| c.heat_id == Some(row.id.as_heat()))
+                    .map(|c| c.act_type)
+                    .or_else(|| final_id.and_then(own_type)),
+                JuryUnitKind::Final => own_type(row.id.as_final()),
+            };
+            let unit = JuryUnit {
+                act_type,
+                final_id,
+                id: row.id,
+                kind: row.kind,
+                name: row.name,
+                code: row.code,
+                description: row.description.filter(|d| !d.trim().is_empty()),
+                registrable: row.registrable,
+                registrable_setting: row.registrable_setting,
+                skipped: row.skipped,
+                deployments: row.deployments,
+                needed_technical: row.needed_technical,
+                needed_performance: row.needed_performance,
+                needed_dismounts: row.needed_dismounts,
+                day: block.map(|(_, day)| day),
+            };
+            (block, unit)
+        })
+        .collect();
+    units.sort_by(|(a_block, a), (b_block, b)| {
+        let key = |block: &Option<(usize, Date)>, unit: &JuryUnit| {
+            (
+                block.map_or(usize::MAX, |(position, _)| position),
+                unit.kind == JuryUnitKind::Final,
+                unit.name.clone(),
+            )
+        };
+        key(a_block, a).cmp(&key(b_block, b))
+    });
+    units.into_iter().map(|(_, unit)| unit).collect()
+}
 
-    /// Registers a judge of the club. Normalizes the fields against the
-    /// competition's jury rules and refuses (`Rejected`, German message)
-    /// duplicate names, unknown jury units and units that take no
-    /// registrations. `NotFound` for an unknown club, `Forbidden` unless the
-    /// actor may manage it.
-    async fn add_judge(
-        &self,
-        actor: &Actor,
-        club_id: ClubId,
-        fields: JudgeFields,
-    ) -> Result<JudgeId, RegistrationError>;
-
-    /// Changes a judge and replaces their registrations; the club stays the
-    /// same. An untrained judge also loses their Technik and Performance
-    /// assignments. Same refusals as [`JuryRepo::add_judge`].
-    async fn edit_judge(
-        &self,
-        actor: &Actor,
-        judge_id: JudgeId,
-        fields: JudgeFields,
-    ) -> Result<(), RegistrationError>;
-
-    /// Removes a judge with their registrations and assignments.
-    async fn delete_judge(&self, actor: &Actor, judge_id: JudgeId)
-    -> Result<(), RegistrationError>;
-
-    /// When the Juryplan was published; `None` while it wasn't (or there is
-    /// no competition).
-    async fn jury_plan_published_at(&self) -> Result<Option<OffsetDateTime>, DbError>;
-
-    /// The Juryplan's assignments: of one club's judges, or of all.
-    async fn list_jury_assignments(
-        &self,
-        club_id: Option<ClubId>,
-    ) -> Result<Vec<JuryAssignment>, DbError>;
-
-    /// Assigns a judge a task in a unit. `NotFound` for an unknown judge or
-    /// unit, `Rejected` for an untrained judge with a task other than
-    /// dismounts and for a duplicate.
-    async fn assign_judge(&self, assignment: &JuryAssignment) -> Result<(), RegistrationError>;
-
-    /// Removes the judge's assignments in a unit (none is fine).
-    async fn unassign_judge(&self, judge_id: JudgeId, unit_id: JuryUnitId) -> Result<(), DbError>;
-
-    /// Changes a unit's jury settings. `NotFound` for an unknown unit.
-    async fn edit_jury_unit(&self, fields: &JuryUnitFields) -> Result<(), RegistrationError>;
-
-    /// Moves all registrations of a judge from one unit to another; ones the
-    /// judge already has there merge. `NotFound` for an unknown target or
-    /// nothing to move, `Rejected` for a target that takes no registrations.
-    async fn move_judge_registrations(
-        &self,
-        judge_id: JudgeId,
-        from_id: JuryUnitId,
-        to_kind: JuryUnitKind,
-        to_id: JuryUnitId,
-    ) -> Result<(), RegistrationError>;
-
-    /// Registers the judge of an unmapped registration for a unit (or just
-    /// drops it with `None`) and removes the unmapped entry.
-    async fn resolve_unmapped_registration(
-        &self,
-        id: i64,
-        unit: Option<(JuryUnitKind, JuryUnitId)>,
-    ) -> Result<(), RegistrationError>;
-
-    /// Registers the judges of a remap file again, in one unit of work.
-    async fn apply_jury_remap(
-        &self,
-        registrations: Vec<RemapRegistration>,
-    ) -> Result<RemapOutcome, DbError>;
-
-    /// Credits a club with jury deployments instead of the registered ones;
-    /// `None` uses the registered ones again. `NotFound` for an unknown club.
-    async fn set_jury_deployments_override(
-        &self,
-        club_id: ClubId,
-        deployments: Option<i64>,
-    ) -> Result<(), RegistrationError>;
-
-    /// Publishes the Juryplan (at `now`) or takes it back. Publishing is
-    /// `Rejected` (German message) before the end of the judge registration.
-    async fn set_jury_plan_published(
-        &self,
-        published: bool,
-        now: OffsetDateTime,
-    ) -> Result<(), RegistrationError>;
+/// Credited deployments are never negative (German message).
+pub fn check_deployments_override(deployments: Option<i64>) -> Result<(), RegistrationError> {
+    if deployments.is_some_and(|d| d < 0) {
+        return Err(RegistrationError::Rejected(
+            "Die angerechneten Einsätze dürfen nicht negativ sein.".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

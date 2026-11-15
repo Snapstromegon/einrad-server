@@ -1,13 +1,13 @@
 use crate::ids::JudgeId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::jury::EditClubJudge, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{JudgeFields, JuryEnabled},
+    http_server::{ClientError, HttpError, extractor::auth::Auth, routes::http_types::JudgeFields},
+    jury::JuryEnabled,
     system_status::Capabilities,
 };
 
@@ -48,7 +48,13 @@ pub async fn edit_club_judge(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     info!("Editing judge {}", body.judge_id);
-    repo.edit_judge(&auth.actor(), body.judge_id, body.fields)
-        .await?;
+    repo.edit_club_judge(
+        &auth.actor(),
+        EditClubJudge {
+            judge_id: body.judge_id,
+            fields: body.fields.into(),
+        },
+    )
+    .await?;
     Ok(Json(EditClubJudgeResponse {}))
 }

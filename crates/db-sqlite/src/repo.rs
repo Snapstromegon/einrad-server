@@ -33,7 +33,8 @@ mod group_queries;
 mod groups;
 mod heat_commands;
 mod heat_queries;
-mod jury;
+mod jury_commands;
+mod jury_queries;
 mod media;
 mod metrics;
 mod riders;
@@ -126,8 +127,6 @@ pub(crate) use {read_tx, write_tx};
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::JuryCommands for SqliteRepo {}
-impl db_core::queries::JuryQueries for SqliteRepo {}
 impl db_core::commands::CompetitionCommands for SqliteRepo {}
 impl db_core::queries::CompetitionQueries for SqliteRepo {}
 impl db_core::commands::MediaCommands for SqliteRepo {}

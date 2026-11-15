@@ -1,11 +1,11 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query};
-use db_core::DbHandle;
+use db_core::{prelude::*, queries::jury::ListClubJudges};
 use tracing::instrument;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::{ClubJudge, JuryEnabled},
+    http_server::{ClientError, HttpError, extractor::auth::Auth, routes::http_types::ClubJudge},
+    jury::JuryEnabled,
 };
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -34,7 +34,13 @@ pub async fn list_club_judges(
     auth: Auth,
     Query(query): Query<ListClubJudgesQuery>,
 ) -> Result<Json<Vec<ClubJudge>>, HttpError> {
-    repo.ensure_club_access(&auth.actor(), query.club_id)
+    let judges = repo
+        .list_club_judges(
+            &auth.actor(),
+            ListClubJudges {
+                club_id: query.club_id,
+            },
+        )
         .await?;
-    Ok(Json(repo.list_judges(Some(query.club_id)).await?))
+    Ok(Json(judges.into_iter().map(Into::into).collect()))
 }

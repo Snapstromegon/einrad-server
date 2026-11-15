@@ -52,7 +52,6 @@ pub use clubs::ClubsRepo;
 pub use competition::CompetitionRepo;
 pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
-pub use jury::JuryRepo;
 pub use media::MediaRepo;
 pub use metrics::MetricsRepo;
 pub use riders::RidersRepo;
@@ -86,7 +85,6 @@ pub trait Db:
     + ClubMailsRepo
     + ActsRepo
     + TimeplanRepo
-    + JuryRepo
     + CompetitionRepo
     + MediaRepo
     + MetricsRepo

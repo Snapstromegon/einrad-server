@@ -1,12 +1,12 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::ApplyJuryRemap, jury::RemapRegistration, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{JuryEnabled, RemapOutcome, RemapProblem, RemapRegistration},
+    jury::JuryEnabled,
     roles::permit,
     seed::RemapFile,
 };
@@ -15,6 +15,30 @@ use crate::{
 pub struct ApplyJuryRemapBody {
     /// The remap file's content (TOML) with `jury_unit` filled in.
     file: String,
+}
+
+/// Why an entry of the remap file wasn't registered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RemapProblem {
+    /// No judge (or more than one) of that name in that club.
+    JudgeNotFound,
+    /// No jury unit of that name (`heat: <name>` or `final: <name>`).
+    JuryUnitNotFound,
+    /// The jury unit takes no registrations (D6): its Vorlauf is skipped or
+    /// the jury lead switched them off.
+    JuryUnitNotRegistrable,
+}
+
+impl From<db_core::jury::RemapProblem> for RemapProblem {
+    fn from(problem: db_core::jury::RemapProblem) -> Self {
+        use db_core::jury::RemapProblem as Db;
+        match problem {
+            Db::JudgeNotFound => Self::JudgeNotFound,
+            Db::JuryUnitNotFound => Self::JuryUnitNotFound,
+            Db::JuryUnitNotRegistrable => Self::JuryUnitNotRegistrable,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -56,21 +80,28 @@ pub struct ApplyJuryRemapResponse {
 pub async fn apply_jury_remap(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<ApplyJuryRemapBody>,
 ) -> Result<Json<ApplyJuryRemapResponse>, HttpError> {
     let remap: RemapFile = toml::from_str(&body.file)
         .map_err(|e| HttpError::ErrorMessages(format!("Ungültige Remap-Datei: {e}")))?;
-    let RemapOutcome {
+    let db_core::jury::RemapOutcome {
         registered,
         unfilled,
         not_found,
-    } = repo.apply_jury_remap(remap.jury_registrations).await?;
+    } = repo
+        .apply_jury_remap(
+            &granted.actor(),
+            ApplyJuryRemap {
+                registrations: remap.jury_registrations,
+            },
+        )
+        .await?;
     let not_found: Vec<_> = not_found
         .into_iter()
         .map(|(registration, problem)| RemapEntryNotFound {
             registration,
-            problem,
+            problem: problem.into(),
         })
         .collect();
     info!(

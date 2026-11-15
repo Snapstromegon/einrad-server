@@ -40,16 +40,20 @@ use crate::{
         group::{
             CreateClubGroup, DeleteClubGroup, GroupMember, RenameClubGroup, SetClubGroupMembers,
         },
+        jury::{AddClubJudge, DeleteClubJudge, EditClubJudge, SetJuryDeploymentsOverride},
         payment::{CreateBooking, SetFeeWaived},
     },
     error::CommandError,
     fee_waivers::Target,
-    ids::{ActId, BookingId, ClubId, UserId},
+    ids::{ActId, BookingId, ClubId, JudgeId, UserId},
+    jury::JudgeFields,
+    queries::jury::{ClubJudge, JuryUnit, ListClubJudges},
 };
 
 mod access;
 mod clubs;
 mod fees;
+mod jury;
 mod payment;
 mod registration;
 mod structure;
@@ -57,6 +61,7 @@ mod timeplan;
 pub use access::*;
 pub use clubs::*;
 pub use fees::*;
+pub use jury::*;
 pub use payment::*;
 pub use registration::*;
 pub use structure::*;
@@ -180,6 +185,73 @@ pub(super) async fn set_fee_waived(
     .await
 }
 
+/// Registers a judge of `club`.
+pub(super) async fn add_judge(
+    db: &dyn Db,
+    actor: &Actor,
+    club_id: ClubId,
+    fields: JudgeFields,
+) -> Result<JudgeId, CommandError> {
+    db.add_club_judge(actor, AddClubJudge { club_id, fields })
+        .await
+}
+
+/// Changes a judge and replaces their registrations.
+pub(super) async fn edit_judge(
+    db: &dyn Db,
+    actor: &Actor,
+    judge_id: JudgeId,
+    fields: JudgeFields,
+) -> Result<(), CommandError> {
+    db.edit_club_judge(actor, EditClubJudge { judge_id, fields })
+        .await
+}
+
+/// Removes a judge.
+pub(super) async fn delete_judge(
+    db: &dyn Db,
+    actor: &Actor,
+    judge_id: JudgeId,
+) -> Result<(), CommandError> {
+    db.delete_club_judge(actor, DeleteClubJudge { judge_id })
+        .await
+}
+
+/// The judges of `club_id`, as `actor` lists them.
+pub(super) async fn club_judges_as(
+    db: &dyn Db,
+    actor: &Actor,
+    club_id: ClubId,
+) -> Result<Vec<ClubJudge>, CommandError> {
+    db.list_club_judges(actor, ListClubJudges { club_id }).await
+}
+
+/// The judges of `club_id`, as the organizer lists them.
+pub(super) async fn club_judges(db: &dyn Db, club_id: ClubId) -> Vec<ClubJudge> {
+    club_judges_as(db, &admin(), club_id).await.unwrap()
+}
+
+/// The jury units in the order of the timeplan.
+pub(super) async fn jury_units(db: &dyn Db) -> Vec<JuryUnit> {
+    db.list_jury_units(&admin()).await.unwrap()
+}
+
+/// Credits `club_id` with `deployments` instead of the registered ones.
+pub(super) async fn credit_deployments(
+    db: &dyn Db,
+    club_id: ClubId,
+    deployments: Option<i64>,
+) -> Result<(), CommandError> {
+    db.set_jury_deployments_override(
+        &admin(),
+        SetJuryDeploymentsOverride {
+            club_id,
+            deployments,
+        },
+    )
+    .await
+}
+
 /// Creates a group of `club`.
 pub(super) async fn create_group(
     db: &dyn Db,
@@ -282,6 +354,9 @@ macro_rules! conformance_list {
             heats_and_finals_share_a_discipline,
             units_with_judges_are_not_deletable,
             judge_names_are_unique_per_club,
+            jury_units_registrations_and_remaps,
+            jury_plan_assignments_and_publishing,
+            a_published_jury_plan_is_visible_to_the_club,
             final_placement_skip_and_start_rules,
         }
     };

@@ -15,8 +15,9 @@ use crate::{
         category::{AddCategory, CategoryFields},
         club::{AddRider, SetSingle},
         timeplan::{
-            AddTimeplanEntry, DeleteTimeplanEntry, MoveTimeplanDown, MoveTimeplanUp,
-            ResetBlockOrder, SetActMusicStarted, SetBlockOrder, SetStartlistPublished,
+            AddTimeplanEntry, BlockSlotInput, DeleteTimeplanEntry, MoveTimeplanDown,
+            MoveTimeplanUp, ResetBlockOrder, SetActMusicStarted, SetBlockOrder,
+            SetStartlistPublished,
         },
     },
     competition::{Competition, Features},
@@ -25,7 +26,7 @@ use crate::{
     ids::{ActId, CategoryId},
     queries::timeplan::{ListTimeplan, PredictTimeplan},
     seed::{CompetitionPlan, ImagePlan},
-    timeplan::{Audience, BlockSlotInput, Entry, EntryFields, EntryKind, Slot},
+    timeplan::{Audience, Entry, EntryFields, EntryKind, Slot},
 };
 
 fn competition() -> Competition {

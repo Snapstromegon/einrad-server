@@ -1,6 +1,6 @@
 use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::jury::UnassignJudge, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -38,13 +38,20 @@ pub struct UnassignJudgeBody {
 pub async fn unassign_judge(
     _jury: JuryEnabled,
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageJury>,
+    granted: Granted<permit::ManageJury>,
     Json(body): Json<UnassignJudgeBody>,
 ) -> Result<Json<UnassignJudgeResponse>, HttpError> {
     info!(
         "Removing judge {} from jury unit {}",
         body.judge_id, body.unit_id
     );
-    repo.unassign_judge(body.judge_id, body.unit_id).await?;
+    repo.unassign_judge(
+        &granted.actor(),
+        UnassignJudge {
+            judge_id: body.judge_id,
+            unit_id: body.unit_id,
+        },
+    )
+    .await?;
     Ok(Json(UnassignJudgeResponse {}))
 }

@@ -5,7 +5,7 @@
 use time::macros::datetime;
 
 use super::{
-    World, admin,
+    World, add_judge, admin, edit_judge, jury_units,
     timeplan::{add_entry, create_competition_with},
 };
 use crate::{
@@ -45,7 +45,7 @@ fn is_conflict<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> bool
     matches!(result, Err(RegistrationError::Conflict(_)))
 }
 
-async fn category(db: &dyn Db, name: &str, act_type: ActType, male: bool) -> CategoryId {
+pub(super) async fn category(db: &dyn Db, name: &str, act_type: ActType, male: bool) -> CategoryId {
     db.add_category(
         &admin(),
         AddCategory {
@@ -67,7 +67,7 @@ async fn category(db: &dyn Db, name: &str, act_type: ActType, male: bool) -> Cat
     .0
 }
 
-fn new_heat(name: &str, code: &str, categories: Vec<CategoryId>) -> AddHeat {
+pub(super) fn new_heat(name: &str, code: &str, categories: Vec<CategoryId>) -> AddHeat {
     AddHeat {
         name: name.into(),
         code: code.into(),
@@ -93,7 +93,7 @@ fn heat_change(
     }
 }
 
-fn fields(male: bool, groups: &[(HeatId, i64)]) -> FinalFields {
+pub(super) fn fields(male: bool, groups: &[(HeatId, i64)]) -> FinalFields {
     FinalFields {
         description: None,
         act_type: ActType::Single,
@@ -111,7 +111,7 @@ fn fields(male: bool, groups: &[(HeatId, i64)]) -> FinalFields {
     }
 }
 
-fn new_final(name: &str, code: &str, fields: FinalFields) -> AddFinal {
+pub(super) fn new_final(name: &str, code: &str, fields: FinalFields) -> AddFinal {
     AddFinal {
         name: name.into(),
         code: code.into(),
@@ -119,7 +119,7 @@ fn new_final(name: &str, code: &str, fields: FinalFields) -> AddFinal {
     }
 }
 
-async fn heat_id(db: &dyn Db, name: &str) -> HeatId {
+pub(super) async fn heat_id(db: &dyn Db, name: &str) -> HeatId {
     db.list_heats()
         .await
         .unwrap()
@@ -129,7 +129,7 @@ async fn heat_id(db: &dyn Db, name: &str) -> HeatId {
         .id
 }
 
-async fn final_id(db: &dyn Db, name: &str) -> FinalId {
+pub(super) async fn final_id(db: &dyn Db, name: &str) -> FinalId {
     db.list_finals(Some(&admin()))
         .await
         .unwrap()
@@ -412,7 +412,7 @@ pub async fn units_with_judges_are_not_deletable(db: &dyn Db) {
     .await
     .unwrap();
     let finale = final_id(db, "Finale EM").await;
-    let units = db.jury_unit_rows().await.unwrap().units;
+    let units = jury_units(db).await;
     let register = |kind, unit_id| JudgeFields {
         firstname: "Tina".into(),
         lastname: "Juror".into(),
@@ -436,42 +436,43 @@ pub async fn units_with_judges_are_not_deletable(db: &dyn Db) {
         .find(|u| u.kind == JuryUnitKind::Final)
         .unwrap()
         .id;
-    let judge = db
-        .add_judge(
-            &w.owner_a,
-            w.club_a,
-            register(JuryUnitKind::Final, final_unit),
-        )
-        .await
-        .unwrap();
+    let judge = add_judge(
+        db,
+        &w.owner_a,
+        w.club_a,
+        register(JuryUnitKind::Final, final_unit),
+    )
+    .await
+    .unwrap();
     assert!(is_conflict(
         db.delete_final(&admin(), DeleteFinal { final_id: finale })
             .await
     ));
     let mut free = register(JuryUnitKind::Final, final_unit);
     free.registrations.clear();
-    db.edit_judge(&w.owner_a, judge, free).await.unwrap();
+    edit_judge(db, &w.owner_a, judge, free).await.unwrap();
     db.delete_final(&admin(), DeleteFinal { final_id: finale })
         .await
         .unwrap();
 
     // The heat has no final any more; a judge on it blocks the delete.
-    let judge = db
-        .add_judge(
-            &w.owner_a,
-            w.club_a,
-            JudgeFields {
-                firstname: "Ulla".into(),
-                ..register(JuryUnitKind::Heat, heat_unit)
-            },
-        )
-        .await
-        .unwrap();
+    let judge = add_judge(
+        db,
+        &w.owner_a,
+        w.club_a,
+        JudgeFields {
+            firstname: "Ulla".into(),
+            ..register(JuryUnitKind::Heat, heat_unit)
+        },
+    )
+    .await
+    .unwrap();
     assert!(
         message(db.delete_heat(&admin(), DeleteHeat { heat_id: heat }).await)
             .contains("JurorInnen gemeldet oder eingeteilt")
     );
-    db.edit_judge(
+    edit_judge(
+        db,
         &w.owner_a,
         judge,
         JudgeFields {
@@ -499,27 +500,25 @@ pub async fn judge_names_are_unique_per_club(db: &dyn Db) {
         note: None,
         registrations: vec![],
     };
-    let tina = db
-        .add_judge(&w.owner_a, w.club_a, judge("Tina"))
+    let tina = add_judge(db, &w.owner_a, w.club_a, judge("Tina"))
         .await
         .unwrap();
     assert_eq!(
-        message(db.add_judge(&w.owner_a, w.club_a, judge(" tina ")).await),
+        message(add_judge(db, &w.owner_a, w.club_a, judge(" tina ")).await),
         "Tina Juror ist bereits gemeldet."
     );
     // Another club may have the same name; the judge may keep their own.
-    db.add_judge(&w.owner_b, w.club_b, judge("Tina"))
+    add_judge(db, &w.owner_b, w.club_b, judge("Tina"))
         .await
         .unwrap();
-    db.edit_judge(&w.owner_a, tina, judge("Tina"))
+    edit_judge(db, &w.owner_a, tina, judge("Tina"))
         .await
         .unwrap();
-    let ulla = db
-        .add_judge(&w.owner_a, w.club_a, judge("Ulla"))
+    let ulla = add_judge(db, &w.owner_a, w.club_a, judge("Ulla"))
         .await
         .unwrap();
     assert!(
-        message(db.edit_judge(&w.owner_a, ulla, judge("TINA")).await)
+        message(edit_judge(db, &w.owner_a, ulla, judge("TINA")).await)
             .contains("Tina Juror ist bereits gemeldet.")
     );
 }
@@ -708,7 +707,12 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
         "Das Finale gibt es nicht."
     );
     let entry = db
-        .load_timeplan(Audience::OrganizerTeam)
+        .predict_timeplan(
+            None,
+            PredictTimeplan {
+                audience: Audience::OrganizerTeam,
+            },
+        )
         .await
         .unwrap()
         .entries[0]
