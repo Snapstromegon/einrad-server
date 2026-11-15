@@ -1,6 +1,6 @@
 use crate::ids::{ActId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::LinkPair, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -49,7 +49,13 @@ pub async fn link_pair(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let act_id = db
-        .link_pair(&auth.actor(), body.rider_id, body.partner_id)
+        .link_pair(
+            &auth.actor(),
+            LinkPair {
+                rider_id: body.rider_id,
+                partner_id: body.partner_id,
+            },
+        )
         .await?;
     Ok(Json(LinkPairResponse { act_id }))
 }

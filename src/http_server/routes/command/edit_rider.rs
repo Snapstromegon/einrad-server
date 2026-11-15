@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::EditRider, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -10,7 +10,6 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     system_status::Capabilities,
 };
-use db_core::riders::RiderEdit;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EditRiderResponse {}
@@ -60,8 +59,8 @@ pub async fn edit_rider(
     people::trim_name(&mut body.lastname);
     db.edit_rider(
         &auth.actor(),
-        body.rider_id,
-        &RiderEdit {
+        EditRider {
+            rider_id: body.rider_id,
             firstname: body.firstname,
             lastname: body.lastname,
             birthdate: body.birthdate,

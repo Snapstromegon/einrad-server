@@ -8,10 +8,10 @@ use crate::{
     Db,
     act_type::ActType,
     clubs::{Actor, RegistrationError},
+    commands::club::{AddRider, DeleteRider, EditRider, LinkPair},
     gender::Gender,
     ids::{ActId, ClubId, JudgeId, RiderId},
     jury::JudgeFields,
-    riders::{NewRider, RiderEdit},
 };
 
 fn is_forbidden<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> bool {
@@ -25,7 +25,7 @@ fn is_not_found<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> boo
 async fn add_rider(db: &dyn Db, actor: &Actor, club: ClubId, firstname: &str) -> RiderId {
     db.add_rider(
         actor,
-        &NewRider {
+        AddRider {
             club_id: club,
             firstname: firstname.into(),
             lastname: "Testfahrer".into(),
@@ -37,8 +37,9 @@ async fn add_rider(db: &dyn Db, actor: &Actor, club: ClubId, firstname: &str) ->
     .unwrap()
 }
 
-fn rider_edit(firstname: &str) -> RiderEdit {
-    RiderEdit {
+fn rider_edit(rider_id: RiderId, firstname: &str) -> EditRider {
+    EditRider {
+        rider_id,
         firstname: firstname.into(),
         lastname: "Testfahrer".into(),
         birthdate: datetime!(2010-05-01 0:00 UTC),
@@ -65,7 +66,7 @@ pub async fn club_access_decisions(db: &dyn Db) {
     assert!(is_forbidden(
         db.add_rider(
             &w.owner_b,
-            &NewRider {
+            AddRider {
                 club_id: w.club_a,
                 firstname: "Anna".into(),
                 lastname: "Testfahrer".into(),
@@ -78,7 +79,7 @@ pub async fn club_access_decisions(db: &dyn Db) {
     assert!(is_not_found(
         db.add_rider(
             &w.organizer,
-            &NewRider {
+            AddRider {
                 club_id: ClubId::new(),
                 firstname: "Anna".into(),
                 lastname: "Testfahrer".into(),
@@ -95,27 +96,37 @@ pub async fn rider_access_decisions(db: &dyn Db) {
     let w = World::seed(db).await;
     let rider = add_rider(db, &w.owner_a, w.club_a, "Anna").await;
     assert!(is_forbidden(
-        db.edit_rider(&w.owner_b, rider, &rider_edit("Berta")).await
+        db.edit_rider(&w.owner_b, rider_edit(rider, "Berta")).await
     ));
     assert!(is_forbidden(
-        db.edit_rider(&w.stranger, rider, &rider_edit("Berta"))
-            .await
+        db.edit_rider(&w.stranger, rider_edit(rider, "Berta")).await
     ));
-    assert!(is_forbidden(db.delete_rider(&w.owner_b, rider).await));
-    assert!(is_not_found(
-        db.edit_rider(&w.organizer, RiderId::new(), &rider_edit("Berta"))
+    assert!(is_forbidden(
+        db.delete_rider(&w.owner_b, DeleteRider { rider_id: rider })
             .await
     ));
     assert!(is_not_found(
-        db.delete_rider(&w.owner_a, RiderId::new()).await
+        db.edit_rider(&w.organizer, rider_edit(RiderId::new(), "Berta"))
+            .await
     ));
-    db.edit_rider(&w.member_a, rider, &rider_edit("Berta"))
+    assert!(is_not_found(
+        db.delete_rider(
+            &w.owner_a,
+            DeleteRider {
+                rider_id: RiderId::new()
+            }
+        )
+        .await
+    ));
+    db.edit_rider(&w.member_a, rider_edit(rider, "Berta"))
         .await
         .unwrap();
-    db.edit_rider(&w.organizer, rider, &rider_edit("Carla"))
+    db.edit_rider(&w.organizer, rider_edit(rider, "Carla"))
         .await
         .unwrap();
-    db.delete_rider(&w.owner_a, rider).await.unwrap();
+    db.delete_rider(&w.owner_a, DeleteRider { rider_id: rider })
+        .await
+        .unwrap();
 }
 
 fn judge_fields() -> JudgeFields {
@@ -162,7 +173,16 @@ pub async fn act_access_decisions(db: &dyn Db) {
     let w = World::seed(db).await;
     let a = add_rider(db, &w.owner_a, w.club_a, "Anna").await;
     let b = add_rider(db, &w.owner_b, w.club_b, "Berta").await;
-    let act = db.link_pair(&w.organizer, a, b).await.unwrap();
+    let act = db
+        .link_pair(
+            &w.organizer,
+            LinkPair {
+                rider_id: a,
+                partner_id: b,
+            },
+        )
+        .await
+        .unwrap();
     for allowed in [&w.organizer, &w.owner_a, &w.member_a, &w.owner_b] {
         db.ensure_act_access(allowed, act).await.unwrap();
     }

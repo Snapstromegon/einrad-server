@@ -14,6 +14,7 @@ use std::{
 use crate::ids::{ActId, ClubId, JuryUnitId, RiderId, UserId};
 use db_core::{
     Db, DbError,
+    commands::club::{LinkPair, RequestPair, SetSingle},
     riders::Pair,
     seed::{SeedActDetails, SeedClub, SeedGroup, SeedRider, SeedUser},
 };
@@ -536,22 +537,40 @@ impl DemoData {
             }
             let partner_id = riders.id(partner, name)?;
             let id = riders.id(name, name)?;
-            repo.link_pair(&organizer, id, partner_id)
-                .await
-                .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
+            repo.link_pair(
+                &organizer,
+                LinkPair {
+                    rider_id: id,
+                    partner_id,
+                },
+            )
+            .await
+            .map_err(|e| format!("Couldn't link partners {name} and {partner}: {e}"))?;
         }
         for (id, rider) in &riders.all {
             let name = rider.full_name();
             if rider.single.is_some() {
-                repo.set_single(&organizer, *id, true)
-                    .await
-                    .map_err(|e| format!("Couldn't add the single of {name}: {e}"))?;
+                repo.set_single(
+                    &organizer,
+                    SetSingle {
+                        rider_id: *id,
+                        single: true,
+                    },
+                )
+                .await
+                .map_err(|e| format!("Couldn't add the single of {name}: {e}"))?;
             }
             // Riders named as `partner` by their partner are linked above.
             if rider.pair && !partners.contains_key(name.as_str()) {
-                repo.request_pair(&organizer, *id, rider.partner_name.as_deref())
-                    .await
-                    .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
+                repo.request_pair(
+                    &organizer,
+                    RequestPair {
+                        rider_id: *id,
+                        partner_name: rider.partner_name.clone(),
+                    },
+                )
+                .await
+                .map_err(|e| format!("Couldn't request a pair for {name}: {e}"))?;
             }
         }
         Ok(())

@@ -128,6 +128,7 @@ macro_rules! conformance_list {
             link_pair_rules,
             leave_and_dissolve_pairs,
             replace_act_rider_rules,
+            rider_and_pair_request_lists,
             timeplan_forward_and_backward,
             timeplan_entries_move_and_insert,
             timeplan_started_block_keeps_its_order,

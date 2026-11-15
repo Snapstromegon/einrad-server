@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::DeleteRider, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -47,7 +47,13 @@ pub async fn delete_rider(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.delete_rider(&auth.actor(), body.rider_id).await?;
+    db.delete_rider(
+        &auth.actor(),
+        DeleteRider {
+            rider_id: body.rider_id,
+        },
+    )
+    .await?;
 
     Ok(Json(DeleteRiderResponse {}))
 }

@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::LeavePair, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -46,6 +46,12 @@ pub async fn leave_pair(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.leave_pair(&auth.actor(), body.rider_id).await?;
+    db.leave_pair(
+        &auth.actor(),
+        LeavePair {
+            rider_id: body.rider_id,
+        },
+    )
+    .await?;
     Ok(Json(LeavePairResponse {}))
 }

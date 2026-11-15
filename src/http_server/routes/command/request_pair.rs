@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::RequestPair, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -55,7 +55,13 @@ pub async fn request_pair(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     let partner_id = db
-        .request_pair(&auth.actor(), body.rider_id, body.partner_name.as_deref())
+        .request_pair(
+            &auth.actor(),
+            RequestPair {
+                rider_id: body.rider_id,
+                partner_name: body.partner_name,
+            },
+        )
         .await?;
     Ok(Json(RequestPairResponse { partner_id }))
 }

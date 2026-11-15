@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::SetSingle, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -47,7 +47,13 @@ pub async fn set_single(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.set_single(&auth.actor(), body.rider_id, body.single)
-        .await?;
+    db.set_single(
+        &auth.actor(),
+        SetSingle {
+            rider_id: body.rider_id,
+            single: body.single,
+        },
+    )
+    .await?;
     Ok(Json(SetSingleResponse {}))
 }

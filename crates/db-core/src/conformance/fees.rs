@@ -12,6 +12,7 @@ use crate::{
     bookings,
     categories::CategoryFields,
     clubs::{Actor, RegistrationError},
+    commands::club::{AddRider, LinkPair, RequestPair, SetSingle},
     competition::JuryRules,
     fee_waivers::Target,
     fees::ClubFees,
@@ -20,7 +21,6 @@ use crate::{
     heats::NewHeat,
     ids::{ClubId, RiderId},
     jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryAssignment, JuryUnitKind},
-    riders::NewRider,
 };
 
 fn message<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> String {
@@ -33,7 +33,7 @@ fn message<T: std::fmt::Debug>(result: Result<T, RegistrationError>) -> String {
 async fn rider(db: &dyn Db, actor: &Actor, club: ClubId, firstname: &str) -> RiderId {
     db.add_rider(
         actor,
-        &NewRider {
+        AddRider {
             club_id: club,
             firstname: firstname.into(),
             lastname: "Muster".into(),
@@ -94,12 +94,52 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
     let berta = rider(db, &w.owner_a, w.club_a, "Berta").await;
     let dora = rider(db, &w.owner_a, w.club_a, "Dora").await;
     let carla = rider(db, &w.owner_b, w.club_b, "Carla").await;
-    db.set_single(&w.owner_a, anna, true).await.unwrap();
-    db.set_single(&w.owner_a, berta, true).await.unwrap();
-    db.request_pair(&w.owner_a, berta, None).await.unwrap();
-    db.set_single(&w.owner_b, carla, true).await.unwrap();
+    db.set_single(
+        &w.owner_a,
+        SetSingle {
+            rider_id: anna,
+            single: true,
+        },
+    )
+    .await
+    .unwrap();
+    db.set_single(
+        &w.owner_a,
+        SetSingle {
+            rider_id: berta,
+            single: true,
+        },
+    )
+    .await
+    .unwrap();
+    db.request_pair(
+        &w.owner_a,
+        RequestPair {
+            rider_id: berta,
+            partner_name: None,
+        },
+    )
+    .await
+    .unwrap();
+    db.set_single(
+        &w.owner_b,
+        SetSingle {
+            rider_id: carla,
+            single: true,
+        },
+    )
+    .await
+    .unwrap();
     // Dora: a pair request and two groups, three starts, capped.
-    db.request_pair(&w.owner_a, dora, None).await.unwrap();
+    db.request_pair(
+        &w.owner_a,
+        RequestPair {
+            rider_id: dora,
+            partner_name: None,
+        },
+    )
+    .await
+    .unwrap();
     let small = db
         .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
         .await
@@ -202,7 +242,15 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
     let category = category(db).await;
     for firstname in ["Anna", "Berta", "Carla"] {
         let id = rider(db, &w.owner_a, w.club_a, firstname).await;
-        db.set_single(&w.owner_a, id, true).await.unwrap();
+        db.set_single(
+            &w.owner_a,
+            SetSingle {
+                rider_id: id,
+                single: true,
+            },
+        )
+        .await
+        .unwrap();
     }
     db.add_heat(&NewHeat {
         name: "Vorlauf EM".into(),
@@ -399,11 +447,27 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
     let hanna = rider(db, &w.owner_b, w.club_b, "Hanna").await;
 
     // A pair across clubs counts once, for the lowest club.
-    db.link_pair(&w.organizer, anna, carla).await.unwrap();
+    db.link_pair(
+        &w.organizer,
+        LinkPair {
+            rider_id: anna,
+            partner_id: carla,
+        },
+    )
+    .await
+    .unwrap();
     let lowest = w.club_a.min(w.club_b);
     // Singles: Erna starts; Berta withdraws; Dora withdraws with a waiver.
     for (owner, id) in [(&w.owner_b, erna), (&w.owner_a, berta), (&w.owner_a, dora)] {
-        db.set_single(owner, id, true).await.unwrap();
+        db.set_single(
+            owner,
+            SetSingle {
+                rider_id: id,
+                single: true,
+            },
+        )
+        .await
+        .unwrap();
     }
     let act_of = |name: &'static str| async move {
         db.list_acts()

@@ -1,6 +1,6 @@
 use crate::ids::ActId;
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::DissolvePair, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -45,6 +45,12 @@ pub async fn dissolve_pair(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    db.dissolve_pair(&auth.actor(), body.act_id).await?;
+    db.dissolve_pair(
+        &auth.actor(),
+        DissolvePair {
+            act_id: body.act_id,
+        },
+    )
+    .await?;
     Ok(Json(DissolvePairResponse {}))
 }

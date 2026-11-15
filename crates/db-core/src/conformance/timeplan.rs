@@ -12,10 +12,10 @@ use crate::{
     branding::Branding,
     categories::CategoryFields,
     clubs::RegistrationError,
+    commands::club::{AddRider, SetSingle},
     competition::{Competition, Features},
     gender::Gender,
     ids::{ActId, CategoryId},
-    riders::NewRider,
     seed::{CompetitionPlan, ImagePlan},
     timeplan::{Audience, BlockSlotInput, Entry, EntryFields, EntryKind, Slot},
 };
@@ -97,7 +97,7 @@ async fn category_with_two_acts(db: &dyn Db, w: &World) -> CategoryId {
         let rider = db
             .add_rider(
                 &w.owner_a,
-                &NewRider {
+                AddRider {
                     club_id: w.club_a,
                     firstname: firstname.into(),
                     lastname: "Muster".into(),
@@ -107,7 +107,15 @@ async fn category_with_two_acts(db: &dyn Db, w: &World) -> CategoryId {
             )
             .await
             .unwrap();
-        db.set_single(&w.owner_a, rider, true).await.unwrap();
+        db.set_single(
+            &w.owner_a,
+            SetSingle {
+                rider_id: rider,
+                single: true,
+            },
+        )
+        .await
+        .unwrap();
     }
     category
 }

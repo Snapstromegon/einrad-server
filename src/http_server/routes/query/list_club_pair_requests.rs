@@ -1,6 +1,6 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query};
-use db_core::DbHandle;
+use db_core::{prelude::*, queries::club::ListClubPairRequests};
 use tracing::instrument;
 
 use super::list_pair_requests::PairRequest;
@@ -34,7 +34,15 @@ pub async fn list_club_pair_requests(
     auth: Auth,
 ) -> Result<Json<Vec<PairRequest>>, HttpError> {
     Ok(Json(
-        db.list_club_pair_requests(&auth.actor(), query.club_id)
-            .await?,
+        db.list_club_pair_requests(
+            &auth.actor(),
+            ListClubPairRequests {
+                club_id: query.club_id,
+            },
+        )
+        .await?
+        .into_iter()
+        .map(PairRequest::from)
+        .collect(),
     ))
 }

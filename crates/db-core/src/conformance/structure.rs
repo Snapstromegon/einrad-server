@@ -10,12 +10,12 @@ use crate::{
     act_type::ActType,
     categories::CategoryFields,
     clubs::RegistrationError,
+    commands::club::{AddRider, SetSingle},
     finals::{FinalChange, FinalFields, NewFinal, SlotGroupInput, SlotPlacement},
     gender::Gender,
     heats::{HeatChange, NewHeat},
     ids::{CategoryId, FinalId, HeatId},
     jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryUnitKind},
-    riders::NewRider,
     timeplan::{Audience, EntryFields},
 };
 
@@ -457,7 +457,7 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
         let rider = db
             .add_rider(
                 &w.owner_a,
-                &NewRider {
+                AddRider {
                     club_id: w.club_a,
                     firstname: firstname.into(),
                     lastname: lastname.into(),
@@ -467,7 +467,15 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
             )
             .await
             .unwrap();
-        db.set_single(&w.owner_a, rider, true).await.unwrap();
+        db.set_single(
+            &w.owner_a,
+            SetSingle {
+                rider_id: rider,
+                single: true,
+            },
+        )
+        .await
+        .unwrap();
     }
     db.add_heat(&new_heat("Vorlauf EF", "EF", vec![ef, other]))
         .await
@@ -537,7 +545,7 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
     let male = db
         .add_rider(
             &w.owner_a,
-            &NewRider {
+            AddRider {
                 club_id: w.club_a,
                 firstname: "Max".into(),
                 lastname: "Müller".into(),
@@ -547,7 +555,15 @@ pub async fn final_placement_skip_and_start_rules(db: &dyn Db) {
         )
         .await
         .unwrap();
-    db.set_single(&w.owner_a, male, true).await.unwrap();
+    db.set_single(
+        &w.owner_a,
+        SetSingle {
+            rider_id: male,
+            single: true,
+        },
+    )
+    .await
+    .unwrap();
     let male_act = db
         .list_acts()
         .await

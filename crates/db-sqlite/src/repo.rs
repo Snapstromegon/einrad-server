@@ -17,7 +17,9 @@ mod backups;
 mod bookings;
 mod categories;
 mod check_in;
+mod club_commands;
 mod club_mails;
+mod club_queries;
 mod clubs;
 mod competition;
 mod export;
@@ -81,7 +83,6 @@ impl SqliteRepo {
     }
 
     /// Begins a read transaction: every statement in it sees one snapshot.
-    #[allow(dead_code)] // used by `read_tx!`, from the first query on
     async fn begin_read(&self) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, DbError> {
         Ok(self.pool().await.begin().await?)
     }
@@ -93,7 +94,6 @@ impl SqliteRepo {
 /// yields the block's value. An early `?` in the block drops `tx`, which rolls
 /// back. Begin and commit errors are returned with `?`, so the enclosing
 /// function's error type needs `From<sqlx::Error>` or `From<DbError>`.
-#[allow(unused_macros)] // first used by the migrated commands
 macro_rules! write_tx {
     ($repo:expr, $tx:ident, $body:block) => {{
         let mut $tx = $repo.begin_write().await?;
@@ -106,21 +106,17 @@ macro_rules! write_tx {
 /// The read counterpart of [`write_tx!`]: one read transaction, so a query
 /// that combines several reads sees one snapshot. Nothing to commit; the
 /// transaction ends with the block.
-#[allow(unused_macros)] // first used by the migrated queries
 macro_rules! read_tx {
     ($repo:expr, $tx:ident, $body:block) => {{
         let mut $tx = $repo.begin_read().await?;
         $body
     }};
 }
-#[allow(unused_imports)]
 pub(crate) use {read_tx, write_tx};
 
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::ClubCommands for SqliteRepo {}
-impl db_core::queries::ClubQueries for SqliteRepo {}
 impl db_core::commands::GroupCommands for SqliteRepo {}
 impl db_core::queries::GroupQueries for SqliteRepo {}
 impl db_core::commands::PaymentCommands for SqliteRepo {}

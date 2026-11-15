@@ -1,6 +1,6 @@
 use crate::ids::{ClubId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{commands::club::AddRider, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -10,7 +10,6 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     system_status::Capabilities,
 };
-use db_core::riders::NewRider;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddRiderResponse {
@@ -65,7 +64,7 @@ pub async fn add_rider(
     let rider_id = db
         .add_rider(
             &auth.actor(),
-            &NewRider {
+            AddRider {
                 club_id: body.club_id,
                 firstname: body.firstname,
                 lastname: body.lastname,
