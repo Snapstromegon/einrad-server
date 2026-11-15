@@ -28,8 +28,8 @@ const SQLX_ALLOWED: &[(&str, &str)] = &[
 
 /// Lines in non-test `src/` code that may name `db_sqlite`.
 const BACKEND_ALLOWED: &[(&str, &str)] = &[
-    // TODO(PR F): the runtime backend selection replaces this direct use.
-    ("src/seed.rs", "db_sqlite::SqliteRepo::in_memory()"),
+    // None: `seed::check_file` builds its scratch database through
+    // `db_inmemory`, which this guard does not mind.
 ];
 
 const CORE_FORBIDDEN: &[&str] = &[
@@ -170,17 +170,11 @@ fn the_guard_allows_its_exceptions_and_comments() {
     assert!(root_violations("src/http_server.rs", "let e = sqlx::Error::RowNotFound;").is_empty());
     // the same line anywhere else is caught
     assert!(root_catches("let e = sqlx::Error::RowNotFound;"));
-    assert!(
-        root_violations(
-            "src/seed.rs",
-            "let repo = db_sqlite::SqliteRepo::in_memory().await;"
-        )
-        .is_empty()
-    );
+    assert!(root_violations("src/seed.rs", "let repo = db_inmemory::new().await;").is_empty());
     assert!(
         root_violations(
             "src/player/mod.rs",
-            "#[cfg(test)]\nmod tests {\n let db = db_sqlite::SqliteRepo::in_memory().await;\n}"
+            "#[cfg(test)]\nmod tests {\n let db = db_sqlite::SqliteRepo::from_pool(pool);\n}"
         )
         .is_empty()
     );

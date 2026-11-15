@@ -30,7 +30,6 @@ mod metrics;
 mod riders;
 mod seed;
 mod settings;
-mod test_support;
 mod timeplan;
 mod users;
 
@@ -40,7 +39,7 @@ mod users;
 pub struct SqliteRepo {
     db: ReloadableSqlite,
     /// Whether [`Db::backups`] offers the file backups; only a test turns it
-    /// off, to stand in for a backend without them.
+    /// off (see [`SqliteRepo::without_backups`]), to stand in for a backend without them.
     backups: bool,
 }
 
@@ -57,9 +56,12 @@ impl SqliteRepo {
         Self::new(ReloadableSqlite::new(pool, "sqlite::memory:".to_string()))
     }
 
-    /// A migrated, empty in-memory database, for tests.
-    pub async fn in_memory() -> Self {
-        Self::from_pool(crate::reloadable_sqlite::in_memory_migrated().await)
+    /// The same repo, but [`Db::backups`] answers `None`, like a backend
+    /// without file backups.
+    #[must_use]
+    pub fn without_backups(mut self) -> Self {
+        self.backups = false;
+        self
     }
 
     /// The repo as the handle the application passes around.
@@ -69,7 +71,7 @@ impl SqliteRepo {
     }
 
     /// The current pool. Clone it out of the guard so a reload isn't held up.
-    async fn pool(&self) -> SqlitePool {
+    pub async fn pool(&self) -> SqlitePool {
         self.db.get().await.clone()
     }
 

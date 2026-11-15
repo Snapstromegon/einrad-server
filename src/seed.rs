@@ -839,7 +839,7 @@ pub async fn apply_settings(repo: &dyn Db, settings: &Settings) -> Result<Report
 /// What applying the file reports for an invalid file.
 pub async fn check_file(path: &Path) -> Result<(), String> {
     let file = CompetitionFile::load(path)?;
-    let repo = db_sqlite::SqliteRepo::in_memory().await;
+    let repo = db_inmemory::new().await;
     // A scratch dir of its own for anything the apply writes, never the
     // system temp dir itself; removed again.
     let scratch = std::env::temp_dir().join(format!("einrad-check-{}", uuid::Uuid::new_v4()));

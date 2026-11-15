@@ -1006,6 +1006,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "db-inmemory"
+version = "0.1.0"
+dependencies = [
+ "db-core",
+ "db-sqlite",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "db-sqlite"
 version = "0.1.0"
 dependencies = [
@@ -1196,6 +1207,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "db-core",
+ "db-inmemory",
  "db-sqlite",
  "dotenvy",
  "eyre",
