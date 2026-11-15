@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::media::SetImageSource as SetSource, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::image_support::apply_source;
+use super::image_support::{fetch_if_url, image_input};
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     image_fetch::ImageFetcher,
@@ -65,7 +65,7 @@ pub struct SetImageSourceResponse {
 pub async fn set_image_source(
     Extension(repo): Extension<DbHandle>,
     Extension(fetcher): Extension<Arc<ImageFetcher>>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     Json(body): Json<SetImageSourceBody>,
 ) -> Result<Json<SetImageSourceResponse>, HttpError> {
     let slot = match (body.target, body.sponsor_id) {
@@ -76,16 +76,18 @@ pub async fn set_image_source(
             return Err(HttpError::ErrorMessages("Der Sponsor fehlt.".to_string()));
         }
     };
-    apply_source(
-        &repo,
-        &fetcher,
-        slot,
-        body.svg.as_deref(),
-        body.url.as_deref(),
+    let source = image_input(body.svg.as_deref(), body.url.as_deref())?;
+    repo.set_image_source(
+        &auth.actor(),
+        SetSource {
+            slot,
+            source: source.clone(),
+        },
     )
     .await?;
+    fetch_if_url(&repo, &fetcher, slot, &source).await?;
     info!("Set the source of {slot:?}");
     Ok(Json(SetImageSourceResponse {
-        images: CompetitionImages::load(repo.as_ref()).await?,
+        images: CompetitionImages::from_images(&repo.get_competition_images(&auth.actor()).await?),
     }))
 }

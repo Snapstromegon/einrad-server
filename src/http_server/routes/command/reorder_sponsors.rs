@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::media::ReorderSponsors, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -37,14 +37,11 @@ pub struct ReorderSponsorsResponse {}
 #[axum::debug_handler]
 pub async fn reorder_sponsors(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     Json(body): Json<ReorderSponsorsBody>,
 ) -> Result<Json<ReorderSponsorsResponse>, HttpError> {
-    if !repo.reorder_sponsors(&body.ids).await? {
-        return Err(HttpError::ErrorMessages(
-            "Die Reihenfolge muss alle Sponsoren genau einmal enthalten.".to_string(),
-        ));
-    }
+    repo.reorder_sponsors(&auth.actor(), ReorderSponsors { ids: body.ids })
+        .await?;
     info!("Reordered the sponsors");
     Ok(Json(ReorderSponsorsResponse {}))
 }

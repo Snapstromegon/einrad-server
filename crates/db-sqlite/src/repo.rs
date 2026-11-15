@@ -24,6 +24,8 @@ mod club_mails;
 mod club_queries;
 mod clubs;
 mod competition;
+mod competition_commands;
+mod competition_queries;
 mod export;
 mod fees;
 mod final_commands;
@@ -36,6 +38,8 @@ mod heat_queries;
 mod jury_commands;
 mod jury_queries;
 mod media;
+mod media_commands;
+mod media_queries;
 mod metrics;
 mod riders;
 mod seed;
@@ -127,10 +131,6 @@ pub(crate) use {read_tx, write_tx};
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::CompetitionCommands for SqliteRepo {}
-impl db_core::queries::CompetitionQueries for SqliteRepo {}
-impl db_core::commands::MediaCommands for SqliteRepo {}
-impl db_core::queries::MediaQueries for SqliteRepo {}
 impl db_core::commands::UserCommands for SqliteRepo {}
 impl db_core::queries::UserQueries for SqliteRepo {}
 impl db_core::queries::AdminQueries for SqliteRepo {}

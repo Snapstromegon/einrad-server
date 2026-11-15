@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use tracing::instrument;
 
 use crate::{
@@ -22,7 +22,9 @@ use crate::{
 #[instrument(skip(repo))]
 pub async fn get_competition_images(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
 ) -> Result<Json<CompetitionImages>, HttpError> {
-    Ok(Json(CompetitionImages::load(repo.as_ref()).await?))
+    Ok(Json(CompetitionImages::from_images(
+        &repo.get_competition_images(&auth.actor()).await?,
+    )))
 }

@@ -1,12 +1,11 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::Slot,
     roles::permit,
 };
 
@@ -30,9 +29,9 @@ pub struct RemoveCompetitionLogoResponse {}
 #[axum::debug_handler]
 pub async fn remove_competition_logo(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
 ) -> Result<Json<RemoveCompetitionLogoResponse>, HttpError> {
-    repo.remove_image(Slot::Logo).await?;
+    repo.remove_competition_logo(&auth.actor()).await?;
     info!("Removed the competition logo");
     Ok(Json(RemoveCompetitionLogoResponse {}))
 }

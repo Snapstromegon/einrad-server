@@ -1,5 +1,7 @@
 use db_core::{DbError, SettingsRepo, settings::FeatureFlags};
 
+use sqlx::SqliteConnection;
+
 use super::SqliteRepo;
 use crate::competition;
 
@@ -25,14 +27,20 @@ impl SettingsRepo for SqliteRepo {
 
     async fn startlist_published(&self) -> Result<bool, DbError> {
         let pool = self.pool().await;
-        Ok(sqlx::query_scalar!(
-            r#"
-            SELECT startlist_published_at IS NOT NULL as "published!: bool"
-            FROM competition ORDER BY start_date DESC LIMIT 1
-            "#
-        )
-        .fetch_optional(&pool)
-        .await?
-        .unwrap_or(false))
+        Ok(startlist_published(&mut *pool.acquire().await?).await?)
     }
+}
+
+/// Whether the current competition's start list is published; without a
+/// competition nothing is.
+pub(super) async fn startlist_published(conn: &mut SqliteConnection) -> sqlx::Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"
+        SELECT startlist_published_at IS NOT NULL as "published!: bool"
+        FROM competition ORDER BY start_date DESC LIMIT 1
+        "#
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .unwrap_or(false))
 }

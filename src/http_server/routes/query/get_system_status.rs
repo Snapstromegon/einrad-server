@@ -1,12 +1,9 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{competition::Features, prelude::*};
 use tracing::instrument;
 
-use crate::{
-    competition::{Competition, Features},
-    http_server::HttpError,
-    system_status::Capabilities,
-};
+use super::super::http_types::Competition;
+use crate::{http_server::HttpError, system_status::Capabilities};
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct SystemStatus {
@@ -38,13 +35,13 @@ pub async fn get_system_status(
     Extension(repo): Extension<DbHandle>,
     capabilities: Capabilities,
 ) -> Result<Json<SystemStatus>, HttpError> {
-    let competition = repo.current_competition().await?;
-    let features = Features::of(competition.as_ref());
+    let status = repo.get_system_status().await?;
+    let features = Features::of(status.competition.as_ref());
     Ok(Json(SystemStatus {
         capabilities,
-        competition,
+        competition: status.competition.map(Into::into),
         jury_registration: features.jury_registration,
         moderation_input: features.moderation_input,
-        startlist_published: repo.startlist_published().await?,
+        startlist_published: status.startlist_published,
     }))
 }

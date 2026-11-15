@@ -1,16 +1,12 @@
 use axum::{Extension, Json, extract::Multipart};
-use db_core::DbHandle;
+use db_core::{commands::media::SetBreakImage, prelude::*};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::{
-    image_support::{read_upload, store_upload},
-    set_competition_logo::LogoUpload,
-};
+use super::{image_support::read_upload, set_competition_logo::LogoUpload};
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::Slot,
     roles::permit,
 };
 
@@ -40,11 +36,13 @@ pub struct SetBreakImageResponse {}
 #[axum::debug_handler]
 pub async fn set_break_image(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     body: Multipart,
 ) -> Result<Json<SetBreakImageResponse>, HttpError> {
     let (_, logo) = read_upload(body).await?;
-    store_upload(&repo, Slot::Break, &logo).await?;
-    info!("Set the break image ({})", logo.format.name());
+    let format = logo.format;
+    repo.set_break_image(&auth.actor(), SetBreakImage { logo })
+        .await?;
+    info!("Set the break image ({})", format.name());
     Ok(Json(SetBreakImageResponse {}))
 }

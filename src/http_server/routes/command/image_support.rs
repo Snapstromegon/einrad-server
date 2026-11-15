@@ -1,7 +1,7 @@
 //! What the commands on the competition's images (#286, #291) share.
 
 use axum::{extract::Multipart, http::StatusCode};
-use db_core::DbHandle;
+use db_core::{DbHandle, commands::media::ImageInput};
 
 use crate::{
     http_server::HttpError,
@@ -42,14 +42,6 @@ pub async fn read_upload(mut body: Multipart) -> Result<(Vec<(String, String)>, 
     Ok((fields, logo))
 }
 
-/// Stores an uploaded image in `slot`.
-pub async fn store_upload(repo: &DbHandle, slot: Slot, logo: &Logo) -> Result<(), HttpError> {
-    if !repo.set_image_data(slot, logo).await? {
-        return Err(HttpError::NotFound);
-    }
-    Ok(())
-}
-
 /// An inline SVG, checked like an upload.
 pub fn svg_logo(svg: &str) -> Result<Logo, HttpError> {
     svg.parse::<SvgLogo>()
@@ -63,31 +55,32 @@ pub fn image_url(url: &str) -> Result<ImageUrl, HttpError> {
         .map_err(|e: images::UrlError| HttpError::ErrorMessages(e.to_string()))
 }
 
-/// Sets the image in `slot` from an inline SVG or a URL (exactly one of
-/// them). A URL is downloaded right away, so the admin sees at once if it
-/// works; a failed download isn't an error here, it's the image's state.
-pub async fn apply_source(
-    repo: &DbHandle,
-    fetcher: &ImageFetcher,
-    slot: Slot,
-    svg: Option<&str>,
-    url: Option<&str>,
-) -> Result<(), HttpError> {
+/// The new source of an image from an inline SVG or a URL (exactly one of
+/// them), checked without any request. A URL is downloaded afterwards, see
+/// [`fetch_if_url`].
+pub fn image_input(svg: Option<&str>, url: Option<&str>) -> Result<ImageInput, HttpError> {
     match (
         svg.filter(|s| !s.trim().is_empty()),
         url.filter(|u| !u.trim().is_empty()),
     ) {
-        (Some(svg), None) => store_upload(repo, slot, &svg_logo(svg)?).await,
-        (None, Some(url)) => {
-            let url = image_url(url)?;
-            if !repo.set_image_url(slot, &url.to_string()).await? {
-                return Err(HttpError::NotFound);
-            }
-            fetcher.refresh(repo, Some(slot)).await?;
-            Ok(())
-        }
+        (Some(svg), None) => Ok(ImageInput::Data(svg_logo(svg)?)),
+        (None, Some(url)) => Ok(ImageInput::Url(image_url(url)?.to_string())),
         _ => Err(HttpError::ErrorMessages(
             "Bitte entweder ein SVG oder eine URL angeben.".to_string(),
         )),
     }
+}
+
+/// Downloads a URL source right away, so the admin sees at once if it works;
+/// a failed download isn't an error here, it's the image's state.
+pub async fn fetch_if_url(
+    repo: &DbHandle,
+    fetcher: &ImageFetcher,
+    slot: Slot,
+    input: &ImageInput,
+) -> Result<(), HttpError> {
+    if matches!(input, ImageInput::Url(_)) {
+        fetcher.refresh(repo, Some(slot)).await?;
+    }
+    Ok(())
 }

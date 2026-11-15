@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -40,11 +40,11 @@ pub struct RefreshImagesResponse {
 pub async fn refresh_images(
     Extension(repo): Extension<DbHandle>,
     Extension(fetcher): Extension<Arc<ImageFetcher>>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
 ) -> Result<Json<RefreshImagesResponse>, HttpError> {
     fetcher.refresh(&repo, None).await?;
     info!("Refreshed the images");
     Ok(Json(RefreshImagesResponse {
-        images: CompetitionImages::load(repo.as_ref()).await?,
+        images: CompetitionImages::from_images(&repo.get_competition_images(&auth.actor()).await?),
     }))
 }

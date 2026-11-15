@@ -34,38 +34,27 @@ const NON_DB: &[(&str, &str)] = &[
 ];
 
 /// Side-effect endpoints whose DB part has a different name:
-/// (endpoint, the DB methods that stand for it). Empty until a step needs it.
-const SPLIT: &[(&str, &[&str])] = &[];
+/// (endpoint, the DB methods that stand for it): `refresh_images` downloads in
+/// the server's `ImageFetcher`, the DB only stores each result.
+const SPLIT: &[(&str, &[&str])] = &[("refresh_images", &["store_fetched_image"])];
 
 /// DB endpoints (commands) whose area-trait method does not exist yet.
 const NOT_YET_MIGRATED_COMMANDS: &[&str] = &[
-    "add_sponsor",
     "clear_act_song",
     "create_competition",
-    "edit_competition",
     "import_competition",
     "login",
     "preview_club_mail",
     "preview_competition_import",
-    "refresh_images",
     "register",
-    "remove_break_image",
-    "remove_competition_logo",
-    "remove_sponsor",
-    "reorder_sponsors",
     "request_password_reset",
     "resend_mail_validation",
     "reset_password",
     "save_act_song",
     "send_club_mail",
     "set_act_order",
-    "set_break_image",
-    "set_competition_logo",
-    "set_image_source",
     "set_song_checked",
     "set_user_roles",
-    "update_sponsor",
-    "upload_sponsor_image",
     "verify_email",
 ];
 
@@ -74,13 +63,9 @@ const NOT_YET_MIGRATED_QUERIES: &[&str] = &[
     "export_competition",
     "get_act",
     "get_club_mail_options",
-    "get_competition_images",
-    "get_competition_settings",
-    "get_system_status",
     "list_acts",
     "list_club_mails",
     "list_missing_songs",
-    "list_sponsors",
     "list_users",
     "startlist",
 ];
@@ -88,44 +73,28 @@ const NOT_YET_MIGRATED_QUERIES: &[&str] = &[
 /// Methods that no conformance test calls yet (`.<name>(`).
 /// Starts with every DB endpoint; shrinks as conformance tests land.
 const NOT_YET_COVERED: &[&str] = &[
-    "add_sponsor",
     "clear_act_song",
     "create_competition",
-    "edit_competition",
     "import_competition",
     "login",
     "preview_club_mail",
     "preview_competition_import",
-    "refresh_images",
     "register",
-    "remove_break_image",
-    "remove_competition_logo",
-    "remove_sponsor",
-    "reorder_sponsors",
     "request_password_reset",
     "resend_mail_validation",
     "reset_password",
     "save_act_song",
     "send_club_mail",
     "set_act_order",
-    "set_break_image",
-    "set_competition_logo",
-    "set_image_source",
     "set_song_checked",
     "set_user_roles",
-    "update_sponsor",
-    "upload_sponsor_image",
     "verify_email",
     "export_competition",
     "get_act",
     "get_club_mail_options",
-    "get_competition_images",
-    "get_competition_settings",
-    "get_system_status",
     "list_acts",
     "list_club_mails",
     "list_missing_songs",
-    "list_sponsors",
     "list_users",
     "startlist",
 ];

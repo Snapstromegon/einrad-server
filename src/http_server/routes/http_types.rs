@@ -2,7 +2,7 @@ use crate::ids::{ActId, CategoryId, ClubId, HeatId, JudgeId, JuryUnitId};
 use crate::{act_type::ActType, roles::Permission};
 use db_core::acts::ActRecord;
 use db_core::jury::JudgeTask;
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 
 pub use db_core::users::User;
 
@@ -201,7 +201,7 @@ pub struct BookingInput {
     /// Negative for money going out, e.g. a refund; not 0.
     pub amount: f64,
     #[serde(with = "crate::bookings::iso_date")]
-    pub date: time::Date,
+    pub date: Date,
     /// E.g. the transfer's reference.
     #[serde(default)]
     pub note: String,
@@ -486,6 +486,251 @@ impl From<db_core::queries::jury::ClubJudge> for ClubJudge {
                 .collect(),
             registered_deployments: judge.registered_deployments,
             counted_deployments: judge.counted_deployments,
+        }
+    }
+}
+
+// ── competition settings (edit_competition, get_competition_settings, get_system_status) ──
+
+time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
+
+/// Where the info board's photos come from, as the competition sets it
+/// (`[competition.photos]`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PhotosSettings {
+    /// A WebDAV URL, a Nextcloud share link or a local folder.
+    pub source: String,
+    /// Nextcloud user for a WebDAV folder.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Nextcloud app password for a WebDAV folder, or a share link's
+    /// password.
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+impl From<db_core::competition::PhotosSettings> for PhotosSettings {
+    fn from(photos: db_core::competition::PhotosSettings) -> Self {
+        Self {
+            source: photos.source,
+            user: photos.user,
+            password: photos.password,
+        }
+    }
+}
+
+impl From<PhotosSettings> for db_core::competition::PhotosSettings {
+    fn from(photos: PhotosSettings) -> Self {
+        Self {
+            source: photos.source,
+            user: photos.user,
+            password: photos.password,
+        }
+    }
+}
+
+/// Features that are still being refined, as a competition sets them: on,
+/// off, or unset (the build default).
+#[derive(
+    Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(default, deny_unknown_fields)]
+pub struct Features {
+    /// Clubs register judges, admins plan the jury (see `crate::jury`).
+    pub jury_registration: Option<bool>,
+    /// Clubs can add an extra description for the moderation while registering
+    /// their acts.
+    pub moderation_input: Option<bool>,
+}
+
+impl From<db_core::competition::Features> for Features {
+    fn from(features: db_core::competition::Features) -> Self {
+        Self {
+            jury_registration: features.jury_registration,
+            moderation_input: features.moderation_input,
+        }
+    }
+}
+
+impl From<Features> for db_core::competition::Features {
+    fn from(features: Features) -> Self {
+        Self {
+            jury_registration: features.jury_registration,
+            moderation_input: features.moderation_input,
+        }
+    }
+}
+
+/// Whether each feature is on, after [`Features::resolve`].
+#[allow(rustdoc::broken_intra_doc_links)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, utoipa::ToSchema)]
+pub struct ResolvedFeatures {
+    pub jury_registration: bool,
+    pub moderation_input: bool,
+}
+
+impl From<db_core::competition::ResolvedFeatures> for ResolvedFeatures {
+    fn from(features: db_core::competition::ResolvedFeatures) -> Self {
+        Self {
+            jury_registration: features.jury_registration,
+            moderation_input: features.moderation_input,
+        }
+    }
+}
+
+/// The jury rules of a competition, from `[competition.jury]`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct JuryRules {
+    /// Minimum age of trained judges on the first competition day.
+    pub min_age: i64,
+    /// Required jury deployments (Einsätze) per started two Küren.
+    pub deployments_per_two_acts: i64,
+    /// Fee in € per missing deployment.
+    pub missing_deployment_fee: f64,
+    /// End of the judge registration; the registration's end without it.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub registration_end: Option<OffsetDateTime>,
+}
+
+impl From<db_core::competition::JuryRules> for JuryRules {
+    fn from(jury: db_core::competition::JuryRules) -> Self {
+        Self {
+            min_age: jury.min_age,
+            deployments_per_two_acts: jury.deployments_per_two_acts,
+            missing_deployment_fee: jury.missing_deployment_fee,
+            registration_end: jury.registration_end,
+        }
+    }
+}
+
+impl From<JuryRules> for db_core::competition::JuryRules {
+    fn from(jury: JuryRules) -> Self {
+        Self {
+            min_age: jury.min_age,
+            deployments_per_two_acts: jury.deployments_per_two_acts,
+            missing_deployment_fee: jury.missing_deployment_fee,
+            registration_end: jury.registration_end,
+        }
+    }
+}
+
+/// Event specific settings, stored in the `competition` table.
+#[allow(rustdoc::broken_intra_doc_links)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct Competition {
+    pub id: String,
+    pub name: String,
+    pub location: String,
+    #[serde(with = "iso_date")]
+    pub start_date: Date,
+    #[serde(with = "iso_date")]
+    pub end_date: Date,
+    /// Ages are calculated against this day.
+    #[serde(with = "iso_date")]
+    pub determining_day: Date,
+    #[serde(with = "time::serde::rfc3339")]
+    pub registration_start: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub registration_end: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub music_upload_end: OffsetDateTime,
+    pub fee_per_start: f64,
+    /// Maximum fee per rider; `None` means no cap.
+    pub max_fee_per_rider: Option<f64>,
+    /// Where the event takes place.
+    pub venue: Option<String>,
+    /// Contact for clubs, e.g. about overpayments.
+    pub contact_email: Option<String>,
+    /// Link to the official announcement (Ausschreibung).
+    pub announcement_url: Option<String>,
+    /// Where the info board's photo QR code leads.
+    pub photos_url: Option<String>,
+    #[serde(with = "iso_date::option")]
+    pub payment_deadline: Option<Date>,
+    pub payment_account_holder: Option<String>,
+    pub payment_iban: Option<String>,
+    pub payment_bic: Option<String>,
+    /// Prefix for the transfer reference, followed by the club name.
+    pub payment_reference: Option<String>,
+    /// The clubs' jury obligation; `None` means there is none.
+    pub jury: Option<JuryRules>,
+    /// The features this competition turns on or off; see
+    /// [`Features::resolve`].
+    pub features: Features,
+    /// Where the info board's photos come from; `None` means no photos.
+    /// Never sent to clients: it holds a password.
+    #[serde(skip)]
+    pub photos: Option<PhotosSettings>,
+    /// The primary color of every page (see `crate::colors`); `None` for
+    /// the default.
+    #[schema(value_type = Option<String>, example = "#002d56")]
+    pub primary_color: Option<db_core::colors::HexColor>,
+    /// The secondary color; `None` for the default.
+    #[schema(value_type = Option<String>, example = "#009036")]
+    pub secondary_color: Option<db_core::colors::HexColor>,
+}
+
+impl From<db_core::competition::Competition> for Competition {
+    fn from(c: db_core::competition::Competition) -> Self {
+        Self {
+            id: c.id,
+            name: c.name,
+            location: c.location,
+            start_date: c.start_date,
+            end_date: c.end_date,
+            determining_day: c.determining_day,
+            registration_start: c.registration_start,
+            registration_end: c.registration_end,
+            music_upload_end: c.music_upload_end,
+            fee_per_start: c.fee_per_start,
+            max_fee_per_rider: c.max_fee_per_rider,
+            venue: c.venue,
+            contact_email: c.contact_email,
+            announcement_url: c.announcement_url,
+            photos_url: c.photos_url,
+            payment_deadline: c.payment_deadline,
+            payment_account_holder: c.payment_account_holder,
+            payment_iban: c.payment_iban,
+            payment_bic: c.payment_bic,
+            payment_reference: c.payment_reference,
+            jury: c.jury.map(Into::into),
+            features: c.features.into(),
+            photos: c.photos.map(Into::into),
+            primary_color: c.primary_color,
+            secondary_color: c.secondary_color,
+        }
+    }
+}
+
+impl From<Competition> for db_core::competition::Competition {
+    fn from(c: Competition) -> Self {
+        Self {
+            id: c.id,
+            name: c.name,
+            location: c.location,
+            start_date: c.start_date,
+            end_date: c.end_date,
+            determining_day: c.determining_day,
+            registration_start: c.registration_start,
+            registration_end: c.registration_end,
+            music_upload_end: c.music_upload_end,
+            fee_per_start: c.fee_per_start,
+            max_fee_per_rider: c.max_fee_per_rider,
+            venue: c.venue,
+            contact_email: c.contact_email,
+            announcement_url: c.announcement_url,
+            photos_url: c.photos_url,
+            payment_deadline: c.payment_deadline,
+            payment_account_holder: c.payment_account_holder,
+            payment_iban: c.payment_iban,
+            payment_bic: c.payment_bic,
+            payment_reference: c.payment_reference,
+            jury: c.jury.map(Into::into),
+            features: c.features.into(),
+            photos: c.photos.map(Into::into),
+            primary_color: c.primary_color,
+            secondary_color: c.secondary_color,
         }
     }
 }

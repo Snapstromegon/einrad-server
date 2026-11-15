@@ -29,7 +29,7 @@ use crate::{
     timeplan::{Audience, Entry, EntryFields, EntryKind, Slot},
 };
 
-fn competition() -> Competition {
+pub(super) fn competition() -> Competition {
     Competition {
         id: "conformance-2027".into(),
         name: "Konformität 2027".into(),

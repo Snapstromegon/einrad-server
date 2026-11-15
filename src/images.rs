@@ -222,15 +222,15 @@ pub struct CompetitionImages {
 }
 
 impl CompetitionImages {
-    pub async fn load(repo: &dyn db_core::Db) -> Result<Self, db_core::DbError> {
-        let images = repo.list_images().await?;
+    /// The management view of `images` (from `get_competition_images`).
+    pub fn from_images(images: &[Image]) -> Self {
         let single = |kind: &str| {
             images
                 .iter()
                 .find(|image| image.kind == kind)
                 .map_or(ImageState::DEFAULT, ImageState::from)
         };
-        Ok(CompetitionImages {
+        CompetitionImages {
             logo: single("logo"),
             break_image: single("break"),
             sponsors: images
@@ -250,6 +250,6 @@ impl CompetitionImages {
                     name: preset.name.to_string(),
                 })
                 .collect(),
-        })
+        }
     }
 }

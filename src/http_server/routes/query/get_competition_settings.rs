@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
 
+use super::super::http_types::{Competition, PhotosSettings, ResolvedFeatures};
 use crate::{
-    competition::{Competition, Features, ResolvedFeatures},
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
-    photos::PhotosSettings,
     roles::permit,
 };
 
@@ -41,19 +40,16 @@ pub struct CompetitionSettings {
 pub async fn get_competition_settings(
     Extension(repo): Extension<DbHandle>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
 ) -> Result<Json<CompetitionSettings>, HttpError> {
-    let mut competition = repo
-        .current_competition()
-        .await?
-        .ok_or(HttpError::NotFound)?;
+    let mut competition = repo.get_competition_settings(&auth.actor()).await?;
     Ok(Json(CompetitionSettings {
-        photos: competition.photos.take(),
-        feature_defaults: Features::default().resolve(),
+        photos: competition.photos.take().map(Into::into),
+        feature_defaults: db_core::competition::Features::default().resolve().into(),
         file_id_mismatch: http_options
             .competition_file_id
             .clone()
             .filter(|id| *id != competition.id),
-        competition,
+        competition: competition.into(),
     }))
 }

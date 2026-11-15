@@ -139,7 +139,9 @@ impl Image {
     }
 }
 
-/// The competition's images. Every method acts on the current competition.
+/// The competition's images: what is left of the old repo trait. The
+/// endpoints are `MediaCommands`/`MediaQueries`; these are the reads of the
+/// image routes and the `ImageFetcher` (`Support` takes them in S11).
 #[async_trait::async_trait]
 pub trait MediaRepo {
     /// All images: logo, break image, then the sponsors in order.
@@ -155,46 +157,4 @@ pub trait MediaRepo {
     /// The bytes of the logo or the break image; `None` without any (a URL
     /// image that was never downloaded has none).
     async fn load_slot_image(&self, slot: Slot) -> Result<Option<StoredLogo>, DbError>;
-
-    /// Sets the image in `slot` to `logo`, an inline SVG or an upload: it no
-    /// longer comes from a URL. `false` if there is no competition or the
-    /// sponsor doesn't exist.
-    async fn set_image_data(&self, slot: Slot, logo: &Logo) -> Result<bool, DbError>;
-
-    /// Makes `url` (already checked) the source of the image in `slot`. The
-    /// old bytes stay until the first good download. The same URL changes
-    /// nothing. `false` if there is no competition or the sponsor doesn't
-    /// exist.
-    async fn set_image_url(&self, slot: Slot, url: &str) -> Result<bool, DbError>;
-
-    /// Removes the logo or break image (so its fallback applies again), or
-    /// the sponsor.
-    async fn remove_image(&self, slot: Slot) -> Result<(), DbError>;
-
-    /// Adds a sponsor at the end of the list, without an image yet; returns
-    /// its id, `None` without a competition.
-    async fn add_sponsor(&self, name: &str, link: Option<&str>) -> Result<Option<i64>, DbError>;
-
-    /// Changes a sponsor's name and link; `false` if it doesn't exist.
-    async fn update_sponsor(
-        &self,
-        id: i64,
-        name: &str,
-        link: Option<&str>,
-    ) -> Result<bool, DbError>;
-
-    /// Puts the sponsors in the order of `ids`, if `ids` names every sponsor
-    /// exactly once; `false` (nothing changed) otherwise.
-    async fn reorder_sponsors(&self, ids: &[i64]) -> Result<bool, DbError>;
-
-    /// Stores what a download of `url` for image `id` gave. `false` if the
-    /// image is gone or has another source by now: the result is dropped. A
-    /// good download keeps `updated_at` if the bytes didn't change; a failed
-    /// one keeps the last good copy.
-    async fn store_fetched_image(
-        &self,
-        id: i64,
-        url: &str,
-        result: Result<Logo, String>,
-    ) -> Result<bool, DbError>;
 }

@@ -54,6 +54,7 @@ mod access;
 mod clubs;
 mod fees;
 mod jury;
+mod media;
 mod payment;
 mod registration;
 mod structure;
@@ -62,6 +63,7 @@ pub use access::*;
 pub use clubs::*;
 pub use fees::*;
 pub use jury::*;
+pub use media::*;
 pub use payment::*;
 pub use registration::*;
 pub use structure::*;
@@ -358,6 +360,10 @@ macro_rules! conformance_list {
             jury_plan_assignments_and_publishing,
             a_published_jury_plan_is_visible_to_the_club,
             final_placement_skip_and_start_rules,
+            competition_settings_edit_and_status,
+            media_commands_need_a_competition_and_a_sponsor,
+            logo_and_break_image_are_stored_and_removed,
+            sponsors_are_added_ordered_and_listed,
         }
     };
 }

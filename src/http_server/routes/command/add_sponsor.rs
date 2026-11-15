@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{
+    commands::media::{AddSponsor, ImageInput},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::image_support::{apply_source, svg_logo};
+use super::image_support::{fetch_if_url, image_input, svg_logo};
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     image_fetch::ImageFetcher,
@@ -56,7 +59,7 @@ pub struct AddSponsorResponse {
 pub async fn add_sponsor(
     Extension(repo): Extension<DbHandle>,
     Extension(fetcher): Extension<Arc<ImageFetcher>>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     Json(body): Json<AddSponsorBody>,
 ) -> Result<Json<AddSponsorResponse>, HttpError> {
     let name = images::clean_name(&body.name).map_err(HttpError::ErrorMessages)?;
@@ -94,21 +97,23 @@ pub async fn add_sponsor(
         }
     }
 
+    let image = match preset_logo {
+        Some(logo) => Some(ImageInput::Data(logo)),
+        None if has_source => Some(image_input(body.svg.as_deref(), body.url.as_deref())?),
+        None => None,
+    };
     let id = repo
-        .add_sponsor(&name, link.as_deref())
-        .await?
-        .ok_or(HttpError::NotFound)?;
-    if let Some(logo) = preset_logo {
-        repo.set_image_data(Slot::Sponsor(id), &logo).await?;
-    } else if has_source {
-        apply_source(
-            &repo,
-            &fetcher,
-            Slot::Sponsor(id),
-            body.svg.as_deref(),
-            body.url.as_deref(),
+        .add_sponsor(
+            &auth.actor(),
+            AddSponsor {
+                name: name.clone(),
+                link,
+                image: image.clone(),
+            },
         )
         .await?;
+    if let Some(image) = &image {
+        fetch_if_url(&repo, &fetcher, Slot::Sponsor(id), image).await?;
     }
     info!("Added sponsor {id} ({name})");
     Ok(Json(AddSponsorResponse { id }))

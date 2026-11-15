@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::media::UpdateSponsor, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -38,14 +38,20 @@ pub struct UpdateSponsorResponse {}
 #[axum::debug_handler]
 pub async fn update_sponsor(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     Json(body): Json<UpdateSponsorBody>,
 ) -> Result<Json<UpdateSponsorResponse>, HttpError> {
     let name = images::clean_name(&body.name).map_err(HttpError::ErrorMessages)?;
     let link = images::clean_link(body.link.as_deref()).map_err(HttpError::ErrorMessages)?;
-    if !repo.update_sponsor(body.id, &name, link.as_deref()).await? {
-        return Err(HttpError::NotFound);
-    }
+    repo.update_sponsor(
+        &auth.actor(),
+        UpdateSponsor {
+            id: body.id,
+            name: name.clone(),
+            link,
+        },
+    )
+    .await?;
     info!("Changed sponsor {} ({name})", body.id);
     Ok(Json(UpdateSponsorResponse {}))
 }

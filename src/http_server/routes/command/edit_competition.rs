@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::competition::EditCompetition, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
+use super::super::http_types::{Competition, PhotosSettings};
 use crate::{
-    competition::Competition,
     config::{CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    photos::{Photos, PhotosSettings},
+    photos::Photos,
     roles::permit,
 };
 
@@ -55,17 +55,12 @@ fn filled(text: Option<String>) -> Option<String> {
 pub async fn edit_competition(
     Extension(repo): Extension<DbHandle>,
     Extension(photos): Extension<Arc<Photos>>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     Json(body): Json<EditCompetitionBody>,
 ) -> Result<Json<EditCompetitionResponse>, HttpError> {
-    let current = repo
-        .current_competition()
-        .await?
-        .ok_or(HttpError::NotFound)?;
     let edited = body.competition;
     let mut warnings = vec![];
     let competition = Competition {
-        id: current.id,
         name: edited.name.trim().to_string(),
         location: edited.location.trim().to_string(),
         venue: filled(edited.venue),
@@ -86,15 +81,17 @@ pub async fn edit_competition(
             .filter(|photos| !photos.source.is_empty()),
         ..edited
     };
+    // The id is ignored: the current competition is edited.
+    let competition: db_core::competition::Competition = competition.into();
     let config = CompetitionConfig::from(&competition);
     config.validate().map_err(HttpError::ErrorMessages)?;
-    if !repo.save_competition_settings(&competition).await? {
-        return Err(HttpError::NotFound);
-    }
-    info!("Edited competition {}", competition.id);
-    photos.configure(competition.photos.as_ref());
+    let (photo_settings, iban) = (competition.photos.clone(), competition.payment_iban.clone());
+    repo.edit_competition(&auth.actor(), EditCompetition { competition })
+        .await?;
+    info!("Edited the competition");
+    photos.configure(photo_settings.as_ref());
 
-    if let Some(iban) = &competition.payment_iban
+    if let Some(iban) = &iban
         && !is_valid_iban(iban)
     {
         warnings.push(format!(

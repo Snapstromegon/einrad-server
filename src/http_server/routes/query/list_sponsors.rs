@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -33,15 +33,14 @@ pub async fn list_sponsors(
     Extension(repo): Extension<DbHandle>,
 ) -> Result<Json<Vec<Sponsor>>, HttpError> {
     Ok(Json(
-        repo.list_images()
+        repo.list_sponsors()
             .await?
             .into_iter()
-            .filter(|image| image.kind == "sponsor" && image.has_data)
-            .map(|image| Sponsor {
-                id: image.id,
-                name: image.name,
-                link: image.link,
-                version: image.updated_at.unix_timestamp_nanos() as i64 / 1_000_000,
+            .map(|sponsor| Sponsor {
+                id: sponsor.id,
+                name: sponsor.name,
+                link: sponsor.link,
+                version: sponsor.updated_at.unix_timestamp_nanos() as i64 / 1_000_000,
             })
             .collect(),
     ))

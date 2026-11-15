@@ -1,13 +1,12 @@
 use axum::{Extension, Json, extract::Multipart};
-use db_core::DbHandle;
+use db_core::{commands::media::UploadSponsorImage, prelude::*};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::image_support::{read_upload, store_upload};
+use super::image_support::read_upload;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::Slot,
     roles::permit,
 };
 
@@ -46,7 +45,7 @@ pub struct SponsorImageUpload {
 #[axum::debug_handler]
 pub async fn upload_sponsor_image(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     body: Multipart,
 ) -> Result<Json<UploadSponsorImageResponse>, HttpError> {
     let (fields, logo) = read_upload(body).await?;
@@ -55,7 +54,15 @@ pub async fn upload_sponsor_image(
         .find(|(name, _)| name == "id")
         .and_then(|(_, value)| value.trim().parse::<i64>().ok())
         .ok_or_else(|| HttpError::ErrorMessages("Der Sponsor fehlt.".to_string()))?;
-    store_upload(&repo, Slot::Sponsor(id), &logo).await?;
-    info!("Set the image of sponsor {id} ({})", logo.format.name());
+    let format = logo.format;
+    repo.upload_sponsor_image(
+        &auth.actor(),
+        UploadSponsorImage {
+            sponsor_id: id,
+            logo,
+        },
+    )
+    .await?;
+    info!("Set the image of sponsor {id} ({})", format.name());
     Ok(Json(UploadSponsorImageResponse {}))
 }

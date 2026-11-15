@@ -17,7 +17,7 @@ use reqwest::{StatusCode, header::USER_AGENT, redirect};
 use tokio::{sync::Semaphore, task::JoinSet};
 use tracing::{info, warn};
 
-use db_core::{DbError, DbHandle};
+use db_core::{DbHandle, commands::media::StoreFetchedImage, error::CommandError};
 
 use crate::{
     images::{Image, Slot},
@@ -115,7 +115,7 @@ impl ImageFetcher {
     /// management. Never holds the database across a download, so a reload
     /// isn't blocked, and a result for an image that changed meanwhile is
     /// dropped.
-    pub async fn refresh(&self, repo: &DbHandle, only: Option<Slot>) -> Result<(), DbError> {
+    pub async fn refresh(&self, repo: &DbHandle, only: Option<Slot>) -> Result<(), CommandError> {
         // A single image is safe without it (a result for a changed image is
         // dropped) and shouldn't wait for a slow refresh of all of them.
         let _refreshing = match only {
@@ -160,7 +160,8 @@ impl ImageFetcher {
                     Err(e.to_string())
                 }
             };
-            repo.store_fetched_image(id, &url, result).await?;
+            repo.store_fetched_image(StoreFetchedImage { id, url, result })
+                .await?;
         }
         Ok(())
     }

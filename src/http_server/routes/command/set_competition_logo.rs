@@ -1,13 +1,12 @@
 use axum::{Extension, Json, extract::Multipart};
-use db_core::DbHandle;
+use db_core::{commands::media::SetCompetitionLogo, prelude::*};
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
-use super::image_support::{read_upload, store_upload};
+use super::image_support::read_upload;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::Slot,
     roles::permit,
 };
 
@@ -47,11 +46,13 @@ pub struct LogoUpload {
 #[axum::debug_handler]
 pub async fn set_competition_logo(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::ManageCompetition>,
+    auth: Granted<permit::ManageCompetition>,
     body: Multipart,
 ) -> Result<Json<SetCompetitionLogoResponse>, HttpError> {
     let (_, logo) = read_upload(body).await?;
-    store_upload(&repo, Slot::Logo, &logo).await?;
-    info!("Set the competition logo ({})", logo.format.name());
+    let format = logo.format;
+    repo.set_competition_logo(&auth.actor(), SetCompetitionLogo { logo })
+        .await?;
+    info!("Set the competition logo ({})", format.name());
     Ok(Json(SetCompetitionLogoResponse {}))
 }

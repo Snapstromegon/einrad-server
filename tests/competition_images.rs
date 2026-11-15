@@ -17,6 +17,7 @@ use axum::{
     response::IntoResponse,
 };
 use common::{TestApp, TestResponse};
+use db_core::commands::media::StoreFetchedImage;
 use einrad_server::{
     image_fetch::ImageFetcher,
     images::{self, DEFAULT_BREAK_SVG, PRESET_SPONSORS},
@@ -440,7 +441,11 @@ async fn a_download_that_finishes_after_a_change_is_dropped() {
     .await;
     let stored = app
         .repo
-        .store_fetched_image(id, "http://127.0.0.1:1/a.svg", Ok(stale))
+        .store_fetched_image(StoreFetchedImage {
+            id,
+            url: "http://127.0.0.1:1/a.svg".into(),
+            result: Ok(stale),
+        })
         .await
         .unwrap();
     assert!(!stored);

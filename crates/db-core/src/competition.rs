@@ -10,7 +10,7 @@ time::serde::format_description!(pub iso_date, Date, "[year]-[month]-[day]");
 
 /// Where the info board's photos come from, as the competition sets it
 /// (`[competition.photos]`).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PhotosSettings {
     /// A WebDAV URL, a Nextcloud share link or a local folder.
@@ -25,7 +25,7 @@ pub struct PhotosSettings {
 }
 
 /// Event specific settings, stored in the `competition` table.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Competition {
     pub id: String,
     pub name: String,
@@ -72,18 +72,14 @@ pub struct Competition {
     pub photos: Option<PhotosSettings>,
     /// The primary color of every page (see `crate::colors`); `None` for
     /// the default.
-    #[schema(value_type = Option<String>, example = "#002d56")]
     pub primary_color: Option<HexColor>,
     /// The secondary color; `None` for the default.
-    #[schema(value_type = Option<String>, example = "#009036")]
     pub secondary_color: Option<HexColor>,
 }
 
 /// Features that are still being refined, as a competition sets them: on,
 /// off, or unset (the build default).
-#[derive(
-    Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Features {
     /// Clubs register judges, admins plan the jury (see `crate::jury`).
@@ -94,7 +90,7 @@ pub struct Features {
 }
 
 /// Whether each feature is on, after [`Features::resolve`].
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct ResolvedFeatures {
     pub jury_registration: bool,
     pub moderation_input: bool,
@@ -136,7 +132,7 @@ impl Features {
 }
 
 /// The jury rules of a competition, from `[competition.jury]`.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JuryRules {
     /// Minimum age of trained judges on the first competition day.
     pub min_age: i64,
@@ -160,16 +156,11 @@ impl Competition {
     }
 }
 
-/// Reading and editing the current competition.
+/// Reading the current competition (editing is `CompetitionCommands`).
 #[async_trait::async_trait]
 pub trait CompetitionRepo {
     /// The current competition: the one with the latest start date.
     async fn current_competition(&self) -> Result<Option<Competition>, DbError>;
-
-    /// Writes the edited settings of the current competition and both
-    /// colors (`None` is the default), in one transaction. `false` if there
-    /// is no current competition, or its id isn't `edited.id`.
-    async fn save_competition_settings(&self, edited: &Competition) -> Result<bool, DbError>;
 }
 
 #[cfg(test)]
