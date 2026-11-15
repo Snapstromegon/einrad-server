@@ -121,6 +121,7 @@ macro_rules! conformance_list {
             timeplan_started_block_keeps_its_order,
             fees_and_amount_due,
             jury_obligation_counts_acts_and_judges,
+            jury_obligation_edge_cases,
             group_delete_and_member_rules,
             structure_names_and_codes_are_unique,
             heats_and_finals_share_a_discipline,

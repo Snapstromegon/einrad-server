@@ -357,6 +357,151 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
     );
 }
 
+/// What counts toward the jury obligation of a club, loaded through the
+/// trait: a pair across clubs counts for the club with the lowest id; a
+/// withdrawn act counts unless its fee is waived; a group counts for its
+/// owner with at least one regular rider (also an incomplete group), but not
+/// with only replacements, whatever club they come from.
+pub async fn jury_obligation_edge_cases(db: &dyn Db) {
+    let w = World::seed(db).await;
+    create_competition_with(db, |c| {
+        c.fee_per_start = 10.0;
+        c.jury = Some(JuryRules {
+            min_age: 16,
+            deployments_per_two_acts: 4,
+            missing_deployment_fee: 25.0,
+            registration_end: None,
+        });
+    })
+    .await;
+    category(db).await;
+    db.add_category(&CategoryFields {
+        name: "PA".into(),
+        description: None,
+        min_age: None,
+        under_age: None,
+        act_type: ActType::Pair,
+        is_single_male: false,
+        einfahrzeit_seconds: 0,
+        act_duration_seconds: 120,
+        judge_duration_seconds: 60,
+    })
+    .await
+    .unwrap();
+
+    let anna = rider(db, &w.owner_a, w.club_a, "Anna").await;
+    let berta = rider(db, &w.owner_a, w.club_a, "Berta").await;
+    let dora = rider(db, &w.owner_a, w.club_a, "Dora").await;
+    let gerda = rider(db, &w.owner_a, w.club_a, "Gerda").await;
+    let carla = rider(db, &w.owner_b, w.club_b, "Carla").await;
+    let erna = rider(db, &w.owner_b, w.club_b, "Erna").await;
+    let hanna = rider(db, &w.owner_b, w.club_b, "Hanna").await;
+
+    // A pair across clubs counts once, for the lowest club.
+    db.link_pair(&w.organizer, anna, carla).await.unwrap();
+    let lowest = w.club_a.min(w.club_b);
+    // Singles: Erna starts; Berta withdraws; Dora withdraws with a waiver.
+    for (owner, id) in [(&w.owner_b, erna), (&w.owner_a, berta), (&w.owner_a, dora)] {
+        db.set_single(owner, id, true).await.unwrap();
+    }
+    let act_of = |name: &'static str| async move {
+        db.list_acts()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|act| act.participants.iter().any(|p| p.firstname == name))
+            .unwrap()
+            .id
+    };
+    let (berta_act, dora_act) = (act_of("Berta").await, act_of("Dora").await);
+    db.set_act_withdrawn(berta_act, true).await.unwrap();
+    db.set_act_withdrawn(dora_act, true).await.unwrap();
+    let roles = [];
+    db.set_fee_waiver(
+        &treasurer(&w, &roles),
+        Target::Act(dora_act),
+        Some("Abgesagt"),
+    )
+    .await
+    .unwrap();
+
+    // An incomplete group (one regular rider, one replacement of the other
+    // club) counts for its owner; a group of replacements only doesn't.
+    let member = |rider_id, is_replacement| GroupMember {
+        rider_id,
+        is_replacement,
+    };
+    let incomplete = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Wirbel")
+        .await
+        .unwrap();
+    db.set_group_members(&w.owner_a, w.club_a, incomplete, &[member(gerda, false)])
+        .await
+        .unwrap();
+    db.set_group_members(&w.owner_b, w.club_b, incomplete, &[member(hanna, true)])
+        .await
+        .unwrap();
+    let only_replacements = db
+        .create_group(&w.owner_a, w.club_a, ActType::GroupSmall, "Ersatz")
+        .await
+        .unwrap();
+    db.set_group_members(
+        &w.owner_b,
+        w.club_b,
+        only_replacements,
+        &[member(hanna, true)],
+    )
+    .await
+    .unwrap();
+
+    // A: Berta (withdrawn, charged), the incomplete group, and the pair if A
+    // is the lowest. B: Erna, and the pair if B is.
+    let (acts_a, acts_b) = if lowest == w.club_a { (3, 1) } else { (2, 2) };
+    let obligation = |club| async move { fees(db, club, true).await.jury.unwrap() };
+    let (jury_a, jury_b) = (obligation(w.club_a).await, obligation(w.club_b).await);
+    assert_eq!((jury_a.acts, jury_b.acts), (acts_a, acts_b));
+    assert_eq!(
+        (jury_a.required, jury_b.required),
+        (
+            if acts_a > 2 { 8 } else { 4 },
+            if acts_b > 2 { 8 } else { 4 }
+        )
+    );
+    // Nobody registered judges: every required deployment is missing.
+    assert_eq!(
+        (jury_a.missing, jury_a.fee, jury_b.missing, jury_b.fee),
+        (
+            jury_a.required,
+            25.0 * jury_a.required as f64,
+            jury_b.required,
+            25.0 * jury_b.required as f64
+        )
+    );
+    // Start fees follow the riders, not the counting club: A has Anna, Berta
+    // and Gerda (Dora's start is waived); B has Carla, Erna and Hanna's two
+    // starts as a replacement.
+    let due = |fees: ClubFees| {
+        let a = fees.amount_due;
+        (a.start_fees, a.jury_fee, a.total, a.waived)
+    };
+    let (fees_a, fees_b) = (
+        fees(db, w.club_a, true).await,
+        fees(db, w.club_b, true).await,
+    );
+    assert_eq!(due(fees_a), (30.0, jury_a.fee, 30.0 + jury_a.fee, 10.0));
+    assert_eq!(due(fees_b), (40.0, jury_b.fee, 40.0 + jury_b.fee, 0.0));
+    // Waiving the withdrawn Berta's start drops her from the obligation.
+    db.set_fee_waiver(
+        &treasurer(&w, &roles),
+        Target::Act(berta_act),
+        Some("Abgesagt"),
+    )
+    .await
+    .unwrap();
+    let after = fees(db, w.club_a, true).await.jury.unwrap();
+    assert_eq!(after.acts, acts_a - 1);
+}
+
 /// Groups: only the owner club deletes one, and not while riders of other
 /// clubs are in it (the organizer may); a club sets only its own riders,
 /// each once; names are unique ignoring case.
