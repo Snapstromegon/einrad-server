@@ -172,12 +172,11 @@ impl BookingLogEntry {
 }
 
 /// One payment of a club, as the club sees it.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone)]
 pub struct Payment {
     pub id: BookingId,
     /// Negative for a refund.
     pub amount: f64,
-    #[serde(with = "iso_date")]
     pub date: Date,
     pub note: String,
 }

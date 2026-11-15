@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use axum::{Extension, Json, extract::Query};
 use db_core::{
-    acts::NormalizationStatus,
     prelude::*,
     queries::club::{ClubActs, ListClubActs},
 };
@@ -11,7 +10,10 @@ use tracing::instrument;
 
 use crate::{
     act_type::ActType,
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Auth},
+    http_server::{
+        ClientError, HttpError, HttpServerOptions, extractor::auth::Auth,
+        routes::http_types::NormalizationStatus,
+    },
 };
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
@@ -107,10 +109,10 @@ pub async fn list_club_acts(
             description: moderation_input.then_some(act.description).flatten(),
             song_file_name: act.song_file_name,
             song_file: act.song_file,
-            song_file_normalized: act
-                .song_file_normalized
-                .filter(|_| act.normalization_status == Some(NormalizationStatus::Done)),
-            normalization_status: act.normalization_status,
+            song_file_normalized: act.song_file_normalized.filter(|_| {
+                act.normalization_status == Some(db_core::acts::NormalizationStatus::Done)
+            }),
+            normalization_status: act.normalization_status.map(Into::into),
             act_type: act.act_type,
             created_at: act.created_at,
             withdrawn: act.withdrawn,

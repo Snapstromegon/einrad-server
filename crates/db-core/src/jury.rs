@@ -51,7 +51,7 @@ pub fn required_deployments(acts: i64, per_two_acts: i64) -> i64 {
 }
 
 /// A club's jury obligation.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JuryObligation {
     /// Küren that count: those charged a start fee, for the owner club.
     pub acts: i64,

@@ -1,8 +1,88 @@
 use crate::ids::{ActId, CategoryId, ClubId};
 use crate::{act_type::ActType, roles::Permission};
-use db_core::acts::{ActRecord, NormalizationStatus};
+use db_core::acts::ActRecord;
 
 pub use db_core::users::User;
+
+// API types shared by several handlers. A schema name must exist exactly once
+// (utoipa silently keeps one of two same-named structs), so a type that more
+// than one handler returns is defined here, not in each handler file.
+
+/// Where the loudness normalization of a song stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NormalizationStatus {
+    Pending,
+    Done,
+    Failed,
+}
+
+impl From<db_core::acts::NormalizationStatus> for NormalizationStatus {
+    fn from(status: db_core::acts::NormalizationStatus) -> Self {
+        use db_core::acts::NormalizationStatus as Db;
+        match status {
+            Db::Pending => Self::Pending,
+            Db::Done => Self::Done,
+            Db::Failed => Self::Failed,
+        }
+    }
+}
+
+/// What a club owes, split into its parts.
+#[derive(Debug, Clone, Copy, serde::Serialize, utoipa::ToSchema)]
+pub struct AmountDue {
+    /// `fee_per_start` per start, at most `max_fee_per_rider` per rider.
+    pub start_fees: f64,
+    /// For missing jury deployments; 0 without the jury registration.
+    pub jury_fee: f64,
+    pub total: f64,
+    /// What fee waivers drop: the start fees of waived clubs, riders and
+    /// acts, and the jury fee of a waived club.
+    pub waived: f64,
+}
+
+impl From<db_core::fees::AmountDue> for AmountDue {
+    fn from(due: db_core::fees::AmountDue) -> Self {
+        Self {
+            start_fees: due.start_fees,
+            jury_fee: due.jury_fee,
+            total: due.total,
+            waived: due.waived,
+        }
+    }
+}
+
+/// A club's jury obligation.
+#[derive(Debug, Clone, Copy, serde::Serialize, utoipa::ToSchema)]
+pub struct JuryObligation {
+    /// Küren that count: those charged a start fee, for the owner club.
+    pub acts: i64,
+    pub required: i64,
+    /// What the club's trained judges registered for as technical or
+    /// performance judges.
+    pub registered: i64,
+    /// What an admin credits instead, e.g. after a late cancellation.
+    pub credited_override: Option<i64>,
+    /// `credited_override`, or `registered` without one.
+    pub credited: i64,
+    pub missing: i64,
+    /// For the missing deployments, in €.
+    pub fee: f64,
+}
+
+impl From<db_core::jury::JuryObligation> for JuryObligation {
+    fn from(jury: db_core::jury::JuryObligation) -> Self {
+        Self {
+            acts: jury.acts,
+            required: jury.required,
+            registered: jury.registered,
+            credited_override: jury.credited_override,
+            credited: jury.credited,
+            missing: jury.missing,
+            fee: jury.fee,
+        }
+    }
+}
 
 /// The logged-in user with what their roles allow.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
@@ -93,10 +173,10 @@ impl From<ActRecord> for Act {
             description: db_act.description,
             song_file_name: db_act.song_file_name,
             // Only a finished copy is worth playing.
-            song_file_normalized: db_act
-                .song_file_normalized
-                .filter(|_| db_act.normalization_status == Some(NormalizationStatus::Done)),
-            normalization_status: db_act.normalization_status,
+            song_file_normalized: db_act.song_file_normalized.filter(|_| {
+                db_act.normalization_status == Some(db_core::acts::NormalizationStatus::Done)
+            }),
+            normalization_status: db_act.normalization_status.map(Into::into),
             act_type: db_act.act_type,
             max_age: db_act.max_age,
             participants: db_act.participants,

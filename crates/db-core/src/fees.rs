@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// What a club owes, split into its parts.
-#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct AmountDue {
     /// `fee_per_start` per start, at most `max_fee_per_rider` per rider.
     pub start_fees: f64,

@@ -1,15 +1,39 @@
-use crate::ids::{ClubId, UserId};
+use crate::ids::{BookingId, ClubId, UserId};
 use axum::{Extension, Json, extract::Query};
 use db_core::{prelude::*, queries::club::GetClub};
 use tracing::instrument;
 
 use crate::{
-    bookings::{Payment, round_cents},
-    fees::AmountDue,
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    jury::JuryObligation,
+    bookings::round_cents,
+    http_server::{
+        ClientError, HttpError,
+        extractor::auth::Auth,
+        routes::http_types::{AmountDue, JuryObligation},
+    },
     utils::club_code,
 };
+
+/// One payment of a club, as the club sees it.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct Payment {
+    id: BookingId,
+    /// Negative for a refund.
+    amount: f64,
+    #[serde(with = "crate::bookings::iso_date")]
+    date: time::Date,
+    note: String,
+}
+
+impl From<db_core::bookings::Payment> for Payment {
+    fn from(payment: db_core::bookings::Payment) -> Self {
+        Self {
+            id: payment.id,
+            amount: payment.amount,
+            date: payment.date,
+            note: payment.note,
+        }
+    }
+}
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Club {
@@ -92,10 +116,10 @@ pub async fn get_club(
     match view.details {
         Some(details) => {
             club.paid = Some(round_cents(details.payments.iter().map(|p| p.amount).sum()));
-            club.payments = Some(details.payments);
-            club.amount_due = Some(details.fees.amount_due);
+            club.payments = Some(details.payments.into_iter().map(Payment::from).collect());
+            club.amount_due = Some(details.fees.amount_due.into());
             club.fee_waived = Some(row.fee_waived);
-            club.jury = details.fees.jury;
+            club.jury = details.fees.jury.map(Into::into);
         }
         None => {
             club.owner_name = None;

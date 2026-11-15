@@ -4,9 +4,11 @@ use db_core::{prelude::*, queries::club::ClubListEntry};
 use tracing::instrument;
 
 use crate::{
-    fees::AmountDue,
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::JuryObligation,
+    http_server::{
+        ClientError, HttpError,
+        extractor::auth::Granted,
+        routes::http_types::{AmountDue, JuryObligation},
+    },
     roles::permit,
     utils::club_code,
 };
@@ -82,9 +84,9 @@ pub async fn list_clubs(
             } = entry;
             ClubOverview {
                 code: club_code(&row.id),
-                amount_due: balances.then_some(fees.amount_due),
+                amount_due: balances.then_some(fees.amount_due.into()),
                 fee_waiver: row.fee_waiver.filter(|_| balances),
-                jury: fees.jury.filter(|_| jury),
+                jury: fees.jury.filter(|_| jury).map(Into::into),
                 id: row.id,
                 name: row.name,
                 paid: balances.then_some(paid),
