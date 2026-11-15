@@ -19,6 +19,7 @@ utoipa = { version = "6", features = [
 uuid = { version = "1.29.0", features = ["serde", "v5", "v7"] }
 db-core = { path = "crates/db-core" }
 db-sqlite = { path = "crates/db-sqlite" }
+db-inmemory = { path = "crates/db-inmemory" }
 
 [package]
 name = "einrad-server"
@@ -98,6 +99,8 @@ utoipa-axum = { version = "0.3", features = ["debug"] }
 utoipa-swagger-ui = { version = "10", features = ["axum", "vendored"] }
 uuid = { workspace = true }
 db-core = { workspace = true }
+# A scratch database for `seed::check_file`, and the tests (see ADR 0019).
+db-inmemory = { workspace = true }
 db-sqlite = { workspace = true }
 getrandom = "0.4"
 subtle = "2.6"

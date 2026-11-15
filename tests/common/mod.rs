@@ -9,7 +9,7 @@ pub mod mailpit;
 
 /// Every test gets its own database in memory.
 #[allow(unused_imports)]
-pub use db_sqlite::reloadable_sqlite::{in_memory, in_memory_migrated};
+pub use db_inmemory::{pool as in_memory_migrated, unmigrated_pool as in_memory};
 
 use std::{
     path::{Path, PathBuf},
@@ -344,7 +344,7 @@ impl TestApp {
         let repo = if backups {
             repo
         } else {
-            repo.without_backups_for_test()
+            repo.without_backups()
         }
         .into_handle();
         let player_hub = PlayerHub::new(repo.clone());

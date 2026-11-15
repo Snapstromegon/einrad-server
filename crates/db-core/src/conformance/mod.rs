@@ -16,7 +16,7 @@
 //! ```
 //!
 //! ```ignore
-//! db_core::conformance_tests!(|| async { SqliteRepo::in_memory().await.into_handle() });
+//! db_core::conformance_tests!(|| async { db_inmemory::handle().await });
 //! ```
 //!
 //! Rules for tests here: they only use trait methods (no SQL, no pool), seed

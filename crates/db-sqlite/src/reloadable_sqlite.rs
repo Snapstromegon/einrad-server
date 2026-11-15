@@ -83,7 +83,7 @@ pub async fn begin_write(
     pool.begin_with("BEGIN IMMEDIATE").await
 }
 
-/// A new, empty database in memory, for tests: every call gets its own, which
+/// A new, empty database in memory (used by `db-inmemory`): every call gets its own, which
 /// the pool's connections share. The pool keeps a connection open, so the
 /// database lives as long as the pool.
 pub async fn in_memory() -> SqlitePool {
@@ -99,8 +99,10 @@ pub async fn in_memory() -> SqlitePool {
         .expect("in-memory database")
 }
 
-/// [`in_memory`] with the migrations applied.
-pub async fn in_memory_migrated() -> SqlitePool {
+/// [`in_memory`] with the migrations applied, for this crate's unit tests;
+/// other crates use `db-inmemory`.
+#[cfg(test)]
+pub(crate) async fn in_memory_migrated() -> SqlitePool {
     let db = in_memory().await;
     crate::MIGRATOR
         .run(&db)

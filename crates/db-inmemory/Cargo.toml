@@ -1,0 +1,14 @@
+[package]
+name = "db-inmemory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+db-core = { workspace = true }
+db-sqlite = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+db-core = { workspace = true, features = ["conformance"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
