@@ -4,12 +4,12 @@
 use db_core::{
     act_type::ActType,
     clubs::{Actor, RegistrationError},
-    groups::group_name_key,
+    groups::{TypeConflict, check_group_name_free, type_conflict_warning},
     ids::{ActId, ClubId},
 };
 use sqlx::SqliteConnection;
 
-use crate::registration::club_access;
+use crate::registration::load_club;
 
 /// A group act as needed by the group commands.
 #[derive(Debug)]
@@ -50,13 +50,11 @@ pub(crate) async fn group_owner_access(
     actor: &Actor,
     group: &Group,
 ) -> Result<(), RegistrationError> {
-    if actor.manage_registrations {
-        return Ok(());
-    }
-    match group.owner_club_id {
-        Some(owner_club_id) => club_access(conn, actor, owner_club_id).await,
-        None => Err(RegistrationError::Forbidden),
-    }
+    let owner_club = match group.owner_club_id {
+        Some(club_id) => load_club(conn, club_id).await?,
+        None => None,
+    };
+    actor.may_change_group(owner_club).into_result()
 }
 
 /// Fails with a German message if another group already uses the name
@@ -78,13 +76,7 @@ pub(crate) async fn group_name_is_free(
     )
     .fetch_all(&mut *conn)
     .await?;
-    let key = group_name_key(group_name);
-    if existing.iter().any(|name| group_name_key(name) == key) {
-        return Err(RegistrationError::Rejected(format!(
-            "Der Gruppenname „{group_name}“ ist bereits vergeben."
-        )));
-    }
-    Ok(())
+    check_group_name_free(group_name, existing.iter().map(String::as_str))
 }
 
 /// A rider can be in at most one small and one large group, replacements
@@ -107,8 +99,7 @@ pub(crate) async fn type_conflict_message(
             rider.firstname,
             rider.lastname,
             clubs.name as club_name,
-            this.act_type as "act_type!: ActType",
-            other.group_name
+            other.group_name as "other_group!"
         FROM act_participants own
         JOIN acts this ON this.id = own.act_id
         JOIN act_participants theirs
@@ -122,7 +113,15 @@ pub(crate) async fn type_conflict_message(
         act_id
     )
     .fetch_all(&mut *conn)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|row| TypeConflict {
+        firstname: row.firstname,
+        lastname: row.lastname,
+        club_name: row.club_name,
+        other_group: row.other_group,
+    })
+    .collect::<Vec<_>>();
 
     if conflicts.is_empty() {
         return Ok(None);
@@ -138,19 +137,9 @@ pub(crate) async fn type_conflict_message(
     )
     .fetch_one(&mut *conn)
     .await?;
-    let mut message = format!("{} „{}“:", group.act_type.german_name(), group.group_name);
-    for conflict in &conflicts {
-        message.push_str(&format!(
-            " „{} {}“ ({}) ist bereits in der {} „{}“ angemeldet.",
-            conflict.firstname,
-            conflict.lastname,
-            conflict.club_name,
-            conflict.act_type.german_name(),
-            conflict.group_name.as_deref().unwrap_or_default(),
-        ));
-    }
-    message.push_str(
-        " Jede FahrerIn kann nur in einer Kleingruppe und einer Großgruppe starten – auch als ErsatzfahrerIn. Bis das geklärt ist, bekommen die betroffenen Gruppen keine Kategorie und starten nicht.",
-    );
-    Ok(Some(message))
+    Ok(type_conflict_warning(
+        &group.group_name,
+        group.act_type,
+        &conflicts,
+    ))
 }

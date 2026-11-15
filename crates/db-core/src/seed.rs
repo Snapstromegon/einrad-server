@@ -272,6 +272,30 @@ pub enum SeedError {
     Db(#[from] DbError),
 }
 
+/// A competition can only be created while there is none.
+pub fn check_no_competition(exists: bool) -> Result<(), SeedError> {
+    if exists {
+        return Err(SeedError::Invalid(
+            "Der Wettkampf lässt sich nicht anlegen, weil es schon einen Wettkampf gibt."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod competition_exists_tests {
+    use super::*;
+
+    #[test]
+    fn only_one_competition() {
+        assert!(check_no_competition(false).is_ok());
+        assert!(
+            matches!(check_no_competition(true), Err(SeedError::Invalid(m)) if m.contains("schon einen Wettkampf"))
+        );
+    }
+}
+
 /// A user of the demo data, with the password already hashed.
 #[derive(Debug, Clone)]
 pub struct SeedUser {

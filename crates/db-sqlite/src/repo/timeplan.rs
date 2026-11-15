@@ -5,21 +5,18 @@ use db_core::{
     clubs::RegistrationError,
     ids::{ActId, CategoryId, FinalId, HeatId},
     timeplan::{
-        Audience, BlockSlotInput, Entry, EntryFields, EntryKind, INTERNAL_PUBLIC_LABEL, Slot,
-        Timeplan, TimeplanListEntry, check_block_order, own_breaks,
+        Audience, BlockSlotInput, Direction, EntryFields, EntryKind, INTERNAL_PUBLIC_LABEL, Slot,
+        Timeplan, TimeplanListEntry, check_block_order, drops_slots, moved_order, next_step,
+        order_after, own_breaks, started_block_keeps_order,
     },
 };
-use sqlx::SqliteConnection;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::info;
 
 use super::SqliteRepo;
 use crate::{
     structure::{check_final_plannable, heat_code_of},
-    timeplan::{
-        end_slot, entry_ids, load, load_for, now, reopen_slot, set_entry_order, start_slot,
-        swap_with_neighbour, unstart_slot,
-    },
+    timeplan::{apply_step, entry_ids, load, load_for, now, set_entry_order},
 };
 
 /// The text a start time is stored as: RFC 3339, as the admin frontend
@@ -84,9 +81,7 @@ impl TimeplanRepo for SqliteRepo {
         let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
-            check_final_plannable(&mut tx, final_id, None)
-                .await
-                .map_err(RegistrationError::Rejected)?;
+            check_final_plannable(&mut tx, final_id, None).await?;
         }
 
         let id = sqlx::query_scalar!(
@@ -120,13 +115,8 @@ impl TimeplanRepo for SqliteRepo {
         .await?;
 
         if let Some(after_id) = after_id {
-            let mut ids = entry_ids(&mut tx).await?;
-            ids.retain(|&e| e != id);
-            let index = ids
-                .iter()
-                .position(|&e| e == after_id)
+            let ids = order_after(entry_ids(&mut tx).await?, id, after_id)
                 .ok_or(RegistrationError::NotFound)?;
-            ids.insert(index + 1, id);
             set_entry_order(&mut tx, &ids).await?;
         }
         tx.commit().await?;
@@ -142,12 +132,10 @@ impl TimeplanRepo for SqliteRepo {
         let earliest_start_time = earliest_start_time.map(sqlite_start_time).transpose()?;
         let mut tx = self.begin_write().await?;
         if let Some(final_id) = fields.final_id {
-            check_final_plannable(&mut tx, final_id, Some(id))
-                .await
-                .map_err(RegistrationError::Rejected)?;
+            check_final_plannable(&mut tx, final_id, Some(id)).await?;
         }
         // A final's block holds only the final's slots.
-        let drops_slots = fields.kind == EntryKind::Custom || fields.final_id.is_some();
+        let drops_slots = drops_slots(fields);
 
         // Acts that leave the block go back to their home blocks, which
         // mustn't be over: all of them when it becomes a custom entry or a
@@ -226,9 +214,10 @@ impl TimeplanRepo for SqliteRepo {
 
     async fn move_timeplan_entry(&self, id: i64, up: bool) -> Result<bool, DbError> {
         let mut tx = self.begin_write().await?;
-        if !swap_with_neighbour(&mut tx, id, up).await? {
+        let Some(ids) = moved_order(&entry_ids(&mut tx).await?, id, up) else {
             return Ok(false);
-        }
+        };
+        set_entry_order(&mut tx, &ids).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -375,9 +364,7 @@ impl TimeplanRepo for SqliteRepo {
             .find(|e| e.id == timeplan_id)
             .ok_or(RegistrationError::NotFound)?;
         if block.started_at.is_some() {
-            return Err(RegistrationError::Rejected(
-                "Gestartete Blöcke behalten ihre Reihenfolge.".to_string(),
-            ));
+            return Err(RegistrationError::Rejected(started_block_keeps_order()));
         }
         // Acts from other blocks go back to theirs, which mustn't be over.
         timeplan
@@ -399,118 +386,20 @@ impl TimeplanRepo for SqliteRepo {
         // One write transaction, so two operators pressing at the same moment
         // can't both act on the same state and skip a step.
         let mut tx = self.begin_write().await?;
-        let mut ended_act = false;
-
         let timeplan = load(&mut tx).await?;
         let now = now(&mut tx).await?;
-        match timeplan.entries.iter().find(|e| e.is_running()) {
-            Some(entry) if entry.kind == EntryKind::Acts => {
-                let slots = &entry.slots;
-                let upcoming = |from: usize| slots[from..].iter().find(|s| !s.is_started());
-                let running = slots.iter().position(Slot::is_running);
-                if let Some(index) = running {
-                    end_slot(&mut tx, &slots[index], &now).await?;
-                    // A finalist is judged like an act.
-                    ended_act = slots[index].is_start();
-                }
-                let next = running.map_or_else(|| upcoming(0), |index| upcoming(index + 1));
-                match next {
-                    // That was the last slot, or the block lost its acts (e.g.
-                    // they were moved away): the block is over. A block
-                    // without acts doesn't run its breaks either.
-                    _ if entry.is_empty() => end_entry(&mut tx, entry.id, &now).await?,
-                    None => end_entry(&mut tx, entry.id, &now).await?,
-                    // The act is judged now; the next slot starts with the
-                    // next step.
-                    Some(_) if ended_act => {}
-                    // Nothing to judge after a break, or nothing was running:
-                    // the next slot starts.
-                    Some(slot) => {
-                        info!("Starting next slot");
-                        start_slot(&mut tx, slot, &now).await?;
-                    }
-                }
-            }
-            Some(entry) => end_entry(&mut tx, entry.id, &now).await?,
-            None => {
-                info!("Starting Next timeplan entry");
-                start_next_timeplan_entry(&mut tx, &timeplan.entries, &now).await?;
-            }
-        }
-
+        let step = next_step(&timeplan, Direction::Forward);
+        apply_step(&mut tx, &step.ops, &now).await?;
         tx.commit().await?;
-        Ok(ended_act)
+        Ok(step.ended_act)
     }
 
     async fn timeplan_backward(&self) -> Result<(), DbError> {
-        // One write transaction, so two operators pressing at the same moment
-        // can't both act on the same state and skip a step.
         let mut tx = self.begin_write().await?;
-
-        let entries = load(&mut tx).await?.entries;
-        match entries.iter().position(Entry::is_running) {
-            Some(index) => {
-                let entry = &entries[index];
-                let slots = &entry.slots;
-                if let Some(running) = slots.iter().position(Slot::is_running) {
-                    unstart_slot(&mut tx, &slots[running]).await?;
-                    // Ending a break started this slot in the same step.
-                    if let Some(pause @ Slot::Break(_)) = running.checked_sub(1).map(|i| &slots[i])
-                        && pause.ended_at() == slots[running].started_at()
-                    {
-                        reopen_slot(&mut tx, pause).await?;
-                    }
-                } else if let Some(last) = slots.iter().rfind(|s| s.is_ended()) {
-                    reopen_slot(&mut tx, last).await?;
-                } else {
-                    // Nothing done in this entry yet: undo its start,
-                    // together with the empty blocks skipped to get here.
-                    sqlx::query!(
-                        "UPDATE timeplan SET started_at = NULL WHERE id = $1",
-                        entry.id
-                    )
-                    .execute(&mut *tx)
-                    .await?;
-                    let skipped = entries[..index].iter().rev().take_while(|e| e.is_skipped());
-                    for skipped in skipped {
-                        reset_entry(&mut tx, skipped.id).await?;
-                    }
-                }
-            }
-            None => {
-                // Reopen the last entry that really ran (and its last slot),
-                // and undo the skips after it.
-                let Some(index) = entries
-                    .iter()
-                    .rposition(|e| e.ended_at.is_some() && !e.is_skipped())
-                else {
-                    tx.commit().await?;
-                    return Ok(());
-                };
-                let entry = &entries[index];
-                sqlx::query!(
-                    "UPDATE timeplan SET ended_at = NULL WHERE id = $1",
-                    entry.id
-                )
-                .execute(&mut *tx)
-                .await?;
-                // Its last slot runs again if ending it ended the block; a
-                // block that ended because its last acts were moved away just
-                // reopens.
-                if let Some(last) = entry
-                    .slots
-                    .iter()
-                    .rfind(|s| s.is_ended())
-                    .filter(|last| last.ended_at() == entry.ended_at)
-                {
-                    reopen_slot(&mut tx, last).await?;
-                }
-                for skipped in entries[index + 1..].iter().filter(|e| e.is_skipped()) {
-                    reset_entry(&mut tx, skipped.id).await?;
-                }
-            }
-        }
-
+        let timeplan = load(&mut tx).await?;
+        let now = now(&mut tx).await?;
+        let step = next_step(&timeplan, Direction::Backward);
+        apply_step(&mut tx, &step.ops, &now).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -541,72 +430,4 @@ impl TimeplanRepo for SqliteRepo {
         tx.commit().await?;
         Ok(act.rows_affected() + finalist.rows_affected() > 0)
     }
-}
-
-/// Starts the next entry that isn't empty, and skips the empty start blocks
-/// before it. Its first slot starts right away if it has no warm-up. If only
-/// empty blocks are left, nothing changes.
-async fn start_next_timeplan_entry(
-    db: &mut SqliteConnection,
-    entries: &[Entry],
-    now: &str,
-) -> Result<(), sqlx::Error> {
-    let upcoming: Vec<&Entry> = entries.iter().filter(|e| e.started_at.is_none()).collect();
-    let Some(next) = upcoming.iter().position(|e| !e.is_empty()) else {
-        return Ok(());
-    };
-
-    for skipped in &upcoming[..next] {
-        sqlx::query!(
-            "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
-            now,
-            now,
-            skipped.id
-        )
-        .execute(&mut *db)
-        .await?;
-    }
-
-    let next = upcoming[next];
-    sqlx::query!(
-        "UPDATE timeplan SET started_at = $1 WHERE id = $2",
-        now,
-        next.id
-    )
-    .execute(&mut *db)
-    .await?;
-
-    if next.kind == EntryKind::Acts
-        && next.warmup_seconds == 0
-        && let Some(slot) = next.slots.iter().find(|s| !s.is_started())
-    {
-        start_slot(db, slot, now).await?;
-    }
-
-    Ok(())
-}
-
-async fn end_entry(db: &mut SqliteConnection, id: i64, now: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!("UPDATE timeplan SET ended_at = $1 WHERE id = $2", now, id)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Puts a skipped entry back to planned, with its breaks (a block can lose
-/// its acts while one of its breaks runs).
-async fn reset_entry(db: &mut SqliteConnection, id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE timeplan SET started_at = NULL, ended_at = NULL WHERE id = $1",
-        id
-    )
-    .execute(&mut *db)
-    .await?;
-    sqlx::query!(
-        "UPDATE timeplan_slots SET started_at = NULL, ended_at = NULL WHERE timeplan_id = $1 AND act_id IS NULL",
-        id
-    )
-    .execute(&mut *db)
-    .await?;
-    Ok(())
 }

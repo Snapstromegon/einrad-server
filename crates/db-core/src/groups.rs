@@ -172,6 +172,99 @@ pub fn ensure_group_type(act_type: ActType) -> Result<(), RegistrationError> {
     }
 }
 
+/// Fails with a German message if another group already uses the name
+/// (case-insensitive, see [`group_name_key`]). `existing` are the names of
+/// the other groups.
+pub fn check_group_name_free<'a>(
+    group_name: &str,
+    existing: impl IntoIterator<Item = &'a str>,
+) -> Result<(), RegistrationError> {
+    let key = group_name_key(group_name);
+    if existing.into_iter().any(|name| group_name_key(name) == key) {
+        return Err(RegistrationError::Rejected(format!(
+            "Der Gruppenname „{group_name}“ ist bereits vergeben."
+        )));
+    }
+    Ok(())
+}
+
+/// The owner club (or the organizer) deletes a group, but not while riders
+/// of other clubs are in it. `foreign_riders` counts the participants whose
+/// club isn't the owner club.
+pub fn check_group_deletable(
+    actor: &Actor,
+    group_name: &str,
+    foreign_riders: i64,
+) -> Result<(), RegistrationError> {
+    if !actor.manage_registrations && foreign_riders > 0 {
+        return Err(RegistrationError::Rejected(format!(
+            "Die Gruppe „{group_name}“ kann nicht gelöscht werden, solange noch FahrerInnen anderer Vereine in ihr angemeldet sind."
+        )));
+    }
+    Ok(())
+}
+
+/// A club sets only its own riders in a group, each at most once.
+/// `riders` are the members in order with their rider's club (`None` for a
+/// rider that doesn't exist).
+pub fn check_group_members(
+    club: ClubId,
+    riders: &[(RiderId, Option<ClubId>)],
+) -> Result<(), RegistrationError> {
+    let mut seen = std::collections::HashSet::new();
+    for &(rider, rider_club) in riders {
+        if !seen.insert(rider) {
+            return Err(RegistrationError::Rejected(
+                "Jede FahrerIn kann nur einmal in der Gruppe angemeldet werden.".to_string(),
+            ));
+        }
+        if rider_club != Some(club) {
+            return Err(RegistrationError::Rejected(
+                "Ein Verein kann nur seine eigenen FahrerInnen zu einer Gruppe hinzufügen."
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A rider of a group who is also in another group of the same type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeConflict {
+    pub firstname: String,
+    pub lastname: String,
+    pub club_name: String,
+    /// The other group's name.
+    pub other_group: String,
+}
+
+/// The warning for a group whose riders are also in other groups of its
+/// type; `None` without conflicts. `conflicts` come sorted by rider name.
+pub fn type_conflict_warning(
+    group_name: &str,
+    act_type: ActType,
+    conflicts: &[TypeConflict],
+) -> Option<String> {
+    if conflicts.is_empty() {
+        return None;
+    }
+    let mut message = format!("{} „{group_name}“:", act_type.german_name());
+    for conflict in conflicts {
+        message.push_str(&format!(
+            " „{} {}“ ({}) ist bereits in der {} „{}“ angemeldet.",
+            conflict.firstname,
+            conflict.lastname,
+            conflict.club_name,
+            act_type.german_name(),
+            conflict.other_group,
+        ));
+    }
+    message.push_str(
+        " Jede FahrerIn kann nur in einer Kleingruppe und einer Großgruppe starten – auch als ErsatzfahrerIn. Bis das geklärt ist, bekommen die betroffenen Gruppen keine Kategorie und starten nicht.",
+    );
+    Some(message)
+}
+
 #[async_trait::async_trait]
 pub trait GroupsRepo {
     /// Creates a group act for the club, which becomes its owner. Group
@@ -286,5 +379,73 @@ mod tests {
         assert_eq!(group_name_key("Überflieger"), group_name_key("überflieger"));
         assert_eq!(group_name_key("ÉLAN"), group_name_key("élan"));
         assert_ne!(group_name_key("Uberflieger"), group_name_key("Überflieger"));
+    }
+
+    fn actor(manage_registrations: bool) -> Actor {
+        Actor {
+            user_id: crate::ids::UserId::new(),
+            club_id: None,
+            manage_registrations,
+        }
+    }
+
+    #[test]
+    fn foreign_riders_block_deleting_a_group_unless_organizer() {
+        assert!(check_group_deletable(&actor(false), "Wirbel", 0).is_ok());
+        let blocked = check_group_deletable(&actor(false), "Wirbel", 1);
+        assert!(matches!(blocked, Err(RegistrationError::Rejected(m)) if m.contains("„Wirbel“")));
+        assert!(check_group_deletable(&actor(true), "Wirbel", 5).is_ok());
+    }
+
+    #[test]
+    fn group_names_must_be_free_beyond_ascii_case() {
+        assert!(check_group_name_free("Überflieger", ["Zebra", "Anker"]).is_ok());
+        let err = check_group_name_free("Überflieger", ["Zebra", "überflieger"]).unwrap_err();
+        assert!(matches!(
+            err,
+            RegistrationError::Rejected(m) if m == "Der Gruppenname „Überflieger“ ist bereits vergeben."
+        ));
+    }
+
+    #[test]
+    fn group_members_are_own_riders_and_unique() {
+        let club = ClubId::new();
+        let (a, b) = (RiderId::new(), RiderId::new());
+        assert!(check_group_members(club, &[]).is_ok());
+        assert!(check_group_members(club, &[(a, Some(club)), (b, Some(club))]).is_ok());
+        let duplicate = check_group_members(club, &[(a, Some(club)), (a, Some(club))]);
+        assert!(
+            matches!(duplicate, Err(RegistrationError::Rejected(m)) if m.contains("nur einmal"))
+        );
+        for other in [Some(ClubId::new()), None] {
+            let foreign = check_group_members(club, &[(a, Some(club)), (b, other)]);
+            assert!(
+                matches!(foreign, Err(RegistrationError::Rejected(m)) if m.contains("eigenen FahrerInnen"))
+            );
+        }
+        // The duplicate comes first, like the loop it replaces.
+        let both = check_group_members(club, &[(a, Some(club)), (a, None)]);
+        assert!(matches!(both, Err(RegistrationError::Rejected(m)) if m.contains("nur einmal")));
+    }
+
+    #[test]
+    fn type_conflicts_are_named_or_absent() {
+        assert_eq!(
+            type_conflict_warning("Wirbel", ActType::GroupSmall, &[]),
+            None
+        );
+        let warning = type_conflict_warning(
+            "Wirbel",
+            ActType::GroupSmall,
+            &[TypeConflict {
+                firstname: "Anna".into(),
+                lastname: "Muster".into(),
+                club_name: "RSV Adorf".into(),
+                other_group: "Sturm".into(),
+            }],
+        )
+        .unwrap();
+        assert!(warning.starts_with("Kleingruppe „Wirbel“: „Anna Muster“ (RSV Adorf) ist bereits in der Kleingruppe „Sturm“ angemeldet."));
+        assert!(warning.ends_with("starten nicht."));
     }
 }

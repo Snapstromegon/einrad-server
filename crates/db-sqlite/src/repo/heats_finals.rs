@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use db_core::{
     DbError, HeatsFinalsRepo,
@@ -6,8 +6,7 @@ use db_core::{
     acts::ActParticipant,
     clubs::RegistrationError,
     finals::{
-        Final, FinalChange, FinalSlot, NewFinal, SlotPlacement, finalist_label, group_slot_ids,
-        group_slot_infos,
+        Final, FinalChange, FinalSlot, NewFinal, SlotPlacement, finalist_label, group_slot_infos,
     },
     heats::{Discipline, Heat, HeatChange, HeatFinal, NewHeat},
     ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId},
@@ -15,15 +14,15 @@ use db_core::{
         StructureAct, StructureCategory, StructureFinal, StructureHeat, StructureRows,
         StructureSlots,
     },
+    structure_rules::{self, PlacedAct, PlacementSlot},
 };
 use tracing::info;
 
 use super::SqliteRepo;
 use crate::structure::{
     category_names, check_final_free, check_final_heats, check_heat_categories, check_heat_free,
-    default_threshold_of, ensure_jury_unit_unused, final_has_started, final_name_of,
-    finals_of_heat, heat_discipline, heat_has_started, heat_name_of, replace_final_slots,
-    set_heat_categories,
+    default_threshold_of, final_has_started, final_name_of, finals_of_heat, heat_discipline,
+    heat_has_started, heat_name_of, jury_unit_use, replace_final_slots, set_heat_categories,
 };
 
 #[async_trait::async_trait]
@@ -141,10 +140,7 @@ impl HeatsFinalsRepo for SqliteRepo {
         set_heat_categories(&mut tx, id, &categories).await?;
         // Groups start in their final: their Vorlauf is skipped from the start
         // (#345); the organizer may restore it.
-        if heat_discipline(&mut tx, id)
-            .await?
-            .is_some_and(Discipline::is_group)
-        {
+        if structure_rules::heat_starts_skipped(heat_discipline(&mut tx, id).await?) {
             sqlx::query!("UPDATE heats SET skip = TRUE WHERE id = $1", id)
                 .execute(&mut *tx)
                 .await?;
@@ -194,19 +190,9 @@ impl HeatsFinalsRepo for SqliteRepo {
     async fn delete_heat(&self, id: HeatId) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
         let finals = finals_of_heat(&mut tx, id).await?;
-        if !finals.is_empty() {
-            let names: Vec<String> = finals.iter().map(|(name, _)| format!("„{name}“")).collect();
-            return Err(RegistrationError::Conflict(format!(
-                "Die Vorlaufklasse füllt Finalplätze in {} {}; bitte sie dort zuerst durch einen anderen ersetzen.",
-                if names.len() == 1 {
-                    "dem Finale"
-                } else {
-                    "den Finals"
-                },
-                names.join(", ")
-            )));
-        }
-        ensure_jury_unit_unused(&mut tx, "heat", id.into()).await?;
+        let finals: Vec<String> = finals.into_iter().map(|(name, _)| name).collect();
+        let jury_use = jury_unit_use(&mut tx, "heat", id.into()).await?;
+        structure_rules::check_heat_deletable(&finals, jury_use)?;
         info!("Deleting heat {id}");
         // Its categories leave it (foreign key).
         let result = sqlx::query!("DELETE FROM heats WHERE id = $1", id)
@@ -228,14 +214,9 @@ impl HeatsFinalsRepo for SqliteRepo {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(RegistrationError::NotFound)?;
-        if heat.skip == skip {
+        let started = heat_has_started(&mut tx, id).await?;
+        if !structure_rules::check_set_heat_skip(&heat.name, heat.skip, skip, started)? {
             return Ok(false);
-        }
-        if heat_has_started(&mut tx, id).await? {
-            return Err(RegistrationError::Rejected(format!(
-                "In der Vorlaufklasse „{}“ oder ihrem Finale hat schon eine Kür begonnen; ob ihr Vorlauf entfällt, lässt sich nicht mehr ändern.",
-                heat.name
-            )));
         }
         info!(
             "Setting the Vorlauf of heat {:?} skipped: {skip}",
@@ -465,13 +446,8 @@ impl HeatsFinalsRepo for SqliteRepo {
             &fields.slot_groups,
         )
         .await?;
-        if group_slot_ids(heats) != fields.slot_groups {
-            if final_has_started(&mut tx, change.id).await? {
-                return Err(RegistrationError::Rejected(
-                    "Das Finale hat schon begonnen, seine Finalplätze bleiben, wie sie sind."
-                        .to_string(),
-                ));
-            }
+        let started = final_has_started(&mut tx, change.id).await?;
+        if structure_rules::check_slot_groups_change(heats, &fields.slot_groups, started)? {
             info!("Replacing the slots of final {:?}", change.new_name);
             replace_final_slots(&mut tx, change.id, &fields.slot_groups).await?;
         }
@@ -481,12 +457,9 @@ impl HeatsFinalsRepo for SqliteRepo {
 
     async fn delete_final(&self, id: FinalId) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
-        if final_has_started(&mut tx, id).await? {
-            return Err(RegistrationError::Conflict(
-                "Das Finale hat schon begonnen und kann nicht mehr gelöscht werden.".to_string(),
-            ));
-        }
-        ensure_jury_unit_unused(&mut tx, "final", id.into()).await?;
+        let started = final_has_started(&mut tx, id).await?;
+        let jury_use = jury_unit_use(&mut tx, "final", id.into()).await?;
+        structure_rules::check_final_deletable(started, jury_use)?;
         info!("Deleting final {id}");
         sqlx::query!("DELETE FROM timeplan WHERE final_id = $1", id)
             .execute(&mut *tx)
@@ -511,12 +484,13 @@ impl HeatsFinalsRepo for SqliteRepo {
         let Some(final_name) = final_name_of(&mut tx, id).await? else {
             return Err(RegistrationError::NotFound);
         };
-        let slots = sqlx::query!(
+        let slots: Vec<PlacementSlot> = sqlx::query!(
             r#"
             SELECT
                 final_slots.id as "id!: FinalSlotId",
                 final_slots.heat_id as "heat_id!: HeatId",
-                heats.code as "heat!",
+                heats.name as "heat_name!",
+                heats.code as "heat_code!",
                 number,
                 act_id as "act_id: ActId",
                 final_slots.started_at IS NOT NULL as "started!: bool"
@@ -527,7 +501,18 @@ impl HeatsFinalsRepo for SqliteRepo {
             id
         )
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .map(|row| PlacementSlot {
+            id: row.id,
+            heat_id: row.heat_id,
+            heat_name: row.heat_name,
+            heat_code: row.heat_code,
+            number: row.number,
+            act_id: row.act_id,
+            started: row.started,
+        })
+        .collect();
         // The heat of each category.
         let heats: HashMap<String, HeatId> = sqlx::query!(
             r#"SELECT name as "name!", heat_id as "heat_id!: HeatId" FROM categories WHERE heat_id IS NOT NULL"#
@@ -537,67 +522,27 @@ impl HeatsFinalsRepo for SqliteRepo {
         .into_iter()
         .map(|row| (row.name, row.heat_id))
         .collect();
-        // The placement after the change, to check it as a whole.
-        let mut placement: HashMap<FinalSlotId, Option<ActId>> =
-            slots.iter().map(|slot| (slot.id, slot.act_id)).collect();
-        let mut changed = vec![];
-        for change in changes {
-            let Some(slot) = slots.iter().find(|slot| slot.id == change.slot_id) else {
-                return Err(RegistrationError::Rejected(
-                    "Diesen Finalplatz gibt es in diesem Finale nicht.".to_string(),
-                ));
-            };
-            if slot.act_id == change.act_id {
-                continue;
-            }
-            let label = finalist_label(slot.number, &slot.heat);
-            if slot.started {
-                return Err(RegistrationError::Rejected(format!(
-                    "„{label}“ hat schon begonnen, die Kür bleibt."
-                )));
-            }
-            if let Some(act_id) = change.act_id {
-                // Withdrawn acts don't start: they count as without category.
-                let category = sqlx::query_scalar!(
-                    r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
-                    FROM view_act WHERE id = $1"#,
-                    act_id
-                )
-                .fetch_optional(&mut *tx)
-                .await?;
+        // The acts to place: withdrawn acts don't start, they count as
+        // without category.
+        let mut acts: HashMap<ActId, PlacedAct> = HashMap::new();
+        for act_id in changes.iter().filter_map(|change| change.act_id) {
+            let category = sqlx::query_scalar!(
+                r#"SELECT CAST(CASE WHEN withdrawn_at IS NULL THEN category END AS TEXT) as "category?: String"
+                FROM view_act WHERE id = $1"#,
+                act_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            acts.insert(
+                act_id,
                 match category {
-                    None => {
-                        return Err(RegistrationError::Rejected(format!(
-                            "Die Kür für „{label}“ gibt es nicht."
-                        )));
-                    }
-                    Some(None) => {
-                        return Err(RegistrationError::Rejected(format!(
-                            "Die Kür für „{label}“ ist zurückgezogen oder unvollständig."
-                        )));
-                    }
-                    Some(Some(category)) if heats.get(&category) != Some(&slot.heat_id) => {
-                        return Err(RegistrationError::Rejected(format!(
-                            "Die Kür für „{label}“ startet in {category}, einer Kategorie, die nicht zur Vorlaufklasse „{}“ gehört.",
-                            slot.heat
-                        )));
-                    }
-                    Some(Some(_)) => {}
-                }
-            }
-            placement.insert(slot.id, change.act_id);
-            changed.push((slot.id, change.act_id));
+                    None => PlacedAct::Missing,
+                    Some(None) => PlacedAct::Unavailable,
+                    Some(Some(category)) => PlacedAct::InCategory(category),
+                },
+            );
         }
-        let mut seen = HashSet::new();
-        if placement
-            .values()
-            .flatten()
-            .any(|act_id| !seen.insert(*act_id))
-        {
-            return Err(RegistrationError::Rejected(
-                "Eine Kür kann nur einen Finalplatz eines Finales bekommen.".to_string(),
-            ));
-        }
+        let changed = structure_rules::plan_placement(&slots, changes, &acts, &heats)?;
         info!(
             "Placing acts in {} slots of final {:?}",
             changed.len(),
@@ -632,12 +577,8 @@ impl HeatsFinalsRepo for SqliteRepo {
         published: bool,
     ) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
-        if !published && final_has_started(&mut tx, id).await? {
-            return Err(RegistrationError::Rejected(
-                "Das Finale hat schon begonnen, seine Platzierung bleibt veröffentlicht."
-                    .to_string(),
-            ));
-        }
+        let started = final_has_started(&mut tx, id).await?;
+        structure_rules::check_final_published(published, started)?;
         info!("Setting the placement of final {id} published: {published}");
         let result = sqlx::query!(
             "UPDATE finals SET placement_published = $1 WHERE id = $2",

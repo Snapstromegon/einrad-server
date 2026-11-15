@@ -783,6 +783,226 @@ pub trait TimeplanRepo: Send + Sync {
     async fn mark_music_started(&self, act_id: ActId, seconds_ago: f64) -> Result<bool, DbError>;
 }
 
+/// Which way the live timeplan steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// "Weiter".
+    Forward,
+    /// "Zurück": undoes the last forward step.
+    Backward,
+}
+
+/// A slot to write to, by what it is stored as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotRef {
+    Act(ActId),
+    Break(i64),
+    Finalist(FinalSlotId),
+}
+
+impl Slot {
+    /// What the backend needs to find the slot.
+    pub fn slot_ref(&self) -> SlotRef {
+        match self {
+            Slot::Act(act) => SlotRef::Act(act.id),
+            Slot::Break(pause) => SlotRef::Break(pause.id),
+            Slot::Finalist(finalist) => SlotRef::Finalist(finalist.id),
+        }
+    }
+}
+
+/// One write of a step. Times are not part of it: every `Start`, `End` and
+/// `Skip` of a step gets the same "now", which the backend reads once, so
+/// "ended in the same step" can be told from the times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepOp {
+    /// Sets the slot's start time.
+    StartSlot(SlotRef),
+    /// Sets the slot's end time.
+    EndSlot(SlotRef),
+    /// Puts a running slot back to planned. An act (or finalist) forgets its
+    /// music start.
+    UnstartSlot(SlotRef),
+    /// Makes an ended slot run again (clears its end time).
+    ReopenSlot(SlotRef),
+    /// Sets the entry's start time.
+    StartEntry(i64),
+    /// Sets the entry's end time.
+    EndEntry(i64),
+    /// Marks an empty entry as started and ended.
+    SkipEntry(i64),
+    /// Clears the entry's start time.
+    UnstartEntry(i64),
+    /// Clears the entry's end time.
+    ReopenEntry(i64),
+    /// Puts a skipped entry back to planned, with its breaks (a block can
+    /// lose its acts while one of its breaks runs).
+    ResetEntry(i64),
+}
+
+/// What one step does: the writes, in order.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Step {
+    pub ops: Vec<StepOp>,
+    /// Whether an act (or finalist) was ended, so the music stops.
+    pub ended_act: bool,
+}
+
+/// The writes of one step of the live timeplan over the loaded state. No
+/// write if there is nothing to do (nothing to start, nothing to undo).
+pub fn next_step(timeplan: &Timeplan, direction: Direction) -> Step {
+    match direction {
+        Direction::Forward => step_forward(timeplan),
+        Direction::Backward => step_backward(timeplan),
+    }
+}
+
+fn step_forward(timeplan: &Timeplan) -> Step {
+    let mut step = Step::default();
+    match timeplan.entries.iter().find(|e| e.is_running()) {
+        Some(entry) if entry.kind == EntryKind::Acts => {
+            let slots = &entry.slots;
+            let upcoming = |from: usize| slots[from..].iter().find(|s| !s.is_started());
+            let running = slots.iter().position(Slot::is_running);
+            if let Some(index) = running {
+                step.ops.push(StepOp::EndSlot(slots[index].slot_ref()));
+                // A finalist is judged like an act.
+                step.ended_act = slots[index].is_start();
+            }
+            let next = running.map_or_else(|| upcoming(0), |index| upcoming(index + 1));
+            match next {
+                // That was the last slot, or the block lost its acts (e.g.
+                // they were moved away): the block is over. A block without
+                // acts doesn't run its breaks either.
+                _ if entry.is_empty() => step.ops.push(StepOp::EndEntry(entry.id)),
+                None => step.ops.push(StepOp::EndEntry(entry.id)),
+                // The act is judged now; the next slot starts with the next
+                // step.
+                Some(_) if step.ended_act => {}
+                // Nothing to judge after a break, or nothing was running:
+                // the next slot starts.
+                Some(slot) => step.ops.push(StepOp::StartSlot(slot.slot_ref())),
+            }
+        }
+        Some(entry) => step.ops.push(StepOp::EndEntry(entry.id)),
+        None => start_next_entry(&timeplan.entries, &mut step.ops),
+    }
+    step
+}
+
+/// Starts the next entry that isn't empty, and skips the empty start blocks
+/// before it. Its first slot starts right away if it has no warm-up. If only
+/// empty blocks are left, nothing changes.
+fn start_next_entry(entries: &[Entry], ops: &mut Vec<StepOp>) {
+    let upcoming: Vec<&Entry> = entries.iter().filter(|e| e.started_at.is_none()).collect();
+    let Some(next) = upcoming.iter().position(|e| !e.is_empty()) else {
+        return;
+    };
+    ops.extend(upcoming[..next].iter().map(|e| StepOp::SkipEntry(e.id)));
+    let next = upcoming[next];
+    ops.push(StepOp::StartEntry(next.id));
+    if next.kind == EntryKind::Acts
+        && next.warmup_seconds == 0
+        && let Some(slot) = next.slots.iter().find(|s| !s.is_started())
+    {
+        ops.push(StepOp::StartSlot(slot.slot_ref()));
+    }
+}
+
+fn step_backward(timeplan: &Timeplan) -> Step {
+    let mut ops = Vec::new();
+    let entries = &timeplan.entries;
+    match entries.iter().position(Entry::is_running) {
+        Some(index) => {
+            let entry = &entries[index];
+            let slots = &entry.slots;
+            if let Some(running) = slots.iter().position(Slot::is_running) {
+                ops.push(StepOp::UnstartSlot(slots[running].slot_ref()));
+                // Ending a break started this slot in the same step.
+                if let Some(pause @ Slot::Break(_)) = running.checked_sub(1).map(|i| &slots[i])
+                    && pause.ended_at() == slots[running].started_at()
+                {
+                    ops.push(StepOp::ReopenSlot(pause.slot_ref()));
+                }
+            } else if let Some(last) = slots.iter().rfind(|s| s.is_ended()) {
+                ops.push(StepOp::ReopenSlot(last.slot_ref()));
+            } else {
+                // Nothing done in this entry yet: undo its start, together
+                // with the empty blocks skipped to get here.
+                ops.push(StepOp::UnstartEntry(entry.id));
+                let skipped = entries[..index].iter().rev().take_while(|e| e.is_skipped());
+                ops.extend(skipped.map(|e| StepOp::ResetEntry(e.id)));
+            }
+        }
+        None => {
+            // Reopen the last entry that really ran (and its last slot), and
+            // undo the skips after it.
+            if let Some(index) = entries
+                .iter()
+                .rposition(|e| e.ended_at.is_some() && !e.is_skipped())
+            {
+                let entry = &entries[index];
+                ops.push(StepOp::ReopenEntry(entry.id));
+                // Its last slot runs again if ending it ended the block; a
+                // block that ended because its last acts were moved away
+                // just reopens.
+                if let Some(last) = entry
+                    .slots
+                    .iter()
+                    .rfind(|s| s.is_ended())
+                    .filter(|last| last.ended_at() == entry.ended_at)
+                {
+                    ops.push(StepOp::ReopenSlot(last.slot_ref()));
+                }
+                ops.extend(
+                    entries[index + 1..]
+                        .iter()
+                        .filter(|e| e.is_skipped())
+                        .map(|e| StepOp::ResetEntry(e.id)),
+                );
+            }
+        }
+    }
+    Step {
+        ops,
+        ended_act: false,
+    }
+}
+
+/// The entry order after moving `id` one place up or down, `None` if it is
+/// unknown or has no such neighbour.
+pub fn moved_order(ids: &[i64], id: i64, up: bool) -> Option<Vec<i64>> {
+    let index = ids.iter().position(|&e| e == id)?;
+    let other = if up {
+        index.checked_sub(1)
+    } else {
+        Some(index + 1).filter(|&i| i < ids.len())
+    }?;
+    let mut ids = ids.to_vec();
+    ids.swap(index, other);
+    Some(ids)
+}
+
+/// The entry order with the new entry `id` right after `after_id`, `None` if
+/// there is no such entry. `ids` may already hold `id` (at the end).
+pub fn order_after(mut ids: Vec<i64>, id: i64, after_id: i64) -> Option<Vec<i64>> {
+    ids.retain(|&e| e != id);
+    let index = ids.iter().position(|&e| e == after_id)?;
+    ids.insert(index + 1, id);
+    Some(ids)
+}
+
+/// Whether editing an entry into these fields takes its stored slots away: a
+/// final's block holds only the final's slots, a custom entry none.
+pub fn drops_slots(fields: &EntryFields) -> bool {
+    fields.kind == EntryKind::Custom || fields.final_id.is_some()
+}
+
+/// The message for changing the order of a block that already started.
+pub fn started_block_keeps_order() -> String {
+    "Gestartete Blöcke behalten ihre Reihenfolge.".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,5 +1161,450 @@ mod tests {
             EntryKind::derive(Some(EntryKind::Acts), false),
             EntryKind::Acts
         );
+    }
+
+    // The live steps.
+
+    fn t(minute: u32) -> Option<OffsetDateTime> {
+        Some(
+            time::macros::datetime!(2027-05-01 9:00 UTC)
+                + time::Duration::minutes(i64::from(minute)),
+        )
+    }
+
+    fn act(started: Option<u32>, ended: Option<u32>) -> (ActSlot, Slot) {
+        let slot = ActSlot {
+            id: ActId::new(),
+            name: "Act".into(),
+            category_id: CategoryId::new(),
+            category: "EM".into(),
+            started_at: started.and_then(t),
+            ended_at: ended.and_then(t),
+            music_started_at: None,
+            stored: false,
+        };
+        (slot.clone(), Slot::Act(slot))
+    }
+
+    fn pause(started: Option<u32>, ended: Option<u32>) -> Slot {
+        Slot::Break(BreakSlot {
+            id: 7,
+            label: "Pause".into(),
+            duration_seconds: 60,
+            started_at: started.and_then(t),
+            ended_at: ended.and_then(t),
+        })
+    }
+
+    fn finalist(started: Option<u32>, ended: Option<u32>) -> Slot {
+        Slot::Finalist(FinalistSlot {
+            id: FinalSlotId::new(),
+            final_id: FinalId::new(),
+            final_name: "JE EM".into(),
+            heat_id: HeatId::new(),
+            group_label: "E EM 1".into(),
+            number: 1,
+            act: None,
+            started_at: started.and_then(t),
+            ended_at: ended.and_then(t),
+            music_started_at: None,
+        })
+    }
+
+    fn entry(id: i64, kind: EntryKind, slots: Vec<Slot>) -> Entry {
+        Entry {
+            id,
+            kind,
+            earliest_start_time: None,
+            duration_seconds: None,
+            label: None,
+            category_id: None,
+            category: None,
+            final_id: None,
+            final_name: None,
+            einfahrzeit_override: None,
+            show_photos: true,
+            internal: false,
+            started_at: None,
+            ended_at: None,
+            slots,
+            manually_ordered: false,
+            preliminary_skipped: false,
+            einfahrzeit_seconds: 0,
+            warmup_seconds: 0,
+        }
+    }
+
+    fn block(id: i64, slots: Vec<Slot>) -> Entry {
+        entry(id, EntryKind::Acts, slots)
+    }
+
+    fn running(mut e: Entry, start: u32) -> Entry {
+        e.started_at = t(start);
+        e
+    }
+
+    fn done(mut e: Entry, start: u32, end: u32) -> Entry {
+        e.started_at = t(start);
+        e.ended_at = t(end);
+        e
+    }
+
+    fn plan(entries: Vec<Entry>) -> Timeplan {
+        Timeplan {
+            entries,
+            categories: HashMap::new(),
+            finals: HashMap::new(),
+            acts: HashMap::new(),
+            block_of_act: HashMap::new(),
+            direct_acts: HashMap::new(),
+        }
+    }
+
+    fn ops(timeplan: &Timeplan, direction: Direction) -> Vec<StepOp> {
+        next_step(timeplan, direction).ops
+    }
+
+    fn r(slot: &Slot) -> SlotRef {
+        slot.slot_ref()
+    }
+
+    #[test]
+    fn forward_on_an_empty_plan_does_nothing() {
+        assert_eq!(
+            next_step(&plan(vec![]), Direction::Forward),
+            Step::default()
+        );
+    }
+
+    #[test]
+    fn forward_starts_the_first_block_and_its_first_slot() {
+        let (_, a) = act(None, None);
+        let (_, b) = act(None, None);
+        let tp = plan(vec![block(1, vec![a.clone(), b])]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::StartEntry(1), StepOp::StartSlot(r(&a))]);
+        assert!(!step.ended_act);
+    }
+
+    #[test]
+    fn forward_into_a_block_with_warmup_waits_for_the_next_step() {
+        let (_, a) = act(None, None);
+        let mut b = block(1, vec![a]);
+        b.warmup_seconds = 300;
+        assert_eq!(
+            ops(&plan(vec![b]), Direction::Forward),
+            [StepOp::StartEntry(1)]
+        );
+    }
+
+    #[test]
+    fn forward_skips_empty_blocks_before_the_next_one() {
+        let (_, a) = act(None, None);
+        let tp = plan(vec![
+            done(block(1, vec![]), 0, 0),
+            block(2, vec![]),
+            block(3, vec![]),
+            block(4, vec![a.clone()]),
+        ]);
+        assert_eq!(
+            ops(&tp, Direction::Forward),
+            [
+                StepOp::SkipEntry(2),
+                StepOp::SkipEntry(3),
+                StepOp::StartEntry(4),
+                StepOp::StartSlot(r(&a))
+            ]
+        );
+    }
+
+    #[test]
+    fn forward_with_only_empty_blocks_left_changes_nothing() {
+        let tp = plan(vec![block(1, vec![]), entry(2, EntryKind::Custom, vec![])]);
+        // The custom entry isn't empty (only start blocks are), so it starts.
+        assert_eq!(
+            ops(&tp, Direction::Forward),
+            [StepOp::SkipEntry(1), StepOp::StartEntry(2)]
+        );
+        let tp = plan(vec![block(1, vec![]), block(2, vec![])]);
+        assert!(ops(&tp, Direction::Forward).is_empty());
+    }
+
+    #[test]
+    fn forward_starts_a_custom_entry_without_slots() {
+        let tp = plan(vec![entry(1, EntryKind::Custom, vec![])]);
+        assert_eq!(ops(&tp, Direction::Forward), [StepOp::StartEntry(1)]);
+    }
+
+    #[test]
+    fn forward_ends_a_running_custom_entry() {
+        let tp = plan(vec![
+            running(entry(1, EntryKind::Custom, vec![]), 0),
+            block(2, vec![act(None, None).1]),
+        ]);
+        assert_eq!(ops(&tp, Direction::Forward), [StepOp::EndEntry(1)]);
+    }
+
+    #[test]
+    fn forward_ends_the_running_act_and_waits_for_the_next_step() {
+        let (_, a) = act(Some(1), None);
+        let (_, b) = act(None, None);
+        let tp = plan(vec![running(block(1, vec![a.clone(), b]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::EndSlot(r(&a))]);
+        assert!(step.ended_act);
+    }
+
+    #[test]
+    fn forward_starts_the_next_act_after_it_was_judged() {
+        let (_, a) = act(Some(1), Some(2));
+        let (_, b) = act(None, None);
+        let tp = plan(vec![running(block(1, vec![a, b.clone()]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::StartSlot(r(&b))]);
+        assert!(!step.ended_act);
+    }
+
+    #[test]
+    fn forward_after_a_warmup_starts_the_first_slot() {
+        let (_, a) = act(None, None);
+        let tp = plan(vec![running(block(1, vec![a.clone()]), 0)]);
+        assert_eq!(ops(&tp, Direction::Forward), [StepOp::StartSlot(r(&a))]);
+    }
+
+    #[test]
+    fn forward_ends_a_running_break_and_starts_the_next_slot_at_once() {
+        let (_, b) = act(None, None);
+        let p = pause(Some(1), None);
+        let tp = plan(vec![running(block(1, vec![p.clone(), b.clone()]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::EndSlot(r(&p)), StepOp::StartSlot(r(&b))]);
+        assert!(!step.ended_act);
+    }
+
+    #[test]
+    fn forward_ends_the_block_after_its_last_act() {
+        let (_, a) = act(Some(1), Some(2));
+        let (_, b) = act(Some(3), None);
+        let tp = plan(vec![running(block(1, vec![a, b.clone()]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        // The act is judged first, the block ends with the next step.
+        assert_eq!(step.ops, [StepOp::EndSlot(r(&b)), StepOp::EndEntry(1)]);
+        assert!(step.ended_act);
+    }
+
+    #[test]
+    fn forward_ends_the_block_after_a_trailing_break() {
+        let (_, a) = act(Some(1), Some(2));
+        let p = pause(Some(2), None);
+        let tp = plan(vec![running(block(1, vec![a, p.clone()]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::EndSlot(r(&p)), StepOp::EndEntry(1)]);
+        assert!(!step.ended_act);
+    }
+
+    #[test]
+    fn forward_ends_a_block_that_lost_its_acts_without_running_its_breaks() {
+        let p = pause(None, None);
+        let tp = plan(vec![running(block(1, vec![p]), 0)]);
+        assert_eq!(ops(&tp, Direction::Forward), [StepOp::EndEntry(1)]);
+        // Also while one of its breaks runs.
+        let p = pause(Some(1), None);
+        let tp = plan(vec![running(block(1, vec![p.clone()]), 0)]);
+        assert_eq!(
+            ops(&tp, Direction::Forward),
+            [StepOp::EndSlot(r(&p)), StepOp::EndEntry(1)]
+        );
+    }
+
+    #[test]
+    fn forward_judges_finalists_like_acts() {
+        let f = finalist(Some(1), None);
+        let g = finalist(None, None);
+        let tp = plan(vec![running(block(1, vec![f.clone(), g.clone()]), 0)]);
+        let step = next_step(&tp, Direction::Forward);
+        assert_eq!(step.ops, [StepOp::EndSlot(r(&f))]);
+        assert!(step.ended_act);
+        let f = finalist(Some(1), Some(2));
+        let tp = plan(vec![running(block(1, vec![f, g.clone()]), 0)]);
+        assert_eq!(ops(&tp, Direction::Forward), [StepOp::StartSlot(r(&g))]);
+    }
+
+    #[test]
+    fn forward_starts_the_block_after_a_finished_one() {
+        let (_, a) = act(Some(1), Some(2));
+        let (_, b) = act(None, None);
+        let tp = plan(vec![
+            done(block(1, vec![a]), 0, 3),
+            block(2, vec![b.clone()]),
+        ]);
+        assert_eq!(
+            ops(&tp, Direction::Forward),
+            [StepOp::StartEntry(2), StepOp::StartSlot(r(&b))]
+        );
+    }
+
+    #[test]
+    fn forward_at_the_end_does_nothing() {
+        let tp = plan(vec![done(block(1, vec![act(Some(1), Some(2)).1]), 0, 3)]);
+        assert!(ops(&tp, Direction::Forward).is_empty());
+    }
+
+    #[test]
+    fn backward_with_nothing_started_does_nothing() {
+        assert!(ops(&plan(vec![]), Direction::Backward).is_empty());
+        let tp = plan(vec![block(1, vec![act(None, None).1])]);
+        assert!(ops(&tp, Direction::Backward).is_empty());
+    }
+
+    #[test]
+    fn backward_unstarts_the_running_act() {
+        let (_, a) = act(Some(1), None);
+        let tp = plan(vec![running(block(1, vec![a.clone()]), 0)]);
+        assert_eq!(ops(&tp, Direction::Backward), [StepOp::UnstartSlot(r(&a))]);
+    }
+
+    #[test]
+    fn backward_unstarts_an_act_and_reopens_the_break_that_started_it() {
+        let (_, a) = act(Some(2), None);
+        let p = pause(Some(1), Some(2));
+        let tp = plan(vec![running(block(1, vec![p.clone(), a.clone()]), 0)]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [StepOp::UnstartSlot(r(&a)), StepOp::ReopenSlot(r(&p))]
+        );
+    }
+
+    #[test]
+    fn backward_keeps_a_break_that_ended_earlier() {
+        let (_, a) = act(Some(3), None);
+        let p = pause(Some(1), Some(2));
+        let tp = plan(vec![running(block(1, vec![p, a.clone()]), 0)]);
+        assert_eq!(ops(&tp, Direction::Backward), [StepOp::UnstartSlot(r(&a))]);
+        // An act in front of the running one isn't a break.
+        let (_, first) = act(Some(1), Some(2));
+        let (_, second) = act(Some(2), None);
+        let tp = plan(vec![running(block(1, vec![first, second.clone()]), 0)]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [StepOp::UnstartSlot(r(&second))]
+        );
+    }
+
+    #[test]
+    fn backward_reopens_the_last_ended_slot_between_slots() {
+        let (_, a) = act(Some(1), Some(2));
+        let (_, b) = act(Some(3), Some(4));
+        let (_, c) = act(None, None);
+        let tp = plan(vec![running(block(1, vec![a, b.clone(), c]), 0)]);
+        assert_eq!(ops(&tp, Direction::Backward), [StepOp::ReopenSlot(r(&b))]);
+    }
+
+    #[test]
+    fn backward_unstarts_a_block_with_nothing_done_and_resets_the_skipped_ones() {
+        let tp = plan(vec![
+            done(block(1, vec![act(Some(1), Some(2)).1]), 0, 3),
+            done(block(2, vec![]), 4, 4),
+            done(block(3, vec![]), 4, 4),
+            running(block(4, vec![act(None, None).1]), 4),
+        ]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [
+                StepOp::UnstartEntry(4),
+                StepOp::ResetEntry(3),
+                StepOp::ResetEntry(2)
+            ]
+        );
+    }
+
+    #[test]
+    fn backward_unstarts_a_running_custom_entry() {
+        let tp = plan(vec![
+            done(entry(1, EntryKind::Custom, vec![]), 0, 1),
+            running(entry(2, EntryKind::Custom, vec![]), 1),
+        ]);
+        assert_eq!(ops(&tp, Direction::Backward), [StepOp::UnstartEntry(2)]);
+    }
+
+    #[test]
+    fn backward_reopens_a_block_with_its_last_slot() {
+        let (_, a) = act(Some(1), Some(5));
+        let tp = plan(vec![done(block(1, vec![a.clone()]), 0, 5)]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [StepOp::ReopenEntry(1), StepOp::ReopenSlot(r(&a))]
+        );
+    }
+
+    #[test]
+    fn backward_reopens_only_the_block_when_its_last_slot_ended_earlier() {
+        // The block ended because its last acts were moved away.
+        let (_, a) = act(Some(1), Some(2));
+        let tp = plan(vec![done(block(1, vec![a]), 0, 5)]);
+        assert_eq!(ops(&tp, Direction::Backward), [StepOp::ReopenEntry(1)]);
+        let tp = plan(vec![done(block(1, vec![]), 0, 5)]);
+        // An empty block that ended is a skipped one: nothing really ran.
+        assert!(ops(&tp, Direction::Backward).is_empty());
+    }
+
+    #[test]
+    fn backward_from_the_end_resets_the_skipped_blocks_after_the_last_real_one() {
+        let (_, a) = act(Some(1), Some(5));
+        let tp = plan(vec![
+            done(block(1, vec![a.clone()]), 0, 5),
+            done(block(2, vec![]), 5, 5),
+            done(block(3, vec![]), 5, 5),
+        ]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [
+                StepOp::ReopenEntry(1),
+                StepOp::ReopenSlot(r(&a)),
+                StepOp::ResetEntry(2),
+                StepOp::ResetEntry(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn backward_reopens_the_last_finalist() {
+        let f = finalist(Some(1), Some(5));
+        let tp = plan(vec![done(block(1, vec![f.clone()]), 0, 5)]);
+        assert_eq!(
+            ops(&tp, Direction::Backward),
+            [StepOp::ReopenEntry(1), StepOp::ReopenSlot(r(&f))]
+        );
+    }
+
+    #[test]
+    fn entries_move_to_their_neighbour() {
+        let ids = [1, 2, 3];
+        assert_eq!(moved_order(&ids, 2, true), Some(vec![2, 1, 3]));
+        assert_eq!(moved_order(&ids, 2, false), Some(vec![1, 3, 2]));
+        assert_eq!(moved_order(&ids, 1, true), None);
+        assert_eq!(moved_order(&ids, 3, false), None);
+        assert_eq!(moved_order(&ids, 9, true), None);
+        assert_eq!(moved_order(&[5], 5, false), None);
+    }
+
+    #[test]
+    fn a_new_entry_goes_right_after_another() {
+        assert_eq!(order_after(vec![1, 2, 3, 4], 4, 1), Some(vec![1, 4, 2, 3]));
+        assert_eq!(order_after(vec![1, 2, 3, 4], 4, 3), Some(vec![1, 2, 3, 4]));
+        assert_eq!(order_after(vec![1, 2, 4], 4, 9), None);
+        // After itself isn't a place.
+        assert_eq!(order_after(vec![1, 4], 4, 4), None);
+    }
+
+    #[test]
+    fn custom_and_final_entries_drop_their_slots() {
+        let category = CategoryId::new();
+        let block = EntryFields::new(None, Some(category), None, None, None, None).unwrap();
+        assert!(!drops_slots(&block));
+        let custom = EntryFields::new(None, None, None, Some("Pause".into()), Some(60), None);
+        assert!(drops_slots(&custom.unwrap()));
+        let final_block = EntryFields::new(None, None, Some(FinalId::new()), None, None, None);
+        assert!(drops_slots(&final_block.unwrap()));
     }
 }

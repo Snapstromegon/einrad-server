@@ -3,12 +3,13 @@ use db_core::{
     clubs::{Actor, RegistrationError},
     gender::Gender,
     ids::{ActId, ClubId, RiderId},
+    registration_rules::{self as rules, PartnerClubs},
     riders::{ClubRider, NewRider, PairRequest, Rider, RiderEdit, Starts},
 };
 
 use super::SqliteRepo;
 use crate::registration::{
-    self, PartnerClubs, act_access, club_access, ensure_rider_name_is_free, map_duplicate,
+    self, act_access, club_access, ensure_rider_name_is_free, load_act_participants, map_duplicate,
     rider_access,
 };
 
@@ -249,12 +250,8 @@ impl RidersRepo for SqliteRepo {
     ) -> Result<ActId, RegistrationError> {
         let mut tx = self.begin_write().await?;
         rider_access(&mut tx, actor, rider).await?;
-        let clubs = if actor.manage_registrations {
-            PartnerClubs::Any
-        } else {
-            PartnerClubs::Same
-        };
-        let act_id = registration::link_pair(&mut tx, rider, partner, clubs).await?;
+        let act_id =
+            registration::link_pair(&mut tx, rider, partner, PartnerClubs::of(actor)).await?;
         tx.commit().await?;
         Ok(act_id)
     }
@@ -284,41 +281,15 @@ impl RidersRepo for SqliteRepo {
     ) -> Result<(), RegistrationError> {
         let mut tx = self.begin_write().await?;
 
-        let withdrawn = sqlx::query_scalar!(
-            r#"SELECT withdrawn_at IS NOT NULL as "withdrawn!: bool" FROM acts WHERE id = $1"#,
-            act,
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(RegistrationError::NotFound)?;
-        if withdrawn {
-            return Err(RegistrationError::Rejected(
-                "Die Kür ist abgemeldet und kann nicht mehr geändert werden.".to_string(),
-            ));
-        }
+        let (withdrawn, participants) = load_act_participants(&mut tx, act)
+            .await?
+            .ok_or(RegistrationError::NotFound)?;
+        rules::check_act_open(withdrawn)?;
 
         let club_id = rider_access(&mut tx, actor, old).await?;
         let new_club_id = rider_access(&mut tx, actor, new).await?;
-        if club_id != new_club_id && !actor.manage_registrations {
-            return Err(RegistrationError::Rejected(
-                "Der neue Fahrer muss aus demselben Verein sein.".to_string(),
-            ));
-        }
-
-        let participants = sqlx::query_scalar!(
-            r#"SELECT rider_id as "rider_id!: RiderId" FROM act_participants WHERE act_id = $1"#,
-            act,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        if !participants.contains(&old) {
-            return Err(RegistrationError::NotFound);
-        }
-        if participants.contains(&new) {
-            return Err(RegistrationError::Rejected(
-                "Der Fahrer fährt diese Kür schon.".to_string(),
-            ));
-        }
+        rules::check_replacement_club(actor, club_id, new_club_id)?;
+        rules::check_act_participants(&participants, old, new)?;
 
         registration::replace_rider(&mut tx, act, old, new).await?;
 

@@ -9,7 +9,7 @@ use db_core::{
     ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId},
     timeplan::{
         ActSlot, Audience, Block, BreakSlot, CategoryInfo, Entry, EntryKind, FinalistSlot,
-        INTERNAL_PUBLIC_LABEL, Slot, Timeplan, effective_warmups, home_blocks,
+        INTERNAL_PUBLIC_LABEL, Slot, SlotRef, StepOp, Timeplan, effective_warmups, home_blocks,
     },
 };
 use sqlx::SqliteConnection;
@@ -474,30 +474,6 @@ pub(crate) async fn set_entry_order(db: &mut SqliteConnection, ids: &[i64]) -> s
     Ok(())
 }
 
-/// Swaps an entry with the one before it (`up`) or after it. Returns
-/// whether there was one.
-pub(crate) async fn swap_with_neighbour(
-    db: &mut SqliteConnection,
-    id: i64,
-    up: bool,
-) -> sqlx::Result<bool> {
-    let mut ids = entry_ids(&mut *db).await?;
-    let Some(index) = ids.iter().position(|&e| e == id) else {
-        return Ok(false);
-    };
-    let other = if up {
-        index.checked_sub(1)
-    } else {
-        Some(index + 1).filter(|&i| i < ids.len())
-    };
-    let Some(other) = other else {
-        return Ok(false);
-    };
-    ids.swap(index, other);
-    set_entry_order(db, &ids).await?;
-    Ok(true)
-}
-
 /// The database's current time, like `datetime('now')` but with
 /// milliseconds. One step of the live timeplan writes the same time
 /// everywhere, so "ended in the same step" can be told from the times; two
@@ -508,32 +484,89 @@ pub(crate) async fn now(db: &mut SqliteConnection) -> sqlx::Result<String> {
         .await
 }
 
-/// Starts a slot at `now` (see [`now`]).
-pub(crate) async fn start_slot(
+/// Applies the writes of one step (see `db_core::timeplan::next_step`), all
+/// with the same `now` (see [`now`]).
+pub(crate) async fn apply_step(
     db: &mut SqliteConnection,
-    slot: &Slot,
+    ops: &[StepOp],
     now: &str,
 ) -> sqlx::Result<()> {
+    for op in ops {
+        match *op {
+            StepOp::StartSlot(slot) => start_slot(db, slot, now).await?,
+            StepOp::EndSlot(slot) => end_slot(db, slot, now).await?,
+            StepOp::UnstartSlot(slot) => unstart_slot(db, slot).await?,
+            StepOp::ReopenSlot(slot) => reopen_slot(db, slot).await?,
+            StepOp::StartEntry(id) => {
+                sqlx::query!("UPDATE timeplan SET started_at = $1 WHERE id = $2", now, id)
+                    .execute(&mut *db)
+                    .await?;
+            }
+            StepOp::EndEntry(id) => {
+                sqlx::query!("UPDATE timeplan SET ended_at = $1 WHERE id = $2", now, id)
+                    .execute(&mut *db)
+                    .await?;
+            }
+            StepOp::SkipEntry(id) => {
+                sqlx::query!(
+                    "UPDATE timeplan SET started_at = $1, ended_at = $2 WHERE id = $3",
+                    now,
+                    now,
+                    id
+                )
+                .execute(&mut *db)
+                .await?;
+            }
+            StepOp::UnstartEntry(id) => {
+                sqlx::query!("UPDATE timeplan SET started_at = NULL WHERE id = $1", id)
+                    .execute(&mut *db)
+                    .await?;
+            }
+            StepOp::ReopenEntry(id) => {
+                sqlx::query!("UPDATE timeplan SET ended_at = NULL WHERE id = $1", id)
+                    .execute(&mut *db)
+                    .await?;
+            }
+            StepOp::ResetEntry(id) => {
+                sqlx::query!(
+                    "UPDATE timeplan SET started_at = NULL, ended_at = NULL WHERE id = $1",
+                    id
+                )
+                .execute(&mut *db)
+                .await?;
+                sqlx::query!(
+                    "UPDATE timeplan_slots SET started_at = NULL, ended_at = NULL WHERE timeplan_id = $1 AND act_id IS NULL",
+                    id
+                )
+                .execute(&mut *db)
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn start_slot(db: &mut SqliteConnection, slot: SlotRef, now: &str) -> sqlx::Result<()> {
     match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET started_at = $1 WHERE id = $2", now, act.id)
+        SlotRef::Act(id) => {
+            sqlx::query!("UPDATE acts SET started_at = $1 WHERE id = $2", now, id)
                 .execute(db)
                 .await?;
         }
-        Slot::Break(pause) => {
+        SlotRef::Break(id) => {
             sqlx::query!(
                 "UPDATE timeplan_slots SET started_at = $1 WHERE id = $2",
                 now,
-                pause.id
+                id
             )
             .execute(db)
             .await?;
         }
-        Slot::Finalist(finalist) => {
+        SlotRef::Finalist(id) => {
             sqlx::query!(
                 "UPDATE final_slots SET started_at = $1 WHERE id = $2",
                 now,
-                finalist.id
+                id
             )
             .execute(db)
             .await?;
@@ -542,32 +575,27 @@ pub(crate) async fn start_slot(
     Ok(())
 }
 
-/// Ends a running slot at `now` (see [`now`]).
-pub(crate) async fn end_slot(
-    db: &mut SqliteConnection,
-    slot: &Slot,
-    now: &str,
-) -> sqlx::Result<()> {
+async fn end_slot(db: &mut SqliteConnection, slot: SlotRef, now: &str) -> sqlx::Result<()> {
     match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = $1 WHERE id = $2", now, act.id)
+        SlotRef::Act(id) => {
+            sqlx::query!("UPDATE acts SET ended_at = $1 WHERE id = $2", now, id)
                 .execute(db)
                 .await?;
         }
-        Slot::Break(pause) => {
+        SlotRef::Break(id) => {
             sqlx::query!(
                 "UPDATE timeplan_slots SET ended_at = $1 WHERE id = $2",
                 now,
-                pause.id
+                id
             )
             .execute(db)
             .await?;
         }
-        Slot::Finalist(finalist) => {
+        SlotRef::Finalist(id) => {
             sqlx::query!(
                 "UPDATE final_slots SET ended_at = $1 WHERE id = $2",
                 now,
-                finalist.id
+                id
             )
             .execute(db)
             .await?;
@@ -576,30 +604,28 @@ pub(crate) async fn end_slot(
     Ok(())
 }
 
-/// Puts a running slot back to planned. An act (or finalist) forgets its
-/// music start.
-pub(crate) async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result<()> {
+async fn unstart_slot(db: &mut SqliteConnection, slot: SlotRef) -> sqlx::Result<()> {
     match slot {
-        Slot::Act(act) => {
+        SlotRef::Act(id) => {
             sqlx::query!(
                 "UPDATE acts SET started_at = NULL, music_started_at = NULL WHERE id = $1",
-                act.id
+                id
             )
             .execute(db)
             .await?;
         }
-        Slot::Break(pause) => {
+        SlotRef::Break(id) => {
             sqlx::query!(
                 "UPDATE timeplan_slots SET started_at = NULL WHERE id = $1",
-                pause.id
+                id
             )
             .execute(db)
             .await?;
         }
-        Slot::Finalist(finalist) => {
+        SlotRef::Finalist(id) => {
             sqlx::query!(
                 "UPDATE final_slots SET started_at = NULL, music_started_at = NULL WHERE id = $1",
-                finalist.id
+                id
             )
             .execute(db)
             .await?;
@@ -608,29 +634,25 @@ pub(crate) async fn unstart_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx
     Ok(())
 }
 
-/// Makes an ended slot run again.
-pub(crate) async fn reopen_slot(db: &mut SqliteConnection, slot: &Slot) -> sqlx::Result<()> {
+async fn reopen_slot(db: &mut SqliteConnection, slot: SlotRef) -> sqlx::Result<()> {
     match slot {
-        Slot::Act(act) => {
-            sqlx::query!("UPDATE acts SET ended_at = NULL WHERE id = $1", act.id)
+        SlotRef::Act(id) => {
+            sqlx::query!("UPDATE acts SET ended_at = NULL WHERE id = $1", id)
                 .execute(db)
                 .await?;
         }
-        Slot::Break(pause) => {
+        SlotRef::Break(id) => {
             sqlx::query!(
                 "UPDATE timeplan_slots SET ended_at = NULL WHERE id = $1",
-                pause.id
+                id
             )
             .execute(db)
             .await?;
         }
-        Slot::Finalist(finalist) => {
-            sqlx::query!(
-                "UPDATE final_slots SET ended_at = NULL WHERE id = $1",
-                finalist.id
-            )
-            .execute(db)
-            .await?;
+        SlotRef::Finalist(id) => {
+            sqlx::query!("UPDATE final_slots SET ended_at = NULL WHERE id = $1", id)
+                .execute(db)
+                .await?;
         }
     }
     Ok(())

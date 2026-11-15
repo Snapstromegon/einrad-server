@@ -6,6 +6,7 @@ use db_core::{
     clubs::RegistrationError,
     heats::Discipline,
     ids::{CategoryId, HeatId},
+    structure_rules,
 };
 use sqlx::SqliteConnection;
 use time::Date;
@@ -79,15 +80,14 @@ async fn check_heat(
     else {
         return Ok(());
     };
-    if Discipline::new(row.act_type, row.is_single_male)
-        != Discipline::new(fields.act_type, fields.is_single_male)
-    {
-        return Err(RegistrationError::Rejected(format!(
-            "{} gehört zur Vorlaufklasse „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
-            row.name, row.heat
-        )));
-    }
-    Ok(())
+    structure_rules::check_category_keeps_discipline(
+        Some((
+            &row.name,
+            &row.heat,
+            Discipline::new(row.act_type, row.is_single_male),
+        )),
+        Discipline::new(fields.act_type, fields.is_single_male),
+    )
 }
 
 #[async_trait::async_trait]

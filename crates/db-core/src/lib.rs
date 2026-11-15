@@ -18,6 +18,8 @@ pub mod club_mails;
 pub mod clubs;
 pub mod colors;
 pub mod competition;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod fee_waivers;
 pub mod fees;
 pub mod finals;
@@ -30,11 +32,13 @@ pub mod jury;
 pub mod media;
 pub mod metrics;
 pub mod people;
+pub mod registration_rules;
 pub mod riders;
 pub mod roles;
 pub mod seed;
 pub mod settings;
 pub mod structure;
+pub mod structure_rules;
 pub mod timeplan;
 pub mod users;
 

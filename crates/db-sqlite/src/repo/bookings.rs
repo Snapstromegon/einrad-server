@@ -7,7 +7,7 @@ use db_core::{
         round_cents,
     },
     clubs::RegistrationError,
-    fee_waivers::{FeeWaiver, Target, WaiverClub},
+    fee_waivers::{FeeWaiver, Target, WaiverClub, check_waiver_reason},
     ids::{BookingId, ClubId, UserId},
 };
 use sqlx::SqliteConnection;
@@ -241,14 +241,7 @@ impl BookingsRepo for SqliteRepo {
         target: Target,
         reason: Option<&str>,
     ) -> Result<(), RegistrationError> {
-        let reason = match reason.map(str::trim) {
-            Some("") => {
-                return Err(RegistrationError::Rejected(
-                    "Bitte einen Grund angeben, warum die Gebühr erlassen wird.".to_string(),
-                ));
-            }
-            reason => reason,
-        };
+        let reason = check_waiver_reason(reason)?;
         info!("Setting the fee waiver of {target:?} to {reason:?}");
         let mut tx = self.begin_write().await?;
         let id = target.id();
