@@ -9,7 +9,10 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
 };
-use db_core::{DbHandle, categories::CategoryFields};
+use db_core::{
+    commands::category::{AddCategory, CategoryFields},
+    prelude::*,
+};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddCategoryResponse {
@@ -55,21 +58,26 @@ pub struct AddCategoryBody {
 #[axum::debug_handler]
 pub async fn add_category(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<AddCategoryBody>,
 ) -> Result<Json<AddCategoryResponse>, HttpError> {
     let (category_id, warnings) = repo
-        .add_category(&CategoryFields {
-            name: body.name,
-            description: body.description,
-            min_age: body.min_age,
-            under_age: body.under_age,
-            act_type: body.act_type,
-            is_single_male: body.is_single_male,
-            einfahrzeit_seconds: body.einfahrzeit_seconds,
-            act_duration_seconds: body.act_duration_seconds,
-            judge_duration_seconds: body.judge_duration_seconds,
-        })
+        .add_category(
+            &granted.actor(),
+            AddCategory {
+                fields: CategoryFields {
+                    name: body.name,
+                    description: body.description,
+                    min_age: body.min_age,
+                    under_age: body.under_age,
+                    act_type: body.act_type,
+                    is_single_male: body.is_single_male,
+                    einfahrzeit_seconds: body.einfahrzeit_seconds,
+                    act_duration_seconds: body.act_duration_seconds,
+                    judge_duration_seconds: body.judge_duration_seconds,
+                },
+            },
+        )
         .await?;
     Ok(Json(AddCategoryResponse {
         category_id,

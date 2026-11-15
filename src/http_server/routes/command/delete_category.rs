@@ -8,7 +8,7 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
 };
-use db_core::DbHandle;
+use db_core::{commands::category::DeleteCategory, prelude::*};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DeleteCategoryResponse {}
@@ -36,10 +36,18 @@ pub struct DeleteCategoryBody {
 #[axum::debug_handler]
 pub async fn delete_category(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteCategoryBody>,
 ) -> Result<Json<DeleteCategoryResponse>, HttpError> {
-    if !repo.delete_category(body.category_id).await? {
+    if !repo
+        .delete_category(
+            &granted.actor(),
+            DeleteCategory {
+                category_id: body.category_id,
+            },
+        )
+        .await?
+    {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
     Ok(Json(DeleteCategoryResponse {}))

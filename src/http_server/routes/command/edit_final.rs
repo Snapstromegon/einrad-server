@@ -1,16 +1,15 @@
 use crate::ids::FinalId;
 use axum::{Extension, Json};
-use db_core::{
-    DbHandle,
-    finals::{FinalChange, FinalFields},
-};
+use db_core::{commands::finals::EditFinal, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     finals, heats,
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::FinalFields,
+    },
     roles::permit,
 };
 
@@ -52,23 +51,28 @@ pub struct EditFinalBody {
 #[axum::debug_handler]
 pub async fn edit_final(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<EditFinalBody>,
 ) -> Result<Json<EditFinalResponse>, HttpError> {
     let new_name = finals::normalize_name(&body.new_name).map_err(HttpError::ErrorMessages)?;
-    let fields = body.fields.normalize().map_err(HttpError::ErrorMessages)?;
+    let fields = db_core::finals::FinalFields::from(body.fields)
+        .normalize()
+        .map_err(HttpError::ErrorMessages)?;
     // Without a new code the final keeps its own.
     let new_code = body
         .new_code
         .as_deref()
         .filter(|code| !code.trim().is_empty())
         .map(|code| heats::normalize_code(Some(code), &new_name));
-    repo.edit_final(&FinalChange {
-        id: body.id,
-        new_name,
-        new_code,
-        fields,
-    })
+    repo.edit_final(
+        &granted.actor(),
+        EditFinal {
+            final_id: body.id,
+            new_name,
+            new_code,
+            fields,
+        },
+    )
     .await?;
     Ok(Json(EditFinalResponse {}))
 }

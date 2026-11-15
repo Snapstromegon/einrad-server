@@ -1,6 +1,5 @@
 //! The SQL helpers of categories, heats and finals on a connection: the
-//! building blocks of one transaction behind [`db_core::CategoriesRepo`] and
-//! [`db_core::HeatsFinalsRepo`].
+//! building blocks of one transaction behind the category, heat and final commands and queries.
 //!
 //! The helpers marked *transitional* are public because the competition
 //! import (`seed`) and the timeplan handlers of the root crate still run

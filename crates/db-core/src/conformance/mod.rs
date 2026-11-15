@@ -62,6 +62,18 @@ pub use registration::*;
 pub use structure::*;
 pub use timeplan::*;
 
+/// An organizer for the commands and queries of categories, heats and finals,
+/// which only need the role gate the server already checked. It is no stored
+/// user: use [`World`] where the backend looks the actor up.
+pub(super) fn admin() -> Actor {
+    Actor::new(
+        UserId::new(),
+        "Erika Musterfrau",
+        vec![crate::roles::Role::Admin],
+        None,
+    )
+}
+
 /// A shared set of users, clubs and actors to seed a test from.
 pub struct World {
     /// The organizer: may manage every club.
@@ -265,6 +277,7 @@ macro_rules! conformance_list {
             club_acts_edit_and_withdraw,
             group_lists_and_type_changes,
             structure_names_and_codes_are_unique,
+            category_order_delete_and_structure_rows,
             heats_and_finals_share_a_discipline,
             units_with_judges_are_not_deletable,
             judge_names_are_unique_per_club,

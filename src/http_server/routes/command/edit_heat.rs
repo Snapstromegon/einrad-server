@@ -1,6 +1,6 @@
 use crate::ids::{CategoryId, HeatId};
 use axum::{Extension, Json};
-use db_core::{DbHandle, heats::HeatChange};
+use db_core::{commands::heat::EditHeat, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -54,7 +54,7 @@ pub struct EditHeatBody {
 #[axum::debug_handler]
 pub async fn edit_heat(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<EditHeatBody>,
 ) -> Result<Json<EditHeatResponse>, HttpError> {
     let new_name = heats::normalize_name(&body.new_name).map_err(HttpError::ErrorMessages)?;
@@ -70,14 +70,17 @@ pub async fn edit_heat(
         .as_deref()
         .filter(|code| !code.trim().is_empty())
         .map(|code| heats::normalize_code(Some(code), &new_name));
-    repo.edit_heat(&HeatChange {
-        id: body.id,
-        new_name,
-        new_code,
-        description,
-        category_ids: body.category_ids,
-        threshold,
-    })
+    repo.edit_heat(
+        &granted.actor(),
+        EditHeat {
+            heat_id: body.id,
+            new_name,
+            new_code,
+            description,
+            category_ids: body.category_ids,
+            threshold,
+        },
+    )
     .await?;
     Ok(Json(EditHeatResponse {}))
 }

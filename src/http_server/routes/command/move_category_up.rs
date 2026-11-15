@@ -9,8 +9,8 @@ use crate::{
     roles::permit,
 };
 use db_core::{
-    DbHandle,
-    categories::{MoveDirection, MoveOutcome},
+    commands::category::{MoveCategoryUp, MoveOutcome},
+    prelude::*,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -39,11 +39,16 @@ pub struct MoveCategoryUpBody {
 #[axum::debug_handler]
 pub async fn move_category_up(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<MoveCategoryUpBody>,
 ) -> Result<Json<MoveCategoryUpResponse>, HttpError> {
     match repo
-        .move_category(body.category_id, MoveDirection::Up)
+        .move_category_up(
+            &granted.actor(),
+            MoveCategoryUp {
+                category_id: body.category_id,
+            },
+        )
         .await?
     {
         MoveOutcome::Moved => Ok(Json(MoveCategoryUpResponse {})),

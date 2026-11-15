@@ -13,7 +13,6 @@
 //! never see or pick a heat: it follows from the category.
 
 use crate::act_type::ActType;
-use crate::ids::{CategoryId, FinalId, HeatId};
 
 /// The act type and, for singles, gender that all categories of a heat
 /// share. Only singles are male or female: other act types are never male.
@@ -200,73 +199,6 @@ pub fn normalize_categories(categories: &[String]) -> Vec<String> {
         }
     }
     result
-}
-
-/// A final a heat fills slots of, as the heat list shows it.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct HeatFinal {
-    pub id: FinalId,
-    /// The readable name.
-    pub name: String,
-    /// The short code.
-    pub code: String,
-}
-
-/// A heat as the API lists it.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct Heat {
-    pub id: HeatId,
-    /// The readable name, unique, e.g. "Einzel männlich – Expert 1 (U17–U21)".
-    pub name: String,
-    /// The short code, unique, e.g. "E EM 1".
-    pub code: String,
-    pub description: Option<String>,
-    /// Its categories, in category order. Empty until the admin assigns
-    /// them.
-    pub categories: Vec<String>,
-    /// The same categories by id, in the same order.
-    pub category_ids: Vec<CategoryId>,
-    /// The act type its categories share; `None` without categories.
-    pub act_type: Option<ActType>,
-    /// Whether its categories are singles male; `None` without categories.
-    pub is_single_male: Option<bool>,
-    /// The finals whose slots it fills; at most one.
-    pub finals: Vec<HeatFinal>,
-    /// The fewest acts it needs for its Vorlauf.
-    pub threshold: i64,
-    /// Whether its Vorlauf is skipped: its acts start directly in its final.
-    pub skip: bool,
-    /// Its acts at the moment, without withdrawn ones.
-    pub act_count: i64,
-    /// Whether the tool suggests skipping its Vorlauf: it has fewer acts than
-    /// its threshold; never for groups, which start in their final. The
-    /// organizer decides.
-    pub skip_suggested: bool,
-}
-
-/// A heat to add; name, code and description are normalized.
-#[derive(Debug, Clone)]
-pub struct NewHeat {
-    pub name: String,
-    pub code: String,
-    pub description: Option<String>,
-    pub category_ids: Vec<CategoryId>,
-    /// Without: the default for its categories, see [`default_threshold`].
-    pub threshold: Option<i64>,
-}
-
-/// What an edit of a heat sets; name and description are normalized.
-#[derive(Debug, Clone)]
-pub struct HeatChange {
-    pub id: HeatId,
-    pub new_name: String,
-    /// The new normalized code; without, it stays.
-    pub new_code: Option<String>,
-    pub description: Option<String>,
-    /// The categories of the heat; the ones left out leave it.
-    pub category_ids: Vec<CategoryId>,
-    /// Without, it stays.
-    pub threshold: Option<i64>,
 }
 
 #[cfg(test)]

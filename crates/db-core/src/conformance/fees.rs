@@ -6,25 +6,25 @@
 use time::macros::datetime;
 
 use super::{
-    World, create_group, delete_group, set_fee_waived, set_members,
+    World, admin, create_group, delete_group, set_fee_waived, set_members,
     timeplan::create_competition_with,
 };
 use crate::{
     Db,
     act_type::ActType,
     bookings,
-    categories::CategoryFields,
     clubs::{Actor, RegistrationError},
     commands::{
         admin::SetActWithdrawn,
+        category::{AddCategory, CategoryFields},
         club::{AddRider, LinkPair, RequestPair, SetSingle},
         group::GroupMember,
+        heat::AddHeat,
     },
     competition::JuryRules,
     fee_waivers::Target,
     fees::ClubFees,
     gender::Gender,
-    heats::NewHeat,
     ids::{ClubId, RiderId},
     jury::{JudgeFields, JudgeRegistration, JudgeTask, JuryAssignment, JuryUnitKind},
 };
@@ -52,17 +52,22 @@ async fn rider(db: &dyn Db, actor: &Actor, club: ClubId, firstname: &str) -> Rid
 }
 
 async fn category(db: &dyn Db) -> crate::ids::CategoryId {
-    db.add_category(&CategoryFields {
-        name: "EM".into(),
-        description: None,
-        min_age: None,
-        under_age: None,
-        act_type: ActType::Single,
-        is_single_male: false,
-        einfahrzeit_seconds: 0,
-        act_duration_seconds: 120,
-        judge_duration_seconds: 60,
-    })
+    db.add_category(
+        &admin(),
+        AddCategory {
+            fields: CategoryFields {
+                name: "EM".into(),
+                description: None,
+                min_age: None,
+                under_age: None,
+                act_type: ActType::Single,
+                is_single_male: false,
+                einfahrzeit_seconds: 0,
+                act_duration_seconds: 120,
+                judge_duration_seconds: 60,
+            },
+        },
+    )
     .await
     .unwrap()
     .0
@@ -253,13 +258,16 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
         .await
         .unwrap();
     }
-    db.add_heat(&NewHeat {
-        name: "Vorlauf EM".into(),
-        code: "EM".into(),
-        description: None,
-        category_ids: vec![category],
-        threshold: None,
-    })
+    db.add_heat(
+        &admin(),
+        AddHeat {
+            name: "Vorlauf EM".into(),
+            code: "EM".into(),
+            description: None,
+            category_ids: vec![category],
+            threshold: None,
+        },
+    )
     .await
     .unwrap();
     let heat = db.jury_unit_rows().await.unwrap().units[0].id;
@@ -430,17 +438,22 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
     })
     .await;
     category(db).await;
-    db.add_category(&CategoryFields {
-        name: "PA".into(),
-        description: None,
-        min_age: None,
-        under_age: None,
-        act_type: ActType::Pair,
-        is_single_male: false,
-        einfahrzeit_seconds: 0,
-        act_duration_seconds: 120,
-        judge_duration_seconds: 60,
-    })
+    db.add_category(
+        &admin(),
+        AddCategory {
+            fields: CategoryFields {
+                name: "PA".into(),
+                description: None,
+                min_age: None,
+                under_age: None,
+                act_type: ActType::Pair,
+                is_single_male: false,
+                einfahrzeit_seconds: 0,
+                act_duration_seconds: 120,
+                judge_duration_seconds: 60,
+            },
+        },
+    )
     .await
     .unwrap();
 

@@ -12,7 +12,6 @@ pub mod auth;
 pub mod backups;
 pub mod bookings;
 pub mod branding;
-pub mod categories;
 pub mod category_ages;
 pub mod club_mails;
 pub mod clubs;
@@ -28,7 +27,6 @@ pub mod finals;
 pub mod gender;
 pub mod groups;
 pub mod heats;
-pub mod heats_finals;
 pub mod ids;
 pub mod jury;
 pub mod media;
@@ -41,7 +39,6 @@ pub mod riders;
 pub mod roles;
 pub mod seed;
 pub mod settings;
-pub mod structure;
 pub mod structure_rules;
 pub mod support;
 pub mod timeplan;
@@ -50,13 +47,11 @@ pub mod users;
 pub use acts::ActsRepo;
 pub use auth::AuthRepo;
 pub use bookings::BookingsRepo;
-pub use categories::CategoriesRepo;
 pub use club_mails::ClubMailsRepo;
 pub use clubs::ClubsRepo;
 pub use competition::CompetitionRepo;
 pub use fees::FeesRepo;
 pub use groups::GroupsRepo;
-pub use heats_finals::HeatsFinalsRepo;
 pub use jury::JuryRepo;
 pub use media::MediaRepo;
 pub use metrics::MetricsRepo;
@@ -89,8 +84,6 @@ pub trait Db:
     + BookingsRepo
     + FeesRepo
     + ClubMailsRepo
-    + CategoriesRepo
-    + HeatsFinalsRepo
     + ActsRepo
     + TimeplanRepo
     + JuryRepo

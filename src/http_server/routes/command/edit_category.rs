@@ -9,7 +9,10 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
 };
-use db_core::{DbHandle, categories::CategoryFields};
+use db_core::{
+    commands::category::{CategoryFields, EditCategory},
+    prelude::*,
+};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EditCategoryResponse {
@@ -53,22 +56,25 @@ pub struct EditCategoryBody {
 #[axum::debug_handler]
 pub async fn edit_category(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<EditCategoryBody>,
 ) -> Result<Json<EditCategoryResponse>, HttpError> {
     let warnings = repo
         .edit_category(
-            body.category_id,
-            &CategoryFields {
-                name: body.new_name,
-                description: body.description,
-                min_age: body.min_age,
-                under_age: body.under_age,
-                act_type: body.act_type,
-                is_single_male: body.is_single_male,
-                einfahrzeit_seconds: body.einfahrzeit_seconds,
-                act_duration_seconds: body.act_duration_seconds,
-                judge_duration_seconds: body.judge_duration_seconds,
+            &granted.actor(),
+            EditCategory {
+                category_id: body.category_id,
+                fields: CategoryFields {
+                    name: body.new_name,
+                    description: body.description,
+                    min_age: body.min_age,
+                    under_age: body.under_age,
+                    act_type: body.act_type,
+                    is_single_male: body.is_single_male,
+                    einfahrzeit_seconds: body.einfahrzeit_seconds,
+                    act_duration_seconds: body.act_duration_seconds,
+                    judge_duration_seconds: body.judge_duration_seconds,
+                },
             },
         )
         .await?;

@@ -1,15 +1,14 @@
 use axum::{Extension, Json};
-use db_core::{
-    DbHandle,
-    finals::{FinalFields, NewFinal},
-};
+use db_core::{commands::finals::AddFinal, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     finals, heats,
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::FinalFields,
+    },
     roles::permit,
 };
 
@@ -47,12 +46,15 @@ pub struct AddFinalBody {
 #[axum::debug_handler]
 pub async fn add_final(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<AddFinalBody>,
 ) -> Result<Json<AddFinalResponse>, HttpError> {
     let name = finals::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
     let code = heats::normalize_code(body.code.as_deref(), &name);
-    let fields = body.fields.normalize().map_err(HttpError::ErrorMessages)?;
-    repo.add_final(&NewFinal { name, code, fields }).await?;
+    let fields = db_core::finals::FinalFields::from(body.fields)
+        .normalize()
+        .map_err(HttpError::ErrorMessages)?;
+    repo.add_final(&granted.actor(), AddFinal { name, code, fields })
+        .await?;
     Ok(Json(AddFinalResponse {}))
 }

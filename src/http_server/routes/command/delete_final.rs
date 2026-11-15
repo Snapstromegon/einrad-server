@@ -1,6 +1,6 @@
 use crate::ids::FinalId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::finals::DeleteFinal, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -38,9 +38,10 @@ pub struct DeleteFinalBody {
 #[axum::debug_handler]
 pub async fn delete_final(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteFinalBody>,
 ) -> Result<Json<DeleteFinalResponse>, HttpError> {
-    repo.delete_final(body.id).await?;
+    repo.delete_final(&granted.actor(), DeleteFinal { final_id: body.id })
+        .await?;
     Ok(Json(DeleteFinalResponse {}))
 }

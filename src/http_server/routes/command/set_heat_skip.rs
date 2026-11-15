@@ -2,7 +2,7 @@ use crate::ids::HeatId;
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::heat::SetHeatSkip, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 use utoipa::ToSchema;
@@ -49,10 +49,19 @@ pub struct SetHeatSkipBody {
 pub async fn set_heat_skip(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<SetHeatSkipBody>,
 ) -> Result<Json<SetHeatSkipResponse>, HttpError> {
-    if repo.set_heat_skip(body.id, body.skip).await? {
+    if repo
+        .set_heat_skip(
+            &granted.actor(),
+            SetHeatSkip {
+                heat_id: body.id,
+                skip: body.skip,
+            },
+        )
+        .await?
+    {
         // The next act may be another one now.
         if let Err(e) = player_hub.cue_from_timeplan().await {
             warn!("Couldn't cue the next song: {e}");

@@ -2,7 +2,7 @@ use crate::ids::{ActId, FinalId, FinalSlotId};
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::{DbHandle, finals::SlotPlacement};
+use db_core::{commands::finals::SetFinalPlacement, finals::SlotPlacement, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 use utoipa::ToSchema;
@@ -55,7 +55,7 @@ pub struct SetFinalPlacementBody {
 pub async fn set_final_placement(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::ManageResults>,
+    granted: Granted<permit::ManageResults>,
     Json(body): Json<SetFinalPlacementBody>,
 ) -> Result<Json<SetFinalPlacementResponse>, HttpError> {
     let changes: Vec<SlotPlacement> = body
@@ -66,7 +66,14 @@ pub async fn set_final_placement(
             act_id: slot.act_id,
         })
         .collect();
-    repo.set_final_placement(body.id, &changes).await?;
+    repo.set_final_placement(
+        &granted.actor(),
+        SetFinalPlacement {
+            final_id: body.id,
+            changes,
+        },
+    )
+    .await?;
     // A published final's songs coming up may have changed.
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");

@@ -1,6 +1,6 @@
 use crate::ids::CategoryId;
 use axum::{Extension, Json};
-use db_core::{DbHandle, heats::NewHeat};
+use db_core::{commands::heat::AddHeat, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -51,7 +51,7 @@ pub struct AddHeatBody {
 #[axum::debug_handler]
 pub async fn add_heat(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<AddHeatBody>,
 ) -> Result<Json<AddHeatResponse>, HttpError> {
     let name = heats::normalize_name(&body.name).map_err(HttpError::ErrorMessages)?;
@@ -62,13 +62,16 @@ pub async fn add_heat(
         .map(heats::check_threshold)
         .transpose()
         .map_err(HttpError::ErrorMessages)?;
-    repo.add_heat(&NewHeat {
-        name,
-        code,
-        description,
-        category_ids: body.category_ids,
-        threshold,
-    })
+    repo.add_heat(
+        &granted.actor(),
+        AddHeat {
+            name,
+            code,
+            description,
+            category_ids: body.category_ids,
+            threshold,
+        },
+    )
     .await?;
     Ok(Json(AddHeatResponse {}))
 }

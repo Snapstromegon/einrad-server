@@ -1,4 +1,4 @@
-use crate::ids::{ActId, CategoryId, ClubId};
+use crate::ids::{ActId, CategoryId, ClubId, HeatId};
 use crate::{act_type::ActType, roles::Permission};
 use db_core::acts::ActRecord;
 
@@ -222,5 +222,50 @@ impl BookingInput {
             ignored: self.ignored,
         }
         .checked()
+    }
+}
+
+/// A run of slots as the admin API takes it: the heat by id.
+#[derive(Debug, Clone, Copy, serde::Deserialize, utoipa::ToSchema)]
+pub struct SlotGroupInput {
+    /// The heat whose best acts fill these slots.
+    pub heat_id: HeatId,
+    pub count: i64,
+}
+
+// Shared by `add_final` and `edit_final`.
+/// What admins set for a final, apart from its name.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct FinalFields {
+    pub description: Option<String>,
+    /// The discipline: act type and, for singles, male or female.
+    pub act_type: ActType,
+    #[serde(default)]
+    pub is_single_male: bool,
+    pub einfahrzeit_seconds: i64,
+    pub act_duration_seconds: i64,
+    pub judge_duration_seconds: i64,
+    /// The reserved slots in start order, e.g. 5 × "JE EM".
+    pub slot_groups: Vec<SlotGroupInput>,
+}
+
+impl From<FinalFields> for db_core::finals::FinalFields {
+    fn from(fields: FinalFields) -> Self {
+        Self {
+            description: fields.description,
+            act_type: fields.act_type,
+            is_single_male: fields.is_single_male,
+            einfahrzeit_seconds: fields.einfahrzeit_seconds,
+            act_duration_seconds: fields.act_duration_seconds,
+            judge_duration_seconds: fields.judge_duration_seconds,
+            slot_groups: fields
+                .slot_groups
+                .into_iter()
+                .map(|group| db_core::finals::SlotGroupInput {
+                    heat_id: group.heat_id,
+                    count: group.count,
+                })
+                .collect(),
+        }
     }
 }

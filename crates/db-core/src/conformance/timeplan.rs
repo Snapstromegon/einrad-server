@@ -5,14 +5,16 @@
 
 use time::macros::{date, datetime};
 
-use super::World;
+use super::{World, admin};
 use crate::{
     Db,
     act_type::ActType,
     branding::Branding,
-    categories::CategoryFields,
     clubs::RegistrationError,
-    commands::club::{AddRider, SetSingle},
+    commands::{
+        category::{AddCategory, CategoryFields},
+        club::{AddRider, SetSingle},
+    },
     competition::{Competition, Features},
     gender::Gender,
     ids::{ActId, CategoryId},
@@ -80,17 +82,22 @@ pub(super) async fn create_competition_with(db: &dyn Db, change: impl FnOnce(&mu
 async fn category_with_two_acts(db: &dyn Db, w: &World) -> CategoryId {
     create_competition(db).await;
     let (category, _) = db
-        .add_category(&CategoryFields {
-            name: "EM".into(),
-            description: None,
-            min_age: None,
-            under_age: None,
-            act_type: ActType::Single,
-            is_single_male: false,
-            einfahrzeit_seconds: 0,
-            act_duration_seconds: 120,
-            judge_duration_seconds: 60,
-        })
+        .add_category(
+            &admin(),
+            AddCategory {
+                fields: CategoryFields {
+                    name: "EM".into(),
+                    description: None,
+                    min_age: None,
+                    under_age: None,
+                    act_type: ActType::Single,
+                    is_single_male: false,
+                    einfahrzeit_seconds: 0,
+                    act_duration_seconds: 120,
+                    judge_duration_seconds: 60,
+                },
+            },
+        )
         .await
         .unwrap();
     for firstname in ["Anna", "Berta"] {

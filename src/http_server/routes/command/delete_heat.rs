@@ -1,6 +1,6 @@
 use crate::ids::HeatId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::heat::DeleteHeat, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -38,9 +38,10 @@ pub struct DeleteHeatBody {
 #[axum::debug_handler]
 pub async fn delete_heat(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
     Json(body): Json<DeleteHeatBody>,
 ) -> Result<Json<DeleteHeatResponse>, HttpError> {
-    repo.delete_heat(body.id).await?;
+    repo.delete_heat(&granted.actor(), DeleteHeat { heat_id: body.id })
+        .await?;
     Ok(Json(DeleteHeatResponse {}))
 }

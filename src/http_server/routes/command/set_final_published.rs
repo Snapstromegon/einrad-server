@@ -2,7 +2,7 @@ use crate::ids::FinalId;
 use std::sync::Arc;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::finals::SetFinalPublished, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 use utoipa::ToSchema;
@@ -46,10 +46,17 @@ pub struct SetFinalPublishedBody {
 pub async fn set_final_published(
     Extension(repo): Extension<DbHandle>,
     Extension(player_hub): Extension<Arc<PlayerHub>>,
-    _: Granted<permit::ManageResults>,
+    granted: Granted<permit::ManageResults>,
     Json(body): Json<SetFinalPublishedBody>,
 ) -> Result<Json<SetFinalPublishedResponse>, HttpError> {
-    repo.set_final_published(body.id, body.published).await?;
+    repo.set_final_published(
+        &granted.actor(),
+        SetFinalPublished {
+            final_id: body.id,
+            published: body.published,
+        },
+    )
+    .await?;
     // The final's songs may be coming up now (or no longer).
     if let Err(e) = player_hub.cue_from_timeplan().await {
         warn!("Couldn't cue the next song: {e}");

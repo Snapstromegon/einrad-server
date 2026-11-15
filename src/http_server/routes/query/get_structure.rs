@@ -2,7 +2,7 @@ use crate::ids::{ActId, CategoryId, FinalId, HeatId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use tracing::instrument;
 
 use crate::{
@@ -173,9 +173,9 @@ fn count(acts: &[ActNode]) -> i64 {
 #[instrument(skip(repo))]
 pub async fn get_structure(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::PlanCompetition>,
+    granted: Granted<permit::PlanCompetition>,
 ) -> Result<Json<Structure>, HttpError> {
-    let rows = repo.structure_rows().await?;
+    let rows = repo.get_structure(&granted.actor()).await?;
     let categories = rows.categories;
     let heats = rows.heats;
     let final_rows = rows.finals;
