@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::ids::UserId;
 use axum::{Extension, Json};
 use axum_extra::extract::CookieJar;
-use db_core::DbHandle;
+use db_core::{commands::user::VerifyEmail, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -45,17 +45,13 @@ pub async fn verify_email(
     Json(body): Json<VerifyMailBody>,
 ) -> Result<(CookieJar, Json<VerifyMailResponse>), HttpError> {
     info!("Verifying email");
-    let user_id = db.verify_email(body.token).await?;
+    let user_id = db.verify_email(VerifyEmail { token: body.token }).await?;
     info!("User ID: {:?}", user_id);
-    if let Some(user_id) = user_id {
-        Ok((
-            jwt_config.add_jwt_cookie(cookies, user_id).map_err(|e| {
-                tracing::error!("Failed to add JWT cookie: {:?}", e);
-                HttpError::InvalidCredentials
-            })?,
-            Json(VerifyMailResponse { user_id }),
-        ))
-    } else {
-        Err(HttpError::NotFound)
-    }
+    Ok((
+        jwt_config.add_jwt_cookie(cookies, user_id).map_err(|e| {
+            tracing::error!("Failed to add JWT cookie: {:?}", e);
+            HttpError::InvalidCredentials
+        })?,
+        Json(VerifyMailResponse { user_id }),
+    ))
 }

@@ -7,7 +7,7 @@ use crate::{
 };
 use askama::Template;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::user::ResendMailValidation, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use url::Url;
@@ -44,7 +44,7 @@ pub async fn resend_mail_validation(
 ) -> Result<Json<ResendMailValidationResponse>, HttpError> {
     // Create a token for email verification; the previous ones are dropped
     let email_token = Uuid::new_v4();
-    db.replace_verification_token(auth.user_id, email_token)
+    db.resend_mail_validation(&auth.actor(), ResendMailValidation { token: email_token })
         .await?;
 
     let verify_link = Url::parse(&http_options.base_url)

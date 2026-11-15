@@ -19,7 +19,6 @@
     serde::Serialize,
     serde::Deserialize,
     sqlx::Type,
-    utoipa::ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "TEXT", rename_all = "snake_case")]
@@ -57,7 +56,6 @@ macro_rules! permissions {
             Ord,
             Hash,
             serde::Serialize,
-            utoipa::ToSchema,
         )]
         #[serde(rename_all = "snake_case")]
         pub enum Permission {

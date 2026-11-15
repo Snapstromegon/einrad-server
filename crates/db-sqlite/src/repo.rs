@@ -47,6 +47,8 @@ mod settings;
 mod timeplan;
 mod timeplan_commands;
 mod timeplan_queries;
+mod user_commands;
+mod user_queries;
 mod users;
 
 /// The SQLite backend. A cheap clone: it shares the [`ReloadableSqlite`], so
@@ -131,8 +133,6 @@ pub(crate) use {read_tx, write_tx};
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::UserCommands for SqliteRepo {}
-impl db_core::queries::UserQueries for SqliteRepo {}
 impl db_core::queries::AdminQueries for SqliteRepo {}
 impl db_core::commands::ActCommands for SqliteRepo {}
 impl db_core::queries::ActQueries for SqliteRepo {}

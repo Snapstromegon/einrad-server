@@ -9,8 +9,8 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    roles::{Role, permit},
+    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::http_types::Role},
+    roles::permit,
 };
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
@@ -177,7 +177,7 @@ impl From<BookingLogRow> for BookingLogEntry {
             at: entry.at,
             user_id: entry.user_id,
             user_name: entry.user_name,
-            roles: entry.roles,
+            roles: entry.roles.into_iter().map(Into::into).collect(),
             action: entry.action.into(),
             before: entry.before.map(Into::into),
             after: entry.after.map(Into::into),

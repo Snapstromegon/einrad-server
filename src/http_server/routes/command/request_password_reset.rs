@@ -7,7 +7,7 @@ use crate::{
 };
 use askama::Template;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::user::RequestPasswordReset, error::CommandError, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use url::Url;
@@ -43,12 +43,20 @@ pub async fn request_password_reset(
     Extension(db): Extension<DbHandle>,
     Json(body): Json<RequestPasswordResetBody>,
 ) -> Result<Json<RequestPasswordResetResponse>, HttpError> {
-    let user = db.find_user_by_email(&body.email).await?;
+    // Create a token for password reset; the command drops the previous ones
+    let reset_token = Uuid::new_v4();
+    let user = match db
+        .request_password_reset(RequestPasswordReset {
+            email: body.email.clone(),
+            token: reset_token,
+        })
+        .await
+    {
+        Ok(user) => Some(user),
+        Err(CommandError::NotFound) => None,
+        Err(error) => return Err(error.into()),
+    };
     if let Some(user) = user {
-        // Create a token for password reset; the previous ones are dropped
-        let reset_token = Uuid::new_v4();
-        db.replace_password_reset_token(user.id, reset_token)
-            .await?;
         let reset_link = Url::parse(&http_options.base_url)
             .expect("Invalid Base URL")
             .join(&format!("/reset_password?token={}", reset_token))

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{Extension, Json};
 use axum_extra::extract::CookieJar;
-use db_core::DbHandle;
+use db_core::{commands::user::Login, prelude::*};
 use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -45,13 +45,17 @@ pub async fn login(
 ) -> Result<(CookieJar, Json<LoginResponse>), HttpError> {
     let jwt_config = jwt_config.as_ref().clone();
     let user = db
-        .find_credentials(&body.email)
+        .login(Login {
+            email: body.email.clone(),
+        })
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to find user: {:?}", e);
-            HttpError::InvalidCredentials
-        })?
-        .ok_or(HttpError::InvalidCredentials)?;
+        .map_err(|e| match e {
+            db_core::error::CommandError::NotFound => HttpError::InvalidCredentials,
+            e => {
+                tracing::error!("Failed to find user: {:?}", e);
+                HttpError::InvalidCredentials
+            }
+        })?;
 
     if verify_password(body.password, &user.password_hash).is_ok() {
         Ok((

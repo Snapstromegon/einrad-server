@@ -4,7 +4,7 @@ use crate::ids::UserId;
 use askama::Template;
 use axum::{Extension, Json, http::StatusCode};
 use axum_extra::extract::CookieJar;
-use db_core::{DbHandle, auth::NewUser};
+use db_core::{commands::user::Register, prelude::*};
 use password_auth::generate_hash;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -62,25 +62,18 @@ pub async fn register(
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
     check_password(&body.password).map_err(HttpError::ErrorMessages)?;
-    if db.email_in_use(&body.email).await? {
-        return Err(HttpError::ErrorMessages(
-            "Email Adresse bereits registriert.".to_string(),
-        ));
-    }
-    let user_id = UserId::new();
     let hashed_password = generate_hash(body.password);
     // Create a token for email verification
     let email_token = Uuid::new_v4();
-    db.register_user(
-        NewUser {
-            id: user_id,
-            name: &body.name,
-            email: &body.email,
-            password_hash: &hashed_password,
-        },
-        email_token,
-    )
-    .await?;
+    // One command: the "email in use" check and the insert are atomic.
+    let user_id = db
+        .register(Register {
+            name: body.name.clone(),
+            email: body.email.clone(),
+            password_hash: hashed_password,
+            email_token,
+        })
+        .await?;
 
     let verify_link = Url::parse(&http_options.base_url)
         .expect("Invalid Base URL")

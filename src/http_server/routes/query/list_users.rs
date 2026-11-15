@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use tracing::instrument;
 
 use crate::{
@@ -22,7 +22,8 @@ use crate::{
 #[instrument(skip(db))]
 pub async fn list_users(
     Extension(db): Extension<DbHandle>,
-    _: Granted<permit::ManageUsers>,
+    auth: Granted<permit::ManageUsers>,
 ) -> Result<Json<Vec<User>>, HttpError> {
-    Ok(Json(db.list_users().await?))
+    let users = db.list_users(&auth.actor()).await?;
+    Ok(Json(users.into_iter().map(Into::into).collect()))
 }

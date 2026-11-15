@@ -1,10 +1,135 @@
-use crate::ids::{ActId, CategoryId, ClubId, HeatId, JudgeId, JuryUnitId};
-use crate::{act_type::ActType, roles::Permission};
+use crate::act_type::ActType;
+use crate::ids::{ActId, CategoryId, ClubId, HeatId, JudgeId, JuryUnitId, UserId};
 use db_core::acts::ActRecord;
 use db_core::jury::JudgeTask;
 use time::{Date, OffsetDateTime};
 
-pub use db_core::users::User;
+/// What a user may do on the organizer side.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    Admin,
+    JuryLead,
+    Treasurer,
+    CheckIn,
+    MusicControl,
+    Moderation,
+    MusicCheck,
+}
+
+impl From<db_core::roles::Role> for Role {
+    fn from(role: db_core::roles::Role) -> Self {
+        use db_core::roles::Role as R;
+        match role {
+            R::Admin => Role::Admin,
+            R::JuryLead => Role::JuryLead,
+            R::Treasurer => Role::Treasurer,
+            R::CheckIn => Role::CheckIn,
+            R::MusicControl => Role::MusicControl,
+            R::Moderation => Role::Moderation,
+            R::MusicCheck => Role::MusicCheck,
+        }
+    }
+}
+
+impl From<Role> for db_core::roles::Role {
+    fn from(role: Role) -> Self {
+        use db_core::roles::Role as R;
+        match role {
+            Role::Admin => R::Admin,
+            Role::JuryLead => R::JuryLead,
+            Role::Treasurer => R::Treasurer,
+            Role::CheckIn => R::CheckIn,
+            Role::MusicControl => R::MusicControl,
+            Role::Moderation => R::Moderation,
+            Role::MusicCheck => R::MusicCheck,
+        }
+    }
+}
+
+/// Something a handler requires; see [`Role::permissions`].
+#[allow(rustdoc::broken_intra_doc_links)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    ManageUsers,
+    ManageBackups,
+    PlanCompetition,
+    ManageCompetition,
+    ManageRegistrations,
+    ViewBirthdates,
+    ManagePayments,
+    ViewClubs,
+    ViewClubBalances,
+    ViewClubContacts,
+    ViewRiders,
+    ManageJury,
+    ManageResults,
+    CheckIn,
+    ViewMedals,
+    ControlMusic,
+    ViewModeration,
+    ViewInternalEntries,
+    ViewUnpublishedStartlist,
+    CheckSongs,
+    MailClubs,
+}
+
+impl From<db_core::roles::Permission> for Permission {
+    fn from(permission: db_core::roles::Permission) -> Self {
+        use db_core::roles::Permission as P;
+        match permission {
+            P::ManageUsers => Permission::ManageUsers,
+            P::ManageBackups => Permission::ManageBackups,
+            P::PlanCompetition => Permission::PlanCompetition,
+            P::ManageCompetition => Permission::ManageCompetition,
+            P::ManageRegistrations => Permission::ManageRegistrations,
+            P::ViewBirthdates => Permission::ViewBirthdates,
+            P::ManagePayments => Permission::ManagePayments,
+            P::ViewClubs => Permission::ViewClubs,
+            P::ViewClubBalances => Permission::ViewClubBalances,
+            P::ViewClubContacts => Permission::ViewClubContacts,
+            P::ViewRiders => Permission::ViewRiders,
+            P::ManageJury => Permission::ManageJury,
+            P::ManageResults => Permission::ManageResults,
+            P::CheckIn => Permission::CheckIn,
+            P::ViewMedals => Permission::ViewMedals,
+            P::ControlMusic => Permission::ControlMusic,
+            P::ViewModeration => Permission::ViewModeration,
+            P::ViewInternalEntries => Permission::ViewInternalEntries,
+            P::ViewUnpublishedStartlist => Permission::ViewUnpublishedStartlist,
+            P::CheckSongs => Permission::CheckSongs,
+            P::MailClubs => Permission::MailClubs,
+        }
+    }
+}
+
+/// A user as the organizers see them.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct User {
+    pub id: UserId,
+    pub name: String,
+    pub email: String,
+    pub email_verified: bool,
+    /// Sorted.
+    pub roles: Vec<Role>,
+    pub club_id: Option<ClubId>,
+}
+
+impl From<db_core::queries::user::User> for User {
+    fn from(user: db_core::queries::user::User) -> Self {
+        Self {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            email_verified: user.email_verified,
+            roles: user.roles.into_iter().map(Into::into).collect(),
+            club_id: user.club_id,
+        }
+    }
+}
 
 // API types shared by several handlers. A schema name must exist exactly once
 // (utoipa silently keeps one of two same-named structs), so a type that more

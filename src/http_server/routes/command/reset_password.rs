@@ -3,7 +3,7 @@ use crate::{
     utils::check_password,
 };
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::user::ResetPassword, prelude::*};
 use password_auth::generate_hash;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -38,14 +38,13 @@ pub async fn reset_password(
     Extension(db): Extension<DbHandle>,
     Json(body): Json<PasswordResetBody>,
 ) -> Result<Json<PasswordResetResponse>, HttpError> {
-    let user_id = db.find_password_reset(body.token).await?;
-    if let Some(user_id) = user_id {
-        check_password(&body.new_password).map_err(HttpError::ErrorMessages)?;
-        // Update the password; the reset tokens go with it
-        let password_hash = generate_hash(body.new_password);
-        db.set_password(user_id, &password_hash).await?;
-        Ok(Json(PasswordResetResponse {}))
-    } else {
-        Err(HttpError::NotFound)
-    }
+    check_password(&body.new_password).map_err(HttpError::ErrorMessages)?;
+    // The command updates the password; the reset tokens go with it
+    let password_hash = generate_hash(body.new_password);
+    db.reset_password(ResetPassword {
+        token: body.token,
+        password_hash,
+    })
+    .await?;
+    Ok(Json(PasswordResetResponse {}))
 }

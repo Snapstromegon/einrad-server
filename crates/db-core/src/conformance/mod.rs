@@ -32,7 +32,6 @@
 use crate::{
     Db,
     act_type::ActType,
-    auth::NewUser,
     bookings::BookingInput,
     clubs::Actor,
     commands::{
@@ -42,6 +41,7 @@ use crate::{
         },
         jury::{AddClubJudge, DeleteClubJudge, EditClubJudge, SetJuryDeploymentsOverride},
         payment::{CreateBooking, SetFeeWaived},
+        user::Register,
     },
     error::CommandError,
     fee_waivers::Target,
@@ -59,6 +59,7 @@ mod payment;
 mod registration;
 mod structure;
 mod timeplan;
+mod users;
 pub use access::*;
 pub use clubs::*;
 pub use fees::*;
@@ -68,6 +69,7 @@ pub use payment::*;
 pub use registration::*;
 pub use structure::*;
 pub use timeplan::*;
+pub use users::*;
 
 /// An organizer for the commands and queries of categories, heats and finals,
 /// which only need the role gate the server already checked. It is no stored
@@ -144,20 +146,15 @@ impl World {
     }
 
     pub(super) async fn user(db: &dyn Db, name: &str) -> UserId {
-        let id = UserId::new();
-        let email = format!("{id}@example.org");
-        db.register_user(
-            NewUser {
-                id,
-                name,
-                email: &email,
-                password_hash: "not-a-real-hash",
-            },
-            uuid::Uuid::now_v7(),
-        )
+        let email = format!("{}@example.org", uuid::Uuid::now_v7());
+        db.register(Register {
+            name: name.into(),
+            email,
+            password_hash: "not-a-real-hash".into(),
+            email_token: uuid::Uuid::now_v7(),
+        })
         .await
-        .unwrap();
-        id
+        .unwrap()
     }
 }
 
@@ -364,6 +361,9 @@ macro_rules! conformance_list {
             media_commands_need_a_competition_and_a_sponsor,
             logo_and_break_image_are_stored_and_removed,
             sponsors_are_added_ordered_and_listed,
+            register_login_and_verify_email,
+            password_reset_and_mail_validation_tokens,
+            user_roles_are_set_and_listed,
         }
     };
 }

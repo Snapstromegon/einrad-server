@@ -1,13 +1,13 @@
 use crate::ids::UserId;
-use axum::{Extension, Json, http::StatusCode};
-use db_core::DbHandle;
+use axum::{Extension, Json};
+use db_core::{commands::user::SetUserRoles, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
-    roles::{Role, permit},
+    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::http_types::Role},
+    roles::permit,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -43,13 +43,15 @@ pub async fn set_user_roles(
     auth: Granted<permit::ManageUsers>,
     Json(body): Json<SetUserRolesBody>,
 ) -> Result<Json<SetUserRolesResponse>, HttpError> {
-    let keeps_admin = body.roles.contains(&Role::Admin);
-    if auth.user_id == body.user_id && !keeps_admin {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
-    }
-    if !db.set_roles(body.user_id, &body.roles).await? {
-        return Err(HttpError::NotFound);
-    }
-    info!("Set the roles of user {} to {:?}", body.user_id, body.roles);
+    let roles: Vec<db_core::roles::Role> = body.roles.into_iter().map(Into::into).collect();
+    db.set_user_roles(
+        &auth.actor(),
+        SetUserRoles {
+            user_id: body.user_id,
+            roles: roles.clone(),
+        },
+    )
+    .await?;
+    info!("Set the roles of user {} to {:?}", body.user_id, roles);
     Ok(Json(SetUserRolesResponse {}))
 }

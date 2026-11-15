@@ -1,5 +1,5 @@
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::prelude::*;
 use tracing::instrument;
 
 use crate::http_server::{
@@ -28,9 +28,9 @@ pub async fn whoami(
         .ok_or(HttpError::NotFound)?;
     Ok(Json(CurrentUser {
         user: User {
-            roles: auth.roles.clone(),
-            ..user
+            roles: auth.roles.iter().copied().map(Into::into).collect(),
+            ..user.into()
         },
-        permissions: auth.permissions(),
+        permissions: auth.permissions().into_iter().map(Into::into).collect(),
     }))
 }
