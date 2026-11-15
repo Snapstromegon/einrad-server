@@ -1,13 +1,14 @@
 use crate::ids::BookingId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::payment::CreateBooking, prelude::*};
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::BookingInput,
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::BookingInput,
+    },
     roles::permit,
 };
 
@@ -42,7 +43,7 @@ pub async fn create_booking(
         .checked()
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
     let id = repo
-        .create_booking(&granted.booking_actor(), &input)
+        .create_booking(&granted.actor(), CreateBooking { input })
         .await?;
     Ok(Json(CreateBookingResponse { id }))
 }

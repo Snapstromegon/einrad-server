@@ -120,10 +120,6 @@ pub(crate) use {read_tx, write_tx};
 // The CQRS area traits (#238): empty until the endpoints migrate, one impl
 // per area, in the area's own file from then on.
 
-impl db_core::commands::PaymentCommands for SqliteRepo {}
-impl db_core::queries::PaymentQueries for SqliteRepo {}
-impl db_core::commands::CheckInCommands for SqliteRepo {}
-impl db_core::queries::CheckInQueries for SqliteRepo {}
 impl db_core::commands::CategoryCommands for SqliteRepo {}
 impl db_core::queries::CategoryQueries for SqliteRepo {}
 impl db_core::commands::HeatCommands for SqliteRepo {}

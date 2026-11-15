@@ -8,14 +8,11 @@
 
 use std::collections::HashMap;
 
-use time::{Date, OffsetDateTime};
+use time::Date;
 
 use crate::{
     DbError,
-    clubs::RegistrationError,
-    fee_waivers::{FeeWaiver, Target},
-    ids::{BookingId, ClubId, UserId},
-    roles::Role,
+    ids::{BookingId, ClubId},
 };
 
 time::serde::format_description!(pub iso_date, Date, "[year]-[month]-[day]");
@@ -29,8 +26,9 @@ pub fn round_cents(amount: f64) -> f64 {
     (amount * 100.0).round() / 100.0
 }
 
-/// A booking as stored, with the name of its club.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+/// A booking as stored, with the name of its club. Serialized as the log's
+/// JSON, not an API type.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Booking {
     /// Negative for money going out, e.g. a refund.
     pub amount: f64,
@@ -46,19 +44,16 @@ pub struct Booking {
 }
 
 /// A booking as the organizer enters it.
-#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone)]
 pub struct BookingInput {
     /// Negative for money going out, e.g. a refund; not 0.
     pub amount: f64,
-    #[serde(with = "iso_date")]
     pub date: Date,
     /// E.g. the transfer's reference.
-    #[serde(default)]
     pub note: String,
-    /// The club this booking is a payment of; `null` if unassigned or ignored.
+    /// The club this booking is a payment of; `None` if unassigned or ignored.
     pub club_id: Option<ClubId>,
     /// Has nothing to do with the event; then without a club.
-    #[serde(default)]
     pub ignored: bool,
 }
 
@@ -79,17 +74,7 @@ impl BookingInput {
 }
 
 /// What a change did to a booking.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    sqlx::Type,
-    utoipa::ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "TEXT", rename_all = "snake_case")]
 pub enum BookingAction {
@@ -134,43 +119,6 @@ impl BookingAction {
 /// [`Actor`](crate::actor::Actor) now (#238).
 pub use crate::actor::Actor;
 
-/// One entry of the payment log: a change to a booking or to a fee waiver.
-#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-pub struct BookingLogEntry {
-    /// `null` for a waiver.
-    pub booking_id: Option<BookingId>,
-    #[serde(with = "time::serde::rfc3339")]
-    pub at: OffsetDateTime,
-    /// `null` for changes without a user, like the migration's.
-    pub user_id: Option<UserId>,
-    pub user_name: Option<String>,
-    /// The user's roles at the time.
-    pub roles: Vec<Role>,
-    pub action: BookingAction,
-    /// `null` for a new booking.
-    pub before: Option<Booking>,
-    /// `null` for a deleted booking.
-    pub after: Option<Booking>,
-    /// The waiver granted or revoked; `null` for a booking.
-    pub waiver: Option<FeeWaiver>,
-}
-
-impl BookingLogEntry {
-    /// Whether the booking was a payment of `club_id` before or after, or
-    /// the waiver changes the club's fees.
-    #[must_use]
-    pub fn concerns_club(&self, club_id: ClubId) -> bool {
-        [&self.before, &self.after]
-            .into_iter()
-            .flatten()
-            .any(|b| b.club_id == Some(club_id))
-            || self
-                .waiver
-                .as_ref()
-                .is_some_and(|w| w.clubs.iter().any(|c| c.id == club_id))
-    }
-}
-
 /// One payment of a club, as the club sees it.
 #[derive(Debug, Clone)]
 pub struct Payment {
@@ -181,60 +129,9 @@ pub struct Payment {
     pub note: String,
 }
 
-/// A booking in the organizer's list.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct ListedBooking {
-    pub id: BookingId,
-    /// Negative for money going out, e.g. a refund.
-    pub amount: f64,
-    #[serde(with = "iso_date")]
-    pub date: Date,
-    pub note: String,
-    /// The club this booking is a payment of; `null` if unassigned or ignored.
-    pub club_id: Option<ClubId>,
-    pub club_name: Option<String>,
-    pub ignored: bool,
-}
-
 #[async_trait::async_trait]
 pub trait BookingsRepo {
-    /// Records a booking and its log entry. `NotFound` if the club doesn't
-    /// exist. `input` is already [`BookingInput::checked`].
-    async fn create_booking(
-        &self,
-        actor: &Actor,
-        input: &BookingInput,
-    ) -> Result<BookingId, RegistrationError>;
-
-    /// Changes a booking; logs only if something changed. `NotFound` for an
-    /// unknown booking or club.
-    async fn edit_booking(
-        &self,
-        actor: &Actor,
-        id: BookingId,
-        input: &BookingInput,
-    ) -> Result<(), RegistrationError>;
-
-    /// Deletes a booking; the log keeps it. `NotFound` for an unknown one.
-    async fn delete_booking(&self, actor: &Actor, id: BookingId) -> Result<(), RegistrationError>;
-
-    /// All bookings, newest first.
-    async fn list_bookings(&self) -> Result<Vec<ListedBooking>, DbError>;
-
-    /// The payment log, newest first.
-    async fn booking_log(&self) -> Result<Vec<BookingLogEntry>, DbError>;
-
     /// What every club has paid: the sum of its payments. Clubs without
     /// payments are missing.
     async fn paid_by_club(&self) -> Result<HashMap<ClubId, f64>, DbError>;
-
-    /// Waives the fees of `target` with `reason`, or charges them again with
-    /// `None`. Writes a log entry only if that changes anything. `NotFound`
-    /// for an unknown target, `Rejected` for a blank reason.
-    async fn set_fee_waiver(
-        &self,
-        actor: &Actor,
-        target: Target,
-        reason: Option<&str>,
-    ) -> Result<(), RegistrationError>;
 }

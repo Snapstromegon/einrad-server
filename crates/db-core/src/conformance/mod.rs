@@ -33,26 +33,31 @@ use crate::{
     Db,
     act_type::ActType,
     auth::NewUser,
+    bookings::BookingInput,
     clubs::Actor,
     commands::{
         club::CreateClub,
         group::{
             CreateClubGroup, DeleteClubGroup, GroupMember, RenameClubGroup, SetClubGroupMembers,
         },
+        payment::{CreateBooking, SetFeeWaived},
     },
     error::CommandError,
-    ids::{ActId, ClubId, UserId},
+    fee_waivers::Target,
+    ids::{ActId, BookingId, ClubId, UserId},
 };
 
 mod access;
 mod clubs;
 mod fees;
+mod payment;
 mod registration;
 mod structure;
 mod timeplan;
 pub use access::*;
 pub use clubs::*;
 pub use fees::*;
+pub use payment::*;
 pub use registration::*;
 pub use structure::*;
 pub use timeplan::*;
@@ -135,6 +140,32 @@ impl World {
         .unwrap();
         id
     }
+}
+
+/// Records a booking (already checked input).
+pub(super) async fn create_booking(
+    db: &dyn Db,
+    actor: &Actor,
+    input: BookingInput,
+) -> Result<BookingId, CommandError> {
+    db.create_booking(actor, CreateBooking { input }).await
+}
+
+/// Waives the fees of `target`, or charges them again with `None`.
+pub(super) async fn set_fee_waived(
+    db: &dyn Db,
+    actor: &Actor,
+    target: Target,
+    reason: Option<&str>,
+) -> Result<(), CommandError> {
+    db.set_fee_waived(
+        actor,
+        SetFeeWaived {
+            target,
+            reason: reason.map(str::to_string),
+        },
+    )
+    .await
 }
 
 /// Creates a group of `club`.
@@ -228,6 +259,9 @@ macro_rules! conformance_list {
             group_delete_and_member_rules,
             club_create_rename_and_responsible,
             club_views_and_lists,
+            bookings_and_the_payment_log,
+            fee_waivers_are_logged,
+            check_in_sets_keeps_and_clears_times,
             club_acts_edit_and_withdraw,
             group_lists_and_type_changes,
             structure_names_and_codes_are_unique,

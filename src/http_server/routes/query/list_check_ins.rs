@@ -1,11 +1,31 @@
+use crate::ids::RiderId;
 use axum::{Extension, Json};
-use db_core::{DbHandle, check_in::CheckIn};
+use db_core::{prelude::*, queries::check_in::CheckIn as CheckInRow};
+use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     roles::permit,
 };
+
+/// The check-in state of a rider.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct CheckIn {
+    rider_id: RiderId,
+    /// `null` if the rider hasn't checked in yet.
+    #[serde(with = "time::serde::iso8601::option")]
+    checked_in_at: Option<OffsetDateTime>,
+}
+
+impl From<CheckInRow> for CheckIn {
+    fn from(check_in: CheckInRow) -> Self {
+        Self {
+            rider_id: check_in.rider_id,
+            checked_in_at: check_in.checked_in_at,
+        }
+    }
+}
 
 /// The check-in state of every rider. Check-in and music control.
 ///
@@ -23,7 +43,8 @@ use crate::{
 #[instrument(skip(repo))]
 pub async fn list_check_ins(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::CheckIn>,
+    granted: Granted<permit::CheckIn>,
 ) -> Result<Json<Vec<CheckIn>>, HttpError> {
-    Ok(Json(repo.list_check_ins().await?))
+    let check_ins = repo.list_check_ins(&granted.actor()).await?;
+    Ok(Json(check_ins.into_iter().map(Into::into).collect()))
 }

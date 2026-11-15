@@ -1,6 +1,6 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::check_in::SetCheckedIn, prelude::*};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::{info, instrument};
@@ -45,7 +45,7 @@ pub struct SetCheckedInBody {
 #[axum::debug_handler]
 pub async fn set_checked_in(
     Extension(repo): Extension<DbHandle>,
-    _: Granted<permit::CheckIn>,
+    granted: Granted<permit::CheckIn>,
     Json(body): Json<SetCheckedInBody>,
 ) -> Result<Json<SetCheckedInResponse>, HttpError> {
     let checked_in_at = body.checked_in.then(OffsetDateTime::now_utc);
@@ -54,6 +54,13 @@ pub async fn set_checked_in(
         body.rider_ids.len(),
         checked_in_at
     );
-    repo.set_checked_in(&body.rider_ids, checked_in_at).await?;
+    repo.set_checked_in(
+        &granted.actor(),
+        SetCheckedIn {
+            rider_ids: body.rider_ids,
+            checked_in_at,
+        },
+    )
+    .await?;
     Ok(Json(SetCheckedInResponse { checked_in_at }))
 }

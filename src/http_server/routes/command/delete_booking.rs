@@ -1,6 +1,6 @@
 use crate::ids::BookingId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::payment::DeleteBooking, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -39,7 +39,12 @@ pub async fn delete_booking(
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<DeleteBookingBody>,
 ) -> Result<Json<DeleteBookingResponse>, HttpError> {
-    repo.delete_booking(&granted.booking_actor(), body.booking_id)
-        .await?;
+    repo.delete_booking(
+        &granted.actor(),
+        DeleteBooking {
+            booking_id: body.booking_id,
+        },
+    )
+    .await?;
     Ok(Json(DeleteBookingResponse {}))
 }

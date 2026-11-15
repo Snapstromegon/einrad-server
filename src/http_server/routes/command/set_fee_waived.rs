@@ -1,6 +1,6 @@
 use crate::ids::{ActId, ClubId, RiderId};
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::payment::SetFeeWaived, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -60,7 +60,13 @@ pub async fn set_fee_waived(
             ));
         }
     };
-    repo.set_fee_waiver(&granted.booking_actor(), target, body.reason.as_deref())
-        .await?;
+    repo.set_fee_waived(
+        &granted.actor(),
+        SetFeeWaived {
+            target,
+            reason: body.reason,
+        },
+    )
+    .await?;
     Ok(Json(SetFeeWaivedResponse {}))
 }

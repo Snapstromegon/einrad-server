@@ -192,3 +192,35 @@ impl From<ActRecord> for Act {
         }
     }
 }
+
+/// A booking as the organizer enters it.
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct BookingInput {
+    /// Negative for money going out, e.g. a refund; not 0.
+    pub amount: f64,
+    #[serde(with = "crate::bookings::iso_date")]
+    pub date: time::Date,
+    /// E.g. the transfer's reference.
+    #[serde(default)]
+    pub note: String,
+    /// The club this booking is a payment of; `null` if unassigned or ignored.
+    pub club_id: Option<ClubId>,
+    /// Has nothing to do with the event; then without a club.
+    #[serde(default)]
+    pub ignored: bool,
+}
+
+impl BookingInput {
+    /// The input checked and normalized (amount in whole cents, note
+    /// trimmed), or what is wrong with it.
+    pub fn checked(self) -> Result<db_core::bookings::BookingInput, &'static str> {
+        db_core::bookings::BookingInput {
+            amount: self.amount,
+            date: self.date,
+            note: self.note,
+            club_id: self.club_id,
+            ignored: self.ignored,
+        }
+        .checked()
+    }
+}

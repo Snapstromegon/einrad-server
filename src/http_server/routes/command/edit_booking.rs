@@ -1,13 +1,14 @@
 use crate::ids::BookingId;
 use axum::{Extension, Json};
-use db_core::DbHandle;
+use db_core::{commands::payment::EditBooking, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::BookingInput,
-    http_server::{ClientError, HttpError, extractor::auth::Granted},
+    http_server::{
+        ClientError, HttpError, extractor::auth::Granted, routes::http_types::BookingInput,
+    },
     roles::permit,
 };
 
@@ -46,7 +47,13 @@ pub async fn edit_booking(
         .booking
         .checked()
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    repo.edit_booking(&granted.booking_actor(), body.booking_id, &input)
-        .await?;
+    repo.edit_booking(
+        &granted.actor(),
+        EditBooking {
+            booking_id: body.booking_id,
+            input,
+        },
+    )
+    .await?;
     Ok(Json(EditBookingResponse {}))
 }

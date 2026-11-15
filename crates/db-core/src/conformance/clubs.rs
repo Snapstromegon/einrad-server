@@ -4,7 +4,9 @@
 
 use time::macros::{date, datetime};
 
-use super::{World, create_group, delete_group, rename_group, set_members, timeplan};
+use super::{
+    World, create_booking, create_group, delete_group, rename_group, set_members, timeplan,
+};
 use crate::{
     Db,
     act_type::ActType,
@@ -224,9 +226,10 @@ pub async fn club_views_and_lists(db: &dyn Db) {
         vec![crate::roles::Role::Admin],
         None,
     );
-    db.create_booking(
+    create_booking(
+        db,
         &treasurer,
-        &bookings::BookingInput {
+        bookings::BookingInput {
             amount: 12.5,
             date: date!(2027 - 03 - 01),
             note: "Startgeld".into(),

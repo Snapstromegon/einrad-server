@@ -1,273 +1,318 @@
+//! `PaymentCommands` and `PaymentQueries` for SQLite: bookings, the payment
+//! log and fee waivers. One write transaction per command, one read
+//! transaction per query.
+
 use std::collections::HashMap;
 
 use db_core::{
     BookingsRepo, DbError,
-    bookings::{
-        Actor, Booking, BookingAction, BookingInput, BookingLogEntry, ListedBooking, Payment,
-        round_cents,
-    },
-    clubs::RegistrationError,
+    actor::Actor,
+    bookings::{Booking, BookingAction, BookingInput, Payment, round_cents},
+    commands::payment::{CreateBooking, DeleteBooking, EditBooking, PaymentCommands, SetFeeWaived},
+    error::{CommandError, QueryError},
     fee_waivers::{FeeWaiver, Target, WaiverClub, check_waiver_reason},
     ids::{BookingId, ClubId, UserId},
+    queries::payment::{BookingLogEntry, ListBookingLog, ListedBooking, PaymentQueries},
 };
 use sqlx::SqliteConnection;
 use time::{Date, OffsetDateTime};
 use tracing::info;
 
-use super::SqliteRepo;
+use super::{SqliteRepo, read_tx, write_tx};
 
 #[async_trait::async_trait]
-impl BookingsRepo for SqliteRepo {
+impl PaymentCommands for SqliteRepo {
     async fn create_booking(
         &self,
         actor: &Actor,
-        input: &BookingInput,
-    ) -> Result<BookingId, RegistrationError> {
-        let mut tx = self.begin_write().await?;
-        if let Some(club_id) = input.club_id
-            && !club_exists(&mut tx, club_id).await?
-        {
-            return Err(RegistrationError::NotFound);
-        }
-        let id = BookingId::new();
-        info!(
-            "Booking {id}: {} € for club {:?}",
-            input.amount, input.club_id
-        );
-        sqlx::query!(
-            "INSERT INTO bookings (id, amount, date, note, club_id, ignored) VALUES ($1, $2, $3, $4, $5, $6)",
-            id,
-            input.amount,
-            input.date,
-            input.note,
-            input.club_id,
-            input.ignored,
-        )
-        .execute(&mut *tx)
-        .await?;
-        let after = load_booking(&mut tx, id).await?;
-        log_change(
-            &mut tx,
-            id,
-            actor,
-            BookingAction::Created,
-            None,
-            after.as_ref(),
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(id)
+        cmd: CreateBooking,
+    ) -> Result<BookingId, CommandError> {
+        Ok(write_tx!(self, tx, {
+            create_booking(&mut tx, actor, &cmd.input).await?
+        }))
     }
 
-    async fn edit_booking(
+    async fn edit_booking(&self, actor: &Actor, cmd: EditBooking) -> Result<(), CommandError> {
+        write_tx!(self, tx, {
+            edit_booking(&mut tx, actor, cmd.booking_id, &cmd.input).await?
+        });
+        Ok(())
+    }
+
+    async fn delete_booking(&self, actor: &Actor, cmd: DeleteBooking) -> Result<(), CommandError> {
+        write_tx!(self, tx, {
+            delete_booking(&mut tx, actor, cmd.booking_id).await?
+        });
+        Ok(())
+    }
+
+    async fn set_fee_waived(&self, actor: &Actor, cmd: SetFeeWaived) -> Result<(), CommandError> {
+        let reason = check_waiver_reason(cmd.reason.as_deref())?;
+        write_tx!(self, tx, {
+            set_fee_waived(&mut tx, actor, cmd.target, reason).await?
+        });
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl PaymentQueries for SqliteRepo {
+    async fn list_bookings(&self, _actor: &Actor) -> Result<Vec<ListedBooking>, QueryError> {
+        read_tx!(self, tx, { Ok(list_bookings(&mut tx).await?) })
+    }
+
+    async fn list_booking_log(
         &self,
-        actor: &Actor,
-        id: BookingId,
-        input: &BookingInput,
-    ) -> Result<(), RegistrationError> {
-        let mut tx = self.begin_write().await?;
-        let before = load_booking(&mut tx, id)
-            .await?
-            .ok_or(RegistrationError::NotFound)?;
-        if let Some(club_id) = input.club_id
-            && !club_exists(&mut tx, club_id).await?
-        {
-            return Err(RegistrationError::NotFound);
-        }
-        info!("Editing booking {id}");
-        sqlx::query!(
-            "UPDATE bookings SET amount = $1, date = $2, note = $3, club_id = $4, ignored = $5 WHERE id = $6",
-            input.amount,
-            input.date,
-            input.note,
-            input.club_id,
-            input.ignored,
-            id,
-        )
-        .execute(&mut *tx)
-        .await?;
-        let after = load_booking(&mut tx, id)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
-        // Saving the form unchanged changes nothing to log.
-        if after != before {
-            log_change(
-                &mut tx,
-                id,
-                actor,
-                BookingAction::of_edit(&before, &after),
-                Some(&before),
-                Some(&after),
-            )
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(())
+        _actor: &Actor,
+        query: ListBookingLog,
+    ) -> Result<Vec<BookingLogEntry>, QueryError> {
+        read_tx!(self, tx, {
+            let mut log = booking_log(&mut tx).await?;
+            if let Some(club_id) = query.club_id {
+                log.retain(|entry| entry.concerns_club(club_id));
+            }
+            Ok(log)
+        })
     }
+}
 
-    async fn delete_booking(&self, actor: &Actor, id: BookingId) -> Result<(), RegistrationError> {
-        let mut tx = self.begin_write().await?;
-        let before = load_booking(&mut tx, id)
-            .await?
-            .ok_or(RegistrationError::NotFound)?;
-        info!("Deleting booking {id}");
-        sqlx::query!("DELETE FROM bookings WHERE id = $1", id)
-            .execute(&mut *tx)
-            .await?;
-        log_change(
-            &mut tx,
-            id,
-            actor,
-            BookingAction::Deleted,
-            Some(&before),
-            None,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    async fn list_bookings(&self) -> Result<Vec<ListedBooking>, DbError> {
-        let pool = self.pool().await;
-        Ok(sqlx::query_as!(
-            ListedBooking,
-            r#"
-            SELECT
-                bookings.id as "id!: BookingId",
-                bookings.amount,
-                bookings.date as "date: Date",
-                bookings.note,
-                bookings.club_id as "club_id: ClubId",
-                clubs.name as "club_name?: String",
-                bookings.ignored
-            FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id
-            ORDER BY bookings.date DESC, bookings.rowid DESC
-            "#
-        )
-        .fetch_all(&pool)
-        .await?)
-    }
-
-    async fn booking_log(&self) -> Result<Vec<BookingLogEntry>, DbError> {
-        let pool = self.pool().await;
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                booking_id as "booking_id: BookingId",
-                at as "at: OffsetDateTime",
-                user_id as "user_id: UserId",
-                user_name,
-                roles,
-                action as "action: BookingAction",
-                before,
-                after,
-                waiver
-            FROM booking_log
-            ORDER BY id DESC
-            "#
-        )
-        .fetch_all(&pool)
-        .await?;
-        let decode = |e: serde_json::Error| sqlx::Error::Decode(e.into());
-        let booking = |json: Option<String>| {
-            json.map(|json| serde_json::from_str::<Booking>(&json))
-                .transpose()
-                .map_err(decode)
-        };
-        let entries: Result<Vec<_>, sqlx::Error> = rows
-            .into_iter()
-            .map(|row| {
-                Ok(BookingLogEntry {
-                    booking_id: row.booking_id,
-                    at: row.at,
-                    user_id: row.user_id,
-                    user_name: row.user_name,
-                    roles: serde_json::from_str(&row.roles).map_err(decode)?,
-                    action: row.action,
-                    before: booking(row.before)?,
-                    after: booking(row.after)?,
-                    waiver: row
-                        .waiver
-                        .map(|json| serde_json::from_str::<FeeWaiver>(&json))
-                        .transpose()
-                        .map_err(decode)?,
-                })
-            })
-            .collect();
-        Ok(entries?)
-    }
-
+#[async_trait::async_trait]
+impl BookingsRepo for SqliteRepo {
     async fn paid_by_club(&self) -> Result<HashMap<ClubId, f64>, DbError> {
         let pool = self.pool().await;
         let mut conn = pool.acquire().await?;
         Ok(paid_by_club(&mut conn).await?)
     }
+}
 
-    async fn set_fee_waiver(
-        &self,
-        actor: &Actor,
-        target: Target,
-        reason: Option<&str>,
-    ) -> Result<(), RegistrationError> {
-        let reason = check_waiver_reason(reason)?;
-        info!("Setting the fee waiver of {target:?} to {reason:?}");
-        let mut tx = self.begin_write().await?;
-        let id = target.id();
-        let current = match target {
-            Target::Club(_) => {
-                sqlx::query_scalar!("SELECT fee_waiver FROM clubs WHERE id = $1", id)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            }
-            Target::Rider(_) => {
-                sqlx::query_scalar!("SELECT fee_waiver FROM rider WHERE id = $1", id)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            }
-            Target::Act(_) => {
-                sqlx::query_scalar!("SELECT fee_waiver FROM acts WHERE id = $1", id)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            }
-        }
-        .ok_or(RegistrationError::NotFound)?;
-        if current.as_deref() == reason {
-            return Ok(());
-        }
-        match target {
-            Target::Club(_) => {
-                sqlx::query!("UPDATE clubs SET fee_waiver = $1 WHERE id = $2", reason, id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-            Target::Rider(_) => {
-                sqlx::query!("UPDATE rider SET fee_waiver = $1 WHERE id = $2", reason, id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-            Target::Act(_) => {
-                sqlx::query!("UPDATE acts SET fee_waiver = $1 WHERE id = $2", reason, id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-        }
-        // Revoking logs the reason that no longer applies.
-        let (action, logged_reason) = match (reason, current) {
-            (Some(reason), _) => (BookingAction::Waived, reason.to_string()),
-            (None, Some(previous)) => (BookingAction::WaiverRevoked, previous),
-            (None, None) => return Ok(()),
-        };
-        let waiver = FeeWaiver {
-            level: target.level(),
-            target_id: id,
-            name: waiver_name_of(&mut tx, target).await?,
-            clubs: waiver_clubs_of(&mut tx, target).await?,
-            reason: logged_reason,
-        };
-        log_waiver(&mut tx, actor, action, &waiver).await?;
-        tx.commit().await?;
-        Ok(())
+async fn create_booking(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    input: &BookingInput,
+) -> Result<BookingId, CommandError> {
+    if let Some(club_id) = input.club_id
+        && !club_exists(conn, club_id).await?
+    {
+        return Err(CommandError::NotFound);
     }
+    let id = BookingId::new();
+    info!(
+        "Booking {id}: {} € for club {:?}",
+        input.amount, input.club_id
+    );
+    sqlx::query!(
+        "INSERT INTO bookings (id, amount, date, note, club_id, ignored) VALUES ($1, $2, $3, $4, $5, $6)",
+        id,
+        input.amount,
+        input.date,
+        input.note,
+        input.club_id,
+        input.ignored,
+    )
+    .execute(&mut *conn)
+    .await?;
+    let after = load_booking(conn, id).await?;
+    log_change(
+        conn,
+        id,
+        actor,
+        BookingAction::Created,
+        None,
+        after.as_ref(),
+    )
+    .await?;
+    Ok(id)
+}
+
+async fn edit_booking(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    id: BookingId,
+    input: &BookingInput,
+) -> Result<(), CommandError> {
+    let before = load_booking(conn, id)
+        .await?
+        .ok_or(CommandError::NotFound)?;
+    if let Some(club_id) = input.club_id
+        && !club_exists(conn, club_id).await?
+    {
+        return Err(CommandError::NotFound);
+    }
+    info!("Editing booking {id}");
+    sqlx::query!(
+        "UPDATE bookings SET amount = $1, date = $2, note = $3, club_id = $4, ignored = $5 WHERE id = $6",
+        input.amount,
+        input.date,
+        input.note,
+        input.club_id,
+        input.ignored,
+        id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    let after = load_booking(conn, id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+    // Saving the form unchanged changes nothing to log.
+    if after != before {
+        log_change(
+            conn,
+            id,
+            actor,
+            BookingAction::of_edit(&before, &after),
+            Some(&before),
+            Some(&after),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn delete_booking(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    id: BookingId,
+) -> Result<(), CommandError> {
+    let before = load_booking(conn, id)
+        .await?
+        .ok_or(CommandError::NotFound)?;
+    info!("Deleting booking {id}");
+    sqlx::query!("DELETE FROM bookings WHERE id = $1", id)
+        .execute(&mut *conn)
+        .await?;
+    log_change(conn, id, actor, BookingAction::Deleted, Some(&before), None).await?;
+    Ok(())
+}
+
+async fn list_bookings(conn: &mut SqliteConnection) -> sqlx::Result<Vec<ListedBooking>> {
+    sqlx::query_as!(
+        ListedBooking,
+        r#"
+        SELECT
+            bookings.id as "id!: BookingId",
+            bookings.amount,
+            bookings.date as "date: Date",
+            bookings.note,
+            bookings.club_id as "club_id: ClubId",
+            clubs.name as "club_name?: String",
+            bookings.ignored
+        FROM bookings LEFT JOIN clubs ON clubs.id = bookings.club_id
+        ORDER BY bookings.date DESC, bookings.rowid DESC
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await
+}
+
+async fn booking_log(conn: &mut SqliteConnection) -> sqlx::Result<Vec<BookingLogEntry>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            booking_id as "booking_id: BookingId",
+            at as "at: OffsetDateTime",
+            user_id as "user_id: UserId",
+            user_name,
+            roles,
+            action as "action: BookingAction",
+            before,
+            after,
+            waiver
+        FROM booking_log
+        ORDER BY id DESC
+        "#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let decode = |e: serde_json::Error| sqlx::Error::Decode(e.into());
+    let booking = |json: Option<String>| {
+        json.map(|json| serde_json::from_str::<Booking>(&json))
+            .transpose()
+            .map_err(decode)
+    };
+    rows.into_iter()
+        .map(|row| {
+            Ok(BookingLogEntry {
+                booking_id: row.booking_id,
+                at: row.at,
+                user_id: row.user_id,
+                user_name: row.user_name,
+                roles: serde_json::from_str(&row.roles).map_err(decode)?,
+                action: row.action,
+                before: booking(row.before)?,
+                after: booking(row.after)?,
+                waiver: row
+                    .waiver
+                    .map(|json| serde_json::from_str::<FeeWaiver>(&json))
+                    .transpose()
+                    .map_err(decode)?,
+            })
+        })
+        .collect()
+}
+
+/// Waives the fees of `target` with `reason` (already checked), or charges
+/// them again with `None`.
+async fn set_fee_waived(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    target: Target,
+    reason: Option<&str>,
+) -> Result<(), CommandError> {
+    info!("Setting the fee waiver of {target:?} to {reason:?}");
+    let id = target.id();
+    let current = match target {
+        Target::Club(_) => {
+            sqlx::query_scalar!("SELECT fee_waiver FROM clubs WHERE id = $1", id)
+                .fetch_optional(&mut *conn)
+                .await?
+        }
+        Target::Rider(_) => {
+            sqlx::query_scalar!("SELECT fee_waiver FROM rider WHERE id = $1", id)
+                .fetch_optional(&mut *conn)
+                .await?
+        }
+        Target::Act(_) => {
+            sqlx::query_scalar!("SELECT fee_waiver FROM acts WHERE id = $1", id)
+                .fetch_optional(&mut *conn)
+                .await?
+        }
+    }
+    .ok_or(CommandError::NotFound)?;
+    if current.as_deref() == reason {
+        return Ok(());
+    }
+    match target {
+        Target::Club(_) => {
+            sqlx::query!("UPDATE clubs SET fee_waiver = $1 WHERE id = $2", reason, id)
+                .execute(&mut *conn)
+                .await?;
+        }
+        Target::Rider(_) => {
+            sqlx::query!("UPDATE rider SET fee_waiver = $1 WHERE id = $2", reason, id)
+                .execute(&mut *conn)
+                .await?;
+        }
+        Target::Act(_) => {
+            sqlx::query!("UPDATE acts SET fee_waiver = $1 WHERE id = $2", reason, id)
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
+    // Revoking logs the reason that no longer applies.
+    let (action, logged_reason) = match (reason, current) {
+        (Some(reason), _) => (BookingAction::Waived, reason.to_string()),
+        (None, Some(previous)) => (BookingAction::WaiverRevoked, previous),
+        (None, None) => return Ok(()),
+    };
+    let waiver = FeeWaiver {
+        level: target.level(),
+        target_id: id,
+        name: waiver_name_of(conn, target).await?,
+        clubs: waiver_clubs_of(conn, target).await?,
+        reason: logged_reason,
+    };
+    log_waiver(conn, actor, action, &waiver).await?;
+    Ok(())
 }
 
 async fn club_exists(tx: &mut SqliteConnection, club_id: ClubId) -> sqlx::Result<bool> {

@@ -14,7 +14,6 @@ pub mod bookings;
 pub mod branding;
 pub mod categories;
 pub mod category_ages;
-pub mod check_in;
 pub mod club_mails;
 pub mod clubs;
 pub mod colors;
@@ -52,7 +51,6 @@ pub use acts::ActsRepo;
 pub use auth::AuthRepo;
 pub use bookings::BookingsRepo;
 pub use categories::CategoriesRepo;
-pub use check_in::CheckInRepo;
 pub use club_mails::ClubMailsRepo;
 pub use clubs::ClubsRepo;
 pub use competition::CompetitionRepo;
@@ -90,7 +88,6 @@ pub trait Db:
     + GroupsRepo
     + BookingsRepo
     + FeesRepo
-    + CheckInRepo
     + ClubMailsRepo
     + CategoriesRepo
     + HeatsFinalsRepo

@@ -5,7 +5,10 @@
 
 use time::macros::datetime;
 
-use super::{World, create_group, delete_group, set_members, timeplan::create_competition_with};
+use super::{
+    World, create_group, delete_group, set_fee_waived, set_members,
+    timeplan::create_competition_with,
+};
 use crate::{
     Db,
     act_type::ActType,
@@ -180,19 +183,15 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
     let roles = [];
     let actor = treasurer(&w, &roles);
     assert!(
-        message(
-            db.set_fee_waiver(&actor, Target::Rider(anna), Some("  \t"))
-                .await
-        )
-        .contains("Grund")
+        message(set_fee_waived(db, &actor, Target::Rider(anna), Some("  \t")).await)
+            .contains("Grund")
     );
     assert!(matches!(
-        db.set_fee_waiver(&actor, Target::Rider(RiderId::new()), Some("Härtefall"))
-            .await,
+        set_fee_waived(db, &actor, Target::Rider(RiderId::new()), Some("Härtefall")).await,
         Err(RegistrationError::NotFound)
     ));
     // A waived rider pays nothing.
-    db.set_fee_waiver(&actor, Target::Rider(anna), Some("  Härtefall "))
+    set_fee_waived(db, &actor, Target::Rider(anna), Some("  Härtefall "))
         .await
         .unwrap();
     assert_eq!(
@@ -200,7 +199,7 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
         (45.0, 0.0, 45.0, 10.0)
     );
     // A waived act drops its start; the cap now leaves 2 starts = 20.
-    db.set_fee_waiver(&actor, Target::Act(large), Some("Sponsor"))
+    set_fee_waived(db, &actor, Target::Act(large), Some("Sponsor"))
         .await
         .unwrap();
     assert_eq!(
@@ -208,7 +207,7 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
         (40.0, 0.0, 40.0, 15.0)
     );
     // A waived club pays nothing at all.
-    db.set_fee_waiver(&actor, Target::Club(w.club_b), Some("Gast"))
+    set_fee_waived(db, &actor, Target::Club(w.club_b), Some("Gast"))
         .await
         .unwrap();
     assert_eq!(due(&fees(db, w.club_b, true).await), (0.0, 0.0, 0.0, 10.0));
@@ -218,7 +217,7 @@ pub async fn fees_and_amount_due(db: &dyn Db) {
         Target::Act(large),
         Target::Club(w.club_b),
     ] {
-        db.set_fee_waiver(&actor, target, None).await.unwrap();
+        set_fee_waived(db, &actor, target, None).await.unwrap();
     }
     assert_eq!(due(&fees(db, w.club_a, true).await), (55.0, 0.0, 55.0, 0.0));
     assert_eq!(due(&fees(db, w.club_b, true).await), (10.0, 0.0, 10.0, 0.0));
@@ -393,9 +392,14 @@ pub async fn jury_obligation_counts_acts_and_judges(db: &dyn Db) {
 
     // A waived club keeps its obligation but owes no jury fee.
     let roles = [];
-    db.set_fee_waiver(&treasurer(&w, &roles), Target::Club(w.club_a), Some("Gast"))
-        .await
-        .unwrap();
+    set_fee_waived(
+        db,
+        &treasurer(&w, &roles),
+        Target::Club(w.club_a),
+        Some("Gast"),
+    )
+    .await
+    .unwrap();
     let waived = fees(db, w.club_a, true).await;
     assert_eq!(waived.jury.unwrap().missing, 5);
     assert_eq!(
@@ -500,7 +504,8 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
     .await
     .unwrap();
     let roles = [];
-    db.set_fee_waiver(
+    set_fee_waived(
+        db,
         &treasurer(&w, &roles),
         Target::Act(dora_act),
         Some("Abgesagt"),
@@ -579,7 +584,8 @@ pub async fn jury_obligation_edge_cases(db: &dyn Db) {
     assert_eq!(due(fees_a), (30.0, jury_a.fee, 30.0 + jury_a.fee, 10.0));
     assert_eq!(due(fees_b), (40.0, jury_b.fee, 40.0 + jury_b.fee, 0.0));
     // Waiving the withdrawn Berta's start drops her from the obligation.
-    db.set_fee_waiver(
+    set_fee_waived(
+        db,
         &treasurer(&w, &roles),
         Target::Act(berta_act),
         Some("Abgesagt"),
