@@ -16,8 +16,8 @@ use db_core::{
 use sqlx::{SqliteConnection, SqlitePool};
 
 /// The current competition's fee rules; `None` without a competition.
-async fn fee_rules(db: &SqlitePool) -> sqlx::Result<Option<FeeRules>> {
-    Ok(crate::competition::current(db)
+async fn fee_rules(conn: &mut SqliteConnection) -> sqlx::Result<Option<FeeRules>> {
+    Ok(crate::competition::current(conn)
         .await?
         .map(|competition| FeeRules {
             fee_per_start: competition.fee_per_start,
@@ -30,15 +30,19 @@ async fn fee_rules(db: &SqlitePool) -> sqlx::Result<Option<FeeRules>> {
 }
 
 /// The fees per club, of all clubs or only of `club_id`: loads the facts and
-/// leaves the arithmetic to [`club_fees`].
+/// leaves the arithmetic to [`club_fees`]. All facts are read in one read
+/// transaction, so a concurrent write (a pair link, a withdrawal) can't tear
+/// them apart.
 pub(crate) async fn fees(
     db: &SqlitePool,
     jury_registration: bool,
     club_id: Option<ClubId>,
 ) -> sqlx::Result<HashMap<ClubId, ClubFees>> {
-    let rules = fee_rules(db).await?;
+    let mut tx = db.begin().await?;
+    let conn = &mut *tx;
+    let rules = fee_rules(conn).await?;
     let riders = if rules.is_some() {
-        rider_facts(db, club_id).await?
+        rider_facts(conn, club_id).await?
     } else {
         Vec::new()
     };
@@ -49,17 +53,15 @@ pub(crate) async fn fees(
         "#,
         club_id
     )
-    .fetch_all(db)
+    .fetch_all(&mut *conn)
     .await?
     .into_iter()
     .collect();
     let jury = match rules.as_ref().and_then(|r| r.jury_rules(jury_registration)) {
-        Some(_) => {
-            let mut conn = db.acquire().await?;
-            jury_facts(&mut conn, club_id).await?
-        }
+        Some(_) => jury_facts(conn, club_id).await?,
         None => JuryFacts::default(),
     };
+    tx.commit().await?;
     Ok(club_fees(
         &FeeFacts {
             rules,
@@ -73,7 +75,10 @@ pub(crate) async fn fees(
 
 /// Per rider: the acts they are in (and how many of those are waived), the
 /// pair request, and the waivers of the rider and their club.
-async fn rider_facts(db: &SqlitePool, club_id: Option<ClubId>) -> sqlx::Result<Vec<RiderFeeFacts>> {
+async fn rider_facts(
+    conn: &mut SqliteConnection,
+    club_id: Option<ClubId>,
+) -> sqlx::Result<Vec<RiderFeeFacts>> {
     Ok(sqlx::query!(
         r#"
         SELECT
@@ -95,7 +100,7 @@ async fn rider_facts(db: &SqlitePool, club_id: Option<ClubId>) -> sqlx::Result<V
         "#,
         club_id
     )
-    .fetch_all(db)
+    .fetch_all(conn)
     .await?
     .into_iter()
     .map(|row| RiderFeeFacts {
