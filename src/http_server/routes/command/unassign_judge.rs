@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryEnabled,
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -47,13 +48,7 @@ pub async fn unassign_judge(
         "Removing judge {} from jury unit {}",
         body.judge_id, body.unit_id
     );
-    sqlx::query!(
-        "DELETE FROM jury_assignments WHERE judge_id = ? AND unit_id = ?",
-        body.judge_id,
-        body.unit_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
+    jury_sessions::unassign_from_unit(&mut transaction, body.judge_id, body.unit_id).await?;
     transaction.commit().await?;
     Ok(Json(UnassignJudgeResponse {}))
 }

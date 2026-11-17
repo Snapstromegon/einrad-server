@@ -76,7 +76,7 @@ macro_rules! typed_ids {
 
 typed_ids! {
     ActId, BookingId, CategoryId, ClubId, ClubMailId, FinalId, FinalSlotId, HeatId, JudgeId,
-    RiderId, UserId,
+    JuryAssignmentId, JurySessionId, RiderId, UserId,
     /// The ID of a jury unit: the ID of a heat (its Vorlauf) or of a final.
     JuryUnitId,
     /// A connected music player (not stored in the database).

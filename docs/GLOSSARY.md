@@ -316,6 +316,10 @@ _Avoid_: Role, Rolle (for this meaning)
 What judges register for and are assigned to: the Vorlauf of one heat, or one final. It lives on the heat or final itself (ADR 0016) and has its own settings: whether judges can register for it, its jury deployments and the judges it needs per task. Its day is derived from the timeplan. A skipped Vorlauf takes no registrations; registrations it already had keep counting and are flagged for the jury lead to move.
 _Avoid_: Jury category (gone), Category (without "Jury-"), Wertungsklasse
 
+**Jury session** (Jurydurchgang):
+The set of a jury unit's categories that one jury judges; a unit has one by default and only the Jury lead splits it. Registration stays per unit. (ADR 0019)
+_Avoid_: Jury unit (the whole heat or final), Jury category (gone)
+
 **Jury deployment** (Juryeinsatz):
 One unit of jury work; the Vorlauf of a heat counts 2 by default, a final 1, and the jury lead can change both per jury unit.
 _Avoid_: Einsatz (alone), shift

@@ -27,6 +27,7 @@ use crate::{
     heats::{self, Discipline},
     images::{self, Image, ImageUrl, Slot},
     jury::{JudgeTask, JuryUnitKind, UnitSettings},
+    jury_sessions,
     logo::{Logo, SvgLogo},
     reloadable_sqlite::begin_write,
     roles::Role,
@@ -1335,6 +1336,8 @@ async fn write(
 
     for table in [
         "jury_assignments",
+        "jury_session_categories",
+        "jury_sessions",
         "judge_registration",
         "timeplan_slots",
         "timeplan",
@@ -1458,6 +1461,9 @@ async fn write(
         .execute(&mut *conn)
         .await
         .map_err(db_error)?;
+        jury_sessions::create_default_session(conn, JuryUnitKind::Heat, heat_id.into())
+            .await
+            .map_err(db_error)?;
         heats::set_categories(conn, heat_id, &heat.categories)
             .await
             .map_err(db_error)?;
@@ -1507,6 +1513,9 @@ async fn write(
             .execute(&mut *conn)
             .await
             .map_err(db_error)?;
+            jury_sessions::create_default_session(conn, JuryUnitKind::Final, final_id.into())
+                .await
+                .map_err(db_error)?;
             // `resolve_finals` checked that every slot group's heat is in
             // the file.
             let groups: Vec<finals::SlotGroupInput> = item
@@ -2283,6 +2292,11 @@ mod tests {
                 .fetch_one(db)
                 .await
                 .unwrap();
+        let session =
+            jury_sessions::first_session(&mut db.acquire().await.unwrap(), JuryUnitId(heat_id))
+                .await
+                .unwrap()
+                .unwrap();
         let statements: Vec<sqlx::query::Query<'_, sqlx::Sqlite, _>> = vec![
             sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Max', '')")
                 .bind(user),
@@ -2305,9 +2319,10 @@ mod tests {
             sqlx::query("INSERT INTO judge_registration (judge_id, final_id, task) VALUES (?, ?, 'performance')")
                 .bind(judge)
                 .bind(final_id),
-            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, task) VALUES (?, ?, 'technical')")
+            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, session_id, task) VALUES (?, ?, ?, 'technical')")
                 .bind(judge)
-                .bind(heat_id),
+                .bind(heat_id)
+                .bind(session),
             sqlx::query("UPDATE competition SET jury_plan_published_at = '2027-01-01T00:00:00Z'"),
             sqlx::query("INSERT INTO timeplan_slots (timeplan_id, position, act_id) VALUES ((SELECT MIN(id) FROM timeplan), 1, ?)")
                 .bind(act),

@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::{self, JudgeTask, JuryAssignment, JuryEnabled},
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -51,15 +52,19 @@ pub async fn assign_judge(
         "Assigning judge {} to jury unit {:?} {} ({:?})",
         body.judge_id, body.unit_kind, body.unit_id, body.task
     );
-    let (heat_id, final_id) = jury::unit_columns(body.unit_kind, body.unit_id);
-    let result = sqlx::query!(
-        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
+    // Temporary: the first Durchgang of the unit (a unit that does not
+    // exist has none).
+    let session = jury_sessions::first_session(&mut transaction, body.unit_id)
+        .await?
+        .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    let result = jury_sessions::assign(
+        &mut transaction,
         body.judge_id,
-        heat_id,
-        final_id,
+        body.unit_kind,
+        body.unit_id,
+        session,
         body.task,
     )
-    .execute(&mut *transaction)
     .await;
     match result {
         Ok(_) => {}

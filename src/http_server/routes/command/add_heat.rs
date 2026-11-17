@@ -7,6 +7,8 @@ use utoipa::ToSchema;
 use crate::{
     heats,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
+    jury::JuryUnitKind,
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -86,6 +88,7 @@ pub async fn add_heat(
     )
     .execute(&mut *tx)
     .await?;
+    jury_sessions::create_default_session(&mut tx, JuryUnitKind::Heat, id.into()).await?;
     // A refusal rolls the new heat back with the transaction.
     heats::check_categories(&mut tx, id, &categories)
         .await
