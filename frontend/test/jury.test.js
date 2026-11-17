@@ -5,6 +5,7 @@ import {
   assignedDeployments,
   assignedLoad,
   loadLabel,
+  overMaxWarnings,
   countDeployments,
   coverage,
   deploymentNote,
@@ -73,6 +74,59 @@ describe("jury", () => {
       over: false,
     });
     assert.equal(loadLabel({ assigned: 6, max: 4 }), "6 / max. 4");
+  });
+
+  test("overMaxWarnings lists each judge over their max. Einsätze once", () => {
+    const units = [
+      { id: "v", deployments: 2 },
+      { id: "f", deployments: 1 },
+      { id: "w", deployments: 2 },
+    ];
+    const a = (judge_id, unit_id, task = "technical") => ({
+      judge_id,
+      unit_id,
+      task,
+    });
+    const erika = (max_deployments) => ({
+      id: "1",
+      firstname: "Erika",
+      lastname: "Mustermann",
+      max_deployments,
+    });
+    const five = [a("1", "v"), a("1", "w"), a("1", "f")];
+    assert.deepEqual(overMaxWarnings(five, [erika(4)], units), [
+      "Erika Mustermann über max. Einsätze (5 / max. 4)",
+    ]);
+    assert.deepEqual(overMaxWarnings(five, [erika(5)], units), []);
+    const max = { id: "2", firstname: "Max", lastname: "Müller" };
+    assert.deepEqual(
+      overMaxWarnings(
+        [a("2", "v"), a("2", "w"), a("2", "f")],
+        [{ ...max, max_deployments: null }],
+        units,
+      ),
+      [],
+    );
+    const twice = [a("1", "v"), a("1", "v", "dismounts")];
+    assert.deepEqual(overMaxWarnings(twice, [erika(2)], units), []);
+    assert.deepEqual(overMaxWarnings(twice, [erika(1)], units), [
+      "Erika Mustermann über max. Einsätze (2 / max. 1)",
+    ]);
+    assert.deepEqual(overMaxWarnings([a("9", "v")], [erika(1)], units), []);
+    assert.deepEqual(
+      overMaxWarnings(
+        [a("1", "v"), a("2", "v")],
+        [
+          { ...erika(1), id: "1" },
+          { ...max, max_deployments: 1 },
+        ],
+        units,
+      ),
+      [
+        "Max Müller über max. Einsätze (2 / max. 1)",
+        "Erika Mustermann über max. Einsätze (2 / max. 1)",
+      ],
+    );
   });
 
   test("the judge registration ends with the registration by default", () => {

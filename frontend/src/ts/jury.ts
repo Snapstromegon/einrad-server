@@ -212,6 +212,34 @@ export const assignedLoad = (
 export const loadLabel = (l: { assigned: number; max: number }) =>
   `${l.assigned} / max. ${l.max}`;
 
+/** One line per judge assigned over their max. Einsätze, by name. */
+export const overMaxWarnings = (
+  assignments: { judge_id: string; unit_id: string }[],
+  judges: {
+    id: string;
+    firstname: string;
+    lastname: string;
+    max_deployments?: number | null;
+  }[],
+  units: { id: string; deployments: number }[],
+) => {
+  const load = assignedDeployments(units, assignments);
+  return judges
+    .flatMap((judge) => {
+      const l = assignedLoad(judge, load);
+      return l?.over ? [{ judge, l }] : [];
+    })
+    .sort(
+      (a, b) =>
+        a.judge.lastname.localeCompare(b.judge.lastname, "de") ||
+        a.judge.firstname.localeCompare(b.judge.firstname, "de"),
+    )
+    .map(
+      ({ judge, l }) =>
+        `${judge.firstname} ${judge.lastname} über max. Einsätze (${loadLabel(l)})`,
+    );
+};
+
 /** Why a judge's counted Einsätze differ from all their registered jury units. */
 export const deploymentNote = (judge: {
   is_trained: boolean;

@@ -16,6 +16,7 @@ import {
   deploymentNote,
   judgeRegistrationEnd,
   neededFor,
+  overMaxWarnings,
   planWarnings,
   TASKS,
   taskLabels,
@@ -259,6 +260,17 @@ export default class CupViewAdminJudges extends LitElement {
             </tbody>
           </table>`,
     );
+    const overMax = overMaxWarnings(plan.assignments, judges, units);
+    const overMaxList = overMax.length
+      ? html`<p>
+          ${overMax.map(
+            (line, i) =>
+              html`${i ? html`<br />` : nothing}<small class="text-warn"
+                  >${line}</small
+                >`,
+          )}
+        </p>`
+      : nothing;
     const published = plan.published_at;
     // Clubs can change their judges until the judge deadline.
     const end = judgeRegistrationEnd(this.systemStatus?.competition);
@@ -306,7 +318,7 @@ export default class CupViewAdminJudges extends LitElement {
           end ? ` (${formatDate(end)})` : ""
         }.
       </p>
-      ${groups}
+      ${overMaxList} ${groups}
     </section>`;
   }
 
