@@ -19,6 +19,7 @@ import {
   isPendingPair,
   riderName,
 } from "../../../club-data";
+import { riderDeleteChoices } from "../../../linked-judge";
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
 import {
@@ -32,6 +33,7 @@ import {
   addRider,
   deleteRider,
   editRider,
+  riderDeleteImpact,
   type Gender,
   genderLabels,
 } from "./club-actions";
@@ -86,6 +88,29 @@ export default class CupClubStepRiders extends LitElement {
     iconStyles,
     clubPortalStyles,
     css`
+      .delete-dialog {
+        max-width: 32rem;
+        border: 1px solid var(--outline, currentcolor);
+        border-radius: 0.75rem;
+        background: var(--surface, Canvas);
+        color: inherit;
+      }
+
+      .delete-dialog .choice {
+        margin-block: 0.75rem;
+      }
+
+      .delete-dialog .hint {
+        margin: 0.25rem 0 0;
+        font-size: 0.85rem;
+        opacity: 0.8;
+      }
+
+      .delete-dialog .actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
       .add-form {
         display: grid;
         grid-template-columns: 1fr 1fr 11rem 9rem auto;
@@ -237,7 +262,13 @@ export default class CupClubStepRiders extends LitElement {
   @state() error: string | null = null;
   @state() search = "";
   @state() edit: (RiderDraft & { id: string }) | null = null;
+  @query("dialog") deleteDialog?: HTMLDialogElement;
   @state() busy = new Set<string>();
+  /** The rider whose linked judge the delete dialog asks about. */
+  @state() pendingDelete: {
+    rider: ClubRider;
+    choices: NonNullable<ReturnType<typeof riderDeleteChoices>>;
+  } | null = null;
 
   @query("#firstname") firstnameInput?: HTMLInputElement;
   @queryAll("[data-id]") idElements!: NodeListOf<HTMLElement>;
@@ -248,6 +279,9 @@ export default class CupClubStepRiders extends LitElement {
         .find((el) => el.dataset.id === this.target)
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
+    // The delete dialog is modal: open it once it is rendered.
+    const dialog = this.deleteDialog;
+    if (dialog && !dialog.open) dialog.showModal();
   }
 
   override render() {
@@ -273,6 +307,7 @@ export default class CupClubStepRiders extends LitElement {
               >
             </p>`
       }
+      ${this.renderDeleteDialog()}
       ${
         this.error
           ? html`<p class="banner error" role="alert">
@@ -742,6 +777,17 @@ export default class CupClubStepRiders extends LitElement {
   }
 
   async deleteRider(rider: ClubRider) {
+    let choices;
+    try {
+      choices = riderDeleteChoices(await riderDeleteImpact(rider.id));
+    } catch (error) {
+      this.error = failureText("Fehler beim Löschen", error);
+      return;
+    }
+    if (choices) {
+      this.pendingDelete = { rider, choices };
+      return;
+    }
     const acts = actsOfRider(this.data.acts, rider.id).length;
     const name = riderName(rider);
     if (
@@ -756,6 +802,67 @@ export default class CupClubStepRiders extends LitElement {
       return;
     }
     await this.run(rider, () => deleteRider(rider));
+  }
+
+  private renderDeleteDialog() {
+    const pending = this.pendingDelete;
+    if (!pending) return nothing;
+    const { rider, choices } = pending;
+    return html`<dialog class="delete-dialog" @close=${this.closeDeleteDialog}>
+      <h3>${riderName(rider)} ist als JurorIn gemeldet</h3>
+      <p>Was soll mit der JurorIn passieren?</p>
+      <div class="choice">
+        <button
+          class="btn danger"
+          ?disabled=${!choices.canDelete}
+          @click=${this.onDeleteJudgeToo}
+        >
+          ${choices.deleteLabel}
+        </button>
+        <p class="hint">
+          ${
+            choices.canDelete
+              ? choices.lossText
+              : "Die Jurymeldung ist geschlossen. Die JurorIn kann nur behalten werden."
+          }
+        </p>
+      </div>
+      <div class="choice">
+        <button class="btn" @click=${this.onKeepJudge}>
+          ${choices.keepLabel}
+        </button>
+        <p class="hint">
+          Die JurorIn bleibt mit Namen und Geburtsdatum der FahrerIn erhalten
+          und ist danach nicht mehr verknüpft.
+        </p>
+      </div>
+      <div class="actions">
+        <button class="btn" @click=${this.closeDeleteDialog}>
+          ${choices.cancelLabel}
+        </button>
+      </div>
+    </dialog>`;
+  }
+
+  private closeDeleteDialog() {
+    const dialog = this.deleteDialog;
+    if (dialog?.open) dialog.close();
+    this.pendingDelete = null;
+  }
+
+  private async onDeleteJudgeToo() {
+    await this.finishDelete("delete");
+  }
+
+  private async onKeepJudge() {
+    await this.finishDelete("keep");
+  }
+
+  private async finishDelete(choice: "delete" | "keep") {
+    const rider = this.pendingDelete?.rider;
+    if (!rider) return;
+    this.closeDeleteDialog();
+    await this.run(rider, () => deleteRider(rider, choice));
   }
 
   async run(rider: ClubRider, action: () => Promise<unknown>) {

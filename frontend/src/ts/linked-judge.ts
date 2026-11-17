@@ -64,3 +64,24 @@ export const deleteImpactText = (
   const verb = registrations + assignments === 1 ? "wird" : "werden";
   return `${parts.join(" und ")} ${verb} ebenfalls gelöscht`;
 };
+
+export interface RiderDeleteImpact {
+  linked_judge?: {
+    registrations: number;
+    assignments: number;
+    can_delete_judge?: boolean;
+  } | null;
+}
+
+/** The choices of the rider delete dialog; null for a rider without a linked judge. */
+export const riderDeleteChoices = (impact: RiderDeleteImpact) => {
+  const judge = impact.linked_judge;
+  if (!judge) return null;
+  return {
+    deleteLabel: "JurorIn mitlöschen" as const,
+    keepLabel: "JurorIn behalten" as const,
+    cancelLabel: "Abbrechen" as const,
+    lossText: deleteImpactText(judge.registrations, judge.assignments),
+    canDelete: judge.can_delete_judge ?? true,
+  };
+};

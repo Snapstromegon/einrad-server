@@ -5,6 +5,7 @@ import {
   deleteImpactText,
   isLinked,
   matchingRider,
+  riderDeleteChoices,
 } from "../src/ts/linked-judge.ts";
 
 const rider = (id, firstname, lastname) => ({
@@ -74,5 +75,40 @@ describe("deleteImpactText", () => {
     );
     assert.equal(deleteImpactText(1, 0), "1 Anmeldung wird ebenfalls gelöscht");
     assert.equal(deleteImpactText(0, 0), "");
+  });
+});
+
+describe("riderDeleteChoices", () => {
+  test("null without a linked judge", () => {
+    assert.equal(riderDeleteChoices({ linked_judge: null }), null);
+  });
+  test("labels and loss text", () => {
+    assert.deepEqual(
+      riderDeleteChoices({
+        linked_judge: {
+          registrations: 3,
+          assignments: 2,
+          can_delete_judge: true,
+        },
+      }),
+      {
+        deleteLabel: "JurorIn mitlöschen",
+        keepLabel: "JurorIn behalten",
+        cancelLabel: "Abbrechen",
+        lossText: "3 Anmeldungen und 2 Einteilungen werden ebenfalls gelöscht",
+        canDelete: true,
+      },
+    );
+  });
+  test("zero counts give empty loss text; closed registration disables delete", () => {
+    const c = riderDeleteChoices({
+      linked_judge: {
+        registrations: 0,
+        assignments: 0,
+        can_delete_judge: false,
+      },
+    });
+    assert.equal(c.lossText, "");
+    assert.equal(c.canDelete, false);
   });
 });
