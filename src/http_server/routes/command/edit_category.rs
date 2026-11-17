@@ -6,14 +6,10 @@ use utoipa::ToSchema;
 
 use crate::{
     act_type::ActType,
-    heats::Discipline,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    seed,
 };
-
-use super::add_category::check_ages;
+use db_core::{DbHandle, categories::CategoryFields};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EditCategoryResponse {
@@ -53,87 +49,28 @@ pub struct EditCategoryBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_category(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<EditCategoryBody>,
 ) -> Result<Json<EditCategoryResponse>, HttpError> {
-    let db = db.get().await.clone();
-
-    // Start a transaction to ensure atomicity
-    let mut tx = begin_write(&db).await?;
-    check_ages(&mut tx, &body.new_name, body.min_age, body.under_age).await?;
-    check_heat(&mut tx, &body).await?;
-
-    // A rename is a plain update: everything refers to the category by its ID.
-    let updated = sqlx::query!(
-        r#"
-        UPDATE categories 
-        SET 
-            name = $1,
-            description = $2,
-            min_age = $3,
-            under_age = $4,
-            act_type = $5,
-            is_single_male = $6,
-            einfahrzeit_seconds = $7,
-            act_duration_seconds = $8,
-            judge_duration_seconds = $9
-        WHERE id = $10
-        "#,
-        body.new_name,
-        body.description,
-        body.min_age,
-        body.under_age,
-        body.act_type,
-        body.is_single_male,
-        body.einfahrzeit_seconds,
-        body.act_duration_seconds,
-        body.judge_duration_seconds,
-        body.category_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    if updated.rows_affected() == 0 {
-        return Err(HttpError::NotFound);
-    }
-
-    let warnings = seed::stored_coverage_warnings(&mut tx)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    tx.commit().await?;
-
+    let warnings = repo
+        .edit_category(
+            body.category_id,
+            &CategoryFields {
+                name: body.new_name,
+                description: body.description,
+                min_age: body.min_age,
+                under_age: body.under_age,
+                act_type: body.act_type,
+                is_single_male: body.is_single_male,
+                einfahrzeit_seconds: body.einfahrzeit_seconds,
+                act_duration_seconds: body.act_duration_seconds,
+                judge_duration_seconds: body.judge_duration_seconds,
+            },
+        )
+        .await?;
     Ok(Json(EditCategoryResponse { warnings }))
-}
-
-/// A category in a heat keeps its act type and gender (HEAT-1): the heat's
-/// other categories and its finals share them. The message is German.
-async fn check_heat(
-    conn: &mut sqlx::SqliteConnection,
-    body: &EditCategoryBody,
-) -> Result<(), HttpError> {
-    let Some(row) = sqlx::query!(
-        r#"
-        SELECT heats.name as "heat!", categories.name as "name!", act_type as "act_type: ActType", is_single_male
-        FROM categories JOIN heats ON heats.id = categories.heat_id
-        WHERE categories.id = ?
-        "#,
-        body.category_id
-    )
-    .fetch_optional(conn)
-    .await?
-    else {
-        return Ok(());
-    };
-    if Discipline::new(row.act_type, row.is_single_male)
-        != Discipline::new(body.act_type, body.is_single_male)
-    {
-        return Err(HttpError::ErrorMessages(format!(
-            "{} gehört zur Vorlaufklasse „{}“: Typ und Geschlecht bleiben, solange die Kategorie dort ist.",
-            row.name, row.heat
-        )));
-    }
-    Ok(())
 }

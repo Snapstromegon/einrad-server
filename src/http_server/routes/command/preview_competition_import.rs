@@ -1,4 +1,5 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Deserialize;
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -6,7 +7,6 @@ use utoipa::ToSchema;
 use crate::{
     config::CompetitionFile,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     seed::{self, Preview},
 };
@@ -36,16 +36,15 @@ pub(super) fn parse(body: &CompetitionFileBody) -> Result<CompetitionFile, HttpE
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, body))]
+#[instrument(skip(repo, body))]
 #[axum::debug_handler]
 pub async fn preview_competition_import(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<CompetitionFileBody>,
 ) -> Result<Json<Preview>, HttpError> {
     let file = parse(&body)?;
-    let db = db.get().await.clone();
-    let preview = seed::preview(&db, &file)
+    let preview = seed::preview(repo.as_ref(), &file)
         .await
         .map_err(HttpError::ErrorMessages)?;
     Ok(Json(preview))

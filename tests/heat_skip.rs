@@ -51,7 +51,7 @@ async fn heat(app: &TestApp, name: &str) -> Value {
 async fn insert_category(db: &SqlitePool, name: &str, under_age: Option<f64>, heat: &str) {
     sqlx::query(
         "INSERT INTO categories (name, act_type, is_single_male, under_age, heat) \
-         VALUES (?, 'single', TRUE, ?, ?)",
+         VALUES ($1, 'single', TRUE, $2, $3)",
     )
     .bind(name)
     .bind(under_age)
@@ -71,10 +71,10 @@ async fn thresholds(db: &SqlitePool) -> Vec<(String, i64, bool)> {
 #[tokio::test]
 async fn the_migration_gives_junior_expert_heats_6_and_others_5() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(HEATS, &db).await.unwrap();
     for heat in ["JE EM", "E EM", "Gemischt", "Leer"] {
-        sqlx::query("INSERT INTO heats (name) VALUES (?)")
+        sqlx::query("INSERT INTO heats (name) VALUES ($1)")
             .bind(heat)
             .execute(&db)
             .await
@@ -266,7 +266,7 @@ async fn the_organizer_changes_the_threshold() {
 
 /// The id of the heat `name`; a made-up one for a heat that doesn't exist.
 async fn heat_id_or_unknown(app: &TestApp, name: &str) -> HeatId {
-    sqlx::query_scalar("SELECT id FROM heats WHERE name = ?")
+    sqlx::query_scalar("SELECT id FROM heats WHERE name = $1")
         .bind(name)
         .fetch_optional(&app.db)
         .await
@@ -314,13 +314,13 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
 
     // An act of the heat has started.
-    sqlx::query("UPDATE acts SET started_at = datetime('now') WHERE id = ?")
+    sqlx::query("UPDATE acts SET started_at = CURRENT_TIMESTAMP WHERE id = $1")
         .bind(anna)
         .execute(&app.db)
         .await
         .unwrap();
     rejected(&set_skip(&app, &admin, "JE EW", true).await, "begonnen");
-    sqlx::query("UPDATE acts SET started_at = NULL WHERE id = ?")
+    sqlx::query("UPDATE acts SET started_at = NULL WHERE id = $1")
         .bind(anna)
         .execute(&app.db)
         .await
@@ -328,10 +328,10 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
 
     // A slot of its final has started: also for the other heat of the final.
     sqlx::query(
-        "UPDATE final_slots SET started_at = datetime('now') \
+        "UPDATE final_slots SET started_at = CURRENT_TIMESTAMP \
          WHERE id = (SELECT final_slots.id FROM final_slots \
             JOIN finals ON finals.id = final_slots.final_id \
-            WHERE finals.name = ? ORDER BY position LIMIT 1)",
+            WHERE finals.name = $1 ORDER BY position LIMIT 1)",
     )
     .bind(FINAL)
     .execute(&app.db)
@@ -343,7 +343,7 @@ async fn a_started_vorlauf_or_final_keeps_its_skip() {
 /// The body to add or (for a final that exists) edit the final `name` with
 /// one slot for each of the heats named.
 async fn final_body(app: &TestApp, name: &str, heats: &[&str]) -> Value {
-    let id: Option<FinalId> = sqlx::query_scalar("SELECT id FROM finals WHERE name = ?")
+    let id: Option<FinalId> = sqlx::query_scalar("SELECT id FROM finals WHERE name = $1")
         .bind(name)
         .fetch_optional(&app.db)
         .await
@@ -783,7 +783,7 @@ async fn a_final_with_only_direct_acts_is_started_with_its_block() {
     )
     .await;
     ok(&set_skip(&app, &admin, "JE EW", true).await);
-    sqlx::query("UPDATE timeplan SET started_at = datetime('now')")
+    sqlx::query("UPDATE timeplan SET started_at = CURRENT_TIMESTAMP")
         .execute(&app.db)
         .await
         .unwrap();
@@ -801,7 +801,7 @@ async fn a_final_is_started_when_a_direct_act_started() {
     let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
     let anna = app.add_single_act(&owner, club_id, "Anna").await;
     ok(&set_skip(&app, &admin, "JE EW", true).await);
-    sqlx::query("UPDATE acts SET started_at = datetime('now') WHERE id = ?")
+    sqlx::query("UPDATE acts SET started_at = CURRENT_TIMESTAMP WHERE id = $1")
         .bind(anna)
         .execute(&app.db)
         .await

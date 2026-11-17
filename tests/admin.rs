@@ -160,7 +160,7 @@ async fn a_lone_admin_keeps_admin_as_nobody_drops_their_own() {
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 
     let is_admin: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = ? AND role = 'admin')",
+        "SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')",
     )
     .bind(admin_id)
     .fetch_one(&app.db)
@@ -187,7 +187,7 @@ async fn admin_cannot_demote_themselves_even_when_another_admin_exists() {
     assert_eq!(response.status, StatusCode::FORBIDDEN);
 
     let is_admin: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = ? AND role = 'admin')",
+        "SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')",
     )
     .bind(admin_id)
     .fetch_one(&app.db)

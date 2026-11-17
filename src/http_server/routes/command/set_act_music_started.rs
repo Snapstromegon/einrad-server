@@ -1,14 +1,13 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
-    timeplan::mark_music_started,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -33,15 +32,14 @@ pub struct ActMusicStartedBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn set_act_music_started(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ControlMusic>,
     Json(body): Json<ActMusicStartedBody>,
 ) -> Result<Json<SetActMusicStartedResponse>, HttpError> {
-    let db = db.get().await.clone();
-    if mark_music_started(&db, body.act_id, 0.0).await? {
+    if repo.mark_music_started(body.act_id, 0.0).await? {
         info!("Music of act {} started", body.act_id);
     }
     Ok(Json(SetActMusicStartedResponse {}))

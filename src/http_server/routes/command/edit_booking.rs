@@ -1,13 +1,13 @@
 use crate::ids::BookingId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    bookings::{self, Actor, Booking, BookingAction, BookingInput},
+    bookings::BookingInput,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -35,10 +35,10 @@ pub struct EditBookingBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_booking(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     granted: Granted<permit::ManagePayments>,
     Json(body): Json<EditBookingBody>,
 ) -> Result<Json<EditBookingResponse>, HttpError> {
@@ -46,47 +46,7 @@ pub async fn edit_booking(
         .booking
         .checked()
         .map_err(|e| HttpError::ErrorMessages(e.to_string()))?;
-    let id = body.booking_id;
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let before = Booking::load(&mut tx, id)
-        .await?
-        .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    if let Some(club_id) = input.club_id
-        && sqlx::query_scalar!("SELECT 1 as one FROM clubs WHERE id = ?", club_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_none()
-    {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    info!("Editing booking {id}");
-    sqlx::query!(
-        "UPDATE bookings SET amount = ?, date = ?, note = ?, club_id = ?, ignored = ? WHERE id = ?",
-        input.amount,
-        input.date,
-        input.note,
-        input.club_id,
-        input.ignored,
-        id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let after = Booking::load(&mut tx, id)
-        .await?
-        .ok_or(HttpError::InternalServerError)?;
-    // Saving the form unchanged changes nothing to log.
-    if after != before {
-        bookings::log_change(
-            &mut tx,
-            id,
-            &Actor::of(&granted),
-            BookingAction::of_edit(&before, &after),
-            Some(&before),
-            Some(&after),
-        )
+    repo.edit_booking(&granted.booking_actor(), body.booking_id, &input)
         .await?;
-    }
-    tx.commit().await?;
     Ok(Json(EditBookingResponse {}))
 }

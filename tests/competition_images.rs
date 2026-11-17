@@ -20,8 +20,7 @@ use common::{TestApp, TestResponse};
 use einrad_server::{
     image_fetch::ImageFetcher,
     images::{self, DEFAULT_BREAK_SVG, PRESET_SPONSORS},
-    logo::Logo,
-    reloadable_sqlite::ReloadableSqlite,
+    logo,
 };
 use serde_json::{Value, json};
 
@@ -337,8 +336,7 @@ async fn startup_downloads_in_the_background_and_survives_unreachable_urls() {
         .unwrap();
     assert_eq!(served(&app, LOGO_URL).await, DEFAULT_LOGO);
 
-    let db = ReloadableSqlite::new(app.db.clone(), "sqlite::memory:".to_string());
-    ImageFetcher::shared().refresh_in_background(db, None);
+    ImageFetcher::shared().refresh_in_background(app.repo.clone(), None);
     for _ in 0..100 {
         if served(&app, LOGO_URL).await == SVG_A.as_bytes() {
             break;
@@ -430,8 +428,8 @@ async fn a_download_that_finishes_after_a_change_is_dropped() {
         json!({ "target": "logo", "url": "http://127.0.0.1:1/a.svg" }),
     )
     .await;
-    let id = images::list(&app.db).await.unwrap()[0].id;
-    let stale = Logo::from_upload(SVG_A.as_bytes()).unwrap();
+    let id = app.repo.list_images().await.unwrap()[0].id;
+    let stale = logo::from_upload(SVG_A.as_bytes()).unwrap();
     // The admin switched to an inline SVG while the download ran.
     ok(
         &app,
@@ -440,7 +438,9 @@ async fn a_download_that_finishes_after_a_change_is_dropped() {
         json!({ "target": "logo", "svg": SVG_B }),
     )
     .await;
-    let stored = images::store_fetched(&app.db, id, "http://127.0.0.1:1/a.svg", Ok(stale))
+    let stored = app
+        .repo
+        .store_fetched_image(id, "http://127.0.0.1:1/a.svg", Ok(stale))
         .await
         .unwrap();
     assert!(!stored);
@@ -634,10 +634,10 @@ async fn the_built_in_sponsor_logos_are_presets_to_add() {
 #[test]
 fn the_built_in_images_pass_the_svg_check() {
     for svg in [DEFAULT_BREAK_SVG, DEFAULT_LOGO] {
-        Logo::from_upload(svg).unwrap();
+        logo::from_upload(svg).unwrap();
     }
     for preset in PRESET_SPONSORS {
-        Logo::from_upload(preset.svg.as_bytes()).unwrap();
+        logo::from_upload(preset.svg.as_bytes()).unwrap();
     }
 }
 
@@ -682,10 +682,7 @@ async fn a_competition_file_sets_images_and_sponsors_and_a_replace_keeps_them_un
     let response = import(&app, &admin, &file).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     ImageFetcher::shared()
-        .refresh(
-            &ReloadableSqlite::new(app.db.clone(), "sqlite::memory:".to_string()),
-            None,
-        )
+        .refresh(&app.repo, None)
         .await
         .unwrap();
 
@@ -800,7 +797,7 @@ async fn the_same_images_in_the_file_change_nothing() {
             })
             .collect::<Vec<_>>()
     };
-    let before = images_without_fetch_state(images::list(&app.db).await.unwrap());
+    let before = images_without_fetch_state(app.repo.list_images().await.unwrap());
 
     let preview = command(
         &app,
@@ -816,7 +813,7 @@ async fn the_same_images_in_the_file_change_nothing() {
         "unchanged"
     );
     assert_eq!(
-        images_without_fetch_state(images::list(&app.db).await.unwrap()),
+        images_without_fetch_state(app.repo.list_images().await.unwrap()),
         before
     );
 }

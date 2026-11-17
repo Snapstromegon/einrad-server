@@ -580,7 +580,7 @@ async fn act_timer_starts_with_the_first_music_start() {
     assert!(music_started().await.is_string());
 
     // Only the first start counts.
-    sqlx::query("UPDATE acts SET music_started_at = '2026-04-19 09:15:00' WHERE id = ?")
+    sqlx::query("UPDATE acts SET music_started_at = '2026-04-19 09:15:00' WHERE id = $1")
         .bind(act_id)
         .execute(&app.db)
         .await
@@ -1194,7 +1194,7 @@ async fn late_acts_join_their_home_block_and_deleted_acts_leave() {
     );
 
     let rider: RiderId =
-        sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = ?")
+        sqlx::query_scalar("SELECT rider_id FROM act_participants WHERE act_id = $1")
             .bind(a1)
             .fetch_one(&app.db)
             .await
@@ -1352,7 +1352,7 @@ async fn started_slots_keep_their_planned_order_whatever_their_times() {
         step_ok(&app, &admin, "timeplan_forward").await;
     }
     // A start time from another clock (e.g. imported data) doesn't reorder.
-    sqlx::query("UPDATE acts SET started_at = '2099-01-01 10:00:00' WHERE id = ?")
+    sqlx::query("UPDATE acts SET started_at = '2099-01-01 10:00:00' WHERE id = $1")
         .bind(a1)
         .execute(&app.db)
         .await
@@ -1682,7 +1682,7 @@ async fn breaks_need_a_duration_in_the_database_too() {
         .unwrap();
     for duration in [None, Some(0)] {
         let insert = sqlx::query(
-            "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES (?, 0, 'Pause', ?)",
+            "INSERT INTO timeplan_slots (timeplan_id, position, label, duration_seconds) VALUES ($1, 0, 'Pause', $2)",
         )
         .bind(block)
         .bind(duration)
@@ -1895,4 +1895,70 @@ async fn start_blocks_cant_be_internal() {
         )
         .await;
     assert_ne!(response.status, StatusCode::OK, "{:?}", response.body);
+}
+
+async fn stored_start_times(app: &TestApp) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT earliest_start_time FROM timeplan ORDER BY position, id")
+        .fetch_all(&app.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn start_times_are_stored_as_rfc3339_text_and_invalid_ones_are_rejected() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    replace_timeplan(&app, &admin, &[]).await;
+
+    // Added: UTC, with an offset and without a start time.
+    for start in [Some(START), Some("2026-04-19T11:00:00+02:00"), None] {
+        let response = app
+            .post(
+                "/api/command/add_timeplan_entry",
+                category_entry("EWU13", start),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+    assert_eq!(
+        stored_start_times(&app).await,
+        [
+            Some(START.to_string()),
+            Some("2026-04-19T11:00:00+02:00".to_string()),
+            None
+        ]
+    );
+
+    // Edited the same way.
+    let entries = list_timeplan(&app).await;
+    let mut edit = category_entry("EWU13", Some("2026-04-20T08:30:00Z"));
+    edit["id"] = entries[2]["id"].clone();
+    let response = app
+        .post("/api/command/edit_timeplan_entry", edit, Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(
+        stored_start_times(&app).await[2].as_deref(),
+        Some("2026-04-20T08:30:00Z")
+    );
+
+    // Invalid values are a 400 and change nothing.
+    let before = stored_start_times(&app).await;
+    let mut bad_edit = category_entry("EWU13", Some("morgen um neun"));
+    bad_edit["id"] = entries[0]["id"].clone();
+    let response = app
+        .post("/api/command/edit_timeplan_entry", bad_edit, Some(&admin))
+        .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    let response = app
+        .post(
+            "/api/command/add_timeplan_entry",
+            category_entry("EWU13", Some("2026-13-45T99:00:00Z")),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert_eq!(stored_start_times(&app).await, before);
 }

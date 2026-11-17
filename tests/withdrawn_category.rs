@@ -34,11 +34,12 @@ async fn two_acts_one_withdrawn(app: &TestApp) -> (String, ActId, ActId) {
 async fn the_view_gives_a_withdrawn_act_its_category() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let (_, anna, _) = two_acts_one_withdrawn(&app).await;
-    let category: Option<String> = sqlx::query_scalar("SELECT category FROM view_act WHERE id = ?")
-        .bind(anna)
-        .fetch_one(&app.db)
-        .await
-        .unwrap();
+    let category: Option<String> =
+        sqlx::query_scalar("SELECT category FROM view_act WHERE id = $1")
+            .bind(anna)
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
     assert_eq!(category.as_deref(), Some("EWU13"));
 }
 

@@ -7,6 +7,7 @@ use std::{fmt, io::Cursor, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+pub use db_core::media::{Format, Logo, StoredLogo};
 use image::{
     DynamicImage, ImageDecoder, ImageError, ImageFormat, ImageReader, Limits,
     codecs::{
@@ -17,7 +18,6 @@ use image::{
     imageops::FilterType,
     metadata::Orientation,
 };
-use time::OffsetDateTime;
 
 /// The logo built into the binary, for a competition without its own and
 /// for setup mode.
@@ -47,87 +47,6 @@ pub enum LogoError {
          <foreignObject>, Entity-Deklarationen oder Verweise auf andere Dateien enthalten."
     )]
     UnsafeSvg(String),
-}
-
-/// The format of a logo, told from its content.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Format {
-    Png,
-    Jpeg,
-    Webp,
-    Svg,
-}
-
-impl Format {
-    /// The format of `bytes` by their first bytes; anything text that starts
-    /// like XML might be an SVG.
-    fn of(bytes: &[u8]) -> Option<Format> {
-        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-            Some(Format::Png)
-        } else if bytes.starts_with(b"\xff\xd8\xff") {
-            Some(Format::Jpeg)
-        } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-            Some(Format::Webp)
-        } else if std::str::from_utf8(bytes).is_ok_and(|text| {
-            text.trim_start_matches('\u{feff}')
-                .trim_start()
-                .starts_with('<')
-        }) {
-            Some(Format::Svg)
-        } else {
-            None
-        }
-    }
-
-    pub fn from_mime_type(mime_type: &str) -> Option<Format> {
-        [Format::Png, Format::Jpeg, Format::Webp, Format::Svg]
-            .into_iter()
-            .find(|format| format.mime_type() == mime_type)
-    }
-
-    pub fn mime_type(self) -> &'static str {
-        match self {
-            Format::Png => "image/png",
-            Format::Jpeg => "image/jpeg",
-            Format::Webp => "image/webp",
-            Format::Svg => "image/svg+xml",
-        }
-    }
-
-    /// The name for people, e.g. "PNG".
-    pub fn name(self) -> &'static str {
-        match self {
-            Format::Png => "PNG",
-            Format::Jpeg => "JPEG",
-            Format::Webp => "WebP",
-            Format::Svg => "SVG",
-        }
-    }
-}
-
-/// A logo ready to store.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Logo {
-    pub format: Format,
-    pub data: Vec<u8>,
-}
-
-impl Logo {
-    /// An uploaded logo, its format told from its content.
-    pub fn from_upload(bytes: &[u8]) -> Result<Logo, LogoError> {
-        let format = Format::of(bytes).ok_or(LogoError::Unsupported)?;
-        let data = match format {
-            Format::Svg => {
-                // `Format::of` checked that it's text.
-                let text = std::str::from_utf8(bytes).map_err(|_| LogoError::Unsupported)?;
-                return Ok(Logo::from(&text.parse::<SvgLogo>()?));
-            }
-            Format::Png => scale(bytes, ImageFormat::Png)?,
-            Format::Jpeg => scale(bytes, ImageFormat::Jpeg)?,
-            Format::Webp => scale(bytes, ImageFormat::WebP)?,
-        };
-        Ok(Logo { format, data })
-    }
 }
 
 /// An SVG logo, e.g. `logo_svg` in the competition file: checked like an
@@ -326,30 +245,33 @@ fn css_loads_files(css: &str) -> bool {
             .any(|url| !is_internal_reference(url.trim_start_matches(['\'', '"'])))
 }
 
-/// The logo as the database has it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct StoredLogo {
-    pub mime_type: String,
-    pub data: Vec<u8>,
-    pub updated_at: OffsetDateTime,
+/// The SVG of a stored logo, e.g. for the competition file; `None` for a
+/// raster logo.
+pub trait StoredLogoExt {
+    fn svg(&self) -> Option<SvgLogo>;
 }
 
-impl StoredLogo {
-    pub fn format(&self) -> Option<Format> {
-        Format::from_mime_type(&self.mime_type)
-    }
-
-    /// The logo as SVG, e.g. for the competition file; `None` for a raster
-    /// logo.
-    pub fn svg(&self) -> Option<SvgLogo> {
+impl StoredLogoExt for StoredLogo {
+    fn svg(&self) -> Option<SvgLogo> {
         if self.format() != Some(Format::Svg) {
             return None;
         }
         std::str::from_utf8(&self.data).ok()?.parse().ok()
     }
+}
 
-    /// Whether it's `logo`, so storing that changes nothing.
-    pub fn is(&self, logo: &Logo) -> bool {
-        self.format() == Some(logo.format) && self.data == logo.data
-    }
+/// An uploaded logo, its format told from its content.
+pub fn from_upload(bytes: &[u8]) -> Result<Logo, LogoError> {
+    let format = Format::of(bytes).ok_or(LogoError::Unsupported)?;
+    let data = match format {
+        Format::Svg => {
+            // `Format::of` checked that it's text.
+            let text = std::str::from_utf8(bytes).map_err(|_| LogoError::Unsupported)?;
+            return Ok(Logo::from(&text.parse::<SvgLogo>()?));
+        }
+        Format::Png => scale(bytes, ImageFormat::Png)?,
+        Format::Jpeg => scale(bytes, ImageFormat::Jpeg)?,
+        Format::Webp => scale(bytes, ImageFormat::WebP)?,
+    };
+    Ok(Logo { format, data })
 }

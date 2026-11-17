@@ -240,6 +240,10 @@ Event day setup:
   queue is kept on the server until it restarts, so every open view sees the
   same.
 
+## Database access
+
+HTTP handlers contain no SQL: they call the `Db` trait of `crates/db-core`, and each backend crate (`crates/db-sqlite`) owns its checked SQL ([ADR 0019](docs/adr/0019-handlers-call-a-db-trait-and-each-backend-owns-its-sql.md)).
+
 ## Demo data
 
 `cargo run --bin seed_demo` (or `make demo`) **deletes the configured database**

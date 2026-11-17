@@ -1,11 +1,11 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     club_mails::{self, Access, ClubMailOptions},
     competition::Features,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -24,14 +24,13 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_club_mail_options(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     granted: Granted<permit::MailClubs>,
 ) -> Result<Json<ClubMailOptions>, HttpError> {
-    let db = db.get().await.clone();
-    let features = Features::current(&db).await?;
+    let features = Features::from_repo(&*repo).await?;
     Ok(Json(
-        club_mails::options(&db, Access::of(&granted, features)).await?,
+        club_mails::options(&*repo, Access::of(&granted, features)).await?,
     ))
 }

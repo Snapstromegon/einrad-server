@@ -7,7 +7,8 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 const BEFORE: i64 = 20261119120000;
-const MIGRATION_FILE: &str = include_str!("../migrations/20261120120000_category_ids.up.sql");
+const MIGRATION_FILE: &str =
+    include_str!("../crates/db-sqlite/migrations/20261120120000_category_ids.up.sql");
 
 /// The fixed timestamp baked into the migration, 2026-11-14T00:00:00Z.
 const BASE_MS: u64 = 1_794_614_400_000;
@@ -52,9 +53,9 @@ fn expected_id(pos: u64, name: &str) -> String {
 /// Categories EMU17 (order 2), KG1 (order 1), Ohne (no order, no block) and
 /// "Größe" (non-ASCII, order 3); a heat; two timeplan blocks and a break slot
 /// in the first; a rider and an act that fall into EMU17.
-async fn before() -> (SqlitePool, sqlx::migrate::Migrator) {
+async fn before() -> (SqlitePool, &'static sqlx::migrate::Migrator) {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE, &db).await.unwrap();
     for sql in [
         "INSERT INTO competition (id, name, location, start_date, end_date, determining_day, \
@@ -170,7 +171,7 @@ async fn ids_are_the_fixed_timestamp_plus_position_with_the_name_bits() {
     // By order (empty first), then name: Ohne 0, KG1 1, EMU17 2, Größe 3.
     for (pos, name) in [(0, "Ohne"), (1, "KG1"), (2, "EMU17"), (3, "Größe")] {
         let got: String =
-            sqlx::query_scalar("SELECT lower(hex(id)) FROM categories WHERE name = ?")
+            sqlx::query_scalar("SELECT lower(hex(id)) FROM categories WHERE name = $1")
                 .bind(name)
                 .fetch_one(&db)
                 .await

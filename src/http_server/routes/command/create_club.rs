@@ -1,12 +1,12 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
 };
 
@@ -37,7 +37,7 @@ pub struct CreateClubBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn create_club(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<CreateClubBody>,
@@ -45,21 +45,7 @@ pub async fn create_club(
     if !capabilities.can_create_club {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let club_id = ClubId::new();
-    sqlx::query!(
-        r#"
-        INSERT INTO clubs (id, name, owner_id) VALUES (?, ?, ?);
-        UPDATE users SET club_id = ? WHERE id = ?;
-        "#,
-        club_id,
-        body.name,
-        auth.user_id,
-        club_id,
-        auth.user_id,
-    )
-    .execute(&db)
-    .await?;
+    let club_id = db.create_club(auth.user_id, &body.name).await?;
 
     Ok(Json(CreateClubResponse { club_id }))
 }

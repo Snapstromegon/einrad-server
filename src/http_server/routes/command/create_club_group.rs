@@ -1,16 +1,13 @@
+use crate::act_type::ActType;
 use crate::ids::{ActId, ClubId};
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    act_type::ActType,
-    groups::{
-        ensure_club_access, ensure_group_name_is_free, ensure_group_type, normalize_group_name,
-    },
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -48,7 +45,7 @@ pub struct CreateClubGroupBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn create_club_group(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<CreateClubGroupBody>,
@@ -56,34 +53,9 @@ pub async fn create_club_group(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-
-    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
-    ensure_group_type(body.act_type)?;
-    let group_name = normalize_group_name(&body.group_name).map_err(HttpError::ErrorMessages)?;
-    ensure_group_name_is_free(&mut transaction, &group_name, None).await?;
-
-    let act_id = ActId::new();
-    info!(
-        "Creating {} {group_name:?} ({act_id}) for club {}",
-        body.act_type.as_str(),
-        body.club_id
-    );
-    sqlx::query!(
-        r#"
-        INSERT INTO acts (id, name, act_type, group_name, owner_club_id)
-        VALUES (?, '', ?, ?, ?)
-        "#,
-        act_id,
-        body.act_type,
-        group_name,
-        body.club_id,
-    )
-    .execute(&mut *transaction)
-    .await?;
-
-    transaction.commit().await?;
+    let act_id = db
+        .create_group(&auth.actor(), body.club_id, body.act_type, &body.group_name)
+        .await?;
 
     Ok(Json(CreateClubGroupResponse { act_id }))
 }

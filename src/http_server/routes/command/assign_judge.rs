@@ -1,12 +1,12 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JudgeTask, JuryAssignment, JuryEnabled},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JuryAssignment, JuryEnabled},
     roles::permit,
 };
 
@@ -27,55 +27,18 @@ pub struct AssignJudgeResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn assign_judge(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<JuryAssignment>,
 ) -> Result<Json<AssignJudgeResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    let is_trained =
-        sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", body.judge_id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    if !is_trained && body.task != JudgeTask::Dismounts {
-        return Err(HttpError::ErrorMessages(
-            "Nicht geschulte Personen können nur Abstiege zählen.".to_string(),
-        ));
-    }
     info!(
         "Assigning judge {} to jury unit {:?} {} ({:?})",
         body.judge_id, body.unit_kind, body.unit_id, body.task
     );
-    let (heat_id, final_id) = jury::unit_columns(body.unit_kind, body.unit_id);
-    let result = sqlx::query!(
-        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
-        body.judge_id,
-        heat_id,
-        final_id,
-        body.task,
-    )
-    .execute(&mut *transaction)
-    .await;
-    match result {
-        Ok(_) => {}
-        Err(e) if jury::is_unique_violation(&e) => {
-            return Err(HttpError::ErrorMessages(
-                "Die JurorIn ist hier schon eingeteilt.".to_string(),
-            ));
-        }
-        Err(e)
-            if e.as_database_error()
-                .is_some_and(|e| e.is_foreign_key_violation()) =>
-        {
-            return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-        }
-        Err(e) => return Err(e.into()),
-    }
-    transaction.commit().await?;
+    repo.assign_judge(&body).await?;
     Ok(Json(AssignJudgeResponse {}))
 }

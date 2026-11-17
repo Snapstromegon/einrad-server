@@ -1,20 +1,13 @@
-use crate::ids::RiderId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
-/// A rider waiting for a pair partner who isn't linked yet (Paaranfrage).
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct PairRequest {
-    pub(super) rider_id: RiderId,
-    /// The partner the club entered, if any.
-    pub(super) partner_name: Option<String>,
-}
+pub use db_core::riders::PairRequest;
 
 /// The pair requests of all clubs, to link pairs across clubs.
 #[utoipa::path(
@@ -30,15 +23,8 @@ pub struct PairRequest {
 )]
 #[instrument(skip(db))]
 pub async fn list_pair_requests(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     _: Granted<permit::ViewRiders>,
 ) -> Result<Json<Vec<PairRequest>>, HttpError> {
-    let db = db.get().await.clone();
-    let requests = sqlx::query_as!(
-        PairRequest,
-        r#"SELECT rider_id as "rider_id!: RiderId", partner_name FROM pair_requests"#
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(requests))
+    Ok(Json(db.list_pair_requests().await?))
 }

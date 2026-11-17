@@ -1,55 +1,12 @@
-use crate::ids::{ActId, CategoryId, ClubId, RiderId};
-use std::collections::HashMap;
+use crate::ids::ClubId;
+use db_core::DbHandle;
 
 use axum::{Extension, Json, extract::Query};
 use tracing::instrument;
 
-use crate::{
-    act_type::ActType,
-    groups::{ensure_club_access, group_name_sort_key, type_conflict_message},
-    http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::ReloadableSqlite,
-};
+use crate::http_server::{ClientError, HttpError, extractor::auth::Auth};
 
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct ClubGroup {
-    id: ActId,
-    group_name: String,
-    act_type: ActType,
-    /// `null` for incomplete groups (fewer than 3 regular riders) and groups
-    /// with a `conflict`.
-    category_id: Option<CategoryId>,
-    category: Option<String>,
-    /// Age in whole years of the oldest rider (replacements included) on the
-    /// determining day.
-    max_age: Option<f64>,
-    /// Set if a rider of the group is also in another group of the same type:
-    /// a German message naming them. The group has no category until that's
-    /// sorted out.
-    conflict: Option<String>,
-    /// The act's title.
-    name: String,
-    song_file: Option<String>,
-    owner_club_id: Option<ClubId>,
-    owner_club_name: Option<String>,
-    /// Whether the queried club created the group (and may rename or delete it).
-    is_owner: bool,
-    /// Regular riders first, then replacements, each sorted by name.
-    members: Vec<ClubGroupMember>,
-}
-
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct ClubGroupMember {
-    rider_id: RiderId,
-    firstname: String,
-    lastname: String,
-    club_id: ClubId,
-    club_name: String,
-    is_replacement: bool,
-    /// Only for the queried club's own riders.
-    #[serde(with = "time::serde::iso8601::option")]
-    birthdate: Option<time::OffsetDateTime>,
-}
+pub use db_core::groups::ClubGroup;
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ListClubGroupsQuery {
@@ -74,114 +31,11 @@ pub struct ListClubGroupsQuery {
 )]
 #[instrument(skip(db))]
 pub async fn list_club_groups(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Query(query): Query<ListClubGroupsQuery>,
     auth: Auth,
 ) -> Result<Json<Vec<ClubGroup>>, HttpError> {
-    let db = db.get().await.clone();
-    let mut connection = db.acquire().await?;
-    ensure_club_access(&mut connection, &auth, query.club_id).await?;
-
-    let groups = sqlx::query!(
-        r#"
-        SELECT
-            view_act.id as "id!: ActId",
-            view_act.group_name as "group_name!",
-            view_act.act_type as "act_type!: ActType",
-            CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category_id END as "category_id?: CategoryId",
-            CAST(CASE WHEN view_act.withdrawn_at IS NULL THEN view_act.category END AS TEXT) as "category?: String",
-            view_act.max_age as "max_age: f64",
-            view_act.name,
-            view_act.song_file,
-            view_act.owner_club_id as "owner_club_id: ClubId",
-            owner.name as "owner_club_name?"
-        FROM view_act
-        LEFT JOIN clubs AS owner ON owner.id = view_act.owner_club_id
-        WHERE view_act.group_name IS NOT NULL
-            AND (
-                view_act.owner_club_id = ?1
-                OR EXISTS (
-                    SELECT 1 FROM act_participants
-                    JOIN rider ON rider.id = act_participants.rider_id
-                    WHERE act_participants.act_id = view_act.id AND rider.club_id = ?1
-                )
-            )
-        "#,
-        query.club_id
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-
-    // All members of these groups in one query, grouped by act below.
-    let members = sqlx::query!(
-        r#"
-        SELECT
-            act_participants.act_id as "act_id!: ActId",
-            rider.id as "rider_id!: RiderId",
-            rider.firstname,
-            rider.lastname,
-            rider.club_id as "club_id!: ClubId",
-            clubs.name as club_name,
-            act_participants.is_replacement,
-            rider.birthdate
-        FROM act_participants
-        JOIN acts ON acts.id = act_participants.act_id
-        JOIN rider ON rider.id = act_participants.rider_id
-        JOIN clubs ON clubs.id = rider.club_id
-        WHERE acts.group_name IS NOT NULL
-            AND (
-                acts.owner_club_id = ?1
-                OR EXISTS (
-                    SELECT 1 FROM act_participants own
-                    JOIN rider own_rider ON own_rider.id = own.rider_id
-                    WHERE own.act_id = acts.id AND own_rider.club_id = ?1
-                )
-            )
-        ORDER BY act_participants.is_replacement, rider.lastname, rider.firstname
-        "#,
-        query.club_id
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-
-    let mut members_by_group: HashMap<ActId, Vec<ClubGroupMember>> = HashMap::new();
-    for member in members {
-        members_by_group
-            .entry(member.act_id)
-            .or_default()
-            .push(ClubGroupMember {
-                rider_id: member.rider_id,
-                firstname: member.firstname,
-                lastname: member.lastname,
-                club_id: member.club_id,
-                club_name: member.club_name,
-                is_replacement: member.is_replacement,
-                birthdate: (member.club_id == query.club_id).then_some(member.birthdate),
-            });
-    }
-
-    let mut club_groups = Vec::with_capacity(groups.len());
-    for group in groups {
-        let conflict = type_conflict_message(&mut connection, group.id).await?;
-        club_groups.push(ClubGroup {
-            id: group.id,
-            group_name: group.group_name,
-            act_type: group.act_type,
-            category_id: group.category_id,
-            category: group.category,
-            // Whole years are enough to tell U15 from 15+; the exact age
-            // would give away the birthdate of other clubs' riders.
-            max_age: group.max_age.map(f64::floor),
-            conflict,
-            name: group.name,
-            song_file: group.song_file,
-            owner_club_id: group.owner_club_id,
-            owner_club_name: group.owner_club_name,
-            is_owner: group.owner_club_id == Some(query.club_id),
-            members: members_by_group.remove(&group.id).unwrap_or_default(),
-        });
-    }
-    // Sorted in Rust, because SQLite's NOCASE only folds ASCII letters.
-    club_groups.sort_by_cached_key(|group| group_name_sort_key(&group.group_name));
-    Ok(Json(club_groups))
+    Ok(Json(
+        db.list_club_groups(&auth.actor(), query.club_id).await?,
+    ))
 }

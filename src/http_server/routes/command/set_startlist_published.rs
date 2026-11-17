@@ -1,11 +1,11 @@
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -32,25 +32,18 @@ pub struct SetStartlistPublishedBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn set_startlist_published(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<SetStartlistPublishedBody>,
 ) -> Result<Json<SetStartlistPublishedResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = begin_write(&db).await?;
-    let published_at = body.published.then(time::OffsetDateTime::now_utc);
     info!("Start list published: {}", body.published);
-    let result = sqlx::query!(
-        "UPDATE competition SET startlist_published_at = ?",
-        published_at
-    )
-    .execute(&mut *tx)
-    .await?;
-    if result.rows_affected() == 0 {
+    if !repo
+        .set_startlist_published(body.published, time::OffsetDateTime::now_utc())
+        .await?
+    {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
-    tx.commit().await?;
     Ok(Json(SetStartlistPublishedResponse {}))
 }

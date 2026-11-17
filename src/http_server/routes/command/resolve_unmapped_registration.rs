@@ -1,13 +1,13 @@
-use crate::ids::{JudgeId, JuryUnitId};
-use axum::{Extension, Json, http::StatusCode};
+use crate::ids::JuryUnitId;
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JuryEnabled, JuryUnitKind},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JuryEnabled, JuryUnitKind},
     roles::permit,
 };
 
@@ -43,50 +43,16 @@ pub struct UnitRef {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn resolve_unmapped_registration(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<ResolveUnmappedRegistrationBody>,
 ) -> Result<Json<ResolveUnmappedRegistrationResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    let unmapped = sqlx::query!(
-        r#"
-        SELECT judge_id as "judge_id!: JudgeId", task as "task!: jury::JudgeTask"
-        FROM judge_registration_unmapped WHERE id = ?
-        "#,
-        body.id
-    )
-    .fetch_optional(&mut *transaction)
-    .await?
-    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
     info!("Resolving unmapped registration {}", body.id);
-    if let Some(unit) = body.unit {
-        match jury::unit_is_registrable(&mut transaction, unit.kind, unit.id).await? {
-            None => return Err(HttpError::StatusCode(StatusCode::NOT_FOUND)),
-            Some(false) => return Err(jury::not_registrable()),
-            Some(true) => {}
-        }
-        let (heat_id, final_id) = jury::unit_columns(unit.kind, unit.id);
-        sqlx::query!(
-            "INSERT OR IGNORE INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
-            unmapped.judge_id,
-            heat_id,
-            final_id,
-            unmapped.task,
-        )
-        .execute(&mut *transaction)
+    repo.resolve_unmapped_registration(body.id, body.unit.map(|unit| (unit.kind, unit.id)))
         .await?;
-    }
-    sqlx::query!(
-        "DELETE FROM judge_registration_unmapped WHERE id = ?",
-        body.id
-    )
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
     Ok(Json(ResolveUnmappedRegistrationResponse {}))
 }

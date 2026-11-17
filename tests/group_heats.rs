@@ -153,7 +153,7 @@ async fn texts(db: &sqlx::SqlitePool, sql: &'static str) -> Vec<String> {
 #[tokio::test]
 async fn the_migration_gives_group_categories_a_heat_and_a_final() {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE_GROUP_HEATS, &db).await.unwrap();
     exec(
         &db,

@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
+use db_core::DbHandle;
 use eyre::eyre;
-use sqlx::SqlitePool;
 use tracing::{info, warn};
 
 use crate::{
@@ -17,7 +17,6 @@ use crate::{
     normalize,
     photos::Photos,
     player::PlayerHub,
-    reloadable_sqlite::ReloadableSqlite,
     seed::{self, Report},
     setup,
 };
@@ -37,7 +36,7 @@ pub struct NormalMode {
 /// # Errors
 /// If the mailer's SMTP server setting is invalid or a component can't start.
 pub async fn build(
-    db: SqlitePool,
+    repo: DbHandle,
     settings: Settings,
     report: &Report,
     config_dir: &std::path::Path,
@@ -52,7 +51,10 @@ pub async fn build(
     )
     .map_err(|e| eyre!("The SMTP server setting is invalid: {e}"))?;
 
-    match seed::startup_competition(&db).await.map_err(|e| eyre!(e))? {
+    match seed::startup_competition(repo.as_ref())
+        .await
+        .map_err(|e| eyre!(e))?
+    {
         Some(competition) => info!(
             "Running competition {} ({})",
             competition.name, competition.id
@@ -75,19 +77,18 @@ pub async fn build(
         settings.insecure_cookies,
     ));
 
-    let db = ReloadableSqlite::new(db, settings.database_url);
     // Songs uploaded while the server was down or before normalization existed.
-    normalize::resume(&db, &settings.data_path).await?;
+    normalize::resume(&repo, &settings.data_path).await?;
 
     let photos = Photos::new().map_err(|e| eyre!(e))?;
-    let player_hub = PlayerHub::new(db.clone());
+    let player_hub = PlayerHub::new(repo.clone());
     if let Some(name) = settings.local_player {
         start_local_player(&player_hub, &settings.data_path, name);
     }
     // URL images (logo, break image, sponsors) are downloaded in the
     // background, so an unreachable server never delays the start (#291).
-    ImageFetcher::shared().refresh_in_background(db.clone(), None);
-    photos.start(db.clone());
+    ImageFetcher::shared().refresh_in_background(repo.clone(), None);
+    photos.start(repo.clone());
 
     let server = HttpServer::new(
         HttpServerOptions {
@@ -98,7 +99,7 @@ pub async fn build(
             metrics_token: settings.metrics_token,
             competition_file_id: report.file_id.clone(),
         },
-        db,
+        repo,
         jwt.clone(),
         Arc::new(mailer),
         player_hub,

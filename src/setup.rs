@@ -34,13 +34,12 @@ use axum_extra::extract::{
     cookie::{Cookie, SameSite},
 };
 use serde::Deserialize;
-use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
 use tower::ServiceExt;
 use tracing::{info, warn};
 use url::Url;
 
-use crate::{config::Settings, http_server::routes::StaticAssets, roles::Role};
+use crate::{config::Settings, http_server::routes::StaticAssets};
 
 mod complete;
 pub use complete::{
@@ -85,18 +84,12 @@ impl fmt::Display for PendingReason {
 /// If the database can't be read.
 pub async fn pending_reason(
     settings: &Result<Settings, String>,
-    db: &SqlitePool,
-) -> sqlx::Result<Option<PendingReason>> {
+    repo: &dyn db_core::Db,
+) -> Result<Option<PendingReason>, db_core::DbError> {
     if let Err(missing) = settings {
         return Ok(Some(PendingReason::IncompleteConfig(missing.clone())));
     }
-    let admins = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!: i64" FROM user_roles WHERE role = ?"#,
-        Role::Admin
-    )
-    .fetch_one(db)
-    .await?;
-    Ok((admins == 0).then_some(PendingReason::NoAdmin))
+    Ok((!repo.admin_exists().await?).then_some(PendingReason::NoAdmin))
 }
 
 /// The directory of the config path (`--config`/`CONFIG`, default `./`),

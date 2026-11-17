@@ -1,17 +1,17 @@
 use std::str::FromStr;
 
 use clap::Parser;
+use db_sqlite::{SqliteRepo, db_backup, reloadable_sqlite};
 use einrad_server::{
     admin_user::insert_admin_user,
     config::{
         Bootstrap, CliArgs, ConfigFile, DEFAULT_CONFIG_PATH, Settings, competition_file_path,
     },
-    reloadable_sqlite, seed,
+    seed,
     setup::{self, SetupEnv, SetupState},
     startup,
 };
 use eyre::eyre;
-use sqlx::migrate;
 use tokio::signal;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
@@ -19,7 +19,7 @@ use tracing_subscriber::FmtSubscriber;
 /// A plain `main`: the local UTC offset (for backup names) can only be read
 /// before any thread exists, so it is read here, then the runtime is built.
 fn main() -> eyre::Result<()> {
-    let offset = einrad_server::db_backup::init_local_offset();
+    let offset = db_backup::init_local_offset();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -66,9 +66,14 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
 
     info!("Running database migrations");
     match sqlx::sqlite::SqliteConnectOptions::from_str(&bootstrap.database_url)?.get_filename() {
-        path if path.as_os_str() == ":memory:" => migrate!("./migrations").run(&db).await?,
-        path => einrad_server::db_backup::migrate_with_backup(&db, path).await?,
+        path if path.as_os_str() == ":memory:" => db_sqlite::MIGRATOR.run(&db).await?,
+        path => db_backup::migrate_with_backup(&db, path).await?,
     }
+
+    let repo = SqliteRepo::new(reloadable_sqlite::ReloadableSqlite::new(
+        db,
+        bootstrap.database_url.clone(),
+    ));
 
     let mut report = None;
     if let Ok(settings) = &settings {
@@ -79,7 +84,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
             info!("Reading the competition file {}", path.display());
         }
         report = Some(
-            seed::apply_settings(&db, settings)
+            seed::apply_settings(&repo, settings)
                 .await
                 .map_err(|e| eyre!(e))?,
         );
@@ -89,13 +94,13 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     }
     if let Some(admin) = &admin {
         info!("Inserting admin user with email: {}", admin.email);
-        insert_admin_user(&db, &admin.name, &admin.email, &admin.password).await?;
+        insert_admin_user(&repo, &admin.name, &admin.email, &admin.password).await?;
     }
 
-    if let Some(reason) = setup::pending_reason(&settings, &db).await? {
+    if let Some(reason) = setup::pending_reason(&settings, &repo).await? {
         let state = SetupState::new(
             bootstrap.configured_base_url,
-            SetupEnv::new(db.clone(), setup_cli),
+            SetupEnv::new(repo.clone().into_handle(), setup_cli),
         );
         state.announce(&reason);
         let listener = tokio::net::TcpListener::bind(&bootstrap.http_address).await?;
@@ -106,7 +111,7 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     let settings = settings.map_err(|e| eyre!(e))?;
     let report = report.expect("the competition file was applied for a complete config");
 
-    let mut normal = startup::build(db, settings, &report, &config_dir).await?;
+    let mut normal = startup::build(repo.into_handle(), settings, &report, &config_dir).await?;
 
     info!("Starting HTTP server");
     normal.server.start(shutdown_signal()).await?;

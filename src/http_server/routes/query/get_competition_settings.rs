@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
@@ -9,7 +10,6 @@ use crate::{
     competition::{Competition, Features, ResolvedFeatures},
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
     photos::PhotosSettings,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -37,14 +37,14 @@ pub struct CompetitionSettings {
         (status=404, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options))]
+#[instrument(skip(repo, http_options))]
 pub async fn get_competition_settings(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Json<CompetitionSettings>, HttpError> {
-    let db = db.get().await.clone();
-    let mut competition = Competition::current(&db)
+    let mut competition = repo
+        .current_competition()
         .await?
         .ok_or(HttpError::NotFound)?;
     Ok(Json(CompetitionSettings {

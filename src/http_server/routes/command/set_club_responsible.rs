@@ -1,13 +1,12 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_club_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     system_status::Capabilities,
 };
 
@@ -43,7 +42,7 @@ pub struct SetClubResponsibleBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_club_responsible(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<SetClubResponsibleBody>,
@@ -68,18 +67,13 @@ pub async fn set_club_responsible(
             ));
         }
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_club_access(&mut transaction, &auth, body.club_id).await?;
-    sqlx::query!(
-        "UPDATE clubs SET responsible_name = ?, responsible_email = ? WHERE id = ?",
-        name,
-        email,
+    db.set_club_responsible(
+        &auth.actor(),
         body.club_id,
+        name.as_deref(),
+        email.as_deref(),
     )
-    .execute(&mut *transaction)
     .await?;
-    transaction.commit().await?;
 
     Ok(Json(SetClubResponsibleResponse {
         club_id: body.club_id,

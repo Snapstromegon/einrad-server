@@ -1,12 +1,12 @@
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{JuryEnabled, JuryUnitFields, JuryUnitKind},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JuryEnabled, JuryUnitFields},
     roles::permit,
 };
 
@@ -29,61 +29,16 @@ pub struct EditJuryUnitResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn edit_jury_unit(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<JuryUnitFields>,
 ) -> Result<Json<EditJuryUnitResponse>, HttpError> {
     body.validate().map_err(HttpError::ErrorMessages)?;
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
     info!("Editing jury unit {:?} {}", body.kind, body.id);
-    let result = match body.kind {
-        JuryUnitKind::Heat => {
-            sqlx::query!(
-                r#"
-                UPDATE heats SET
-                    jury_registrable = ?, jury_deployments = ?,
-                    jury_needed_technical = ?, jury_needed_performance = ?,
-                    jury_needed_dismounts = ?
-                WHERE id = ?
-                "#,
-                body.registrable,
-                body.deployments,
-                body.needed_technical,
-                body.needed_performance,
-                body.needed_dismounts,
-                body.id,
-            )
-            .execute(&mut *transaction)
-            .await?
-        }
-        JuryUnitKind::Final => {
-            sqlx::query!(
-                r#"
-                UPDATE finals SET
-                    jury_registrable = ?, jury_deployments = ?,
-                    jury_needed_technical = ?, jury_needed_performance = ?,
-                    jury_needed_dismounts = ?
-                WHERE id = ?
-                "#,
-                body.registrable,
-                body.deployments,
-                body.needed_technical,
-                body.needed_performance,
-                body.needed_dismounts,
-                body.id,
-            )
-            .execute(&mut *transaction)
-            .await?
-        }
-    };
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    transaction.commit().await?;
+    repo.edit_jury_unit(&body).await?;
     Ok(Json(EditJuryUnitResponse {}))
 }

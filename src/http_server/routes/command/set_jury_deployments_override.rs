@@ -1,5 +1,6 @@
 use crate::ids::ClubId;
-use axum::{Extension, Json, http::StatusCode};
+use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -7,7 +8,6 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryEnabled,
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -36,11 +36,11 @@ pub struct SetJuryDeploymentsOverrideBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn set_jury_deployments_override(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<SetJuryDeploymentsOverrideBody>,
 ) -> Result<Json<SetJuryDeploymentsOverrideResponse>, HttpError> {
@@ -49,22 +49,11 @@ pub async fn set_jury_deployments_override(
             "Die angerechneten Einsätze dürfen nicht negativ sein.".to_string(),
         ));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
     info!(
         "Crediting club {} with {:?} jury deployments",
         body.club_id, body.deployments
     );
-    let result = sqlx::query!(
-        "UPDATE clubs SET jury_deployments_override = ? WHERE id = ?",
-        body.deployments,
-        body.club_id
-    )
-    .execute(&mut *transaction)
-    .await?;
-    if result.rows_affected() == 0 {
-        return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-    }
-    transaction.commit().await?;
+    repo.set_jury_deployments_override(body.club_id, body.deployments)
+        .await?;
     Ok(Json(SetJuryDeploymentsOverrideResponse {}))
 }

@@ -5,7 +5,6 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TempDir, TestApp, TestResponse};
-use einrad_server::competition::Competition;
 use serde_json::{Value, json};
 
 const COMPETITION: &str = include_str!("fixtures/competition.toml");
@@ -44,7 +43,7 @@ async fn in_setup_mode_the_import_creates_the_competition() {
     assert_eq!(response.body["current_id"], Value::Null);
     assert_eq!(response.body["name"], "Einradevent 2027 (Demo)");
     assert_eq!(
-        Competition::current(&app.db).await.unwrap(),
+        app.repo.current_competition().await.unwrap(),
         None,
         "a preview changes nothing"
     );
@@ -77,7 +76,7 @@ async fn only_admins_import() {
             StatusCode::FORBIDDEN
         );
     }
-    assert_eq!(Competition::current(&app.db).await.unwrap(), None);
+    assert_eq!(app.repo.current_competition().await.unwrap(), None);
 }
 
 #[tokio::test]
@@ -85,7 +84,7 @@ async fn an_invalid_file_changes_nothing_and_says_why() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    let before = Competition::current(&app.db).await.unwrap();
+    let before = app.repo.current_competition().await.unwrap();
 
     let response = import(&app, &admin, "[competition\nid = ").await;
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
@@ -117,7 +116,7 @@ async fn an_invalid_file_changes_nothing_and_says_why() {
             response.body
         );
     }
-    assert_eq!(Competition::current(&app.db).await.unwrap(), before);
+    assert_eq!(app.repo.current_competition().await.unwrap(), before);
 }
 
 #[tokio::test]
@@ -154,7 +153,7 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
         )
         .await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
-    let before = Competition::current(&app.db).await.unwrap().unwrap();
+    let before = app.repo.current_competition().await.unwrap().unwrap();
 
     let file = COMPETITION
         .replacen("fee_per_start = 15", "fee_per_start = 20", 1)
@@ -175,7 +174,7 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     assert_eq!(dropped.as_array().unwrap().len(), 1, "{dropped:?}");
     assert_eq!(dropped[0]["old_jury_unit"], "final: Finale EW");
     assert_eq!(
-        Competition::current(&app.db).await.unwrap().unwrap(),
+        app.repo.current_competition().await.unwrap().unwrap(),
         before,
         "a preview changes nothing"
     );
@@ -194,7 +193,7 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     let content = remap["content"].as_str().unwrap();
     assert!(content.contains("Müller"), "{content}");
     assert!(content.contains("jury_unit = \"\""), "{content}");
-    let after = Competition::current(&app.db).await.unwrap().unwrap();
+    let after = app.repo.current_competition().await.unwrap().unwrap();
     assert_eq!(after.fee_per_start, 20.0);
     assert_eq!(after.id, before.id);
 

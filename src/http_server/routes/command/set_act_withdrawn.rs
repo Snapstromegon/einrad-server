@@ -1,12 +1,12 @@
 use crate::ids::ActId;
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -41,26 +41,12 @@ pub struct SetActWithdrawnBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn set_act_withdrawn(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     _: Granted<permit::ManageRegistrations>,
     Json(body): Json<SetActWithdrawnBody>,
 ) -> Result<Json<SetActWithdrawnResponse>, HttpError> {
-    let db = db.get().await.clone();
-
     info!("Setting act {} withdrawn = {}", body.act_id, body.withdrawn);
-    let updated = sqlx::query!(
-        r#"
-        UPDATE acts
-        SET withdrawn_at = CASE WHEN $1 THEN COALESCE(withdrawn_at, datetime('now')) END
-        WHERE id = $2
-        "#,
-        body.withdrawn,
-        body.act_id,
-    )
-    .execute(&db)
-    .await?
-    .rows_affected();
-    if updated == 0 {
+    if !db.set_act_withdrawn(body.act_id, body.withdrawn).await? {
         return Err(HttpError::NotFound);
     }
 

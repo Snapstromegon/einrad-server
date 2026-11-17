@@ -2,14 +2,13 @@ use axum::{
     extract::{FromRequestParts, OptionalFromRequestParts},
     http::{StatusCode, request::Parts},
 };
+use db_core::DbHandle;
 
 use crate::{
-    competition::Competition,
     http_server::{
         HttpError,
         extractor::auth::{Auth, Error, Granted},
     },
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -33,11 +32,10 @@ async fn visible<S: Send + Sync>(parts: &mut Parts, state: &S) -> Result<bool, H
         // from a published start list: they are just not staff.
         Ok(None) | Err(_) => {}
     }
-    let Some(db) = parts.extensions.get::<ReloadableSqlite>() else {
+    let Some(repo) = parts.extensions.get::<DbHandle>() else {
         return Err(HttpError::InternalServerError);
     };
-    let db = db.get().await.clone();
-    Ok(Competition::startlist_published(&db).await?)
+    Ok(repo.startlist_published().await?)
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for StartlistAccess {

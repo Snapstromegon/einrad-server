@@ -497,7 +497,7 @@ async fn a_single_needs_the_riders_gender() {
         .add_rider(&cookie, rider_body(club_id, "Anna", false, false))
         .await;
     // Registered before the gender was asked.
-    sqlx::query("UPDATE rider SET gender = NULL WHERE id = ?")
+    sqlx::query("UPDATE rider SET gender = NULL WHERE id = $1")
         .bind(anna)
         .execute(&app.db)
         .await
@@ -827,7 +827,7 @@ async fn replace_act_rider_moves_a_single_and_keeps_the_act() {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
     // Carl has no gender yet (registered before it was asked).
-    sqlx::query("UPDATE rider SET gender = NULL WHERE id = ?")
+    sqlx::query("UPDATE rider SET gender = NULL WHERE id = $1")
         .bind(carl)
         .execute(&app.db)
         .await

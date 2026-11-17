@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::{DbHandle, acts::MissingSong};
 use tracing::instrument;
 
 use crate::{
-    db_restore::{self, MissingSong},
     http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -27,12 +26,12 @@ use crate::{
 )]
 #[instrument(skip(db, options))]
 pub async fn list_missing_songs(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Extension(options): Extension<Arc<HttpServerOptions>>,
     _: Granted<permit::ManageBackups>,
 ) -> Result<Json<Vec<MissingSong>>, HttpError> {
-    let pool = db.get().await.clone();
-    Ok(Json(
-        db_restore::missing_songs(&pool, &options.data_path).await?,
-    ))
+    Ok(Json(db_core::acts::missing_songs(
+        db.list_act_songs().await?,
+        &options.data_path,
+    )))
 }

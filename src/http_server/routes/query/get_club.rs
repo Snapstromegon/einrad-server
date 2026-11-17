@@ -1,14 +1,14 @@
 use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json, extract::Query};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
-    bookings::{Payment, payments_of_club, round_cents},
-    competition::{Competition, Features},
-    fees::{AmountDue, fees_of_club},
+    bookings::{Payment, round_cents},
+    competition::Features,
+    fees::AmountDue,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     jury::JuryObligation,
-    reloadable_sqlite::ReloadableSqlite,
     roles::Permission,
     utils::club_code,
 };
@@ -63,13 +63,12 @@ pub struct GetClubQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_club(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Query(query): Query<GetClubQuery>,
     auth: Option<Auth>,
 ) -> Result<Json<Club>, HttpError> {
-    let db = db.get().await.clone();
     let mut club_id = query.club_id;
     if let Some(auth) = &auth
         && club_id.is_none()
@@ -77,24 +76,7 @@ pub async fn get_club(
         club_id = auth.club_id;
     }
     if let Some(club_id) = club_id {
-        let row = sqlx::query!(
-            r#"
-        SELECT
-            clubs.id as "id!: ClubId",
-            clubs.name,
-            clubs.owner_id as "owner_id: UserId",
-            clubs.fee_waiver IS NOT NULL as "fee_waived!: bool",
-            users.name as "owner_name?: String",
-            users.email as "owner_email?: String",
-            COALESCE(clubs.responsible_name, users.name) as "responsible_name?: String",
-            COALESCE(clubs.responsible_email, users.email) as "responsible_email?: String"
-        FROM clubs LEFT JOIN users ON users.id = clubs.owner_id
-        WHERE clubs.id = ?
-        "#,
-            club_id
-        )
-        .fetch_one(&db)
-        .await?;
+        let row = repo.find_club(club_id).await?.ok_or(HttpError::NotFound)?;
         let may_see_owner = auth.as_ref().is_some_and(|auth| {
             auth.can(Permission::ManageRegistrations) || auth.club_id == Some(row.id)
         });
@@ -114,16 +96,11 @@ pub async fn get_club(
             jury: None,
         };
         if may_see_owner {
-            let competition = Competition::current(&db).await?;
-            let features = Features::of(competition.as_ref());
-            let fees = fees_of_club(
-                &db,
-                competition.as_ref(),
-                features.jury_registration,
-                club.id,
-            )
-            .await?;
-            let payments = payments_of_club(&db, club.id).await?;
+            let features = Features::from_repo(&*repo).await?;
+            let fees = repo
+                .fees_of_club(features.jury_registration, club.id)
+                .await?;
+            let payments = repo.payments_of_club(club.id).await?;
             club.paid = Some(round_cents(payments.iter().map(|p| p.amount).sum()));
             club.payments = Some(payments);
             club.amount_due = Some(fees.amount_due);

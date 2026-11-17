@@ -1,14 +1,11 @@
-use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
-use crate::{
-    http_server::{
-        HttpError,
-        extractor::auth::Auth,
-        routes::http_types::{CurrentUser, User},
-    },
-    reloadable_sqlite::ReloadableSqlite,
+use crate::http_server::{
+    HttpError,
+    extractor::auth::Auth,
+    routes::http_types::{CurrentUser, User},
 };
 
 /// Get information about the currently authenticated user.
@@ -22,26 +19,17 @@ use crate::{
 )]
 #[instrument(skip(db))]
 pub async fn whoami(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
 ) -> Result<Json<CurrentUser>, HttpError> {
-    let db = db.get().await.clone();
-    let user = sqlx::query!(
-        r#"
-        SELECT id as "id!: UserId", name, email, email_verified, club_id as "club_id: ClubId" FROM users WHERE id = ?
-        "#,
-        auth.user_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let user = db
+        .find_user(auth.user_id)
+        .await?
+        .ok_or(HttpError::NotFound)?;
     Ok(Json(CurrentUser {
         user: User {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            email_verified: user.email_verified,
             roles: auth.roles.clone(),
-            club_id: user.club_id,
+            ..user
         },
         permissions: auth.permissions(),
     }))

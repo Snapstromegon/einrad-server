@@ -5,7 +5,6 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{TestApp, TestResponse};
-use einrad_server::competition::Competition;
 use serde_json::{Value, json};
 
 fn body() -> Value {
@@ -49,7 +48,7 @@ async fn in_setup_mode_creating_makes_the_competition_and_leaves_setup_mode() {
     let response = create(&app, &admin, body()).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
 
-    let competition = Competition::current(&app.db).await.unwrap().unwrap();
+    let competition = app.repo.current_competition().await.unwrap().unwrap();
     assert_eq!(competition.id, "testcup-2027");
     assert_eq!(competition.name, "Testcup 2027");
     assert_eq!(competition.location, "Musterstadt");
@@ -74,7 +73,7 @@ async fn only_admins_create() {
         .post("/api/command/create_competition", body(), None)
         .await;
     assert_ne!(response.status, StatusCode::OK);
-    assert_eq!(Competition::current(&app.db).await.unwrap(), None);
+    assert_eq!(app.repo.current_competition().await.unwrap(), None);
 }
 
 #[tokio::test]
@@ -82,7 +81,7 @@ async fn creating_is_refused_while_a_competition_exists() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
-    let before = Competition::current(&app.db).await.unwrap();
+    let before = app.repo.current_competition().await.unwrap();
 
     for id in ["testcup-2027", "einrad-demo-2027"] {
         let response = create(&app, &admin, with("id", json!(id))).await;
@@ -96,7 +95,7 @@ async fn creating_is_refused_while_a_competition_exists() {
             response.body
         );
     }
-    assert_eq!(Competition::current(&app.db).await.unwrap(), before);
+    assert_eq!(app.repo.current_competition().await.unwrap(), before);
 }
 
 #[tokio::test]
@@ -138,7 +137,7 @@ async fn invalid_fields_are_explained_in_german_and_create_nothing() {
             "{field} {value}: {:?}",
             response.body
         );
-        assert_eq!(Competition::current(&app.db).await.unwrap(), None);
+        assert_eq!(app.repo.current_competition().await.unwrap(), None);
     }
     // All problems at once.
     let mut all = with("name", json!(""));

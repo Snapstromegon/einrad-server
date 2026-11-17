@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::{info, instrument};
 
 use crate::{
@@ -8,7 +9,6 @@ use crate::{
     competition::Features,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     mailer::Mailer,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -30,25 +30,33 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, mailer, input))]
+#[instrument(skip(repo, mailer, input))]
 #[axum::debug_handler]
 pub async fn send_club_mail(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(mailer): Extension<Arc<Mailer>>,
     granted: Granted<permit::MailClubs>,
     Json(input): Json<ClubMailInput>,
 ) -> Result<Json<SentClubMail>, HttpError> {
-    let db = db.get().await.clone();
-    let features = Features::current(&db).await?;
-    let prepared = club_mails::prepare(&db, &input, Access::of(&granted, features)).await?;
+    let features = Features::from_repo(&*repo).await?;
+    let prepared = club_mails::prepare(&*repo, &input, Access::of(&granted, features)).await?;
     info!(
         "{} sends a club mail of {} mails",
         granted.name,
         prepared.mails.len()
     );
-    let club_mail = club_mails::record(&db, &granted, &input, prepared).await?;
+    let club_mail = repo
+        .record_club_mail(
+            granted.user_id,
+            &granted.name,
+            &input.subject,
+            &input.body,
+            prepared.reply_to.as_deref(),
+            prepared.mails,
+        )
+        .await?;
     // On its own task, so all mails go out even if the request goes away.
-    let sent = tokio::spawn(club_mails::send(db, mailer, club_mail))
+    let sent = tokio::spawn(club_mails::send(repo, mailer, club_mail))
         .await
         .map_err(|_| HttpError::InternalServerError)?;
     Ok(Json(sent))

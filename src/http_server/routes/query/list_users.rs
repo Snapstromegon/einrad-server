@@ -1,11 +1,10 @@
-use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted, routes::http_types::User},
-    reloadable_sqlite::ReloadableSqlite,
-    roles::{self, permit},
+    roles::permit,
 };
 
 /// List all users.
@@ -22,30 +21,8 @@ use crate::{
 )]
 #[instrument(skip(db))]
 pub async fn list_users(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     _: Granted<permit::ManageUsers>,
 ) -> Result<Json<Vec<User>>, HttpError> {
-    let db = db.get().await.clone();
-    let mut roles = roles::all_roles(&db).await?;
-    let users = sqlx::query!(
-        r#"
-        SELECT id as "id!: UserId", club_id as "club_id: ClubId", name, email, email_verified FROM users
-        "#
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .map(|user| {
-        let roles = roles.remove(&user.id).unwrap_or_default();
-        User {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            email_verified: user.email_verified,
-            roles,
-            club_id: user.club_id,
-        }
-    })
-    .collect();
-    Ok(Json(users))
+    Ok(Json(db.list_users().await?))
 }

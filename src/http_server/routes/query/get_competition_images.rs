@@ -1,10 +1,10 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     images::CompetitionImages,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -19,11 +19,10 @@ use crate::{
         (status=403, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_competition_images(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Json<CompetitionImages>, HttpError> {
-    let db = db.get().await.clone();
-    Ok(Json(CompetitionImages::load(&db).await?))
+    Ok(Json(CompetitionImages::load(repo.as_ref()).await?))
 }

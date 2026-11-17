@@ -1,34 +1,20 @@
-use crate::ids::{JudgeId, JuryUnitId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JuryEnabled},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
+    jury::{JuryEnabled, RemapOutcome, RemapProblem, RemapRegistration},
     roles::permit,
-    seed::{RemapFile, RemapRegistration},
+    seed::RemapFile,
 };
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ApplyJuryRemapBody {
     /// The remap file's content (TOML) with `jury_unit` filled in.
     file: String,
-}
-
-/// Why an entry of the remap file wasn't registered.
-#[derive(Debug, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RemapProblem {
-    /// No judge (or more than one) of that name in that club.
-    JudgeNotFound,
-    /// No jury unit of that name (`heat: <name>` or `final: <name>`).
-    JuryUnitNotFound,
-    /// The jury unit takes no registrations (D6): its Vorlauf is skipped or
-    /// the jury lead switched them off.
-    JuryUnitNotRegistrable,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -65,87 +51,28 @@ pub struct ApplyJuryRemapResponse {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, body))]
+#[instrument(skip(repo, body))]
 #[axum::debug_handler]
 pub async fn apply_jury_remap(
     _jury: JuryEnabled,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageJury>,
     Json(body): Json<ApplyJuryRemapBody>,
 ) -> Result<Json<ApplyJuryRemapResponse>, HttpError> {
     let remap: RemapFile = toml::from_str(&body.file)
         .map_err(|e| HttpError::ErrorMessages(format!("Ungültige Remap-Datei: {e}")))?;
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    let mut registered = 0;
-    let mut unfilled = Vec::new();
-    let mut not_found = Vec::new();
-    for registration in remap.jury_registrations {
-        let label = registration.jury_unit.trim();
-        if label.is_empty() {
-            unfilled.push(registration);
-            continue;
-        }
-        let judges = sqlx::query_scalar!(
-            r#"
-            SELECT judge.id as "id!: JudgeId" FROM judge
-            JOIN clubs ON clubs.id = judge.club_id
-            WHERE clubs.name = ? AND judge.firstname = ? AND judge.lastname = ?
-            "#,
-            registration.club,
-            registration.firstname,
-            registration.lastname,
-        )
-        .fetch_all(&mut *transaction)
-        .await?;
-        let [judge] = judges[..] else {
-            not_found.push(RemapEntryNotFound {
-                registration,
-                problem: RemapProblem::JudgeNotFound,
-            });
-            continue;
-        };
-        let unit = match jury::parse_unit_label(label) {
-            Some((kind, name)) => sqlx::query!(
-                r#"SELECT id as "id!: JuryUnitId" FROM view_jury_unit WHERE kind = ? AND name = ?"#,
-                kind,
-                name
-            )
-            .fetch_optional(&mut *transaction)
-            .await?
-            .map(|row| (kind, row.id)),
-            None => None,
-        };
-        let Some((kind, unit)) = unit else {
-            not_found.push(RemapEntryNotFound {
-                registration,
-                problem: RemapProblem::JuryUnitNotFound,
-            });
-            continue;
-        };
-        if jury::unit_is_registrable(&mut transaction, kind, unit).await? != Some(true) {
-            not_found.push(RemapEntryNotFound {
-                registration,
-                problem: RemapProblem::JuryUnitNotRegistrable,
-            });
-            continue;
-        }
-        let (heat_id, final_id) = jury::unit_columns(kind, unit);
-        sqlx::query!(
-            r#"
-            INSERT INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)
-            ON CONFLICT DO NOTHING
-            "#,
-            judge,
-            heat_id,
-            final_id,
-            registration.task,
-        )
-        .execute(&mut *transaction)
-        .await?;
-        registered += 1;
-    }
-    transaction.commit().await?;
+    let RemapOutcome {
+        registered,
+        unfilled,
+        not_found,
+    } = repo.apply_jury_remap(remap.jury_registrations).await?;
+    let not_found: Vec<_> = not_found
+        .into_iter()
+        .map(|(registration, problem)| RemapEntryNotFound {
+            registration,
+            problem,
+        })
+        .collect();
     info!(
         "Applied a remap file: {registered} registered, {} unfilled, {} not found",
         unfilled.len(),

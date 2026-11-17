@@ -1,14 +1,12 @@
 use crate::ids::RiderId;
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
-    rider_registration,
     system_status::Capabilities,
 };
 
@@ -41,7 +39,7 @@ pub struct DeleteRiderBody {
 #[instrument(skip(db))]
 #[axum::debug_handler]
 pub async fn delete_rider(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     auth: Auth,
     capabilities: Capabilities,
     Json(body): Json<DeleteRiderBody>,
@@ -49,13 +47,7 @@ pub async fn delete_rider(
     if !capabilities.can_register_rider {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
-
-    rider_registration::delete_rider(&mut transaction, body.rider_id).await?;
-
-    transaction.commit().await?;
+    db.delete_rider(&auth.actor(), body.rider_id).await?;
 
     Ok(Json(DeleteRiderResponse {}))
 }

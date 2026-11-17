@@ -16,6 +16,7 @@ use axum::{
     http::{Method, Request, StatusCode, header},
 };
 use common::{TempDir, in_memory_migrated};
+use db_sqlite::SqliteRepo;
 use einrad_server::{
     config::{CliArgs, ConfigFile},
     jwt::JWTClaims,
@@ -66,7 +67,13 @@ impl Server {
             ..cli
         };
         let db = in_memory_migrated().await;
-        let state = SetupState::new(None, SetupEnv::new(db.clone(), cli));
+        let state = SetupState::new(
+            None,
+            SetupEnv::new(
+                db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+                cli,
+            ),
+        );
         Self {
             app: router(state.clone()),
             dir,
@@ -589,9 +596,14 @@ async fn smtp_errors_never_echo_credentials() {
 
 /// A normal start with a complete config and an admin, as the binary does it.
 async fn normal_start(dir: &TempDir, db: &SqlitePool) {
-    einrad_server::admin_user::insert_admin_user(db, "Max Müller", "max@example.org", PASSWORD)
-        .await
-        .unwrap();
+    einrad_server::admin_user::insert_admin_user(
+        &SqliteRepo::from_pool(db.clone()),
+        "Max Müller",
+        "max@example.org",
+        PASSWORD,
+    )
+    .await
+    .unwrap();
     let cli = CliArgs {
         config: Some(dir.0.join("config.toml")),
         data: Some(dir.0.join("data")),
@@ -599,12 +611,20 @@ async fn normal_start(dir: &TempDir, db: &SqlitePool) {
         ..env_system_config()
     };
     let settings = einrad_server::config::Settings::resolve(cli, ConfigFile::default()).unwrap();
-    let report = einrad_server::seed::apply_settings(db, &settings)
-        .await
-        .unwrap();
-    einrad_server::startup::build(db.clone(), settings, &report, &dir.0)
-        .await
-        .unwrap();
+    let report = einrad_server::seed::apply_settings(
+        &db_sqlite::SqliteRepo::from_pool(db.clone()),
+        &settings,
+    )
+    .await
+    .unwrap();
+    einrad_server::startup::build(
+        db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+        settings,
+        &report,
+        &dir.0,
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
@@ -10,7 +11,6 @@ use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     image_fetch::ImageFetcher,
     images::{CompetitionImages, Slot},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -60,10 +60,10 @@ pub struct SetImageSourceResponse {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, fetcher, body))]
+#[instrument(skip(repo, fetcher, body))]
 #[axum::debug_handler]
 pub async fn set_image_source(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(fetcher): Extension<Arc<ImageFetcher>>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<SetImageSourceBody>,
@@ -77,7 +77,7 @@ pub async fn set_image_source(
         }
     };
     apply_source(
-        &db,
+        &repo,
         &fetcher,
         slot,
         body.svg.as_deref(),
@@ -85,8 +85,7 @@ pub async fn set_image_source(
     )
     .await?;
     info!("Set the source of {slot:?}");
-    let pool = db.get().await.clone();
     Ok(Json(SetImageSourceResponse {
-        images: CompetitionImages::load(&pool).await?,
+        images: CompetitionImages::load(repo.as_ref()).await?,
     }))
 }

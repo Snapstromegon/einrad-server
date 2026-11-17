@@ -1,7 +1,6 @@
 //! The admin's database backups (#353): the download route, and what the
-//! list/create/delete commands share.
-
-use std::path::PathBuf;
+//! list/create/delete commands share. The backups are a capability of the
+//! database backend (ADR 0019); a backend without it answers 501.
 
 use axum::{
     Extension,
@@ -12,50 +11,59 @@ use axum::{
     },
     response::{IntoResponse, Response},
 };
+use db_core::{
+    DbHandle,
+    backups::{Backups, BackupsError},
+};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use crate::{
-    db_backup::{self, BackupError},
     http_server::{HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
-/// The live database file, derived from the configured database URL.
-/// Backups sit next to it.
+/// The backup capability of the database backend.
 ///
 /// # Errors
-/// A conflict (German message) if the database isn't a file, e.g. in memory.
-pub fn db_file(db: &ReloadableSqlite) -> Result<PathBuf, HttpError> {
-    db.file_path().ok_or_else(|| {
-        HttpError::Conflict(
-            "Die Datenbank liegt nicht in einer Datei, Backups sind nicht möglich.".into(),
+/// 501 (German message) if the backend has no file backups.
+pub fn backups(repo: &DbHandle) -> Result<&dyn Backups, HttpError> {
+    repo.backups().ok_or_else(|| {
+        HttpError::NotImplemented(
+            "Dieses Datenbank-Backend unterstützt keine Backups aus der Anwendung.".into(),
         )
     })
 }
 
-impl From<crate::db_restore::RestoreError> for HttpError {
-    fn from(e: crate::db_restore::RestoreError) -> Self {
-        use crate::db_restore::RestoreError;
+impl From<BackupsError> for HttpError {
+    fn from(e: BackupsError) -> Self {
         match e {
-            RestoreError::NotAFile => HttpError::Conflict(
+            BackupsError::NotAFile => HttpError::Conflict(
                 "Die Datenbank liegt nicht in einer Datei, Backups sind nicht möglich.".into(),
             ),
-            RestoreError::Backup(e) => e.into(),
-            e => {
-                tracing::error!("Restoring a database backup failed: {e}");
-                HttpError::InternalServerError
+            BackupsError::NoSuchBackup(_) => HttpError::NotFound,
+            BackupsError::AlreadyExists => HttpError::Conflict(
+                "In dieser Sekunde wurde schon ein Backup erstellt. Bitte kurz warten.".into(),
+            ),
+            BackupsError::Blocking(reasons) => HttpError::Conflict(format!(
+                "Das Backup kann nicht wiederhergestellt werden: {}",
+                reasons.join(" ")
+            )),
+            BackupsError::Playing => HttpError::Conflict("Wiedergabe zuerst stoppen.".into()),
+            BackupsError::PendingMigrations(names) => HttpError::Conflict(format!(
+                "Das Backup hat einen älteren Stand. Beim Wiederherstellen werden diese \
+                 Migrationen angewendet (Bestätigung nötig): {}",
+                names.join(", ")
+            )),
+            BackupsError::RolledBack(cause) => {
+                tracing::warn!("Restoring a database backup failed, rolled back: {cause}");
+                HttpError::Conflict(
+                    "Die Wiederherstellung ist fehlgeschlagen. Der vorherige Stand wurde wieder \
+                     eingesetzt."
+                        .into(),
+                )
             }
-        }
-    }
-}
-
-impl From<BackupError> for HttpError {
-    fn from(e: BackupError) -> Self {
-        match e {
-            BackupError::NoSuchBackup(_) => HttpError::NotFound,
-            e => {
+            BackupsError::Failed(e) => {
                 tracing::error!("Database backup failed: {e}");
                 HttpError::InternalServerError
             }
@@ -66,12 +74,12 @@ impl From<BackupError> for HttpError {
 /// Streams the backup `filename` for download. Admins only; the name must
 /// be an existing backup (BAKUI-4).
 pub async fn download(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageBackups>,
     Path(filename): Path<String>,
     request: Request,
 ) -> Result<Response, HttpError> {
-    let path = db_backup::resolve_backup(&db_file(&db)?, &filename)?;
+    let path = backups(&repo)?.backup_path(&filename)?;
     let Ok(mut response) = ServeFile::new(path).oneshot(request).await;
     let headers = response.headers_mut();
     // The name is validated, so it is plain ASCII without quotes.

@@ -2,6 +2,7 @@ use crate::ids::{ActId, CategoryId, FinalId, HeatId};
 use std::collections::HashMap;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
@@ -10,7 +11,6 @@ use crate::{
     http_server::{
         ClientError, HttpError, extractor::auth::Granted, routes::http_types::ActParticipant,
     },
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -111,14 +111,6 @@ pub struct ActNode {
     order: Option<i64>,
 }
 
-struct CategoryRow {
-    id: CategoryId,
-    name: String,
-    description: Option<String>,
-    discipline: HeatDiscipline,
-    heat_id: Option<HeatId>,
-}
-
 /// An act with the category it ranks in, if any.
 struct ActRow {
     category_id: Option<CategoryId>,
@@ -178,103 +170,39 @@ fn count(acts: &[ActNode]) -> i64 {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn get_structure(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
 ) -> Result<Json<Structure>, HttpError> {
-    let db = db.get().await.clone();
-    let mut tx = db.begin().await?;
-    let categories: Vec<CategoryRow> = sqlx::query!(
-        r#"
-        SELECT id as "id!: CategoryId", name as "name!", description, act_type as "act_type: ActType", is_single_male, heat_id as "heat_id: HeatId"
-        FROM categories
-        ORDER BY "order", name
-        "#
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .map(|row| CategoryRow {
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        discipline: HeatDiscipline::new(row.act_type, row.is_single_male),
-        heat_id: row.heat_id,
-    })
-    .collect();
-    // The heats in the order of their first category; those without one have
-    // no discipline.
-    let heats = sqlx::query!(
-        r#"SELECT id as "id!: HeatId", name as "name!", code as "code!", description, skip FROM heats ORDER BY name"#
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let final_rows = sqlx::query!(
-        r#"
-        SELECT
-            id as "id!: FinalId", name as "name!", code as "code!", description,
-            act_type as "act_type: ActType", is_single_male
-        FROM finals
-        ORDER BY "order", name
-        "#
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let rows = repo.structure_rows().await?;
+    let categories = rows.categories;
+    let heats = rows.heats;
+    let final_rows = rows.finals;
     // Each final's slot groups in slot order: heat, slots.
     let mut slot_groups: HashMap<FinalId, Vec<(HeatId, i64)>> = HashMap::new();
-    for row in sqlx::query!(
-        r#"
-        SELECT final_id as "final_id!: FinalId", heat_id as "heat_id!: HeatId", COUNT(*) as "slots!: i64"
-        FROM final_slots
-        GROUP BY final_id, heat_id
-        ORDER BY final_id, MIN(position)
-        "#
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    {
+    for row in rows.slot_groups {
         slot_groups
             .entry(row.final_id)
             .or_default()
             .push((row.heat_id, row.slots));
     }
-    let acts: Vec<ActRow> = sqlx::query!(
-        r#"
-        SELECT
-            view_act.id as "id!: ActId",
-            view_act."order" as "order",
-            view_act.name,
-            view_act.group_name,
-            view_act.act_type as "act_type!: ActType",
-            view_act.category_id as "category_id: CategoryId",
-            view_act.participants as "participants!: sqlx::types::Json<Vec<ActParticipant>>",
-            view_act.withdrawn_at IS NOT NULL as "withdrawn!: bool",
-            COALESCE((
-                SELECT MIN(s.gender = 'male')
-                FROM rider s JOIN act_participants p ON p.rider_id = s.id
-                WHERE p.act_id = view_act.id
-            ), FALSE) as "male!: bool"
-        FROM view_act
-        "#
-    )
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .map(|row| ActRow {
-        category_id: row.category_id,
-        discipline: HeatDiscipline::new(row.act_type, row.male),
-        node: ActNode {
-            id: row.id,
-            name: row.name,
-            group_name: row.group_name,
-            participants: row.participants.0,
-            withdrawn: row.withdrawn,
-            order: row.order,
-        },
-    })
-    .collect();
-    tx.commit().await?;
+    let acts: Vec<ActRow> = rows
+        .acts
+        .into_iter()
+        .map(|row| ActRow {
+            category_id: row.category_id,
+            discipline: row.discipline,
+            node: ActNode {
+                id: row.id,
+                name: row.name,
+                group_name: row.group_name,
+                participants: row.participants,
+                withdrawn: row.withdrawn,
+                order: row.order,
+            },
+        })
+        .collect();
 
     let mut acts_of: HashMap<CategoryId, Vec<ActNode>> = HashMap::new();
     let mut uncategorized: Vec<(HeatDiscipline, ActNode)> = Vec::new();
@@ -334,10 +262,7 @@ pub async fn get_structure(
             );
         }
         let mut final_nodes = Vec::new();
-        for row in final_rows
-            .iter()
-            .filter(|f| HeatDiscipline::new(f.act_type, f.is_single_male) == discipline)
-        {
+        for row in final_rows.iter().filter(|f| f.discipline == discipline) {
             let groups = slot_groups.get(&row.id).map(Vec::as_slice).unwrap_or(&[]);
             // A skipped heat's slots are unused while it is skipped.
             let running: Vec<i64> = groups

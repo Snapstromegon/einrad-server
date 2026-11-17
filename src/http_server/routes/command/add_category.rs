@@ -6,12 +6,10 @@ use utoipa::ToSchema;
 
 use crate::{
     act_type::ActType,
-    competition::Competition,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    seed,
 };
+use db_core::{DbHandle, categories::CategoryFields};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AddCategoryResponse {
@@ -53,74 +51,28 @@ pub struct AddCategoryBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn add_category(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<AddCategoryBody>,
 ) -> Result<Json<AddCategoryResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    check_ages(&mut transaction, &body.name, body.min_age, body.under_age).await?;
-
-    let category_id = CategoryId::new();
-    sqlx::query!(
-        r#"
-        INSERT INTO categories (
-            id,
-            name, 
-            description, 
-            min_age,
-            under_age,
-            act_type, 
-            is_single_male, 
-            einfahrzeit_seconds, 
-            act_duration_seconds, 
-            judge_duration_seconds,
-            "order"
-        )
-        VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            (SELECT COALESCE(MAX("order"), 0) + 1 FROM categories)
-        )
-        "#,
-        category_id,
-        body.name,
-        body.description,
-        body.min_age,
-        body.under_age,
-        body.act_type,
-        body.is_single_male,
-        body.einfahrzeit_seconds,
-        body.act_duration_seconds,
-        body.judge_duration_seconds,
-    )
-    .execute(&mut *transaction)
-    .await?;
-    let warnings = seed::stored_coverage_warnings(&mut transaction)
-        .await
-        .map_err(HttpError::ErrorMessages)?;
-    transaction.commit().await?;
-
+    let (category_id, warnings) = repo
+        .add_category(&CategoryFields {
+            name: body.name,
+            description: body.description,
+            min_age: body.min_age,
+            under_age: body.under_age,
+            act_type: body.act_type,
+            is_single_male: body.is_single_male,
+            einfahrzeit_seconds: body.einfahrzeit_seconds,
+            act_duration_seconds: body.act_duration_seconds,
+            judge_duration_seconds: body.judge_duration_seconds,
+        })
+        .await?;
     Ok(Json(AddCategoryResponse {
         category_id,
         warnings,
     }))
-}
-
-/// Rejects ages the import rejects, e.g. a `min_age` not below `under_age`.
-pub(super) async fn check_ages(
-    conn: &mut sqlx::SqliteConnection,
-    name: &str,
-    min_age: Option<f64>,
-    under_age: Option<f64>,
-) -> Result<(), HttpError> {
-    let determining_day = Competition::current(conn)
-        .await?
-        .ok_or(HttpError::NotFound)?
-        .determining_day;
-    seed::birthday_bounds(name, min_age, under_age, determining_day)
-        .map_err(HttpError::ErrorMessages)?;
-    Ok(())
 }

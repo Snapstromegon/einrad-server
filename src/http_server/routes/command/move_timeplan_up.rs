@@ -1,13 +1,12 @@
 use axum::{Extension, Json, http::StatusCode};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
-    timeplan::swap_with_neighbour,
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -32,21 +31,17 @@ pub struct MoveTimeplanUpBody {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn move_timeplan_up(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::PlanCompetition>,
     Json(body): Json<MoveTimeplanUpBody>,
 ) -> Result<Json<MoveTimeplanUpResponse>, HttpError> {
-    let db = db.get().await.clone();
-
-    let mut tx = begin_write(&db).await?;
-    if !swap_with_neighbour(&mut tx, body.id, true).await? {
-        // No previous entry to swap with.
+    if !repo.move_timeplan_entry(body.id, true).await? {
+        // No neighbour to swap with.
         return Err(HttpError::StatusCode(StatusCode::BAD_REQUEST));
     }
-    tx.commit().await?;
 
     Ok(Json(MoveTimeplanUpResponse {}))
 }

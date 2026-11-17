@@ -13,8 +13,8 @@ use std::{
 };
 
 use axum_extra::extract::CookieJar;
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::{info, warn};
 use url::Url;
 
@@ -32,7 +32,8 @@ const TEST_MAIL_TIMEOUT: Duration = Duration::from_secs(20);
 /// What a pending setup works on: the database, the CLI/environment values
 /// (which are never written) and where the config file goes.
 pub struct SetupEnv {
-    pub db: SqlitePool,
+    /// The database behind the repository traits.
+    pub repo: DbHandle,
     pub cli: CliArgs,
     /// `--config`/`CONFIG`, default `./config.toml`.
     pub config_path: PathBuf,
@@ -40,13 +41,13 @@ pub struct SetupEnv {
 
 impl SetupEnv {
     #[must_use]
-    pub fn new(db: SqlitePool, cli: CliArgs) -> Self {
+    pub fn new(repo: DbHandle, cli: CliArgs) -> Self {
         let config_path = cli
             .config
             .clone()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
         Self {
-            db,
+            repo,
             cli,
             config_path,
         }
@@ -132,7 +133,7 @@ impl Snapshot {
         let file = env.load_file()?;
         let cli = &env.cli;
         let nb = |v: &Option<String>| non_blank(v.clone()).is_some();
-        let admin = admin_user::admin_exists(&env.db)
+        let admin = admin_user::admin_exists(&*env.repo)
             .await
             .map_err(|e| format!("Couldn't read the database: {e}"))?;
         let needs_file = Settings::resolve(cli.clone(), file.clone()).is_err();
@@ -654,7 +655,7 @@ pub async fn complete(
         }
         if email.parse::<lettre::Address>().is_err() {
             errors.push("admin.email: needs an email address".to_string());
-        } else if admin_user::email_in_use(&env.db, email)
+        } else if admin_user::email_in_use(&*env.repo, email)
             .await
             .map_err(|e| CompleteError::Failed(format!("Couldn't read the database: {e}")))?
         {
@@ -741,7 +742,7 @@ pub async fn complete(
     // the next start (or status) shows only the admin as missing.
     let mut admin_id = None;
     if let Some((name, email, hash)) = hashed {
-        admin_id = admin_user::create_admin_with_hash(&env.db, &name, &email, &hash)
+        admin_id = admin_user::create_admin_with_hash(&*env.repo, &name, &email, &hash)
             .await
             .map_err(|e| CompleteError::Failed(format!("Couldn't create the admin: {e}")))?;
         info!("Created the admin {email}");
@@ -796,11 +797,11 @@ async fn hand_over(
     for warning in &settings.warnings {
         warn!("{}", clean(warning));
     }
-    let report = seed::apply_settings(&env.db, &settings)
+    let report = seed::apply_settings(env.repo.as_ref(), &settings)
         .await
         .map_err(|e| clean(&e))?;
     let normal = startup::build(
-        env.db.clone(),
+        env.repo.clone(),
         settings,
         &report,
         &super::config_dir(Some(&env.config_path)),

@@ -4,20 +4,18 @@ use crate::ids::UserId;
 use askama::Template;
 use axum::{Extension, Json, http::StatusCode};
 use axum_extra::extract::CookieJar;
+use db_core::{DbHandle, auth::NewUser};
 use password_auth::generate_hash;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::instrument;
 use url::Url;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    competition::Competition,
     http_server::{ClientError, HttpError, HttpServerOptions},
     jwt::JWTConfig,
     mailer::Mailer,
-    reloadable_sqlite::ReloadableSqlite,
     system_status::Capabilities,
     templates::VerifyMail,
     utils::check_password,
@@ -54,7 +52,7 @@ pub struct RegisterBody {
 pub async fn register(
     cookies: CookieJar,
     capabilities: Capabilities,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(db): Extension<DbHandle>,
     Extension(mailer): Extension<Arc<Mailer>>,
     Extension(jwt_config): Extension<Arc<JWTConfig>>,
     Extension(http_options): Extension<Arc<HttpServerOptions>>,
@@ -63,38 +61,25 @@ pub async fn register(
     if !capabilities.can_register {
         return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
     }
-    let db = db.get().await.clone();
     check_password(&body.password).map_err(HttpError::ErrorMessages)?;
-    check_email_exists(&db, &body.email).await?;
+    if db.email_in_use(&body.email).await? {
+        return Err(HttpError::ErrorMessages(
+            "Email Adresse bereits registriert.".to_string(),
+        ));
+    }
     let user_id = UserId::new();
     let hashed_password = generate_hash(body.password);
-    sqlx::query!(
-        r#"
-        INSERT INTO users (id, name, email, email_verified, password)
-        VALUES (?, ?, ?, ?, ?)
-        "#,
-        user_id,
-        body.name,
-        body.email,
-        false,
-        hashed_password,
-    )
-    .execute(&db)
-    .await?;
-
     // Create a token for email verification
     let email_token = Uuid::new_v4();
-    let now = time::OffsetDateTime::now_utc();
-    sqlx::query!(
-        r#"
-        INSERT INTO mail_verification (id, user_id, created_at)
-        VALUES (?, ?, ?)
-        "#,
+    db.register_user(
+        NewUser {
+            id: user_id,
+            name: &body.name,
+            email: &body.email,
+            password_hash: &hashed_password,
+        },
         email_token,
-        user_id,
-        now
     )
-    .execute(&db)
     .await?;
 
     let verify_link = Url::parse(&http_options.base_url)
@@ -103,7 +88,7 @@ pub async fn register(
         .expect("Invalid URL")
         .to_string();
 
-    let event_name = Competition::event_name(&db).await?;
+    let event_name = db.event_name().await?;
     mailer
         .send_text(
             &body.email,
@@ -124,23 +109,4 @@ pub async fn register(
         })?,
         Json(RegisterResponse { user_id }),
     ))
-}
-
-async fn check_email_exists(db: &SqlitePool, email: &str) -> Result<(), HttpError> {
-    let user = sqlx::query!(
-        r#"
-        SELECT id FROM users WHERE email = ?
-        "#,
-        email
-    )
-    .fetch_optional(db)
-    .await?;
-
-    if user.is_some() {
-        return Err(HttpError::ErrorMessages(
-            "Email Adresse bereits registriert.".to_string(),
-        ));
-    }
-
-    Ok(())
 }

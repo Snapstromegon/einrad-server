@@ -1,10 +1,10 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
-    club_mails::{self, SentClubMail},
+    club_mails::SentClubMail,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -21,11 +21,10 @@ use crate::{
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_club_mails(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::MailClubs>,
 ) -> Result<Json<Vec<SentClubMail>>, HttpError> {
-    let db = db.get().await.clone();
-    Ok(Json(club_mails::log(&db).await?))
+    Ok(Json(repo.list_club_mails().await?))
 }

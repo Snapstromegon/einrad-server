@@ -1,13 +1,10 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::instrument;
 use utoipa::ToSchema;
 
-use crate::{
-    http_server::{ClientError, HttpError},
-    images,
-    reloadable_sqlite::ReloadableSqlite,
-};
+use crate::http_server::{ClientError, HttpError};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Sponsor {
@@ -31,13 +28,12 @@ pub struct Sponsor {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_sponsors(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
 ) -> Result<Json<Vec<Sponsor>>, HttpError> {
-    let db = db.get().await.clone();
     Ok(Json(
-        images::list(&db)
+        repo.list_images()
             .await?
             .into_iter()
             .filter(|image| image.kind == "sponsor" && image.has_data)

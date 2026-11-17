@@ -11,7 +11,7 @@ use einrad_server::{
     demo::DemoData,
 };
 use eyre::eyre;
-use sqlx::{migrate, sqlite::SqliteConnectOptions};
+use sqlx::sqlite::SqliteConnectOptions;
 use tracing::{info, warn};
 use tracing_subscriber::FmtSubscriber;
 
@@ -36,7 +36,7 @@ struct Args {
 /// A plain `main`: the local UTC offset (for backup names) can only be read
 /// before any thread exists, so it is read here, then the runtime is built.
 fn main() -> eyre::Result<()> {
-    let offset = einrad_server::db_backup::init_local_offset();
+    let offset = db_sqlite::db_backup::init_local_offset();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -96,13 +96,14 @@ async fn run(local_offset_known: bool) -> eyre::Result<()> {
     let db = sqlx::SqlitePool::connect_with(options).await?;
     info!("Running database migrations");
     if filename.as_os_str() == ":memory:" {
-        migrate!("./migrations").run(&db).await?;
+        db_sqlite::MIGRATOR.run(&db).await?;
     } else {
-        einrad_server::db_backup::migrate_with_backup(&db, &filename).await?;
+        db_sqlite::db_backup::migrate_with_backup(&db, &filename).await?;
     }
 
     info!("Applying demo data from {}", args.demo.display());
-    demo.apply(&db, &data_path).await.map_err(|e| eyre!(e))?;
+    let repo = db_sqlite::SqliteRepo::from_pool(db.clone());
+    demo.apply(&repo, &data_path).await.map_err(|e| eyre!(e))?;
     db.close().await;
 
     info!(

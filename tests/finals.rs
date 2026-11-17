@@ -970,7 +970,7 @@ async fn a_placed_act_plays_in_its_final_slot() {
     report().await;
     assert!(!music_started().await.is_null());
     let heat: (Option<String>, Option<String>) =
-        sqlx::query_as("SELECT started_at, music_started_at FROM acts WHERE id = ?")
+        sqlx::query_as("SELECT started_at, music_started_at FROM acts WHERE id = $1")
             .bind(anna)
             .fetch_one(&app.db)
             .await

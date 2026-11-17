@@ -172,10 +172,7 @@ async fn unknown_riders_fail_the_whole_call() {
 
     let response = set_checked_in(&app, Some(&admin), &[anna, unknown, berta], true).await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
-    assert_eq!(
-        response.body,
-        json!({ "type": "StatusCode", "message": 404 })
-    );
+    assert_eq!(response.body, json!({ "type": "NotFound" }));
     assert!(checked_in(&app, &admin).await.is_empty());
 
     set_checked_in(&app, Some(&admin), &[anna, berta], true).await;

@@ -1,11 +1,11 @@
 use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
-    bookings::{self, BookingLogEntry},
+    bookings::BookingLogEntry,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -29,14 +29,13 @@ pub struct ListBookingLogQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_booking_log(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManagePayments>,
     Query(query): Query<ListBookingLogQuery>,
 ) -> Result<Json<Vec<BookingLogEntry>>, HttpError> {
-    let db = db.get().await.clone();
-    let mut log = bookings::log(&db).await?;
+    let mut log = repo.booking_log().await?;
     if let Some(club_id) = query.club_id {
         log.retain(|entry| entry.concerns_club(club_id));
     }

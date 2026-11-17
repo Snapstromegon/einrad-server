@@ -14,6 +14,7 @@ use axum::{
     http::{Method, Request, StatusCode},
 };
 use common::{TempDir, in_memory_migrated};
+use db_sqlite::SqliteRepo;
 use einrad_server::{
     config::{CliArgs, ConfigFile, Settings},
     setup::{SetupEnv, SetupState, TOKEN_FILE_NAME, pending_reason, router},
@@ -124,7 +125,13 @@ async fn harness(cli: CliArgs, config: Option<&str>) -> Harness {
         ..cli
     };
     let db = in_memory_migrated().await;
-    let state = SetupState::new(None, SetupEnv::new(db.clone(), cli.clone()));
+    let state = SetupState::new(
+        None,
+        SetupEnv::new(
+            db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+            cli.clone(),
+        ),
+    );
     state.write_token_file().unwrap();
     Harness {
         app: router(state.clone()),
@@ -423,7 +430,12 @@ async fn completion_writes_the_config_and_creates_the_admin() {
     let loaded = ConfigFile::load(Some(&path)).unwrap();
     let settings = Settings::resolve(CliArgs::default(), loaded);
     assert!(settings.is_ok());
-    assert_eq!(pending_reason(&settings, &h.db).await.unwrap(), None);
+    assert_eq!(
+        pending_reason(&settings, &db_sqlite::SqliteRepo::from_pool(h.db.clone()))
+            .await
+            .unwrap(),
+        None
+    );
 
     // The admin: hashed, verified.
     let admins = h.admins().await;
@@ -577,7 +589,13 @@ async fn an_unwritable_config_path_returns_the_content() {
         ..Default::default()
     };
     let db = in_memory_migrated().await;
-    let state = SetupState::new(None, SetupEnv::new(db.clone(), cli));
+    let state = SetupState::new(
+        None,
+        SetupEnv::new(
+            db_sqlite::SqliteRepo::from_pool(db.clone()).into_handle(),
+            cli,
+        ),
+    );
     let h = Harness {
         app: router(state.clone()),
         dir,
@@ -639,7 +657,7 @@ async fn invalid_input_writes_nothing() {
 #[tokio::test]
 async fn an_email_used_by_another_user_is_rejected_before_anything_is_written() {
     let h = harness(CliArgs::default(), None).await;
-    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES (?, 'max@example.org', true, 'Erika Beispiel', 'x')")
+    sqlx::query("INSERT INTO users (id, email, email_verified, name, password) VALUES ($1, 'max@example.org', true, 'Erika Beispiel', 'x')")
         .bind(uuid::Uuid::now_v7())
         .execute(&h.db)
         .await
@@ -676,7 +694,13 @@ async fn after_a_partial_failure_only_the_admin_is_missing() {
         .unwrap();
 
     // A new process: the file is read again.
-    let state = SetupState::new(None, SetupEnv::new(h.db.clone(), h.cli.clone()));
+    let state = SetupState::new(
+        None,
+        SetupEnv::new(
+            db_sqlite::SqliteRepo::from_pool(h.db.clone()).into_handle(),
+            h.cli.clone(),
+        ),
+    );
     let again = Harness {
         app: router(state.clone()),
         state,
@@ -749,7 +773,7 @@ async fn a_broken_competition_file_fails_the_early_check() {
 async fn an_admin_from_the_config_is_inserted_even_without_the_rest() {
     let db = in_memory_migrated().await;
     let inserted = einrad_server::admin_user::insert_admin_user(
-        &db,
+        &SqliteRepo::from_pool(db.clone()),
         "Max Müller",
         "max@example.org",
         PASSWORD,
@@ -757,9 +781,13 @@ async fn an_admin_from_the_config_is_inserted_even_without_the_rest() {
     .await
     .unwrap();
     assert!(inserted);
-    assert!(einrad_server::admin_user::admin_exists(&db).await.unwrap());
+    assert!(
+        einrad_server::admin_user::admin_exists(&SqliteRepo::from_pool(db.clone()))
+            .await
+            .unwrap()
+    );
     let again = einrad_server::admin_user::insert_admin_user(
-        &db,
+        &SqliteRepo::from_pool(db.clone()),
         "Erika Beispiel",
         "erika@example.org",
         PASSWORD,

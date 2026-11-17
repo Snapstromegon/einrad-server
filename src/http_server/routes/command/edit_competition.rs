@@ -1,17 +1,16 @@
 use std::sync::Arc;
 
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
-    colors,
-    competition::{Competition, upsert_competition},
-    config::{Branding, CompetitionConfig, is_valid_iban},
+    competition::Competition,
+    config::{CompetitionConfig, is_valid_iban},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::{Photos, PhotosSettings},
-    reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
 
@@ -51,17 +50,16 @@ fn filled(text: Option<String>) -> Option<String> {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, photos, body))]
+#[instrument(skip(repo, photos, body))]
 #[axum::debug_handler]
 pub async fn edit_competition(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     Extension(photos): Extension<Arc<Photos>>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<EditCompetitionBody>,
 ) -> Result<Json<EditCompetitionResponse>, HttpError> {
-    let db = db.get().await.clone();
-    let mut transaction = begin_write(&db).await?;
-    let current = Competition::current(&mut *transaction)
+    let current = repo
+        .current_competition()
         .await?
         .ok_or(HttpError::NotFound)?;
     let edited = body.competition;
@@ -90,16 +88,9 @@ pub async fn edit_competition(
     };
     let config = CompetitionConfig::from(&competition);
     config.validate().map_err(HttpError::ErrorMessages)?;
-    upsert_competition(&mut *transaction, &config).await?;
-    // The form sets both colors; `None` is the default (ADR 0009).
-    colors::write(
-        &mut *transaction,
-        &competition.id,
-        &Branding::set_or_reset(competition.primary_color.clone()),
-        &Branding::set_or_reset(competition.secondary_color.clone()),
-    )
-    .await?;
-    transaction.commit().await?;
+    if !repo.save_competition_settings(&competition).await? {
+        return Err(HttpError::NotFound);
+    }
     info!("Edited competition {}", competition.id);
     photos.configure(competition.photos.as_ref());
 

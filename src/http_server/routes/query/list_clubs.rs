@@ -1,14 +1,13 @@
 use crate::ids::{ClubId, UserId};
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use tracing::instrument;
 
 use crate::{
-    bookings::paid_by_club,
-    competition::{Competition, Features},
-    fees::{AmountDue, fees_by_club},
+    competition::Features,
+    fees::AmountDue,
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::JuryObligation,
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     utils::club_code,
 };
@@ -62,9 +61,9 @@ pub struct ClubContacts {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn list_clubs(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ViewClubs>,
     balances: Option<Granted<permit::ViewClubBalances>>,
     contacts: Option<Granted<permit::ViewClubContacts>>,
@@ -72,30 +71,10 @@ pub async fn list_clubs(
 ) -> Result<Json<Vec<ClubOverview>>, HttpError> {
     let (balances, contacts) = (balances.is_some(), contacts.is_some());
     let jury = balances || jury.is_some();
-    let db = db.get().await.clone();
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            clubs.id as "id!: ClubId",
-            clubs.name,
-            clubs.owner_id as "owner_id!: UserId",
-            clubs.fee_waiver,
-            users.name as owner_name,
-            users.email as owner_email,
-            users.email_verified as owner_email_verified,
-            COALESCE(clubs.responsible_name, users.name) as "responsible_name!: String",
-            COALESCE(clubs.responsible_email, users.email) as "responsible_email!: String"
-        FROM clubs
-        JOIN users ON users.id = clubs.owner_id
-        ORDER BY clubs.name
-        "#
-    )
-    .fetch_all(&db)
-    .await?;
-    let competition = Competition::current(&db).await?;
-    let paid = paid_by_club(&db).await?;
-    let features = Features::of(competition.as_ref());
-    let mut fees = fees_by_club(&db, competition.as_ref(), features.jury_registration).await?;
+    let rows = repo.list_clubs().await?;
+    let paid = repo.paid_by_club().await?;
+    let features = Features::from_repo(&*repo).await?;
+    let mut fees = repo.fees_by_club(features.jury_registration).await?;
     let clubs = rows
         .into_iter()
         .map(|row| {

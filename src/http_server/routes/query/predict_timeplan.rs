@@ -1,5 +1,6 @@
 use crate::ids::{ActId, CategoryId, FinalId, FinalSlotId, HeatId};
 use axum::{Extension, Json, extract::Query};
+use db_core::{Db, DbHandle};
 use tracing::instrument;
 
 use crate::{
@@ -7,7 +8,6 @@ use crate::{
         ClientError, HttpError,
         extractor::{auth::Granted, startlist::StartlistAccess},
     },
-    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
     timeplan::{self, Audience, EntryKind, Slot},
 };
@@ -264,29 +264,25 @@ pub struct PredictTimeplanQuery {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn predict_timeplan(
     _: StartlistAccess,
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     internal: Option<Granted<permit::ViewInternalEntries>>,
     Query(query): Query<PredictTimeplanQuery>,
 ) -> Result<Json<Timeplan>, HttpError> {
-    let db = db.get().await.clone();
     let audience = if internal.is_some() && !query.public {
         Audience::OrganizerTeam
     } else {
         Audience::Public
     };
-    Ok(Json(predict(&db, audience).await?))
+    Ok(Json(predict(repo.as_ref(), audience).await?))
 }
 
 /// The prediction behind `predict_timeplan`, also used by the startlist CSV,
 /// the player hub and the metrics.
-pub async fn predict(db: &sqlx::SqlitePool, audience: Audience) -> Result<Timeplan, HttpError> {
-    // One read transaction, so the blocks and acts are read consistently.
-    let mut tx = db.begin().await?;
-    let loaded = timeplan::load_for(&mut tx, audience).await?;
-    tx.commit().await?;
+pub async fn predict(repo: &dyn Db, audience: Audience) -> Result<Timeplan, HttpError> {
+    let loaded = repo.load_timeplan(audience).await?;
     predict_from(loaded, time::OffsetDateTime::now_utc())
 }
 

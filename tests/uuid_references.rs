@@ -19,9 +19,9 @@ async fn texts(db: &sqlx::SqlitePool, sql: &'static str) -> Vec<String> {
 /// A database before the migration with two heats ("E EM" fills the final,
 /// "KG" is a group heat without a final), one final in the timeplan, a
 /// finalist slot in its block and a judge registered for the heat.
-async fn before() -> (sqlx::SqlitePool, sqlx::migrate::Migrator) {
+async fn before() -> (sqlx::SqlitePool, &'static sqlx::migrate::Migrator) {
     let db = common::in_memory().await;
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = &db_sqlite::MIGRATOR;
     migrator.run_to(BEFORE_UUID_REFERENCES, &db).await.unwrap();
     exec(&db, "INSERT INTO heats (name) VALUES ('E EM'), ('KG')").await;
     exec(

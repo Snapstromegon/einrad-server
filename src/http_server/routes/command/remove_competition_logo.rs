@@ -1,12 +1,12 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::Serialize;
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    images::{self, Slot},
-    reloadable_sqlite::ReloadableSqlite,
+    images::Slot,
     roles::permit,
 };
 
@@ -26,14 +26,13 @@ pub struct RemoveCompetitionLogoResponse {}
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 #[axum::debug_handler]
 pub async fn remove_competition_logo(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageCompetition>,
 ) -> Result<Json<RemoveCompetitionLogoResponse>, HttpError> {
-    let db = db.get().await.clone();
-    images::remove(&db, Slot::Logo).await?;
+    repo.remove_image(Slot::Logo).await?;
     info!("Removed the competition logo");
     Ok(Json(RemoveCompetitionLogoResponse {}))
 }

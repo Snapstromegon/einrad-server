@@ -342,7 +342,7 @@ async fn pretend_normalized(app: &TestApp, act_id: ActId) -> String {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let status: Option<String> =
-            sqlx::query_scalar("SELECT normalization_status FROM acts WHERE id = ?")
+            sqlx::query_scalar("SELECT normalization_status FROM acts WHERE id = $1")
                 .bind(act_id)
                 .fetch_one(&app.db)
                 .await
@@ -353,12 +353,12 @@ async fn pretend_normalized(app: &TestApp, act_id: ActId) -> String {
         assert!(Instant::now() < deadline, "the normalization didn't finish");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    sqlx::query("UPDATE acts SET normalization_status = 'done' WHERE id = ?")
+    sqlx::query("UPDATE acts SET normalization_status = 'done' WHERE id = $1")
         .bind(act_id)
         .execute(&app.db)
         .await
         .unwrap();
-    sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = ?")
+    sqlx::query_scalar("SELECT song_file_normalized FROM acts WHERE id = $1")
         .bind(act_id)
         .fetch_one(&app.db)
         .await

@@ -1,12 +1,11 @@
 use axum::{Extension, Json};
+use db_core::DbHandle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::{
-    db_backup,
-    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::db_backups::db_file},
-    reloadable_sqlite::ReloadableSqlite,
+    http_server::{ClientError, HttpError, extractor::auth::Granted, routes::db_backups::backups},
     roles::permit,
 };
 
@@ -35,31 +34,15 @@ pub struct DeleteDbBackupsBody {
         (status=404, content_type="application/json", body=ClientError),
         (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
+        (status=501, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db))]
+#[instrument(skip(repo))]
 pub async fn delete_db_backups(
-    Extension(db): Extension<ReloadableSqlite>,
+    Extension(repo): Extension<DbHandle>,
     _: Granted<permit::ManageBackups>,
     Json(body): Json<DeleteDbBackupsBody>,
 ) -> Result<Json<DeleteDbBackupsResponse>, HttpError> {
-    let db_path = db_file(&db)?;
-    // Check all names first, so a bad one deletes nothing.
-    let paths = body
-        .filenames
-        .iter()
-        .map(|name| db_backup::resolve_backup(&db_path, name))
-        .collect::<Result<Vec<_>, _>>()?;
-    for path in paths {
-        match std::fs::remove_file(&path) {
-            Ok(()) => info!("Deleted database backup {}", path.display()),
-            // Deleted meanwhile, which is what was asked for.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                tracing::error!("Couldn't delete {}: {e}", path.display());
-                return Err(HttpError::InternalServerError);
-            }
-        }
-    }
+    backups(&repo)?.delete(&body.filenames)?;
     Ok(Json(DeleteDbBackupsResponse {}))
 }
