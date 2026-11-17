@@ -8,7 +8,7 @@ use crate::{
     groups::ensure_rider_access,
     http_server::{ClientError, HttpError, extractor::auth::Auth},
     reloadable_sqlite::{ReloadableSqlite, begin_write},
-    rider_registration,
+    rider_registration::{self, LinkedJudgeChoice},
     system_status::Capabilities,
 };
 
@@ -18,6 +18,11 @@ pub struct DeleteRiderResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DeleteRiderBody {
     rider_id: RiderId,
+    /// What happens to the judge linked to the rider. Needed (409 without)
+    /// if there is one, ignored otherwise. `delete` also needs the right to
+    /// change judges.
+    #[serde(default)]
+    linked_judge: Option<LinkedJudgeChoice>,
 }
 
 /// Delete a rider.
@@ -34,6 +39,7 @@ pub struct DeleteRiderBody {
         (status=200, content_type="application/json", body=DeleteRiderResponse),
         (status=400, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
@@ -53,7 +59,15 @@ pub async fn delete_rider(
     let mut transaction = begin_write(&db).await?;
     ensure_rider_access(&mut transaction, &auth, body.rider_id).await?;
 
-    rider_registration::delete_rider(&mut transaction, body.rider_id).await?;
+    if body.linked_judge == Some(LinkedJudgeChoice::Delete)
+        && !capabilities.can_register_judge
+        && rider_registration::linked_judge_counts(&mut transaction, body.rider_id)
+            .await?
+            .is_some()
+    {
+        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
+    }
+    rider_registration::delete_rider(&mut transaction, body.rider_id, body.linked_judge).await?;
 
     transaction.commit().await?;
 
