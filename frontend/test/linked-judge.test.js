@@ -114,6 +114,15 @@ describe("riderDeleteChoices", () => {
   });
 });
 
+describe("riderDeleteChoices fail closed", () => {
+  test("a missing can_delete_judge disables delete", () => {
+    const c = riderDeleteChoices({
+      linked_judge: { registrations: 1, assignments: 0 },
+    });
+    assert.equal(c.canDelete, false);
+  });
+});
+
 describe("linkSuggestion", () => {
   const draft = { rider_id: null, firstname: "Max", lastname: "Müller" };
   test("suggests a match when adding", () => {

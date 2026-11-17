@@ -759,6 +759,7 @@ pub async fn save_judge(
         INSERT INTO judge (
             id, club_id, rider_id, firstname, lastname, birthdate, is_trained, max_deployments, note
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        -- rider_id is left out on purpose: the link never changes on edit.
         ON CONFLICT (id) DO UPDATE SET
             firstname = excluded.firstname,
             lastname = excluded.lastname,

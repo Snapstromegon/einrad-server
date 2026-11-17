@@ -93,6 +93,6 @@ export const riderDeleteChoices = (impact: RiderDeleteImpact) => {
     keepLabel: "JurorIn behalten" as const,
     cancelLabel: "Abbrechen" as const,
     lossText: deleteImpactText(judge.registrations, judge.assignments),
-    canDelete: judge.can_delete_judge ?? true,
+    canDelete: judge.can_delete_judge ?? false,
   };
 };

@@ -94,6 +94,7 @@ async fn count(app: &TestApp, table: &str) -> i64 {
         "judge" => "SELECT COUNT(*) FROM judge",
         "judge_registration" => "SELECT COUNT(*) FROM judge_registration",
         "jury_assignments" => "SELECT COUNT(*) FROM jury_assignments",
+        "judge_registration_unmapped" => "SELECT COUNT(*) FROM judge_registration_unmapped",
         "acts" => "SELECT COUNT(*) FROM acts",
         other => panic!("unknown table {other}"),
     };
@@ -176,13 +177,22 @@ async fn delete_removes_the_judge_with_registrations_and_assignments() {
     let app = TestApp::new(common::in_memory_migrated().await).await;
     let (owner, _club, rider, judge, _admin) = setup(&app).await;
 
+    // Unmapped registrations are deleted with the judge, so they count too.
+    sqlx::query(
+        "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES (?, 'Alt', 'technical')",
+    )
+    .bind(uuid::Uuid::parse_str(judge.as_str().unwrap()).unwrap())
+    .execute(&app.db)
+    .await
+    .unwrap();
+
     let response = impact(&app, &owner, &rider).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(
         response.body,
         json!({ "linked_judge": {
             "judge_id": judge,
-            "registrations": 3,
+            "registrations": 4,
             "assignments": 2,
             "can_delete_judge": true,
         }})
@@ -193,6 +203,7 @@ async fn delete_removes_the_judge_with_registrations_and_assignments() {
     assert_eq!(count(&app, "rider").await, 0);
     assert_eq!(count(&app, "judge").await, 0);
     assert_eq!(count(&app, "judge_registration").await, 0);
+    assert_eq!(count(&app, "judge_registration_unmapped").await, 0);
     assert_eq!(count(&app, "jury_assignments").await, 0);
 }
 
@@ -306,6 +317,10 @@ async fn delete_choice_needs_judge_permission() {
         StatusCode::FORBIDDEN,
         "{:?}",
         response.body
+    );
+    assert_eq!(
+        response.body["message"],
+        "Die Jurymeldung ist geschlossen. Die JurorIn kann nur behalten werden."
     );
     assert_eq!(count(&app, "rider").await, 1);
     assert_eq!(count(&app, "judge").await, 1);

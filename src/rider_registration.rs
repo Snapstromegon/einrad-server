@@ -302,7 +302,9 @@ pub async fn linked_judge_counts(
         SELECT
             judge.id as "judge_id!: JudgeId",
             (SELECT COUNT(*) FROM judge_registration
-              WHERE judge_registration.judge_id = judge.id) as "registrations!: i64",
+              WHERE judge_registration.judge_id = judge.id)
+            + (SELECT COUNT(*) FROM judge_registration_unmapped
+              WHERE judge_registration_unmapped.judge_id = judge.id) as "registrations!: i64",
             (SELECT COUNT(*) FROM jury_assignments
               WHERE jury_assignments.judge_id = judge.id) as "assignments!: i64"
         FROM judge WHERE judge.rider_id = ?

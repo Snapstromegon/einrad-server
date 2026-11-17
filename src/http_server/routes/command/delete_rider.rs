@@ -65,7 +65,9 @@ pub async fn delete_rider(
             .await?
             .is_some()
     {
-        return Err(HttpError::StatusCode(StatusCode::FORBIDDEN));
+        return Err(HttpError::ForbiddenMessage(
+            "Die Jurymeldung ist geschlossen. Die JurorIn kann nur behalten werden.".into(),
+        ));
     }
     rider_registration::delete_rider(&mut transaction, body.rider_id, body.linked_judge).await?;
 
