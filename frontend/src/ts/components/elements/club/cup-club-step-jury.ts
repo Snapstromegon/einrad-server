@@ -9,9 +9,15 @@ import { client, type schemas } from "../../../apiClient";
 import {
   type ClubData,
   type ClubJudge,
+  type ClubRider,
   type JuryUnit,
   riderName,
 } from "../../../club-data";
+import {
+  availableRiders,
+  isLinked,
+  matchingRider,
+} from "../../../linked-judge";
 import {
   ageOnStart,
   countDeployments,
@@ -52,6 +58,8 @@ type JudgeTask = schemas.JudgeTask;
 
 /** The judge form, as the inputs hold it. */
 interface Draft {
+  /** The rider this judge is linked to: name and birthdate then come from the rider. */
+  rider_id: string | null;
   firstname: string;
   lastname: string;
   /** "YYYY-MM-DD". */
@@ -65,6 +73,7 @@ interface Draft {
 }
 
 const emptyDraft = (): Draft => ({
+  rider_id: null,
   firstname: "",
   lastname: "",
   birthdate: "",
@@ -77,6 +86,7 @@ const emptyDraft = (): Draft => ({
 const key = (unitId: string, task: JudgeTask) => `${unitId}:${task}`;
 
 const draftOf = (judge: ClubJudge): Draft => ({
+  rider_id: judge.rider_id ?? null,
   firstname: judge.firstname,
   lastname: judge.lastname,
   birthdate: dateInputValue(judge.birthdate),
@@ -113,8 +123,15 @@ export default class CupClubStepJury extends LitElement {
         flex: 1 1 12rem;
       }
 
-      .judge-form .field.wide {
+      .judge-form .field.wide,
+      .judge-form .wide {
         flex-basis: 100%;
+      }
+
+      .judge-form .hint {
+        margin: 0;
+        font-size: 0.85rem;
+        opacity: 0.75;
       }
 
       .judge-form label.check {
@@ -1225,16 +1242,45 @@ export default class CupClubStepJury extends LitElement {
 
   private renderForm() {
     const draft = this.draft;
+    const linked = isLinked(draft);
+    const riderOptions = availableRiders(this.data.riders, this.judges).map(
+      (r) => html`<option value=${r.id}>${r.lastname}, ${r.firstname}</option>`,
+    );
+    const suggestion = linked
+      ? null
+      : matchingRider(
+          draft.firstname,
+          draft.lastname,
+          this.data.riders,
+          this.judges,
+        );
     return html`<section class="card">
       <header>
         <h3>${this.editing === NEW ? "JurorIn hinzufügen" : "JurorIn bearbeiten"}</h3>
       </header>
       <form class="judge-form" @submit=${this.save}>
+        ${
+          this.editing === NEW && !linked
+            ? html`<label class="field wide"
+                ><span>FahrerIn wählen</span
+                ><select data-field="rider_pick" @change=${this.onRiderPick}>
+                  <option value="">Neue JurorIn von Hand eintragen</option>
+                  ${riderOptions}
+                </select></label
+              >`
+            : nothing
+        }
+        ${
+          linked
+            ? html`<p class="hint wide">Wird aus der FahrerIn übernommen</p>`
+            : nothing
+        }
         <label class="field"
           ><span>Vorname</span
           ><input
             type="text"
             required
+            ?readonly=${linked}
             autocomplete="off"
             data-field="firstname"
             .value=${draft.firstname}
@@ -1245,6 +1291,7 @@ export default class CupClubStepJury extends LitElement {
           ><input
             type="text"
             required
+            ?readonly=${linked}
             autocomplete="off"
             data-field="lastname"
             .value=${draft.lastname}
@@ -1255,10 +1302,24 @@ export default class CupClubStepJury extends LitElement {
           ><input
             type="date"
             required
+            ?readonly=${linked}
             data-field="birthdate"
             .value=${draft.birthdate}
             @input=${this.onTextInput}
         /></label>
+        ${
+          suggestion
+            ? html`<div class="wide">
+                <button
+                  type="button"
+                  class="btn"
+                  @click=${this.onSuggestionClick}
+                >
+                  Mit FahrerIn verknüpfen?
+                </button>
+              </div>`
+            : nothing
+        }
         <label class="field"
           ><span>Max. Einsätze (optional)</span
           ><input
@@ -1592,6 +1653,34 @@ ${
     this.draft = { ...this.draft, [field]: input.value };
   }
 
+  private onSuggestionClick() {
+    const { firstname, lastname } = this.draft;
+    const rider = matchingRider(
+      firstname,
+      lastname,
+      this.data.riders,
+      this.judges,
+    );
+    if (rider) this.linkRider(rider);
+  }
+
+  private onRiderPick(e: Event) {
+    const id = (e.target as HTMLSelectElement).value;
+    const rider = this.data.riders.find((r) => r.id === id);
+    if (rider) this.linkRider(rider);
+  }
+
+  /** Links the draft to the rider and takes over name and birthdate. */
+  private linkRider(rider: ClubRider) {
+    this.draft = {
+      ...this.draft,
+      rider_id: rider.id,
+      firstname: rider.firstname,
+      lastname: rider.lastname,
+      birthdate: dateInputValue(rider.birthdate),
+    };
+  }
+
   private onTrainedChange(e: Event) {
     const isTrained = (e.target as HTMLInputElement).checked;
     // Untrained people only count dismounts.
@@ -1697,10 +1786,15 @@ ${
   private async save(e: SubmitEvent) {
     e.preventDefault();
     const draft = this.draft;
+    const identity = draft.rider_id
+      ? {}
+      : {
+          firstname: draft.firstname,
+          lastname: draft.lastname,
+          birthdate: `${draft.birthdate}T00:00:00.000Z`,
+        };
     const fields = {
-      firstname: draft.firstname,
-      lastname: draft.lastname,
-      birthdate: `${draft.birthdate}T00:00:00.000Z`,
+      ...identity,
       is_trained: draft.is_trained,
       max_deployments: draft.max_deployments
         ? Number(draft.max_deployments)
@@ -1722,7 +1816,11 @@ ${
         id === NEW
           ? unwrap(
               client.addClubJudge({
-                body: { ...fields, club_id: this.data.club.id },
+                body: {
+                  ...fields,
+                  club_id: this.data.club.id,
+                  rider_id: draft.rider_id,
+                },
               }),
             )
           : unwrap(

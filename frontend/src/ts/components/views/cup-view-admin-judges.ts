@@ -3,6 +3,7 @@ import { Task, TaskStatus } from "@lit/task";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
+import { isLinked } from "../../linked-judge";
 import { errorMessage, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
 import {
@@ -565,7 +566,17 @@ export default class CupViewAdminJudges extends LitElement {
       ];
       return html`<tr>
         <td>${judge.club_name}</td>
-        <td>${judge.lastname}, ${judge.firstname}</td>
+        <td>
+          ${judge.lastname}, ${judge.firstname}${
+            isLinked(judge)
+              ? html` <span
+                  class="chip"
+                  title="Name und Geburtsdatum kommen von der FahrerIn"
+                  >verknüpft</span
+                >`
+              : nothing
+          }
+        </td>
         <td class="num ${age === 15 ? "fifteen" : ""}">${age ?? ""}</td>
         <td>
           ${
