@@ -41,6 +41,17 @@ export const matchingRider = <R extends RiderLike>(
   );
 };
 
+/** The rider to offer "Mit FahrerIn verknüpfen?" for: only when adding, as an edit never links. */
+export const linkSuggestion = <R extends RiderLike>(
+  adding: boolean,
+  draft: { rider_id?: string | null; firstname: string; lastname: string },
+  riders: R[],
+  judges: { rider_id?: string | null }[],
+): R | null =>
+  adding && !draft.rider_id
+    ? matchingRider(draft.firstname, draft.lastname, riders, judges)
+    : null;
+
 export const isLinked = (judge: { rider_id?: string | null }): boolean =>
   !!judge.rider_id;
 

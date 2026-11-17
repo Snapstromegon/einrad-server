@@ -4,6 +4,7 @@ import {
   availableRiders,
   deleteImpactText,
   isLinked,
+  linkSuggestion,
   matchingRider,
   riderDeleteChoices,
 } from "../src/ts/linked-judge.ts";
@@ -110,5 +111,19 @@ describe("riderDeleteChoices", () => {
     });
     assert.equal(c.lossText, "");
     assert.equal(c.canDelete, false);
+  });
+});
+
+describe("linkSuggestion", () => {
+  const draft = { rider_id: null, firstname: "Max", lastname: "Müller" };
+  test("suggests a match when adding", () => {
+    assert.equal(linkSuggestion(true, draft, riders, judges)?.id, "r2");
+  });
+  test("not when editing or already linked", () => {
+    assert.equal(linkSuggestion(false, draft, riders, judges), null);
+    assert.equal(
+      linkSuggestion(true, { ...draft, rider_id: "r2" }, riders, judges),
+      null,
+    );
   });
 });

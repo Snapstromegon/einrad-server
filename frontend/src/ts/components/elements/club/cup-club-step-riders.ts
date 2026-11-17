@@ -89,11 +89,11 @@ export default class CupClubStepRiders extends LitElement {
     clubPortalStyles,
     css`
       .delete-dialog {
-        max-width: 32rem;
-        border: 1px solid var(--outline, currentcolor);
+        max-width: min(32rem, calc(100vw - 2rem));
+        border: 1px solid var(--color-border);
         border-radius: 0.75rem;
-        background: var(--surface, Canvas);
-        color: inherit;
+        background: var(--color-surface);
+        color: var(--color-text);
       }
 
       .delete-dialog .choice {

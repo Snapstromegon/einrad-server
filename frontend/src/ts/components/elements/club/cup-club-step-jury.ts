@@ -16,7 +16,7 @@ import {
 import {
   availableRiders,
   isLinked,
-  matchingRider,
+  linkSuggestion,
 } from "../../../linked-judge";
 import {
   ageOnStart,
@@ -1246,14 +1246,12 @@ export default class CupClubStepJury extends LitElement {
     const riderOptions = availableRiders(this.data.riders, this.judges).map(
       (r) => html`<option value=${r.id}>${r.lastname}, ${r.firstname}</option>`,
     );
-    const suggestion = linked
-      ? null
-      : matchingRider(
-          draft.firstname,
-          draft.lastname,
-          this.data.riders,
-          this.judges,
-        );
+    const suggestion = linkSuggestion(
+      this.editing === NEW,
+      draft,
+      this.data.riders,
+      this.judges,
+    );
     return html`<section class="card">
       <header>
         <h3>${this.editing === NEW ? "JurorIn hinzufügen" : "JurorIn bearbeiten"}</h3>
@@ -1654,10 +1652,9 @@ ${
   }
 
   private onSuggestionClick() {
-    const { firstname, lastname } = this.draft;
-    const rider = matchingRider(
-      firstname,
-      lastname,
+    const rider = linkSuggestion(
+      this.editing === NEW,
+      this.draft,
       this.data.riders,
       this.judges,
     );
