@@ -1278,7 +1278,7 @@ export default class CupClubStepJury extends LitElement {
           ><input
             type="text"
             required
-            ?readonly=${linked}
+            ?disabled=${linked}
             autocomplete="off"
             data-field="firstname"
             .value=${draft.firstname}
@@ -1289,7 +1289,7 @@ export default class CupClubStepJury extends LitElement {
           ><input
             type="text"
             required
-            ?readonly=${linked}
+            ?disabled=${linked}
             autocomplete="off"
             data-field="lastname"
             .value=${draft.lastname}
@@ -1300,7 +1300,7 @@ export default class CupClubStepJury extends LitElement {
           ><input
             type="date"
             required
-            ?readonly=${linked}
+            ?disabled=${linked}
             data-field="birthdate"
             .value=${draft.birthdate}
             @input=${this.onTextInput}

@@ -88,12 +88,33 @@ export default class CupClubStepRiders extends LitElement {
     iconStyles,
     clubPortalStyles,
     css`
+      /* Popover in the top layer: centred in the viewport, escapes any
+         overflow/transform of ancestors. */
       .delete-dialog {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: 32rem;
         max-width: min(32rem, calc(100vw - 2rem));
+        height: fit-content;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        box-sizing: border-box;
+        padding: 1.5rem;
         border: 1px solid var(--color-border);
         border-radius: 0.75rem;
         background: var(--color-surface);
         color: var(--color-text);
+        box-shadow: 0 12px 48px var(--color-shadow);
+      }
+
+      /* ::backdrop cannot read custom properties everywhere: literal. */
+      .delete-dialog::backdrop {
+        background: rgb(0 0 0 / 0.6); /* color-literal-ok */
+      }
+
+      .delete-dialog h3 {
+        margin-top: 0;
       }
 
       .delete-dialog .choice {
@@ -262,7 +283,7 @@ export default class CupClubStepRiders extends LitElement {
   @state() error: string | null = null;
   @state() search = "";
   @state() edit: (RiderDraft & { id: string }) | null = null;
-  @query("dialog") deleteDialog?: HTMLDialogElement;
+  @query(".delete-dialog") deleteDialog?: HTMLElement;
   @state() busy = new Set<string>();
   /** The rider whose linked judge the delete dialog asks about. */
   @state() pendingDelete: {
@@ -279,9 +300,9 @@ export default class CupClubStepRiders extends LitElement {
         .find((el) => el.dataset.id === this.target)
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-    // The delete dialog is modal: open it once it is rendered.
+    // The delete question is a popover: open it once it is rendered.
     const dialog = this.deleteDialog;
-    if (dialog && !dialog.open) dialog.showModal();
+    if (dialog && !dialog.matches(":popover-open")) dialog.showPopover();
   }
 
   override render() {
@@ -808,7 +829,11 @@ export default class CupClubStepRiders extends LitElement {
     const pending = this.pendingDelete;
     if (!pending) return nothing;
     const { rider, choices } = pending;
-    return html`<dialog class="delete-dialog" @close=${this.closeDeleteDialog}>
+    return html`<div
+      class="delete-dialog"
+      popover="auto"
+      @toggle=${this.onDeleteToggle}
+    >
       <h3>${riderName(rider)} ist als JurorIn gemeldet</h3>
       <p>Was soll mit der JurorIn passieren?</p>
       <div class="choice">
@@ -841,12 +866,20 @@ export default class CupClubStepRiders extends LitElement {
           ${choices.cancelLabel}
         </button>
       </div>
-    </dialog>`;
+    </div>`;
+  }
+
+  /**
+   * `popover="auto"`: Escape and a click on the backdrop close it, which
+   * is the safe answer (Abbrechen), so light-dismiss is wanted here.
+   */
+  private onDeleteToggle(e: Event) {
+    if ((e as ToggleEvent).newState === "closed") this.pendingDelete = null;
   }
 
   private closeDeleteDialog() {
     const dialog = this.deleteDialog;
-    if (dialog?.open) dialog.close();
+    if (dialog?.matches(":popover-open")) dialog.hidePopover();
     this.pendingDelete = null;
   }
 
