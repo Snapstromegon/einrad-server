@@ -11,10 +11,13 @@ import {
 } from "../../contexts/systemStatus";
 import {
   ageOnStart,
+  assignedDeployments,
+  assignedLoad,
   coverage,
   closedReason,
   deploymentNote,
   judgeRegistrationEnd,
+  loadLabel,
   neededFor,
   overMaxWarnings,
   planWarnings,
@@ -202,7 +205,7 @@ export default class CupViewAdminJudges extends LitElement {
       ([judges, clubs, plan]) =>
         html`${this.renderPlan(units, judges, plan)}
         ${this.renderCoverage(units, judges)} ${this.renderClubs(clubs)}
-        ${this.renderJudges(units, judges)}`,
+        ${this.renderJudges(units, judges, plan)}`,
     );
   }
 
@@ -232,6 +235,7 @@ export default class CupViewAdminJudges extends LitElement {
    * assign more and the unit's warnings; grouped by day for printing.
    */
   private renderPlan(units: JuryUnit[], judges: ClubJudge[], plan: JuryPlan) {
+    const load = assignedDeployments(units, plan.assignments);
     const byDay = new Map<string, JuryUnit[]>();
     for (const unit of units) {
       const day = unit.day ?? "";
@@ -255,22 +259,19 @@ export default class CupViewAdminJudges extends LitElement {
               ${repeat(
                 dayUnits,
                 (unit) => unit.id,
-                (unit) => this.renderPlanRow(unit, judges, plan),
+                (unit) => this.renderPlanRow(unit, judges, plan, load),
               )}
             </tbody>
           </table>`,
     );
     const overMax = overMaxWarnings(plan.assignments, judges, units);
-    const overMaxList = overMax.length
-      ? html`<p>
-          ${overMax.map(
-            (line, i) =>
-              html`${i ? html`<br />` : nothing}<small class="text-warn"
-                  >${line}</small
-                >`,
-          )}
-        </p>`
-      : nothing;
+    const overMaxLines = overMax.map(
+      (line, i) =>
+        html`${i ? html`<br />` : nothing}<small class="text-warn"
+            >${line}</small
+          >`,
+    );
+    const overMaxList = overMax.length ? html`<p>${overMaxLines}</p>` : nothing;
     const published = plan.published_at;
     // Clubs can change their judges until the judge deadline.
     const end = judgeRegistrationEnd(this.systemStatus?.competition);
@@ -322,7 +323,12 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
-  private renderPlanRow(unit: JuryUnit, judges: ClubJudge[], plan: JuryPlan) {
+  private renderPlanRow(
+    unit: JuryUnit,
+    judges: ClubJudge[],
+    plan: JuryPlan,
+    load: Map<string, number>,
+  ) {
     const competition = this.systemStatus?.competition;
     const assigned = plan.assignments.filter((a) => a.unit_id === unit.id);
     const warnings = planWarnings(unit, plan.assignments, judges, competition);
@@ -357,7 +363,7 @@ export default class CupViewAdminJudges extends LitElement {
         <small class="muted"
           >${assigned.filter((a) => a.task === task).length}/${neededFor(unit, task)}</small
         >
-        ${this.renderPicker(unit, task, judges, assigned)}
+        ${this.renderPicker(unit, task, judges, assigned, load)}
       </td>`;
     });
     const warningLines = warnings.map(
@@ -379,6 +385,7 @@ export default class CupViewAdminJudges extends LitElement {
     task: JudgeTask,
     judges: ClubJudge[],
     assigned: { judge_id: string }[],
+    load: Map<string, number>,
   ) {
     const taken = new Set(assigned.map((a) => a.judge_id));
     const registered = (judge: ClubJudge) =>
@@ -390,14 +397,15 @@ export default class CupViewAdminJudges extends LitElement {
           (judge.is_trained || task === "dismounts") &&
           (this.showAll || registered(judge)),
       )
-      .map(
-        (judge) =>
-          html`<option value=${judge.id}>
-            ${judge.lastname}, ${judge.firstname} (${judge.club_name})${
-              registered(judge) ? "" : " – nicht gemeldet"
-            }
-          </option>`,
-      );
+      .map((judge) => {
+        const l = assignedLoad(judge, load);
+        return html`<option value=${judge.id}>
+          ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
+          (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
+            l ? ` – ${loadLabel(l)}` : ""
+          }
+        </option>`;
+      });
     if (!options.length) {
       return nothing;
     }
@@ -527,7 +535,8 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   /** All judges, filterable by club, name and unit. */
-  private renderJudges(units: JuryUnit[], judges: ClubJudge[]) {
+  private renderJudges(units: JuryUnit[], judges: ClubJudge[], plan: JuryPlan) {
+    const load = assignedDeployments(units, plan.assignments);
     const byId = new Map(units.map((c) => [c.id, c]));
     const needle = this.search.trim().toLocaleLowerCase("de");
     const describe = (judge: ClubJudge) => {
@@ -575,6 +584,7 @@ export default class CupViewAdminJudges extends LitElement {
             >`,
         ),
       ];
+      const l = assignedLoad(judge, load);
       return html`<tr>
         <td>${judge.club_name}</td>
         <td>${judge.lastname}, ${judge.firstname}</td>
@@ -591,6 +601,14 @@ export default class CupViewAdminJudges extends LitElement {
           ${judge.counted_deployments}${
             deploymentNote(judge)
               ? html`<br /><small class="muted">${deploymentNote(judge)}</small>`
+              : nothing
+          }${
+            l
+              ? html`<br /><small
+                    class=${l.over ? "text-warn" : "muted"}
+                    title="Eingeteilte Einsätze im Juryplan"
+                    >${loadLabel(l)}</small
+                  >`
               : nothing
           }
         </td>
