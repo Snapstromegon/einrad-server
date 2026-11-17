@@ -170,6 +170,48 @@ export const planWarnings = (
   return warnings;
 };
 
+/**
+ * Deployments each judge is assigned in the Juryplan: every distinct jury
+ * unit counts once, however many tasks the judge has there.
+ */
+export const assignedDeployments = (
+  units: { id: string; deployments: number }[],
+  assignments: { judge_id: string; unit_id: string }[],
+) => {
+  const deployments = new Map(units.map((u) => [u.id, u.deployments]));
+  const unitsByJudge = new Map<string, Set<string>>();
+  for (const { judge_id, unit_id } of assignments) {
+    const ids = unitsByJudge.get(judge_id) ?? new Set<string>();
+    ids.add(unit_id);
+    unitsByJudge.set(judge_id, ids);
+  }
+  const load = new Map<string, number>();
+  for (const [judge, ids] of unitsByJudge) {
+    let sum = 0;
+    for (const id of ids) {
+      sum += deployments.get(id) ?? 0;
+    }
+    load.set(judge, sum);
+  }
+  return load;
+};
+
+/** A judge's assigned deployments against their max.; null without a max. */
+export const assignedLoad = (
+  judge: { id: string; max_deployments?: number | null },
+  load: Map<string, number>,
+) => {
+  if (judge.max_deployments == null) {
+    return null;
+  }
+  const assigned = load.get(judge.id) ?? 0;
+  const max = judge.max_deployments;
+  return { assigned, max, over: assigned > max };
+};
+
+export const loadLabel = (l: { assigned: number; max: number }) =>
+  `${l.assigned} / max. ${l.max}`;
+
 /** Why a judge's counted Einsätze differ from all their registered jury units. */
 export const deploymentNote = (judge: {
   is_trained: boolean;

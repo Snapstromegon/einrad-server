@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
   ageOnStart,
+  assignedDeployments,
+  assignedLoad,
+  loadLabel,
   countDeployments,
   coverage,
   deploymentNote,
@@ -27,6 +30,51 @@ const rules = (registration_end = null) => ({
 });
 
 describe("jury", () => {
+  test("assignedDeployments sums deployments per distinct unit", () => {
+    const units = [
+      { id: "v", deployments: 2 },
+      { id: "f", deployments: 1 },
+    ];
+    const a = (judge_id, unit_id, task = "technical") => ({
+      judge_id,
+      unit_id,
+      task,
+    });
+    const load = assignedDeployments(units, [
+      a("1", "v"),
+      a("1", "v", "dismounts"),
+      a("1", "f"),
+      a("2", "gone"),
+    ]);
+    assert.equal(load.get("1"), 3);
+    assert.equal(load.get("2") ?? 0, 0);
+  });
+
+  test("assignedLoad: equal to max is fine, one over is over, no max never warns", () => {
+    const load = new Map([
+      ["1", 4],
+      ["2", 5],
+    ]);
+    assert.deepEqual(assignedLoad({ id: "1", max_deployments: 4 }, load), {
+      assigned: 4,
+      max: 4,
+      over: false,
+    });
+    assert.deepEqual(assignedLoad({ id: "2", max_deployments: 4 }, load), {
+      assigned: 5,
+      max: 4,
+      over: true,
+    });
+    assert.equal(assignedLoad({ id: "2", max_deployments: null }, load), null);
+    assert.equal(assignedLoad({ id: "2" }, load), null);
+    assert.deepEqual(assignedLoad({ id: "9", max_deployments: 4 }, load), {
+      assigned: 0,
+      max: 4,
+      over: false,
+    });
+    assert.equal(loadLabel({ assigned: 6, max: 4 }), "6 / max. 4");
+  });
+
   test("the judge registration ends with the registration by default", () => {
     assert.equal(
       judgeRegistrationEnd(competition(rules())),
