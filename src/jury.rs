@@ -3,7 +3,7 @@
 //! obligation and plan the jury. Everything is behind the
 //! `jury_registration` feature of the competition (see `Features`).
 
-use crate::ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId};
+use crate::ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId, RiderId};
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
@@ -497,6 +497,9 @@ pub struct ClubJudge {
     pub id: JudgeId,
     pub club_id: ClubId,
     pub club_name: String,
+    /// The rider this judge was created from: their name and birthdate are
+    /// the rider's, live. `None` for a judge typed by hand.
+    pub rider_id: Option<RiderId>,
     pub firstname: String,
     pub lastname: String,
     #[serde(with = "time::serde::iso8601")]
@@ -515,10 +518,14 @@ pub struct ClubJudge {
 /// What clubs set for a judge.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct JudgeFields {
-    pub firstname: String,
-    pub lastname: String,
-    #[serde(with = "time::serde::iso8601")]
-    pub birthdate: OffsetDateTime,
+    /// Name and birthdate are required for a judge typed by hand, and
+    /// ignored for a linked judge (the rider's count).
+    #[serde(default)]
+    pub firstname: Option<String>,
+    #[serde(default)]
+    pub lastname: Option<String>,
+    #[serde(default, with = "time::serde::iso8601::option")]
+    pub birthdate: Option<OffsetDateTime>,
     pub is_trained: bool,
     #[serde(default)]
     pub max_deployments: Option<i64>,
@@ -551,20 +558,113 @@ fn is_safe_name(name: &str) -> bool {
     !name.is_empty() && !name.starts_with(['=', '+', '-', '@'])
 }
 
-impl JudgeFields {
-    /// Trims the texts, removes duplicate registrations and checks the rules
-    /// of the Jury-Konzept: trained judges are at least `min_age` on the first
-    /// competition day; untrained people only count dismounts. The message is
-    /// German.
-    pub fn normalize(mut self, competition: Option<&Competition>) -> Result<Self, String> {
-        people::trim_name(&mut self.firstname);
-        people::trim_name(&mut self.lastname);
-        if !is_safe_name(&self.firstname) || !is_safe_name(&self.lastname) {
-            return Err(
+/// The name and birthdate the jury rules run on: the rider's for a linked
+/// judge, the typed ones otherwise.
+#[derive(Debug, Clone)]
+pub struct ResolvedIdentity {
+    pub firstname: String,
+    pub lastname: String,
+    pub birthdate: OffsetDateTime,
+}
+
+fn already_linked(firstname: &str, lastname: &str) -> HttpError {
+    HttpError::ErrorMessages(format!(
+        "{firstname} {lastname} ist bereits als JurorIn gemeldet."
+    ))
+}
+
+/// The rider a judge is linked to, or `None` for a judge typed by hand (or an
+/// unknown judge).
+pub async fn linked_rider(
+    conn: &mut sqlx::SqliteConnection,
+    judge_id: JudgeId,
+) -> Result<Option<RiderId>, HttpError> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT rider_id as "rider_id: RiderId" FROM judge WHERE id = ?"#,
+        judge_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten())
+}
+
+/// The name and birthdate of a judge of `club_id`: the rider's when
+/// `rider_id` is given, else the ones typed in `fields`. A rider must belong
+/// to the club and must not be linked to another judge than `judge_id` (the
+/// one being edited); an unknown rider is a 404. The messages are German.
+pub async fn resolve_identity(
+    conn: &mut sqlx::SqliteConnection,
+    judge_id: Option<JudgeId>,
+    club_id: ClubId,
+    rider_id: Option<RiderId>,
+    fields: &JudgeFields,
+) -> Result<ResolvedIdentity, HttpError> {
+    let Some(rider_id) = rider_id else {
+        let mut firstname = fields.firstname.clone().unwrap_or_default();
+        let mut lastname = fields.lastname.clone().unwrap_or_default();
+        people::trim_name(&mut firstname);
+        people::trim_name(&mut lastname);
+        if !is_safe_name(&firstname) || !is_safe_name(&lastname) {
+            return Err(HttpError::ErrorMessages(
                 "Bitte Vor- und Nachnamen angeben (nicht mit =, +, - oder @ beginnend)."
                     .to_string(),
-            );
+            ));
         }
+        let birthdate = fields.birthdate.ok_or_else(|| {
+            HttpError::ErrorMessages("Bitte das Geburtsdatum angeben.".to_string())
+        })?;
+        return Ok(ResolvedIdentity {
+            firstname,
+            lastname,
+            birthdate,
+        });
+    };
+    let rider = sqlx::query!(
+        r#"
+        SELECT
+            club_id as "club_id!: ClubId",
+            firstname as "firstname!",
+            lastname as "lastname!",
+            birthdate as "birthdate!: OffsetDateTime"
+        FROM rider WHERE id = ?
+        "#,
+        rider_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
+    if rider.club_id != club_id {
+        return Err(HttpError::ErrorMessages(
+            "Nur FahrerInnen des eigenen Vereins können als JurorIn gemeldet werden.".to_string(),
+        ));
+    }
+    let taken = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM judge WHERE rider_id = ? AND id IS NOT ?"#,
+        rider_id,
+        judge_id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if taken > 0 {
+        return Err(already_linked(&rider.firstname, &rider.lastname));
+    }
+    Ok(ResolvedIdentity {
+        firstname: rider.firstname,
+        lastname: rider.lastname,
+        birthdate: rider.birthdate,
+    })
+}
+
+impl JudgeFields {
+    /// Trims the note, removes duplicate registrations and checks the rules
+    /// of the Jury-Konzept: trained judges are at least `min_age` on the first
+    /// competition day (by the `identity`'s birthdate); untrained people only
+    /// count dismounts. The message is German.
+    pub fn normalize(
+        mut self,
+        competition: Option<&Competition>,
+        identity: &ResolvedIdentity,
+    ) -> Result<Self, String> {
         self.note = self
             .note
             .map(|note| note.trim().to_string())
@@ -589,7 +689,7 @@ impl JudgeFields {
             && let Some(competition) = competition
             && let Some(rules) = &competition.jury
         {
-            let age = age_on(self.birthdate.date(), competition.start_date);
+            let age = age_on(identity.birthdate.date(), competition.start_date);
             if age < rules.min_age {
                 return Err(format!(
                     "Geschulte JurorInnen müssen am ersten Wettkampftag mindestens {} Jahre alt sein.",
@@ -623,27 +723,42 @@ pub async fn ensure_judge_access(
 /// judge also loses their Technik and Performance assignments. Unknown jury
 /// units, new registrations for a unit that takes none (D6; the judge's
 /// existing ones may stay) and duplicate names are refused with a German
-/// message.
+/// message. `identity` comes from [`resolve_identity`] for the same
+/// `rider_id`: a linked judge stores no name or birthdate of their own, their
+/// rider's count (the names of a linked judge are only checked when the link
+/// is made).
 pub async fn save_judge(
     conn: &mut sqlx::SqliteConnection,
     judge_id: JudgeId,
     club_id: ClubId,
+    rider_id: Option<RiderId>,
+    identity: &ResolvedIdentity,
     fields: &JudgeFields,
 ) -> Result<(), HttpError> {
-    people::ensure_name_is_free(
-        conn,
-        Person::Judge,
-        club_id,
-        &fields.firstname,
-        &fields.lastname,
-        Some(judge_id.0),
-    )
-    .await?;
+    if rider_id.is_none() || linked_rider(conn, judge_id).await? != rider_id {
+        people::ensure_name_is_free(
+            conn,
+            Person::Judge,
+            club_id,
+            &identity.firstname,
+            &identity.lastname,
+            Some(judge_id.0),
+        )
+        .await?;
+    }
+    let (firstname, lastname, birthdate) = match rider_id {
+        Some(_) => (None, None, None),
+        None => (
+            Some(&identity.firstname),
+            Some(&identity.lastname),
+            Some(identity.birthdate),
+        ),
+    };
     let result = sqlx::query!(
         r#"
         INSERT INTO judge (
-            id, club_id, firstname, lastname, birthdate, is_trained, max_deployments, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            id, club_id, rider_id, firstname, lastname, birthdate, is_trained, max_deployments, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
             firstname = excluded.firstname,
             lastname = excluded.lastname,
@@ -654,24 +769,22 @@ pub async fn save_judge(
         "#,
         judge_id,
         club_id,
-        fields.firstname,
-        fields.lastname,
-        fields.birthdate,
+        rider_id,
+        firstname,
+        lastname,
+        birthdate,
         fields.is_trained,
         fields.max_deployments,
         fields.note,
     )
     .execute(&mut *conn)
     .await;
-    match result {
-        Ok(_) => {}
-        Err(e) => {
-            return Err(people::map_duplicate(
-                e,
-                &fields.firstname,
-                &fields.lastname,
-            ));
-        }
+    if let Err(e) = result {
+        return Err(if rider_id.is_some() && people::is_unique_violation(&e) {
+            already_linked(&identity.firstname, &identity.lastname)
+        } else {
+            people::map_duplicate(e, &identity.firstname, &identity.lastname)
+        });
     }
     let existing: std::collections::HashSet<(JuryUnitKind, JuryUnitId, JudgeTask)> = sqlx::query!(
         r#"
@@ -817,9 +930,10 @@ pub async fn list_judges(
             judge.id as "id!: JudgeId",
             judge.club_id as "club_id!: ClubId",
             clubs.name as club_name,
-            judge.firstname,
-            judge.lastname,
-            judge.birthdate as "birthdate: OffsetDateTime",
+            judge.rider_id as "rider_id: RiderId",
+            judge.firstname as "firstname!: String",
+            judge.lastname as "lastname!: String",
+            judge.birthdate as "birthdate!: OffsetDateTime",
             judge.is_trained,
             judge.max_deployments,
             judge.note,
@@ -837,7 +951,7 @@ pub async fn list_judges(
                     WHERE judge_id = judge.id AND task != 'dismounts'
                 )
             ) as "countable_deployments!: i64"
-        FROM judge
+        FROM view_judge judge
         JOIN clubs ON clubs.id = judge.club_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
         ORDER BY clubs.name, judge.lastname, judge.firstname
@@ -854,6 +968,7 @@ pub async fn list_judges(
             id: row.id,
             club_id: row.club_id,
             club_name: row.club_name,
+            rider_id: row.rider_id,
             firstname: row.firstname,
             lastname: row.lastname,
             birthdate: row.birthdate,

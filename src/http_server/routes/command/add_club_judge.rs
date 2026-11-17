@@ -1,4 +1,4 @@
-use crate::ids::{ClubId, JudgeId};
+use crate::ids::{ClubId, JudgeId, RiderId};
 use axum::{Extension, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -21,6 +21,10 @@ pub struct AddClubJudgeResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddClubJudgeBody {
     club_id: ClubId,
+    /// Creates the judge from this rider of the club: name and birthdate are
+    /// the rider's then, and any sent here are ignored.
+    #[serde(default)]
+    rider_id: Option<RiderId>,
     #[serde(flatten)]
     fields: JudgeFields,
 }
@@ -34,6 +38,7 @@ pub struct AddClubJudgeBody {
     request_body=AddClubJudgeBody,
     responses(
         (status=200, content_type="application/json", body=AddClubJudgeResponse),
+        (status=400, content_type="application/json", body=ClientError),
         (status=401, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
@@ -56,13 +61,29 @@ pub async fn add_club_judge(
     let mut transaction = begin_write(&db).await?;
     ensure_club_access(&mut transaction, &auth, body.club_id).await?;
     let competition = Competition::current(&mut *transaction).await?;
+    let identity = jury::resolve_identity(
+        &mut transaction,
+        None,
+        body.club_id,
+        body.rider_id,
+        &body.fields,
+    )
+    .await?;
     let fields = body
         .fields
-        .normalize(competition.as_ref())
+        .normalize(competition.as_ref(), &identity)
         .map_err(HttpError::ErrorMessages)?;
     let judge_id = JudgeId::new();
     info!("Adding judge {judge_id} to club {}", body.club_id);
-    jury::save_judge(&mut transaction, judge_id, body.club_id, &fields).await?;
+    jury::save_judge(
+        &mut transaction,
+        judge_id,
+        body.club_id,
+        body.rider_id,
+        &identity,
+        &fields,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(Json(AddClubJudgeResponse { judge_id }))
 }

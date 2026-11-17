@@ -47,7 +47,7 @@ pub async fn ensure_name_is_free(
             "SELECT firstname, lastname FROM rider WHERE club_id = ? AND id IS NOT ?",
         ),
         Person::Judge => sqlx::query_as(
-            "SELECT firstname, lastname FROM judge WHERE club_id = ? AND id IS NOT ?",
+            "SELECT firstname, lastname FROM view_judge WHERE club_id = ? AND id IS NOT ?",
         ),
     }
     .bind(club_id)

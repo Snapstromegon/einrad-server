@@ -273,6 +273,13 @@ registrations = [
   { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "dismounts" },
 ]
 
+# A judge created from one of the club's riders: name and birthdate are the rider's.
+[[clubs.judges]]
+rider = "Hannah Klein"
+registrations = [
+  { unit = "heat: Expert 2 Einzel Weiblich (U23 und älter)", task = "technical" },
+]
+
 # 20 starts, 300 € due: paid partially. Half of the riders checked in.
 [[clubs]]
 name = "RSC Köln"

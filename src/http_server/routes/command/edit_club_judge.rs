@@ -22,7 +22,9 @@ pub struct EditClubJudgeBody {
     fields: JudgeFields,
 }
 
-/// Change a judge and replace their registrations. The club stays the same.
+/// Change a judge and replace their registrations. The club stays the same,
+/// and so does the link to a rider: a linked judge's name and birthdate are
+/// the rider's, and any sent here are ignored.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -30,6 +32,7 @@ pub struct EditClubJudgeBody {
     request_body=EditClubJudgeBody,
     responses(
         (status=200, content_type="application/json", body=EditClubJudgeResponse),
+        (status=400, content_type="application/json", body=ClientError),
         (status=401, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
@@ -52,12 +55,29 @@ pub async fn edit_club_judge(
     let mut transaction = begin_write(&db).await?;
     let club_id = jury::ensure_judge_access(&mut transaction, &auth, body.judge_id).await?;
     let competition = Competition::current(&mut *transaction).await?;
+    let rider_id = jury::linked_rider(&mut transaction, body.judge_id).await?;
+    let identity = jury::resolve_identity(
+        &mut transaction,
+        Some(body.judge_id),
+        club_id,
+        rider_id,
+        &body.fields,
+    )
+    .await?;
     let fields = body
         .fields
-        .normalize(competition.as_ref())
+        .normalize(competition.as_ref(), &identity)
         .map_err(HttpError::ErrorMessages)?;
     info!("Editing judge {}", body.judge_id);
-    jury::save_judge(&mut transaction, body.judge_id, club_id, &fields).await?;
+    jury::save_judge(
+        &mut transaction,
+        body.judge_id,
+        club_id,
+        rider_id,
+        &identity,
+        &fields,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(Json(EditClubJudgeResponse {}))
 }
