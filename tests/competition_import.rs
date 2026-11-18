@@ -222,3 +222,174 @@ async fn imported_features_and_photos_apply_without_a_restart() {
     assert_eq!(system_status(&app).await["moderation_input"], false);
     assert!(app.photos.configured());
 }
+
+// Jury sessions in the file (#386, ADR 0019).
+
+/// The fixture with `sessions` (TOML, `[[heats.jury_sessions]]` tables) on
+/// the heat JE EW (EWU11, EWU13, EWU15).
+fn with_heat_sessions(sessions: &str) -> String {
+    COMPETITION.replacen(
+        "categories = [\"EWU11\", \"EWU13\", \"EWU15\"]\n",
+        &format!("categories = [\"EWU11\", \"EWU13\", \"EWU15\"]\n{sessions}"),
+        1,
+    )
+}
+
+async fn unit_named(app: &TestApp, cookie: &str, name: &str) -> Value {
+    let response = app.get("/api/query/list_jury_units", Some(cookie)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["name"] == name)
+        .unwrap_or_else(|| panic!("no unit {name}"))
+        .clone()
+}
+
+fn category_names(session: &Value) -> Vec<String> {
+    session["categories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn count(db: &sqlx::SqlitePool, sql: &'static str) -> i64 {
+    sqlx::query_scalar(sql).fetch_one(db).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_file_with_jury_sessions_creates_them() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::without_competition(db).await;
+    let admin = app.create_admin().await;
+    let file = with_heat_sessions(
+        "\n[[heats.jury_sessions]]\ncategories = [\"EWU11\", \"EWU13\"]\nneeded_technical = 3\n\
+         \n[[heats.jury_sessions]]\ncategories = [\"EWU15\"]\n",
+    );
+    let response = import(&app, &admin, &file).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(response.body["outcome"], "created");
+
+    let unit = unit_named(&app, &admin, "JE EW").await;
+    let sessions = unit["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 2, "{unit}");
+    assert_eq!(category_names(&sessions[0]), ["EWU11", "EWU13"]);
+    assert_eq!(sessions[0]["needed_technical"], 3);
+    assert_eq!(sessions[0]["override_technical"], 3);
+    assert_eq!(category_names(&sessions[1]), ["EWU15"]);
+    assert_eq!(sessions[1]["needed_technical"], unit["needed_technical"]);
+    assert_eq!(sessions[1]["override_technical"], Value::Null);
+    // The other units keep their one default session.
+    let other = unit_named(&app, &admin, "E EW").await;
+    assert_eq!(other["sessions"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn replace_recreates_the_sessions_from_the_file() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+
+    // The jury lead splits JE EW and assigns a judge in the app.
+    let unit = unit_named(&app, &admin, "JE EW").await;
+    let first = unit["sessions"][0]["id"].clone();
+    let categories = [
+        app.category_id("EWU11").await,
+        app.category_id("EWU13").await,
+        app.category_id("EWU15").await,
+    ];
+    let response = app
+        .post(
+            "/api/command/set_jury_sessions",
+            json!({ "kind": unit["kind"], "id": unit["id"], "sessions": [
+                { "id": first, "category_ids": [categories[0]] },
+                { "category_ids": [categories[1], categories[2]] },
+            ] }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let response = app
+        .post(
+            "/api/command/add_club_judge",
+            json!({
+                "club_id": club_id, "firstname": "Max", "lastname": "Müller",
+                "birthdate": "1997-01-01T00:00:00.000Z", "is_trained": true,
+                "max_deployments": null, "note": null, "registrations": [],
+            }),
+            Some(&owner),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let response = app
+        .post(
+            "/api/command/assign_judge",
+            json!({ "judge_id": response.body["judge_id"], "session_id": first, "task": "technical" }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(
+        count(&app.db, "SELECT COUNT(*) FROM jury_assignments").await,
+        1
+    );
+
+    // Another split replaces it: nothing else differs, so the sessions alone
+    // make it a replace.
+    let second = with_heat_sessions(
+        "\n[[heats.jury_sessions]]\ncategories = [\"EWU11\", \"EWU13\"]\nneeded_dismounts = 2\n\
+         \n[[heats.jury_sessions]]\ncategories = [\"EWU15\"]\n",
+    );
+    let response = import(&app, &admin, &second).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(response.body["outcome"], "replaced");
+    let unit = unit_named(&app, &admin, "JE EW").await;
+    let sessions = unit["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 2, "{unit}");
+    assert_eq!(category_names(&sessions[0]), ["EWU11", "EWU13"]);
+    assert_eq!(sessions[0]["override_dismounts"], 2);
+    assert_eq!(category_names(&sessions[1]), ["EWU15"]);
+    assert_eq!(
+        count(&app.db, "SELECT COUNT(*) FROM jury_assignments").await,
+        0
+    );
+
+    // One session per unit, two for JE EW, and none left over.
+    let units = app
+        .get("/api/query/list_jury_units", Some(&admin))
+        .await
+        .body;
+    let expected: usize = units
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["sessions"].as_array().unwrap().len())
+        .sum();
+    assert_eq!(
+        count(&app.db, "SELECT COUNT(*) FROM jury_sessions").await,
+        expected as i64
+    );
+    assert_eq!(
+        count(
+            &app.db,
+            "SELECT COUNT(*) FROM jury_session_categories WHERE session_id NOT IN (SELECT id FROM jury_sessions)"
+        )
+        .await,
+        0
+    );
+
+    // The same file again changes nothing.
+    let response = import(&app, &admin, &second).await;
+    assert_eq!(response.body["outcome"], "unchanged");
+
+    // A file that differs only in a session's override is a change too.
+    let third = second.replacen("needed_dismounts = 2", "needed_dismounts = 1", 1);
+    assert_ne!(third, second);
+    let response = import(&app, &admin, &third).await;
+    assert_eq!(response.body["outcome"], "replaced");
+}

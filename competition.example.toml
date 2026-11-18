@@ -909,3 +909,25 @@ duration_minutes = 45
 # jury_needed_dismounts, or jury_registrable = false for a unit nobody
 # registers for. A skipped Vorlauf takes no registrations. The day follows the
 # timeplan.
+#
+# A heat or final can be split into jury sessions (Durchgänge), each judged by
+# its own jury, e.g. one per age group. List them under the unit; every one of
+# the unit's categories (a final's are those of the heats filling its slots)
+# must be in exactly one, and needed_technical, needed_performance and
+# needed_dismounts are optional (without: the unit's). Without any, the unit
+# has one Durchgang with all its categories. Judges still register for the
+# unit, not for a Durchgang, and the jury plan's assignments are not in the
+# file. Example (not part of this competition):
+#
+#   [[heats]]
+#   name = "Einzel männlich – Expert 2 (U23 und älter)"
+#   categories = ["EMU23", "EMU30"]
+#
+#   [[heats.jury_sessions]]
+#   categories = ["EMU23"]
+#   needed_technical = 3
+#
+#   [[heats.jury_sessions]]
+#   categories = ["EMU30"]
+#
+# [[finals.jury_sessions]] works the same.

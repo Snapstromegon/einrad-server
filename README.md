@@ -46,6 +46,9 @@ still contains competition sections is rejected.
   to define. A heat counts 2 Einsätze, a final 1; `jury_deployments`,
   `jury_needed_technical`, `jury_needed_performance`, `jury_needed_dismounts`
   and `jury_registrable` on a `[[heats]]` or `[[finals]]` entry override that.
+  `[[heats.jury_sessions]]` and `[[finals.jury_sessions]]` split a unit into
+  jury sessions (Durchgänge, ADR 0019); the export lists them for split or
+  overridden units.
   `[[jury_categories]]` is gone: a file with it is rejected with an example.
 
 The database is the source of the competition ([ADR 0005](docs/adr/0005-the-database-is-the-source-of-the-competition.md)),

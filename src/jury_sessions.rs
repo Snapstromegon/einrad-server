@@ -8,6 +8,7 @@ use axum::http::StatusCode;
 use sqlx::SqliteConnection;
 
 use crate::{
+    config::JurySessionConfig,
     http_server::HttpError,
     ids::{CategoryId, JudgeId, JuryAssignmentId, JurySessionId, JuryUnitId},
     jury::{self, JudgeTask, JuryAssignment, JuryUnitKind},
@@ -291,6 +292,191 @@ pub fn assemble(
             session
         })
         .collect()
+}
+
+/// Checks the Durchgänge a competition file lists for a unit against the
+/// unit's categories (names). `unit_label` is e.g. "Heat E EW" or "Final
+/// Finale EW". Every category must be in exactly one session; an empty list
+/// is the default session and always fine.
+pub fn check_file_sessions(
+    unit_label: &str,
+    unit_categories: &[String],
+    sessions: &[JurySessionConfig],
+) -> Result<(), String> {
+    if sessions.is_empty() {
+        return Ok(());
+    }
+    if unit_categories.is_empty() {
+        return Err(format!(
+            "{unit_label}: it has no categories, so it can't be split into jury sessions."
+        ));
+    }
+    let mut seen: HashSet<&str> = HashSet::new();
+    for (i, session) in sessions.iter().enumerate() {
+        let n = i + 1;
+        if session.categories.is_empty() {
+            return Err(format!("{unit_label}: jury session {n} has no categories."));
+        }
+        if [
+            session.needed_technical,
+            session.needed_performance,
+            session.needed_dismounts,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|n| n < 0)
+        {
+            return Err(format!(
+                "{unit_label}: the jury deployments and needed judges can't be negative."
+            ));
+        }
+        for name in session.categories.iter().map(|c| c.trim()) {
+            if !unit_categories.iter().any(|c| c == name) {
+                return Err(format!(
+                    "{unit_label}: jury session {n} lists the category {name}, which isn't one of its categories."
+                ));
+            }
+            if !seen.insert(name) {
+                return Err(format!(
+                    "{unit_label}: the category {name} is in more than one jury session."
+                ));
+            }
+        }
+    }
+    if let Some(name) = unit_categories.iter().find(|c| !seen.contains(c.as_str())) {
+        return Err(format!(
+            "{unit_label}: the category {name} is in no jury session; every category must be in exactly one."
+        ));
+    }
+    Ok(())
+}
+
+/// Replaces the unit's default session (see [`create_default_session`]) with
+/// the Durchgänge of the competition file, which [`check_file_sessions`]
+/// accepted; a list without entries leaves the default. Call it once the
+/// unit's categories (a final's slots) exist.
+pub async fn create_file_sessions(
+    conn: &mut SqliteConnection,
+    kind: JuryUnitKind,
+    unit: JuryUnitId,
+    sessions: &[JurySessionConfig],
+) -> Result<(), HttpError> {
+    if sessions.is_empty() {
+        return Ok(());
+    }
+    let by_name: HashMap<String, CategoryId> = unit_categories(conn, kind, unit)
+        .await?
+        .into_iter()
+        .map(|c| (c.name, c.id))
+        .collect();
+    let default = first_session(conn, unit).await?.ok_or_else(not_found)?;
+    let (heat_id, final_id) = jury::unit_columns(kind, unit);
+    for (i, session) in sessions.iter().enumerate() {
+        let id = if i == 0 {
+            default
+        } else {
+            let id = JurySessionId::new();
+            sqlx::query!(
+                "INSERT INTO jury_sessions (id, heat_id, final_id) VALUES (?, ?, ?)",
+                id,
+                heat_id,
+                final_id,
+            )
+            .execute(&mut *conn)
+            .await?;
+            id
+        };
+        sqlx::query!(
+            "UPDATE jury_sessions SET needed_technical = ?, needed_performance = ?, needed_dismounts = ? WHERE id = ?",
+            session.needed_technical,
+            session.needed_performance,
+            session.needed_dismounts,
+            id,
+        )
+        .execute(&mut *conn)
+        .await?;
+        for name in &session.categories {
+            let category = by_name.get(name.trim()).ok_or_else(not_found)?;
+            sqlx::query!(
+                "INSERT INTO jury_session_categories (session_id, unit_id, category_id) VALUES (?, ?, ?)",
+                id,
+                unit,
+                category,
+            )
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// The Durchgänge of the units that are split or have an override, as the
+/// competition file lists them, by unit. Their order is the derived one
+/// without the timeplan (category `order`, then name), so it is stable.
+pub async fn sessions_for_file(
+    conn: &mut SqliteConnection,
+) -> sqlx::Result<HashMap<JuryUnitId, Vec<JurySessionConfig>>> {
+    let units = sqlx::query!(
+        r#"SELECT id as "id!: JuryUnitId", kind as "kind!: JuryUnitKind" FROM view_jury_unit"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let rows = load_session_rows(conn).await?;
+    let memberships = load_memberships(conn).await?;
+    let mut listed = HashMap::new();
+    for unit in units {
+        let own: Vec<SessionRow> = rows
+            .iter()
+            .filter(|r| r.unit_id == unit.id)
+            .copied()
+            .collect();
+        let categories = unit_categories(conn, unit.kind, unit.id).await?;
+        let sessions = assemble(unit.id, &categories, &|_| 0, &own, &memberships, (0, 0, 0));
+        let overridden = sessions.iter().any(|s| {
+            s.override_technical.is_some()
+                || s.override_performance.is_some()
+                || s.override_dismounts.is_some()
+        });
+        if sessions.len() > 1 || overridden {
+            listed.insert(
+                unit.id,
+                sessions
+                    .into_iter()
+                    .map(|s| JurySessionConfig {
+                        categories: s.categories.into_iter().map(|c| c.name).collect(),
+                        needed_technical: s.override_technical,
+                        needed_performance: s.override_performance,
+                        needed_dismounts: s.override_dismounts,
+                    })
+                    .collect(),
+            );
+        }
+    }
+    Ok(listed)
+}
+
+/// The file's Durchgänge of every unit as text lines (`kind code json`), to
+/// tell whether a file changes anything: no generated ids.
+pub async fn snapshot(conn: &mut SqliteConnection) -> sqlx::Result<Vec<String>> {
+    let sessions = sessions_for_file(conn).await?;
+    let units = sqlx::query!(
+        r#"SELECT id as "id!: JuryUnitId", kind as "kind!: String", code as "code!"
+        FROM view_jury_unit ORDER BY kind, code"#
+    )
+    .fetch_all(conn)
+    .await?;
+    Ok(units
+        .into_iter()
+        .filter_map(|unit| {
+            let sessions = sessions.get(&unit.id)?;
+            Some(format!(
+                "{} {} {}",
+                unit.kind,
+                unit.code,
+                serde_json::to_string(sessions).unwrap_or_default()
+            ))
+        })
+        .collect())
 }
 
 /// A requested Durchgang: an existing one (`id`) or a new one, with the

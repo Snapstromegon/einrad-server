@@ -21,7 +21,7 @@ use crate::{
     competition::{Competition, upsert_competition},
     config::{
         Branding, CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
-        Settings, SponsorConfig, TimeplanEntryConfig,
+        JurySessionConfig, Settings, SponsorConfig, TimeplanEntryConfig,
     },
     finals::{self, SlotGroup},
     heats::{self, Discipline},
@@ -227,6 +227,8 @@ pub struct ResolvedFinal {
     pub judge_duration_seconds: i64,
     pub slots: Vec<SlotGroup>,
     pub jury: UnitSettings,
+    /// The jury sessions the file defines; empty: the default one.
+    pub sessions: Vec<JurySessionConfig>,
 }
 
 /// A heat from the config, checked against HEAT-1.
@@ -244,6 +246,8 @@ pub struct ResolvedHeat {
     pub threshold: i64,
     pub skip: bool,
     pub jury: UnitSettings,
+    /// The jury sessions the file defines; empty: the default one.
+    pub sessions: Vec<JurySessionConfig>,
 }
 
 /// Checks the heats of the config (HEAT-1: one act type and gender, no group
@@ -305,6 +309,11 @@ pub fn resolve_heats(
             config.jury_needed_dismounts,
         )
         .map_err(|e| format!("Heat {code}: {e}."))?;
+        jury_sessions::check_file_sessions(
+            &format!("Heat {code}"),
+            &categories,
+            &config.jury_sessions,
+        )?;
         resolved.push(ResolvedHeat {
             name,
             code,
@@ -322,6 +331,7 @@ pub fn resolve_heats(
                 .skip
                 .unwrap_or_else(|| discipline.is_some_and(Discipline::is_group)),
             jury,
+            sessions: config.jury_sessions.clone(),
         });
     }
     Ok(resolved)
@@ -398,6 +408,22 @@ pub fn resolve_finals(
                     ));
                 }
             }
+            // A final's categories are those of the heats filling its slots.
+            let mut categories: Vec<String> = Vec::new();
+            for group in &slots {
+                if let Some(heat) = heats.iter().find(|heat| heat.code == group.heat) {
+                    for category in &heat.categories {
+                        if !categories.contains(category) {
+                            categories.push(category.clone());
+                        }
+                    }
+                }
+            }
+            jury_sessions::check_file_sessions(
+                &format!("Final {code}"),
+                &categories,
+                &config.jury_sessions,
+            )?;
             Ok(ResolvedFinal {
                 name: name.clone(),
                 code: code.clone(),
@@ -429,6 +455,7 @@ pub fn resolve_finals(
                     config.jury_needed_dismounts,
                 )
                 .map_err(|e| format!("Final {code}: {e}."))?,
+                sessions: config.jury_sessions.clone(),
             })
         })
         .collect()
@@ -1157,7 +1184,7 @@ impl Snapshot {
                 .fetch_all(&mut *conn)
                 .await
         };
-        Ok(Self {
+        let mut snapshot = Self {
             competition: rows(
                 r#"SELECT json_array(name, location, start_date, end_date, determining_day,
                     registration_start, registration_end, music_upload_end, fee_per_start,
@@ -1215,7 +1242,16 @@ impl Snapshot {
                 FROM timeplan ORDER BY position, id"#,
             )
             .await?,
-        })
+        };
+        // The Durchgänge belong to their heats and finals.
+        for line in jury_sessions::snapshot(conn).await? {
+            if line.starts_with("final ") {
+                snapshot.finals.push(line);
+            } else {
+                snapshot.heats.push(line);
+            }
+        }
+        Ok(snapshot)
     }
 
     /// The parts that differ from `other`.
@@ -1467,6 +1503,15 @@ async fn write(
         heats::set_categories(conn, heat_id, &heat.categories)
             .await
             .map_err(db_error)?;
+        // Its categories are set; the file's Durchgänge divide them.
+        jury_sessions::create_file_sessions(
+            conn,
+            JuryUnitKind::Heat,
+            heat_id.into(),
+            &heat.sessions,
+        )
+        .await
+        .map_err(|e| format!("Heat {}: jury sessions: {e:?}", heat.code))?;
     }
     if !categories.is_empty() {
         let names: Vec<String> = categories
@@ -1529,6 +1574,14 @@ async fn write(
             finals::replace_slots(conn, final_id, &groups)
                 .await
                 .map_err(db_error)?;
+            jury_sessions::create_file_sessions(
+                conn,
+                JuryUnitKind::Final,
+                final_id.into(),
+                &item.sessions,
+            )
+            .await
+            .map_err(|e| format!("Final {}: jury sessions: {e:?}", item.code))?;
         }
         info!("Seeded {} finals from the competition file", resolved.len());
     }
@@ -2807,6 +2860,7 @@ mod tests {
             jury_needed_technical: None,
             jury_needed_performance: None,
             jury_needed_dismounts: None,
+            jury_sessions: vec![],
         };
         let warnings = category_heat_warnings(
             &["KG".to_string(), "U15".to_string()],

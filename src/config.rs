@@ -299,6 +299,8 @@ struct FinalInput {
     jury_needed_performance: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     jury_needed_dismounts: Option<i64>,
+    #[serde(default)]
+    jury_sessions: Vec<JurySessionConfig>,
 }
 
 /// A slot group as read: its heat, or the label of older files.
@@ -353,6 +355,7 @@ impl FinalInput {
             jury_needed_technical: self.jury_needed_technical,
             jury_needed_performance: self.jury_needed_performance,
             jury_needed_dismounts: self.jury_needed_dismounts,
+            jury_sessions: self.jury_sessions,
         })
     }
 }
@@ -831,6 +834,24 @@ pub struct CategoryConfig {
     pub judge_duration_minutes: f64,
 }
 
+/// A jury session (Durchgang) of a heat or final in the file: the categories
+/// it holds, by name, and the needed judges it overrides (ADR 0019).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct JurySessionConfig {
+    /// Its categories; together the sessions of a unit hold every category
+    /// of it exactly once.
+    #[serde(default)]
+    pub categories: Vec<String>,
+    /// Judges it needs per task. Without: the unit's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needed_technical: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needed_performance: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needed_dismounts: Option<i64>,
+}
+
 /// A heat: a named group of categories of one discipline whose best acts
 /// fill a final's slots (see `crate::heats`).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -873,6 +894,10 @@ pub struct HeatConfig {
     pub jury_needed_performance: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jury_needed_dismounts: Option<i64>,
+    /// Its jury sessions (Durchgänge): every category of the unit in exactly
+    /// one. Without: one session with all of them (ADR 0019).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jury_sessions: Vec<JurySessionConfig>,
 }
 
 /// A final: reserved slots for the best riders of the heats, e.g. 5 slots
@@ -917,6 +942,10 @@ pub struct FinalConfig {
     pub jury_needed_performance: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jury_needed_dismounts: Option<i64>,
+    /// Its jury sessions (Durchgänge): every category of the unit in exactly
+    /// one. Without: one session with all of them (ADR 0019).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jury_sessions: Vec<JurySessionConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
