@@ -129,8 +129,8 @@ describe("jury sessions: splitting", () => {
       kind: "heat",
       id: "u",
       sessions: [
-        { id: "s1", category_ids: ["A"] },
-        { category_ids: ["B", "C"] },
+        { category_ids: ["A"] },
+        { id: "s1", category_ids: ["B", "C"] },
       ],
     });
   });
@@ -146,7 +146,7 @@ describe("jury sessions: splitting", () => {
       { id: "s1", category_ids: ["A", "B", "C"] },
     ]);
     const two = unit(session("s1", ["A"]), session("s2", ["B", "C"]));
-    assert.deepEqual(ids(splitBody(two, all)), ["s1"]);
+    assert.deepEqual(ids(splitBody(two, all)), ["s2"]);
   });
 
   test("an existing id is used at most once and empty groups are dropped", () => {
@@ -159,8 +159,24 @@ describe("jury sessions: splitting", () => {
         ["C", 3],
       ]),
     );
-    assert.deepEqual(ids(body), ["s1", undefined]);
+    assert.deepEqual(ids(body), [undefined, "s1"]);
     assert.deepEqual(cats(body), [["A"], ["B", "C"]]);
+  });
+
+  test("ids follow the greatest overlap, not the group order", () => {
+    const u = unit(session("s1", ["A", "B", "C"]), session("s2", ["D", "E"]));
+    const body = splitBody(
+      u,
+      new Map([
+        ["A", 1],
+        ["D", 1],
+        ["E", 1],
+        ["B", 2],
+        ["C", 2],
+      ]),
+    );
+    assert.deepEqual(ids(body), ["s2", "s1"]);
+    assert.deepEqual(mergeRows(u, body, [], []), []);
   });
 
   test("groups are ordered by number", () => {

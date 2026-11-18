@@ -375,9 +375,9 @@ export const canSplit = (unit: { sessions?: JurySession[] }) =>
 
 /**
  * The split request for a choice of group number (1-based) per category.
- * Groups are ordered by number; each keeps the id of the earliest existing
- * Durchgang that still has one of its categories (every id once, so a merge
- * keeps the first), the others are new. Empty groups are dropped.
+ * Groups are ordered by number; ids are kept by greatest category overlap
+ * (every id and group once), the other groups are new and the other
+ * Durchgänge removed. Empty groups are dropped.
  */
 export const splitBody = (
   unit: SplitUnit,
@@ -391,22 +391,30 @@ export const splitBody = (
       groups.set(group, [...(groups.get(group) ?? []), category.id]);
     }
   }
-  const used = new Set<string>();
-  const result = [...groups]
-    .sort(([a], [b]) => a - b)
-    .map(([, category_ids]) => {
-      // The earliest Durchgang that still has a category in this group.
-      const best = sessions.find(
-        (session) =>
-          !used.has(session.id) &&
-          session.categories.some((c) => category_ids.includes(c.id)),
-      );
-      if (!best) {
-        return { category_ids };
-      }
-      used.add(best.id);
-      return { id: best.id, category_ids };
-    });
+  const ordered = [...groups].sort(([a], [b]) => a - b);
+  // Every (Durchgang, group) pair with a shared category, biggest overlap
+  // first, then Durchgang order, then group order; each id and group once.
+  const pairs = sessions.flatMap((session, si) =>
+    ordered.map(([, category_ids], gi) => ({
+      si,
+      gi,
+      overlap: session.categories.filter((c) => category_ids.includes(c.id))
+        .length,
+    })),
+  );
+  pairs.sort((a, b) => b.overlap - a.overlap || a.si - b.si || a.gi - b.gi);
+  const idOf = new Map<number, string>();
+  const used = new Set<number>();
+  for (const { si, gi, overlap } of pairs) {
+    if (overlap > 0 && !used.has(si) && !idOf.has(gi)) {
+      used.add(si);
+      idOf.set(gi, sessions[si].id);
+    }
+  }
+  const result = ordered.map(([, category_ids], gi) => {
+    const id = idOf.get(gi);
+    return id ? { id, category_ids } : { category_ids };
+  });
   return { kind: unit.kind, id: unit.id, sessions: result };
 };
 
