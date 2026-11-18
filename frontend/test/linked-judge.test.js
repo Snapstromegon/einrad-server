@@ -41,6 +41,21 @@ describe("availableRiders", () => {
   });
 });
 
+describe("availableRiders with the draft's own pick", () => {
+  test("keeps the picked rider in the list even if a judge is linked to it", () => {
+    assert.deepEqual(
+      availableRiders(riders, judges, "r3").map((r) => r.id),
+      ["r1", "r2", "r3"],
+    );
+  });
+  test("other linked riders stay excluded", () => {
+    assert.deepEqual(
+      availableRiders(riders, judges, "r1").map((r) => r.id),
+      ["r1", "r2"],
+    );
+  });
+});
+
 describe("matchingRider", () => {
   test("ignores case and surrounding spaces", () => {
     assert.equal(matchingRider(" max ", "MÜLLER", riders, judges)?.id, "r2");

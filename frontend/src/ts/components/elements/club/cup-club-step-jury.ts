@@ -1243,8 +1243,15 @@ export default class CupClubStepJury extends LitElement {
   private renderForm() {
     const draft = this.draft;
     const linked = isLinked(draft);
-    const riderOptions = availableRiders(this.data.riders, this.judges).map(
-      (r) => html`<option value=${r.id}>${r.lastname}, ${r.firstname}</option>`,
+    const riderOptions = availableRiders(
+      this.data.riders,
+      this.judges,
+      draft.rider_id,
+    ).map(
+      (r) =>
+        html`<option value=${r.id} ?selected=${r.id === draft.rider_id}>
+          ${r.lastname}, ${r.firstname}
+        </option>`,
     );
     const suggestion = linkSuggestion(
       this.editing === NEW,
@@ -1258,11 +1265,13 @@ export default class CupClubStepJury extends LitElement {
       </header>
       <form class="judge-form" @submit=${this.save}>
         ${
-          this.editing === NEW && !linked
+          this.editing === NEW
             ? html`<label class="field wide"
                 ><span>FahrerIn wählen</span
                 ><select data-field="rider_pick" @change=${this.onRiderPick}>
-                  <option value="">Neue JurorIn von Hand eintragen</option>
+                  <option value="" ?selected=${!linked}>
+                    — keine, selbst eingeben —
+                  </option>
                   ${riderOptions}
                 </select></label
               >`
@@ -1665,6 +1674,8 @@ ${
     const id = (e.target as HTMLSelectElement).value;
     const rider = this.data.riders.find((r) => r.id === id);
     if (rider) this.linkRider(rider);
+    // "keine": unlink, keep the values as editable text.
+    else this.draft = { ...this.draft, rider_id: null };
   }
 
   /** Links the draft to the rider and takes over name and birthdate. */
