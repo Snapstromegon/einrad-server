@@ -393,3 +393,21 @@ async fn replace_recreates_the_sessions_from_the_file() {
     let response = import(&app, &admin, &third).await;
     assert_eq!(response.body["outcome"], "replaced");
 }
+
+#[tokio::test]
+async fn the_preview_names_the_jury_sessions_when_only_they_differ() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let split = with_heat_sessions(
+        "\n[[heats.jury_sessions]]\ncategories = [\"EWU11\", \"EWU13\"]\n\
+         \n[[heats.jury_sessions]]\ncategories = [\"EWU15\"]\n",
+    );
+    let response = import(&app, &admin, &split).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+
+    // The file without the split differs only in the Jurydurchgänge.
+    let response = preview(&app, &admin, COMPETITION).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(response.body["changes"], json!(["jury_sessions"]));
+}

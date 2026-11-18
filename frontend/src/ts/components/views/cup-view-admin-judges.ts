@@ -15,6 +15,7 @@ import {
   assignedDeployments,
   assignedLoad,
   canSplit,
+  showsNeeded,
   coverage,
   closedReason,
   deploymentNote,
@@ -547,7 +548,7 @@ export default class CupViewAdminJudges extends LitElement {
    * count shows as placeholder, a value overrides it.
    */
   private renderNeeded(unit: JuryUnit, session: JurySession) {
-    if (sessionsOf(unit).length < 2) {
+    if (!showsNeeded(unit)) {
       return nothing;
     }
     const label = sessionLabel(unit, session);
@@ -559,7 +560,7 @@ export default class CupViewAdminJudges extends LitElement {
     const inputs = TASKS.map(
       (
         task,
-      ) => html`<label title="${taskNames[task]}: benötigt, leer = ${neededFor(unit, task)} wie das Vorlauf/Finale"
+      ) => html`<label title="${taskNames[task]}: benötigt, leer = ${neededFor(unit, task)} wie im Vorlauf/Finale"
           >${taskLabels[task]}
           <input
             type="number"

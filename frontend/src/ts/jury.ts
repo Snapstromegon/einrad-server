@@ -369,9 +369,27 @@ interface SplitUnit {
   sessions?: JurySession[];
 }
 
-/** Whether a unit has enough categories to be split into Durchgänge. */
+/**
+ * Whether a unit can be regrouped: it has at least two categories to split,
+ * or at least two Durchgänge (so an emptied one can be merged away).
+ */
 export const canSplit = (unit: { sessions?: JurySession[] }) =>
+  sessionsOf(unit).length >= 2 ||
   sessionsOf(unit).reduce((sum, s) => sum + s.categories.length, 0) >= 2;
+
+/**
+ * Whether the needed-count row (T/P/A) of a unit's Durchgänge shows: for a
+ * split unit, and for an unsplit one whose Durchgang still carries an
+ * override (left over from a merge), so that it can be seen and cleared.
+ */
+export const showsNeeded = (unit: { sessions?: JurySession[] }) =>
+  sessionsOf(unit).length >= 2 ||
+  sessionsOf(unit).some(
+    (s) =>
+      s.override_technical != null ||
+      s.override_performance != null ||
+      s.override_dismounts != null,
+  );
 
 /**
  * The split request for a choice of group number (1-based) per category.

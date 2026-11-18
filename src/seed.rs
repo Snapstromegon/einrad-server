@@ -792,6 +792,7 @@ pub enum Part {
     Categories,
     Heats,
     Finals,
+    JurySessions,
     Timeplan,
 }
 
@@ -805,6 +806,7 @@ impl Part {
             Part::Categories => "the categories",
             Part::Heats => "the heats",
             Part::Finals => "the finals",
+            Part::JurySessions => "the jury sessions",
             Part::Timeplan => "the timeplan",
         }
     }
@@ -1174,6 +1176,7 @@ struct Snapshot {
     categories: Vec<String>,
     heats: Vec<String>,
     finals: Vec<String>,
+    jury_sessions: Vec<String>,
     timeplan: Vec<String>,
 }
 
@@ -1234,6 +1237,7 @@ impl Snapshot {
                 FROM finals ORDER BY "order", code"#,
             )
             .await?,
+            jury_sessions: Vec::new(),
             timeplan: rows(
                 r#"SELECT json_array(earliest_start_time, duration_seconds, label,
                     (SELECT name FROM categories WHERE categories.id = timeplan.category_id),
@@ -1243,14 +1247,7 @@ impl Snapshot {
             )
             .await?,
         };
-        // The Durchgänge belong to their heats and finals.
-        for line in jury_sessions::snapshot(conn).await? {
-            if line.starts_with("final ") {
-                snapshot.finals.push(line);
-            } else {
-                snapshot.heats.push(line);
-            }
-        }
+        snapshot.jury_sessions = jury_sessions::snapshot(conn).await?;
         Ok(snapshot)
     }
 
@@ -1263,6 +1260,10 @@ impl Snapshot {
             (self.categories != other.categories, Part::Categories),
             (self.heats != other.heats, Part::Heats),
             (self.finals != other.finals, Part::Finals),
+            (
+                self.jury_sessions != other.jury_sessions,
+                Part::JurySessions,
+            ),
             (self.timeplan != other.timeplan, Part::Timeplan),
         ]
         .into_iter()

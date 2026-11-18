@@ -16,7 +16,7 @@ This refines ADR 0016. A jury unit (the Vorlauf of a heat, or a final) was judge
 
 **Over-max counts a unit once per judge** (#383): a judge in two sessions of one unit uses one deployment's worth of their maximum, not two.
 
-**A session is named by its categories**: their names joined by ", " (for example `EMU23, EMU30`). A unit with a single session shows no label, so unsplit units read as before. The order of a unit's sessions is derived, never stored: a final's by category `order`, then name (a final has no per-category timeplan position); a heat's likewise.
+**A session is named by its categories**: their names joined by ", " (for example `EMU23, EMU30`). A unit with a single session shows no label, so unsplit units read as before. The order of a unit's sessions is derived, never stored: a final's by category `order`, then name (a final has no per-category timeplan position); a heat's by its categories' first timeplan block, then category `order`, then name.
 
 **Re-merging.** When sessions are merged the jury lead keeps individual assignments, not whole sessions: the merge lists every assignment of the sessions being merged, the ticked ones move to the merged session, the others are deleted. A judge may not end up twice in the target.
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
   canSplit,
+  showsNeeded,
   initialKeep,
   keepIds,
   mergeRows,
@@ -196,6 +197,29 @@ describe("jury sessions: splitting", () => {
     assert.equal(canSplit(unit(session("s1", ["A", "B"]))), true);
     assert.equal(
       canSplit(unit(session("s1", ["A"]), session("s2", ["B"]))),
+      true,
+    );
+  });
+
+  test("canSplit: a unit with two Durchgänge can always be regrouped", () => {
+    // One category left, the other Durchgang emptied: it must be mergeable.
+    assert.equal(canSplit(unit(session("s1", ["A"]), session("s2", []))), true);
+  });
+
+  test("showsNeeded: for a split unit or while any override is left", () => {
+    assert.equal(showsNeeded(unit(session("s1", ["A", "B"]))), false);
+    assert.equal(
+      showsNeeded(unit(session("s1", ["A"]), session("s2", ["B"]))),
+      true,
+    );
+    // Merged back to one Durchgang that keeps an override: it must stay
+    // visible so it can be cleared.
+    assert.equal(
+      showsNeeded(unit(session("s1", ["A", "B"], { override_performance: 3 }))),
+      true,
+    );
+    assert.equal(
+      showsNeeded(unit(session("s1", ["A", "B"], { override_dismounts: 0 }))),
       true,
     );
   });
