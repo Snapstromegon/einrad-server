@@ -355,3 +355,220 @@ export const unitName = (unit: { kind: "heat" | "final"; name: string }) =>
     : unit.name.includes("Finale")
       ? unit.name
       : `${unit.name} Finale`;
+
+/** One Durchgang of a split, as the API takes it: `id` omitted = new. */
+export interface SessionSplitBody {
+  kind: schemas.JuryUnitKind;
+  id: string;
+  sessions: { id?: string; category_ids: string[] }[];
+}
+
+interface SplitUnit {
+  kind: schemas.JuryUnitKind;
+  id: string;
+  sessions?: JurySession[];
+}
+
+/** Whether a unit has enough categories to be split into Durchgänge. */
+export const canSplit = (unit: { sessions?: JurySession[] }) =>
+  sessionsOf(unit).reduce((sum, s) => sum + s.categories.length, 0) >= 2;
+
+/**
+ * The split request for a choice of group number (1-based) per category.
+ * Groups are ordered by number; each keeps the id of the earliest existing
+ * Durchgang that still has one of its categories (every id once, so a merge
+ * keeps the first), the others are new. Empty groups are dropped.
+ */
+export const splitBody = (
+  unit: SplitUnit,
+  choice: Map<string, number>,
+): SessionSplitBody => {
+  const sessions = sessionsOf(unit);
+  const groups = new Map<number, string[]>();
+  for (const session of sessions) {
+    for (const category of session.categories) {
+      const group = choice.get(category.id) ?? 1;
+      groups.set(group, [...(groups.get(group) ?? []), category.id]);
+    }
+  }
+  const used = new Set<string>();
+  const result = [...groups]
+    .sort(([a], [b]) => a - b)
+    .map(([, category_ids]) => {
+      // The earliest Durchgang that still has a category in this group.
+      const best = sessions.find(
+        (session) =>
+          !used.has(session.id) &&
+          session.categories.some((c) => category_ids.includes(c.id)),
+      );
+      if (!best) {
+        return { category_ids };
+      }
+      used.add(best.id);
+      return { id: best.id, category_ids };
+    });
+  return { kind: unit.kind, id: unit.id, sessions: result };
+};
+
+/**
+ * The request that sets a Durchgang's needed count for one task: an empty
+ * input clears the override (the unit's count applies), the other tasks keep
+ * theirs.
+ */
+export const needBody = (
+  session: JurySession,
+  task: Task,
+  value: string,
+): schemas.EditJurySessionBody => {
+  const body = {
+    id: session.id,
+    needed_technical: session.override_technical ?? null,
+    needed_performance: session.override_performance ?? null,
+    needed_dismounts: session.override_dismounts ?? null,
+  };
+  body[`needed_${task}`] =
+    value.trim() === "" ? null : Math.trunc(Number(value));
+  return body;
+};
+
+/** One Einteilung of a Durchgang that a save would merge away. */
+export interface MergeRow {
+  assignment_id: string;
+  judge_id: string;
+  judge_name: string;
+  club_name: string;
+  task: Task;
+  /** The label of the source Durchgang. */
+  from: string;
+  /** Index in `body.sessions` of the Durchgang that receives it. */
+  target_index: number;
+  /** The judge already sits in the target (a kept Durchgang). */
+  in_target: boolean;
+}
+
+/**
+ * The Einteilungen of every Durchgang a split removes (an id not listed in
+ * `body.sessions`), each with its target: the listed group receiving most of
+ * the removed Durchgang's categories, the earliest on a tie. Empty for a
+ * pure split.
+ */
+export const mergeRows = (
+  unit: SplitUnit,
+  body: SessionSplitBody,
+  assignments: {
+    id: string;
+    judge_id: string;
+    session_id: string;
+    task: Task;
+  }[],
+  judges: {
+    id: string;
+    firstname: string;
+    lastname: string;
+    club_name: string;
+  }[],
+): MergeRow[] => {
+  const kept = new Set(body.sessions.map((s) => s.id).filter(Boolean));
+  const byId = new Map(judges.map((j) => [j.id, j]));
+  const rows: MergeRow[] = [];
+  for (const session of sessionsOf(unit)) {
+    if (kept.has(session.id)) {
+      continue;
+    }
+    let target = 0;
+    let best = -1;
+    body.sessions.forEach((group, index) => {
+      const count = session.categories.filter((c) =>
+        group.category_ids.includes(c.id),
+      ).length;
+      if (count > best) {
+        best = count;
+        target = index;
+      }
+    });
+    const inTarget = new Set(
+      assignments
+        .filter((a) => a.session_id === body.sessions[target]?.id)
+        .map((a) => a.judge_id),
+    );
+    const from = session.categories.map((c) => c.name).join(", ");
+    for (const a of assignments.filter((x) => x.session_id === session.id)) {
+      const judge = byId.get(a.judge_id);
+      rows.push({
+        assignment_id: a.id,
+        judge_id: a.judge_id,
+        judge_name: judge ? `${judge.firstname} ${judge.lastname}` : "?",
+        club_name: judge?.club_name ?? "",
+        task: a.task,
+        from,
+        target_index: target,
+        in_target: inTarget.has(a.judge_id),
+      });
+    }
+  }
+  return rows;
+};
+
+export type KeepState = Map<string, { ticked: boolean; disabled: boolean }>;
+
+/**
+ * Walks the rows in order and blocks a judge who already sits in the target
+ * or whose earlier row (same target) is ticked; a blocked row is unticked
+ * and disabled, a freed one is ticked again.
+ */
+const settle = (rows: MergeRow[], state: KeepState): KeepState => {
+  const result: KeepState = new Map();
+  const claimed = new Set<string>();
+  for (const row of rows) {
+    const key = `${row.target_index}:${row.judge_id}`;
+    const before = state.get(row.assignment_id);
+    const blocked = row.in_target || claimed.has(key);
+    const ticked = blocked
+      ? false
+      : (before?.ticked ?? true) || !!before?.disabled;
+    result.set(row.assignment_id, { ticked, disabled: blocked });
+    if (ticked) {
+      claimed.add(key);
+    }
+  }
+  return result;
+};
+
+/** Everything ticked, except a duplicate judge in the target. */
+export const initialKeep = (rows: MergeRow[]): KeepState =>
+  settle(rows, new Map());
+
+/** Ticks or unticks a row (not a disabled one) and re-evaluates duplicates. */
+export const toggleKeep = (
+  map: KeepState,
+  rows: MergeRow[],
+  id: string,
+): KeepState => {
+  const next: KeepState = new Map(map);
+  const row = next.get(id);
+  if (row && !row.disabled) {
+    next.set(id, { ...row, ticked: !row.ticked });
+  }
+  return settle(rows, next);
+};
+
+/** The ids of the ticked Einteilungen, for `keep_assignment_ids`. */
+export const keepIds = (map: KeepState): string[] =>
+  [...map].filter(([, state]) => state.ticked).map(([id]) => id);
+
+/** "2 Einteilungen werden übernommen, 1 wird gelöscht." */
+export const mergeSummary = (rows: MergeRow[], map: KeepState): string => {
+  const kept = keepIds(map).length;
+  const deleted = rows.length - kept;
+  const parts = [
+    ...(kept > 0
+      ? [
+          `${kept} ${kept === 1 ? "Einteilung wird" : "Einteilungen werden"} übernommen`,
+        ]
+      : []),
+    ...(deleted > 0
+      ? [`${deleted} ${deleted === 1 ? "wird" : "werden"} gelöscht`]
+      : []),
+  ];
+  return parts.length ? `${parts.join(", ")}.` : "";
+};
