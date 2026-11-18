@@ -22,6 +22,8 @@ import {
   neededFor,
   overMaxWarnings,
   planWarnings,
+  sessionLabel,
+  sessionsOf,
   TASKS,
   taskLabels,
   taskNames,
@@ -37,6 +39,7 @@ type ClubJudge = schemas.ClubJudge;
 type ClubOverview = schemas.ClubOverview;
 type JuryPlan = schemas.JuryPlan;
 type JudgeTask = schemas.JudgeTask;
+type JurySession = schemas.JurySession;
 type NumberField =
   | "deployments"
   | "needed_technical"
@@ -324,15 +327,46 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
+  /** One row per Durchgang; an unsplit unit has one, labelled by nothing. */
   private renderPlanRow(
     unit: JuryUnit,
     judges: ClubJudge[],
     plan: JuryPlan,
     load: Map<string, number>,
   ) {
+    const unitAssigned = plan.assignments.filter((a) => a.unit_id === unit.id);
+    return sessionsOf(unit).map((session, index) =>
+      this.renderSessionRow(
+        unit,
+        session,
+        index === 0,
+        judges,
+        plan,
+        unitAssigned,
+        load,
+      ),
+    );
+  }
+
+  private renderSessionRow(
+    unit: JuryUnit,
+    session: JurySession,
+    first: boolean,
+    judges: ClubJudge[],
+    plan: JuryPlan,
+    unitAssigned: JuryPlan["assignments"],
+    load: Map<string, number>,
+  ) {
     const competition = this.systemStatus?.competition;
-    const assigned = plan.assignments.filter((a) => a.unit_id === unit.id);
-    const warnings = planWarnings(unit, plan.assignments, judges, competition);
+    const assigned = unitAssigned.filter((a) => a.session_id === session.id);
+    const warnings = planWarnings(
+      unit,
+      session,
+      plan.assignments,
+      judges,
+      competition,
+    );
+    const label = sessionLabel(unit, session);
     const byId = new Map(judges.map((j) => [j.id, j]));
     const cells = TASKS.map((task) => {
       const names = assigned
@@ -351,7 +385,7 @@ export default class CupViewAdminJudges extends LitElement {
               title="Entfernen"
               aria-label="Entfernen"
               data-judge=${a.judge_id}
-              data-unit=${unit.id}
+              data-session=${session.id}
               ?disabled=${this.saving}
               @click=${this.onUnassignClick}
             >
@@ -362,9 +396,9 @@ export default class CupViewAdminJudges extends LitElement {
       return html`<td>
         <div class="chips">${names}</div>
         <small class="muted"
-          >${assigned.filter((a) => a.task === task).length}/${neededFor(unit, task)}</small
+          >${assigned.filter((a) => a.task === task).length}/${neededFor(session, task)}</small
         >
-        ${this.renderPicker(unit, task, judges, assigned, load)}
+        ${this.renderPicker(unit, session, task, judges, unitAssigned, load)}
       </td>`;
     });
     const warningLines = warnings.map(
@@ -372,23 +406,40 @@ export default class CupViewAdminJudges extends LitElement {
     );
     return html`<tr>
       <td>
-        <b>${unitName(unit)}</b>
-        ${closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
+        ${first ? html`<b>${unitName(unit)}</b>` : nothing}
+        ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
+        ${label ? html`${first ? html`<br />` : nothing}<span class="chip">${label}</span>` : nothing}
         ${warningLines}
       </td>
       ${cells}
     </tr>`;
   }
 
-  /** Judges that can be added to a task; untrained ones only count dismounts. */
+  /**
+   * Judges that can be added to a task of a Durchgang; untrained ones only
+   * count dismounts. Registration is per unit, so a judge already in another
+   * Durchgang of the unit stays selectable, tagged with that Durchgang.
+   */
   private renderPicker(
     unit: JuryUnit,
+    session: JurySession,
     task: JudgeTask,
     judges: ClubJudge[],
-    assigned: { judge_id: string }[],
+    unitAssigned: JuryPlan["assignments"],
     load: Map<string, number>,
   ) {
-    const taken = new Set(assigned.map((a) => a.judge_id));
+    const taken = new Set(
+      unitAssigned
+        .filter((a) => a.session_id === session.id)
+        .map((a) => a.judge_id),
+    );
+    const elsewhere = new Map<string, string>();
+    for (const a of unitAssigned) {
+      const other = sessionsOf(unit).find((s) => s.id === a.session_id);
+      if (other && other.id !== session.id) {
+        elsewhere.set(a.judge_id, sessionLabel(unit, other));
+      }
+    }
     const registered = (judge: ClubJudge) =>
       judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
     const options = judges
@@ -400,20 +451,22 @@ export default class CupViewAdminJudges extends LitElement {
       )
       .map((judge) => {
         const l = assignedLoad(judge, load);
+        const also = elsewhere.get(judge.id);
         return html`<option value=${judge.id}>
           ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
           (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
             l ? ` – ${loadLabel(l)}` : ""
-          }
+          }${also ? ` (auch in ${also})` : ""}
         </option>`;
       });
     if (!options.length) {
       return nothing;
     }
+    const label = sessionLabel(unit, session);
     return html`<select
       class="no-print"
-      aria-label="${unitName(unit)}: ${taskNames[task]} einteilen"
-      data-unit=${unit.id}
+      aria-label="${unitName(unit)}${label ? ` (${label})` : ""}: ${taskNames[task]} einteilen"
+      data-session=${session.id}
       data-task=${task}
       ?disabled=${this.saving}
       @change=${this.onAssignChange}
@@ -1005,14 +1058,9 @@ export default class CupViewAdminJudges extends LitElement {
     if (!judge_id) {
       return;
     }
-    const unit = this.units.value?.find((u) => u.id === select.dataset.unit);
-    if (!unit) {
-      return;
-    }
     const body = {
       judge_id,
-      unit_kind: unit.kind,
-      unit_id: unit.id,
+      session_id: select.dataset.session!,
       task: select.dataset.task as JudgeTask,
     };
     await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
@@ -1022,7 +1070,7 @@ export default class CupViewAdminJudges extends LitElement {
     const button = e.currentTarget as HTMLElement;
     const body = {
       judge_id: button.dataset.judge!,
-      unit_id: button.dataset.unit!,
+      session_id: button.dataset.session!,
     };
     await this.change(
       () => unwrap(client.unassignJudge({ body })),

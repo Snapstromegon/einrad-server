@@ -1,6 +1,26 @@
 // The jury registration (#225): what clubs and admins see about judges. Pure
 // helpers, so the unit tests can import them without a DOM.
+import type { schemas } from "./apiClient";
 import type { Competition } from "./utils";
+
+export type JurySession = schemas.JurySession;
+
+/** The Durchgänge (jury sessions) of a jury unit; every unit has at least one. */
+export const sessionsOf = (unit: { sessions?: JurySession[] }): JurySession[] =>
+  unit.sessions ?? [];
+
+/**
+ * What a Durchgang is called: its category names joined by ", " (no
+ * "Durchgang N"). A unit with one Durchgang has no label, as it would only
+ * repeat the unit's name.
+ */
+export const sessionLabel = (
+  unit: { sessions?: unknown[] },
+  session: { categories: { name: string }[] },
+) =>
+  (unit.sessions?.length ?? 0) <= 1
+    ? ""
+    : session.categories.map((c) => c.name).join(", ");
 
 /** End of the judge registration: its own deadline, or the registration's. */
 export const judgeRegistrationEnd = (
@@ -121,7 +141,7 @@ export const coverage = (
   return result;
 };
 
-/** Judges a jury unit needs per task. */
+/** Judges a Durchgang needs per task (its effective counts). */
 export const neededFor = (
   category: {
     needed_technical: number;
@@ -140,23 +160,30 @@ export const neededFor = (
 export const MAX_FIFTEEN = 3;
 
 /**
- * What's wrong with a jury unit in the Juryplan: tasks with fewer judges
- * than needed, and more than three 15-year-old judges. More judges than
- * needed are fine.
+ * What's wrong with a Durchgang in the Juryplan: tasks with fewer judges
+ * than needed, and more than three 15-year-old judges (one jury). More
+ * judges than needed are fine. A split unit's lines are prefixed with the
+ * Durchgang's label.
  */
 export const planWarnings = (
-  category: Parameters<typeof neededFor>[0] & { id: string },
-  assignments: { judge_id: string; unit_id: string; task: Task }[],
+  unit: { sessions?: unknown[] },
+  session: Parameters<typeof neededFor>[0] & {
+    id: string;
+    categories: { name: string }[];
+  },
+  assignments: { judge_id: string; session_id: string; task: Task }[],
   judges: { id: string; birthdate: string }[],
   competition: Pick<Competition, "start_date"> | null | undefined,
 ) => {
-  const own = assignments.filter((a) => a.unit_id === category.id);
+  const own = assignments.filter((a) => a.session_id === session.id);
+  const label = sessionLabel(unit, session);
+  const prefix = label ? `${label}: ` : "";
   const warnings: string[] = [];
   for (const task of TASKS) {
     const assigned = own.filter((a) => a.task === task).length;
-    const needed = neededFor(category, task);
+    const needed = neededFor(session, task);
     if (assigned < needed) {
-      warnings.push(`${taskNames[task]}: ${assigned} von ${needed}`);
+      warnings.push(`${prefix}${taskNames[task]}: ${assigned} von ${needed}`);
     }
   }
   const birthdates = new Map(judges.map((j) => [j.id, j.birthdate]));
@@ -165,7 +192,9 @@ export const planWarnings = (
     return birthdate && ageOnStart(birthdate, competition) === 15;
   }).length;
   if (fifteen > MAX_FIFTEEN) {
-    warnings.push(`${fifteen} JurorInnen sind 15 (höchstens ${MAX_FIFTEEN})`);
+    warnings.push(
+      `${prefix}${fifteen} JurorInnen sind 15 (höchstens ${MAX_FIFTEEN})`,
+    );
   }
   return warnings;
 };

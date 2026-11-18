@@ -199,8 +199,10 @@ describe("jury", () => {
 
   test("planWarnings flags missing judges and too many 15-year-olds", () => {
     const start = { start_date: "2027-06-05" };
-    const category = {
-      id: "a",
+    const unit = { id: "a", sessions: [{ id: "s" }] };
+    const session = {
+      id: "s",
+      categories: [{ name: "EMU23" }],
       needed_technical: 2,
       needed_performance: 1,
       needed_dismounts: 0,
@@ -212,15 +214,17 @@ describe("jury", () => {
       { id: "4", birthdate: "2012-01-01T00:00:00.000Z" },
       { id: "5", birthdate: "1990-01-01T00:00:00.000Z" },
     ];
-    const assign = (judge_id, task, unit_id = "a") => ({
+    const assign = (judge_id, task, session_id = "s") => ({
       judge_id,
-      unit_id,
+      unit_id: "a",
+      session_id,
       task,
     });
     assert.deepEqual(
       planWarnings(
-        category,
-        [assign("5", "technical"), assign("1", "technical", "b")],
+        unit,
+        session,
+        [assign("5", "technical"), assign("1", "technical", "other")],
         judges,
         start,
       ),
@@ -228,7 +232,8 @@ describe("jury", () => {
     );
     assert.deepEqual(
       planWarnings(
-        category,
+        unit,
+        session,
         ["1", "2", "3", "4"].map((id, i) =>
           assign(id, i < 2 ? "technical" : "performance"),
         ),
@@ -237,6 +242,25 @@ describe("jury", () => {
       ),
       ["4 JurorInnen sind 15 (höchstens 3)"],
     );
+  });
+
+  test("a judge in two Durchgänge of one unit counts once", () => {
+    const units = [{ id: "v", deployments: 2 }];
+    const assignments = [
+      { judge_id: "1", unit_id: "v", session_id: "s1", task: "technical" },
+      { judge_id: "1", unit_id: "v", session_id: "s2", task: "performance" },
+    ];
+    assert.equal(assignedDeployments(units, assignments).get("1"), 2);
+    const erika = (max_deployments) => ({
+      id: "1",
+      firstname: "Erika",
+      lastname: "Mustermann",
+      max_deployments,
+    });
+    assert.deepEqual(overMaxWarnings(assignments, [erika(2)], units), []);
+    assert.deepEqual(overMaxWarnings(assignments, [erika(1)], units), [
+      "Erika Mustermann über max. Einsätze (2 / max. 1)",
+    ]);
   });
 
   test("deploymentNote explains what of a judge's Einsätze counts", () => {
