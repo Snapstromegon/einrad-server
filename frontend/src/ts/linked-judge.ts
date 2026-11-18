@@ -10,14 +10,15 @@ interface RiderLike {
 const personKey = (firstname: string, lastname: string) =>
   `${firstname.trim()} ${lastname.trim()}`.toLowerCase();
 
-/** Riders no judge is linked to yet, sorted by last name, first name. */
+/** Riders no judge is linked to yet (plus `keepId`, the draft's own pick), sorted by last name, first name. */
 export const availableRiders = <R extends RiderLike>(
   riders: R[],
   judges: { rider_id?: string | null }[],
+  keepId?: string | null,
 ): R[] => {
   const taken = new Set(judges.map((j) => j.rider_id).filter(Boolean));
   return riders
-    .filter((r) => !taken.has(r.id))
+    .filter((r) => r.id === keepId || !taken.has(r.id))
     .sort(
       (a, b) =>
         a.lastname.localeCompare(b.lastname, "de") ||
