@@ -890,7 +890,7 @@ export default class CupClubStepJury extends LitElement {
       </p>
       ${this.renderObligation()}
       ${
-        this.error
+        this.error && this.editing === null
           ? html`<p class="banner error" role="alert">${this.error}</p>`
           : nothing
       }
@@ -1367,6 +1367,11 @@ export default class CupClubStepJury extends LitElement {
             Abbrechen
           </button>
         </div>
+        ${
+          this.error
+            ? html`<p class="banner error" role="alert">${this.error}</p>`
+            : nothing
+        }
       </form>
     </section>`;
   }

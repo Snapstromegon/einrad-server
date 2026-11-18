@@ -178,6 +178,13 @@ export const clubPortalStyles = css`
     min-width: 0;
   }
 
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    color: var(--color-text-muted);
+    -webkit-text-fill-color: var(--color-text-muted);
+  }
+
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
