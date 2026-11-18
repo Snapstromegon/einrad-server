@@ -61,7 +61,7 @@ async fn assign(app: &TestApp, admin: &str, judge: &Value, unit: &Value, task: &
     let response = app
         .post(
             "/api/command/assign_judge",
-            json!({ "judge_id": judge, "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task }),
+            json!({ "judge_id": judge, "session_id": unit["sessions"][0]["id"], "task": task }),
             Some(admin),
         )
         .await;

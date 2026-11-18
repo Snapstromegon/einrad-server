@@ -758,8 +758,8 @@ async fn a_linked_judge_counts_for_the_obligation_and_the_jury_plan() {
     let all = plan(&app, &admin, None).await;
     assert_eq!(all.status, StatusCode::OK, "{:?}", all.body);
     assert_eq!(
-        all.body["assignments"],
-        json!([assignment(&added.body["judge_id"], &ids[0], "technical")])
+        without_ids(&all.body["assignments"]),
+        json!([planned(&added.body["judge_id"], &ids[0], "technical")])
     );
 }
 
@@ -1236,8 +1236,26 @@ async fn plan(app: &TestApp, cookie: &str, club_id: Option<ClubId>) -> TestRespo
     app.get(&uri, Some(cookie)).await
 }
 
+/// The body of `assign_judge`: the unit's first Durchgang.
 fn assignment(judge: &Value, unit: &Value, task: &str) -> Value {
-    json!({ "judge_id": judge, "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task })
+    json!({ "judge_id": judge, "session_id": unit["sessions"][0]["id"], "task": task })
+}
+
+/// An assignment as `list_jury_plan` shows it, without its id.
+fn planned(judge: &Value, unit: &Value, task: &str) -> Value {
+    json!({
+        "judge_id": judge, "session_id": unit["sessions"][0]["id"],
+        "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task,
+    })
+}
+
+/// The plan's assignments without their ids.
+fn without_ids(assignments: &Value) -> Value {
+    let mut assignments = assignments.clone();
+    for assignment in assignments.as_array_mut().unwrap() {
+        assignment.as_object_mut().unwrap().remove("id");
+    }
+    assignments
 }
 
 #[tokio::test]
@@ -1313,8 +1331,8 @@ async fn admins_assign_judges_and_publish_the_plan() {
     let own = plan(&app, &owner, Some(club_id)).await;
     assert!(own.body["published_at"].is_string());
     assert_eq!(
-        own.body["assignments"],
-        json!([assignment(&anna, &ids[0], "technical")])
+        without_ids(&own.body["assignments"]),
+        json!([planned(&anna, &ids[0], "technical")])
     );
     assert_eq!(
         plan(&app, &owner, Some(other_club)).await.status,
@@ -1326,7 +1344,7 @@ async fn admins_assign_judges_and_publish_the_plan() {
     let removed = app
         .post(
             "/api/command/unassign_judge",
-            json!({ "judge_id": anna, "unit_id": ids[0]["id"] }),
+            json!({ "judge_id": anna, "session_id": ids[0]["sessions"][0]["id"] }),
             Some(&admin),
         )
         .await;
@@ -1420,8 +1438,8 @@ async fn assignments_follow_the_jury_rules() {
         .await;
     assert_eq!(deleted.status, StatusCode::OK, "{:?}", deleted.body);
     assert_eq!(
-        plan(&app, &admin, None).await.body["assignments"],
-        json!([assignment(&anna, &ids[0], "technical")])
+        without_ids(&plan(&app, &admin, None).await.body["assignments"]),
+        json!([planned(&anna, &ids[0], "technical")])
     );
 }
 
@@ -1473,7 +1491,7 @@ async fn untrained_judges_lose_their_technical_and_performance_assignments() {
         .await;
     assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
     assert_eq!(
-        plan(&app, &admin, None).await.body["assignments"],
-        json!([assignment(&anna, &ids[1], "dismounts")])
+        without_ids(&plan(&app, &admin, None).await.body["assignments"]),
+        json!([planned(&anna, &ids[1], "dismounts")])
     );
 }

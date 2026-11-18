@@ -8,8 +8,8 @@ use crate::{
 };
 
 /// List the jury units judges register for: the Vorlauf of every heat and
-/// every final, in the order of the timeplan, with the day they run on. For
-/// logged-in users.
+/// every final, in the order of the timeplan, with the day they run on and
+/// their Durchgänge (jury sessions, at least one each). For logged-in users.
 #[utoipa::path(
     get,
     tags=["query", "jury"],

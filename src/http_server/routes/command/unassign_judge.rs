@@ -1,4 +1,4 @@
-use crate::ids::{JudgeId, JuryUnitId};
+use crate::ids::{JudgeId, JurySessionId};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -18,10 +18,11 @@ pub struct UnassignJudgeResponse {}
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UnassignJudgeBody {
     judge_id: JudgeId,
-    unit_id: JuryUnitId,
+    session_id: JurySessionId,
 }
 
-/// Remove a judge from a jury unit of the Juryplan. Jury lead.
+/// Remove a judge from a Durchgang (jury session) of the Juryplan; their
+/// other Durchgänge stay. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -45,10 +46,10 @@ pub async fn unassign_judge(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
     info!(
-        "Removing judge {} from jury unit {}",
-        body.judge_id, body.unit_id
+        "Removing judge {} from jury session {}",
+        body.judge_id, body.session_id
     );
-    jury_sessions::unassign_from_unit(&mut transaction, body.judge_id, body.unit_id).await?;
+    jury_sessions::unassign(&mut transaction, body.judge_id, body.session_id).await?;
     transaction.commit().await?;
     Ok(Json(UnassignJudgeResponse {}))
 }

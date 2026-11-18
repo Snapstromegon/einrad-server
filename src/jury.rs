@@ -3,7 +3,10 @@
 //! obligation and plan the jury. Everything is behind the
 //! `jury_registration` feature of the competition (see `Features`).
 
-use crate::ids::{ClubId, FinalId, HeatId, JudgeId, JuryUnitId, RiderId};
+use crate::ids::{
+    CategoryId, ClubId, FinalId, HeatId, JudgeId, JuryAssignmentId, JurySessionId, JuryUnitId,
+    RiderId,
+};
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
@@ -19,6 +22,7 @@ use crate::{
         extractor::auth::Auth,
         routes::query::predict_timeplan::{self, TimeplanEntry},
     },
+    jury_sessions::{self, UnitCategory},
     people::{self, Person},
     reloadable_sqlite::ReloadableSqlite,
     timeplan::Audience,
@@ -134,6 +138,9 @@ pub struct JuryUnit {
     #[serde(with = "iso_date::option")]
     #[schema(value_type = Option<String>, format = Date)]
     pub day: Option<Date>,
+    /// The Durchgänge of the unit (ADR 0019), in their order; at least one.
+    /// An unsplit unit has one holding all its categories.
+    pub sessions: Vec<crate::jury_sessions::JurySession>,
 }
 
 /// A heat's Vorlauf counts 2 jury deployments (Konzept: "Vorlauf entspricht
@@ -274,11 +281,20 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     .fetch_all(&mut *conn)
     .await?;
     let categories = sqlx::query!(
-        r#"SELECT name as "name!", heat_id as "heat_id: HeatId", act_type as "act_type!: ActType"
+        r#"SELECT id as "id!: CategoryId", name as "name!", "order", heat_id as "heat_id: HeatId",
+            act_type as "act_type!: ActType"
             FROM categories ORDER BY "order", name"#
     )
     .fetch_all(&mut *conn)
     .await?;
+    let slots = sqlx::query!(
+        r#"SELECT DISTINCT final_id as "final_id!: FinalId", heat_id as "heat_id!: HeatId"
+        FROM final_slots WHERE heat_id IS NOT NULL"#
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let session_rows = jury_sessions::load_session_rows(&mut conn).await?;
+    let memberships = jury_sessions::load_memberships(&mut conn).await?;
     let feeds = sqlx::query!(
         r#"SELECT heat_id as "heat_id!: HeatId", MIN(final_id) as "final_id!: FinalId"
         FROM final_slots WHERE heat_id IS NOT NULL GROUP BY heat_id"#
@@ -346,7 +362,54 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                     .or_else(|| final_id.and_then(own_type)),
                 JuryUnitKind::Final => own_type(row.id.as_final()),
             };
+            let unit_categories: Vec<UnitCategory> = categories
+                .iter()
+                .filter(|c| match row.kind {
+                    JuryUnitKind::Heat => c.heat_id == Some(row.id.as_heat()),
+                    JuryUnitKind::Final => slots.iter().any(|slot| {
+                        slot.final_id == row.id.as_final() && Some(slot.heat_id) == c.heat_id
+                    }),
+                })
+                .map(|c| UnitCategory {
+                    id: c.id,
+                    name: c.name.clone(),
+                    order: c.order,
+                })
+                .collect();
+            // A heat's Durchgänge follow the timeplan; a final's block has no
+            // per-category position.
+            let position = |category: &UnitCategory| {
+                if row.kind == JuryUnitKind::Final {
+                    return usize::MAX;
+                }
+                blocks
+                    .iter()
+                    .position(|item| {
+                        matches!(&item.timeplan_entry, TimeplanEntry::Acts {
+                            home_category: Some(name), ..
+                        } if *name == category.name)
+                    })
+                    .unwrap_or(usize::MAX)
+            };
+            let own_sessions: Vec<_> = session_rows
+                .iter()
+                .filter(|s| s.unit_id == row.id)
+                .copied()
+                .collect();
+            let sessions = jury_sessions::assemble(
+                row.id,
+                &unit_categories,
+                &position,
+                &own_sessions,
+                &memberships,
+                (
+                    row.needed_technical,
+                    row.needed_performance,
+                    row.needed_dismounts,
+                ),
+            );
             let unit = JuryUnit {
+                sessions,
                 act_type,
                 final_id,
                 id: row.id,
@@ -1130,10 +1193,14 @@ pub async fn obligations(
         .collect())
 }
 
-/// A judge's task in a jury unit of the Juryplan.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+/// A judge's task in a Durchgang (jury session) of a jury unit of the
+/// Juryplan.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
 pub struct JuryAssignment {
+    pub id: JuryAssignmentId,
     pub judge_id: JudgeId,
+    /// The Durchgang; its unit is `unit_id`.
+    pub session_id: JurySessionId,
     pub unit_kind: JuryUnitKind,
     /// The heat's or the final's id.
     pub unit_id: JuryUnitId,

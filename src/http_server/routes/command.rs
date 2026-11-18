@@ -33,6 +33,7 @@ mod edit_club_judge;
 mod edit_competition;
 mod edit_final;
 mod edit_heat;
+mod edit_jury_session;
 mod edit_jury_unit;
 mod edit_rider;
 mod edit_timeplan_entry;
@@ -85,6 +86,7 @@ mod set_heat_skip;
 mod set_image_source;
 mod set_jury_deployments_override;
 mod set_jury_plan_published;
+mod set_jury_sessions;
 mod set_photo_hidden;
 mod set_single;
 mod set_song_checked;
@@ -99,6 +101,7 @@ mod verify_email;
 
 pub fn get_command_router() -> OpenApiRouter {
     OpenApiRouter::new()
+        .routes(routes!(edit_jury_session::edit_jury_session))
         .routes(routes!(edit_jury_unit::edit_jury_unit))
         .routes(routes!(move_judge_registrations::move_judge_registrations))
         .routes(routes!(
@@ -192,6 +195,7 @@ pub fn get_command_router() -> OpenApiRouter {
         ))
         .routes(routes!(assign_judge::assign_judge))
         .routes(routes!(set_jury_plan_published::set_jury_plan_published))
+        .routes(routes!(set_jury_sessions::set_jury_sessions))
         .routes(routes!(set_startlist_published::set_startlist_published))
         .routes(routes!(unassign_judge::unassign_judge))
         .routes(routes!(send_club_mail::send_club_mail))
