@@ -128,6 +128,11 @@ export default class CupClubStepJury extends LitElement {
         flex-basis: 100%;
       }
 
+      /* The save error spans the form's full width; the gap spaces it. */
+      .judge-form .banner {
+        margin: 0;
+      }
+
       .judge-form .hint {
         margin: 0;
         font-size: 0.85rem;
@@ -1369,7 +1374,7 @@ export default class CupClubStepJury extends LitElement {
         </div>
         ${
           this.error
-            ? html`<p class="banner error" role="alert">${this.error}</p>`
+            ? html`<p class="banner error wide" role="alert">${this.error}</p>`
             : nothing
         }
       </form>
