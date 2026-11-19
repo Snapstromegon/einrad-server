@@ -130,8 +130,8 @@ async fn the_migration_gives_every_unit_one_session_and_keeps_assignments() {
     );
 
     // A judge sits once per session, but may sit in several.
-    let duplicate = "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task) \
-         SELECT x'20', heat_id, id, 'dismounts' FROM jury_sessions WHERE heat_id = ";
+    let duplicate = "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) \
+         SELECT x'20', heat_id, id, 'dismounts', 1 FROM jury_sessions WHERE heat_id = ";
     let heat_session = format!("{duplicate}{HEAT_EM}");
     assert!(
         sqlx::query(sqlx::AssertSqlSafe(heat_session))
@@ -149,8 +149,8 @@ async fn the_migration_gives_every_unit_one_session_and_keeps_assignments() {
     exec(
         &db,
         &format!(
-            "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task) \
-             VALUES (x'20', {HEAT_EM}, x'0190f2d4b1c07abc8def0123456789ab', 'dismounts')"
+            "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) \
+             VALUES (x'20', {HEAT_EM}, x'0190f2d4b1c07abc8def0123456789ab', 'dismounts', 1)"
         ),
     )
     .await;
@@ -178,8 +178,8 @@ async fn the_down_migration_merges_sessions() {
     exec(
         &db,
         &format!(
-            "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task) \
-             VALUES (x'20', {HEAT_EM}, x'ffffffffffff7fffbfffffffffffffff', 'performance')"
+            "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) \
+             VALUES (x'20', {HEAT_EM}, x'ffffffffffff7fffbfffffffffffffff', 'performance', 1)"
         ),
     )
     .await;

@@ -744,6 +744,24 @@ pub async fn set_session_needed(
     Ok(())
 }
 
+/// The lowest seat number of the session's task that nobody sits on.
+async fn free_seat(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+    task: JudgeTask,
+) -> sqlx::Result<i64> {
+    let used: HashSet<i64> = sqlx::query_scalar!(
+        r#"SELECT seat as "seat!: i64" FROM jury_assignments WHERE session_id = ? AND task = ?"#,
+        session,
+        task
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .collect();
+    Ok((1..).find(|n| !used.contains(n)).unwrap_or(1))
+}
+
 /// Assigns a judge a task in a session; the unit is the session's. Unknown
 /// judge or session: 404. Untrained people only count dismounts. A judge sits
 /// once per session, but may sit in several sessions of a unit.
@@ -776,15 +794,17 @@ pub async fn assign(
         ));
     }
     let id = JuryAssignmentId::new();
+    let seat = free_seat(&mut *conn, session, task).await?;
     let (heat_id, final_id) = jury::unit_columns(unit_kind, unit_id);
     let result = sqlx::query!(
-        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
         id,
         judge,
         heat_id,
         final_id,
         session,
         task,
+        seat,
     )
     .execute(conn)
     .await;

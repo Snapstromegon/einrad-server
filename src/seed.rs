@@ -2373,7 +2373,7 @@ mod tests {
             sqlx::query("INSERT INTO judge_registration (judge_id, final_id, task) VALUES (?, ?, 'performance')")
                 .bind(judge)
                 .bind(final_id),
-            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, session_id, task) VALUES (?, ?, ?, 'technical')")
+            sqlx::query("INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) VALUES (?, ?, ?, 'technical', 1)")
                 .bind(judge)
                 .bind(heat_id)
                 .bind(session),
