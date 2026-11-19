@@ -34,6 +34,8 @@ import {
   planWarnings,
   sessionLabel,
   sessionsOf,
+  sessionNumber,
+  MAX_SESSION_NUMBER,
   splitBody,
   TASKS,
   toggleKeep,
@@ -122,8 +124,8 @@ export default class CupViewAdminJudges extends LitElement {
         gap: 0.25rem 0.5rem;
       }
 
-      .split-panel select {
-        width: auto;
+      .split-panel input {
+        width: 4rem;
         min-width: 0;
       }
 
@@ -224,6 +226,8 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private splitting: string | null = null;
   /** The panel's choice: group number (1-based) per category id. */
   @state() private choice = new Map<string, number>();
+  /** Categories whose typed Durchgang number is not 1 to 9. */
+  @state() private invalidChoice = new Set<string>();
   /** A split that merges Durchgänge with Einteilungen, awaiting the keep list. */
   @state() private merging: {
     body: SessionSplitBody;
@@ -535,9 +539,9 @@ export default class CupViewAdminJudges extends LitElement {
       <td>
         ${first ? html`<b>${unitName(unit)}</b>` : nothing}
         ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
-        ${label ? html`${first ? html`<br />` : nothing}<span class="chip">${label}</span>` : nothing}
-        ${warningLines} ${this.renderNeeded(unit, session)}
         ${first ? this.renderSplitPanel(unit) : nothing}
+        ${label ? html`<span class="chip">${label}</span>` : nothing}
+        ${warningLines} ${this.renderNeeded(unit, session)}
       </td>
       ${cells}
     </tr>`;
@@ -596,39 +600,46 @@ export default class CupViewAdminJudges extends LitElement {
     if (!open) {
       return html`<div class="no-print">${toggle}</div>`;
     }
-    const sessions = sessionsOf(unit);
-    const groups = Array.from({ length: sessions.length + 1 }, (_, i) => i + 1);
-    const selects = sessions
+    const inputs = sessionsOf(unit)
       .flatMap((session) => session.categories)
-      .map((category) => {
-        const options = groups.map(
-          (group) =>
-            html`<option
-              value=${group}
-              ?selected=${(this.choice.get(category.id) ?? 1) === group}
-            >
-              Gruppe ${group}
-            </option>`,
-        );
-        return html`<label class="cat"
+      .map(
+        (category) => html`<label class="cat"
           ><span>${category.name}</span>
-          <select
+          <input
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max=${MAX_SESSION_NUMBER}
+            step="1"
+            aria-label="Durchgang für ${category.name}"
             data-category=${category.id}
+            .value=${String(this.choice.get(category.id) ?? "")}
             ?disabled=${this.saving}
-            @change=${this.onChoiceChange}
-          >
-            ${options}
-          </select></label
-        >`;
-      });
+            @input=${this.onChoiceChange}
+          /></label
+        >`,
+      );
+    const invalid = this.invalidChoice.size > 0;
     return html`<div class="no-print">${toggle}</div>
       <div class="split-panel no-print">
-        ${selects}
+        <small class="muted"
+          >Durchgang je Altersklasse (1–${MAX_SESSION_NUMBER}); gleiche Nummer
+          = gleicher Durchgang.</small
+        >
+        ${inputs}
+        ${
+          invalid
+            ? html`<small class="text-warn" role="alert"
+              >Bitte für jede Altersklasse eine Zahl von 1 bis
+              ${MAX_SESSION_NUMBER} eingeben.</small
+            >`
+            : nothing
+        }
         <div>
           <button
             class="btn small primary"
             data-unit=${unit.id}
-            ?disabled=${this.saving}
+            ?disabled=${this.saving || invalid}
             @click=${this.onSplitSave}
           >
             Speichern
@@ -1369,6 +1380,7 @@ export default class CupViewAdminJudges extends LitElement {
       return;
     }
     // Each category starts in the Durchgang it is in now.
+    this.invalidChoice = new Set();
     this.choice = new Map(
       sessionsOf(unit).flatMap((session, i) =>
         session.categories.map((c): [string, number] => [c.id, i + 1]),
@@ -1378,11 +1390,17 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   private onChoiceChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    this.choice = new Map(this.choice).set(
-      select.dataset.category!,
-      Number(select.value),
-    );
+    const input = e.target as HTMLInputElement;
+    const id = input.dataset.category!;
+    const number = sessionNumber(input.value);
+    const invalid = new Set(this.invalidChoice);
+    if (number === null) {
+      invalid.add(id);
+    } else {
+      invalid.delete(id);
+      this.choice = new Map(this.choice).set(id, number);
+    }
+    this.invalidChoice = invalid;
   }
 
   private async onSplitSave() {

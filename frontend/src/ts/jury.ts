@@ -397,6 +397,22 @@ export const showsNeeded = (unit: { sessions?: JurySession[] }) =>
  * (every id and group once), the other groups are new and the other
  * Durchgänge removed. Empty groups are dropped.
  */
+/** The highest Durchgang number the split panel accepts. */
+export const MAX_SESSION_NUMBER = 9;
+
+/**
+ * The Durchgang number typed for a category: a whole number from 1 to
+ * `MAX_SESSION_NUMBER`, or null. Gaps are fine; `splitBody` orders them.
+ */
+export const sessionNumber = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const number = Number(trimmed);
+  return number >= 1 && number <= MAX_SESSION_NUMBER ? number : null;
+};
+
 export const splitBody = (
   unit: SplitUnit,
   choice: Map<string, number>,

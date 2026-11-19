@@ -10,6 +10,7 @@ import {
   needBody,
   planWarnings,
   sessionLabel,
+  sessionNumber,
   sessionsOf,
   splitBody,
   toggleKeep,
@@ -438,5 +439,33 @@ describe("jury sessions: merging", () => {
     );
     assert.equal(mergeSummary(rows, none), "3 werden gelöscht.");
     assert.equal(mergeSummary([], new Map()), "");
+  });
+});
+
+describe("jury sessions: Durchgang numbers", () => {
+  test("whole numbers 1 to 9 are accepted", () => {
+    assert.equal(sessionNumber("1"), 1);
+    assert.equal(sessionNumber(" 9 "), 9);
+  });
+
+  test("anything else is refused", () => {
+    for (const value of ["", "0", "10", "-1", "1.5", "a"]) {
+      assert.equal(sessionNumber(value), null, value);
+    }
+  });
+
+  test("numbers are ordered on save, so 7 before 3 does not matter", () => {
+    const u = { kind: "heat", id: "u", sessions: [session("s1", ["A", "B"])] };
+    const body = splitBody(
+      u,
+      new Map([
+        ["A", 7],
+        ["B", 3],
+      ]),
+    );
+    assert.deepEqual(
+      body.sessions.map((s) => s.category_ids),
+      [["B"], ["A"]],
+    );
   });
 });
