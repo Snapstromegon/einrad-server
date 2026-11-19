@@ -162,8 +162,8 @@ describe("support", () => {
   test("is granted in the order of the role table", () => {
     assert.deepEqual(withRole(["admin", "support"], "treasurer", true), [
       "admin",
-      "treasurer",
       "support",
+      "treasurer",
     ]);
   });
 });

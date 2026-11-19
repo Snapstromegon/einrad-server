@@ -8,24 +8,24 @@ export type Role = schemas.Role;
 /** Every role, in the order of the role table. */
 export const ROLES: readonly Role[] = [
   "admin",
+  "support",
   "jury_lead",
   "treasurer",
   "check_in",
   "music_control",
   "moderation",
   "music_check",
-  "support",
 ];
 
 export const roleNames: Record<Role, string> = {
   admin: "Admin",
+  support: "Support",
   jury_lead: "Juryleitung",
   treasurer: "Kasse",
   check_in: "Check-in",
   music_control: "Musiksteuerung",
   moderation: "Moderation",
   music_check: "Musikprüfung",
-  support: "Support",
 };
 
 /** `roles` with `role` granted (`on`) or revoked, in the table's order. */

@@ -31,6 +31,8 @@ use sqlx::SqlitePool;
 pub enum Role {
     /// Everything, including granting roles.
     Admin,
+    /// Helps clubs: acts for any club like the Admin, but sees nothing else.
+    Support,
     /// Juryleitung: the jury and the results.
     JuryLead,
     /// Kasse: payments and fee waivers.
@@ -43,8 +45,6 @@ pub enum Role {
     Moderation,
     /// Musikprüfung: marks songs as checked.
     MusicCheck,
-    /// Helps clubs: acts for any club like the Admin, but sees nothing else.
-    Support,
 }
 
 pub trait Permit {
@@ -327,13 +327,13 @@ mod tests {
     fn only_admins_manage_users_backups_planning_and_the_competition() {
         let roles = [
             Role::Admin,
+            Role::Support,
             Role::JuryLead,
             Role::Treasurer,
             Role::CheckIn,
             Role::MusicControl,
             Role::Moderation,
             Role::MusicCheck,
-            Role::Support,
         ];
         for role in roles {
             let admin_only = [

@@ -21,13 +21,13 @@
 # One login per role of the organizer team; the password is the part before
 # the @, e.g. kasse@example.org / kasse:
 # - admin@example.org             Admin
+# - support@example.org           Support, acts for any club
 # - juryleitung@example.org       Juryleitung
 # - kasse@example.org             Kasse
 # - checkin@example.org           Check-in
 # - musiksteuerung@example.org    Musiksteuerung, e.g. for players
 # - moderation@example.org        Moderation
 # - musikpruefung@example.org     Musikprüfung
-# - support@example.org           Support, acts for any club
 #
 # Links with the fixed tokens below:
 # - /verify_email?token=00000000-0000-4000-8000-000000000001
@@ -75,6 +75,12 @@ roles = ["admin"]
 
 # One account per role of the organizer team (ADR 0003).
 [[users]]
+name = "Support"
+email = "support@example.org"
+password = "support"
+roles = ["support"]
+
+[[users]]
 name = "Juryleitung"
 email = "juryleitung@example.org"
 password = "juryleitung"
@@ -109,12 +115,6 @@ name = "Musikprüfung"
 email = "musikpruefung@example.org"
 password = "musikpruefung"
 roles = ["music_check"]
-
-[[users]]
-name = "Support"
-email = "support@example.org"
-password = "support"
-roles = ["support"]
 
 [[users]]
 name = "Maria Wagner"
