@@ -297,6 +297,9 @@ Why a fee was waived, e.g. "Veranstalter", "befreundeter Verein", "Attest"; only
 A person a club registers to judge, or to count dismounts.
 _Avoid_: Juror, Kampfrichter, Wertungsrichter
 
+**Linked judge** (verknüpfte JurorIn):
+A judge created from one of the club's riders; name, birthdate and club are read live from the rider, and the link ends only when the rider is deleted (the judge is deleted with them or kept as an unlinked copy).
+
 **Trained judge** (geschulte/r JurorIn):
 A judge trained per the IUF Rulebook; only trained judges judge Technik or Performance, and they must be at least 15 on the first competition day.
 _Avoid_: Licensed judge (there's no judge register yet)
@@ -355,7 +358,7 @@ An award for each rider of the first three places of a final, and for each group
 - The best acts of a **Heat** fill the **Finalist slots** reserved for it in a **Final**; a final takes its acts only from the heats its slots name, and its categories are theirs. A heat fills at most one final.
 - A **Heat** runs its **Preliminary round** as the **Blocks** of its categories; it has no block of its own. When the preliminary round is skipped, those blocks stay but run none of its acts, and its acts are **Direct acts** of its final.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
-- A **Judge** registers for **Jury units** (the Vorlauf of a **Heat**, or a **Final**) for **Tasks**; the **Jury plan** assigns each judge at most one task per jury unit.
+- A **Judge** may be a **Linked judge** of one **Rider** of the same club (a rider is linked to at most one judge). A **Judge** registers for **Jury units** (the Vorlauf of a **Heat**, or a **Final**) for **Tasks**; the **Jury plan** assigns each judge at most one task per jury unit.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
 - A club's **Credited deployments** below its **Jury obligation** cost a **Jury fee** per missing **Jury deployment**.
 - A **Fee waiver** applies to a **Club**, a **Rider** or an **Act**; it lowers the **Amount due** but never the **Jury obligation**, except for a withdrawn act.

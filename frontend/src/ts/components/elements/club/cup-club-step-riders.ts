@@ -19,6 +19,7 @@ import {
   isPendingPair,
   riderName,
 } from "../../../club-data";
+import { riderDeleteChoices } from "../../../linked-judge";
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
 import {
@@ -32,6 +33,7 @@ import {
   addRider,
   deleteRider,
   editRider,
+  riderDeleteImpact,
   type Gender,
   genderLabels,
 } from "./club-actions";
@@ -86,6 +88,50 @@ export default class CupClubStepRiders extends LitElement {
     iconStyles,
     clubPortalStyles,
     css`
+      /* Popover in the top layer: centred in the viewport, escapes any
+         overflow/transform of ancestors. */
+      .delete-dialog {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: 32rem;
+        max-width: min(32rem, calc(100vw - 2rem));
+        height: fit-content;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        box-sizing: border-box;
+        padding: 1.5rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.75rem;
+        background: var(--color-surface);
+        color: var(--color-text);
+        box-shadow: 0 12px 48px var(--color-shadow);
+      }
+
+      /* ::backdrop cannot read custom properties everywhere: literal. */
+      .delete-dialog::backdrop {
+        background: rgb(0 0 0 / 0.6); /* color-literal-ok */
+      }
+
+      .delete-dialog h3 {
+        margin-top: 0;
+      }
+
+      .delete-dialog .choice {
+        margin-block: 0.75rem;
+      }
+
+      .delete-dialog .hint {
+        margin: 0.25rem 0 0;
+        font-size: 0.85rem;
+        opacity: 0.8;
+      }
+
+      .delete-dialog .actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
       .add-form {
         display: grid;
         grid-template-columns: 1fr 1fr 11rem 9rem auto;
@@ -237,7 +283,13 @@ export default class CupClubStepRiders extends LitElement {
   @state() error: string | null = null;
   @state() search = "";
   @state() edit: (RiderDraft & { id: string }) | null = null;
+  @query(".delete-dialog") deleteDialog?: HTMLElement;
   @state() busy = new Set<string>();
+  /** The rider whose linked judge the delete dialog asks about. */
+  @state() pendingDelete: {
+    rider: ClubRider;
+    choices: NonNullable<ReturnType<typeof riderDeleteChoices>>;
+  } | null = null;
 
   @query("#firstname") firstnameInput?: HTMLInputElement;
   @queryAll("[data-id]") idElements!: NodeListOf<HTMLElement>;
@@ -248,6 +300,9 @@ export default class CupClubStepRiders extends LitElement {
         .find((el) => el.dataset.id === this.target)
         ?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
+    // The delete question is a popover: open it once it is rendered.
+    const dialog = this.deleteDialog;
+    if (dialog && !dialog.matches(":popover-open")) dialog.showPopover();
   }
 
   override render() {
@@ -273,6 +328,7 @@ export default class CupClubStepRiders extends LitElement {
               >
             </p>`
       }
+      ${this.renderDeleteDialog()}
       ${
         this.error
           ? html`<p class="banner error" role="alert">
@@ -742,6 +798,17 @@ export default class CupClubStepRiders extends LitElement {
   }
 
   async deleteRider(rider: ClubRider) {
+    let choices;
+    try {
+      choices = riderDeleteChoices(await riderDeleteImpact(rider.id));
+    } catch (error) {
+      this.error = failureText("Fehler beim Löschen", error);
+      return;
+    }
+    if (choices) {
+      this.pendingDelete = { rider, choices };
+      return;
+    }
     const acts = actsOfRider(this.data.acts, rider.id).length;
     const name = riderName(rider);
     if (
@@ -756,6 +823,79 @@ export default class CupClubStepRiders extends LitElement {
       return;
     }
     await this.run(rider, () => deleteRider(rider));
+  }
+
+  private renderDeleteDialog() {
+    const pending = this.pendingDelete;
+    if (!pending) return nothing;
+    const { rider, choices } = pending;
+    return html`<div
+      class="delete-dialog"
+      popover="auto"
+      @toggle=${this.onDeleteToggle}
+    >
+      <h3>${riderName(rider)} ist als JurorIn gemeldet</h3>
+      <p>Was soll mit der JurorIn passieren?</p>
+      <div class="choice">
+        <button
+          class="btn danger"
+          ?disabled=${!choices.canDelete}
+          @click=${this.onDeleteJudgeToo}
+        >
+          ${choices.deleteLabel}
+        </button>
+        <p class="hint">
+          ${
+            choices.canDelete
+              ? choices.lossText
+              : "Die Jurymeldung ist geschlossen. Die JurorIn kann nur behalten werden."
+          }
+        </p>
+      </div>
+      <div class="choice">
+        <button class="btn" @click=${this.onKeepJudge}>
+          ${choices.keepLabel}
+        </button>
+        <p class="hint">
+          Die JurorIn bleibt mit Namen und Geburtsdatum der FahrerIn erhalten
+          und ist danach nicht mehr verknüpft.
+        </p>
+      </div>
+      <div class="actions">
+        <button class="btn" @click=${this.closeDeleteDialog}>
+          ${choices.cancelLabel}
+        </button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * `popover="auto"`: Escape and a click on the backdrop close it, which
+   * is the safe answer (Abbrechen), so light-dismiss is wanted here.
+   */
+  private onDeleteToggle(e: Event) {
+    if ((e as ToggleEvent).newState === "closed") this.pendingDelete = null;
+  }
+
+  private closeDeleteDialog() {
+    const dialog = this.deleteDialog;
+    if (dialog?.matches(":popover-open")) dialog.hidePopover();
+    this.pendingDelete = null;
+  }
+
+  private async onDeleteJudgeToo() {
+    await this.finishDelete("delete");
+  }
+
+  private async onKeepJudge() {
+    await this.finishDelete("keep");
+  }
+
+  private async finishDelete(choice: "delete" | "keep") {
+    const rider = this.pendingDelete?.rider;
+    if (!rider) return;
+    this.closeDeleteDialog();
+    await this.run(rider, () => deleteRider(rider, choice));
   }
 
   async run(rider: ClubRider, action: () => Promise<unknown>) {

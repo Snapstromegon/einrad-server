@@ -1056,6 +1056,16 @@ describe("errorMessage", () => {
     );
   });
 
+  test("shows the German message of a forbidden (403) with message", () => {
+    assert.equal(
+      errorMessage(
+        { type: "ForbiddenMessage", message: "Das darfst du nicht." },
+        403,
+      ),
+      "Das darfst du nicht.",
+    );
+  });
+
   test("undoes Debug escapes", () => {
     assert.equal(
       errorMessage({

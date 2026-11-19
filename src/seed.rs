@@ -1316,13 +1316,13 @@ async fn write(
         SELECT
             judge.id as "judge_id!: JudgeId",
             clubs.name as "club!",
-            judge.firstname as "firstname!",
-            judge.lastname as "lastname!",
+            judge.firstname as "firstname!: String",
+            judge.lastname as "lastname!: String",
             judge_registration.task as "task!: JudgeTask",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
             view_jury_unit.name as "unit_name!"
         FROM judge_registration
-        JOIN judge ON judge.id = judge_registration.judge_id
+        JOIN view_judge judge ON judge.id = judge_registration.judge_id
         JOIN clubs ON clubs.id = judge.club_id
         JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
         ORDER BY clubs.name, judge.lastname, judge.firstname, view_jury_unit.kind DESC,

@@ -9,6 +9,7 @@ mod get_competition_images;
 mod get_competition_settings;
 mod get_photos;
 mod get_playback;
+mod get_rider_delete_impact;
 mod get_startlist_csv;
 mod get_structure;
 mod get_system_status;
@@ -51,6 +52,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(export_competition::export_competition))
         .routes(routes!(get_photos::get_photos))
         .routes(routes!(get_playback::get_playback))
+        .routes(routes!(get_rider_delete_impact::get_rider_delete_impact))
         .routes(routes!(list_club_riders::list_club_riders))
         .routes(routes!(list_club_pair_requests::list_club_pair_requests))
         .routes(routes!(list_jury_units::list_jury_units))

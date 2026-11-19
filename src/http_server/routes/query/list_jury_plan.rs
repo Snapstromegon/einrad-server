@@ -79,7 +79,7 @@ pub async fn list_jury_plan(
             jury_assignments.unit_id as "unit_id!: JuryUnitId",
             jury_assignments.task as "task!: JudgeTask"
         FROM jury_assignments
-        JOIN judge ON judge.id = jury_assignments.judge_id
+        JOIN view_judge judge ON judge.id = jury_assignments.judge_id
         JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
         ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.task, judge.lastname, judge.firstname

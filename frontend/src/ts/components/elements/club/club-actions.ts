@@ -62,10 +62,18 @@ export const addRider = async (
   );
 };
 
-export const deleteRider = async (rider: ClubRider) => {
+/** What deleting the rider affects besides their starts: the linked judge. */
+export const riderDeleteImpact = (riderId: string) =>
+  unwrap(client.getRiderDeleteImpact({ query: { rider_id: riderId } }));
+
+/** `linkedJudge` is required while the rider is linked to a judge. */
+export const deleteRider = async (
+  rider: ClubRider,
+  linkedJudge?: schemas.LinkedJudgeChoice,
+) => {
   await unwrap(
     client.deleteRider({
-      body: { rider_id: rider.id },
+      body: { rider_id: rider.id, linked_judge: linkedJudge },
     }),
   );
 };
