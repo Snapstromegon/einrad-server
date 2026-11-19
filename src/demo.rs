@@ -22,7 +22,7 @@ use crate::{
     act_type::ActType,
     config::{
         CategoryConfig, CompetitionConfig, CompetitionFile, FinalConfig, HeatConfig,
-        TimeplanEntryConfig, toml_date, toml_datetime_option,
+        TimeplanEntryConfig, toml_date, toml_date_option, toml_datetime_option,
     },
     gender::Gender,
     groups,
@@ -112,10 +112,13 @@ pub struct DemoClub {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DemoJudge {
-    pub firstname: String,
-    pub lastname: String,
-    #[serde(deserialize_with = "toml_date")]
-    pub birthdate: Date,
+    /// A rider of the same club ("Firstname Lastname") to create the judge
+    /// from; then the judge has no name or birthdate of their own.
+    pub rider: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    #[serde(default, deserialize_with = "toml_date_option")]
+    pub birthdate: Option<Date>,
     #[serde(default = "crate::utils::default_true")]
     pub trained: bool,
     pub max_deployments: Option<i64>,
@@ -521,7 +524,43 @@ impl DemoData {
             .await
             .map_err(|e| e.to_string())?;
             for judge in &club.judges {
-                let name = format!("{} {}", judge.firstname, judge.lastname);
+                let name = match &judge.rider {
+                    Some(rider) => rider.clone(),
+                    None => format!(
+                        "{} {}",
+                        judge.firstname.as_deref().unwrap_or_default(),
+                        judge.lastname.as_deref().unwrap_or_default()
+                    ),
+                };
+                if judge.rider.is_some()
+                    && (judge.firstname.is_some()
+                        || judge.lastname.is_some()
+                        || judge.birthdate.is_some())
+                {
+                    return Err(format!(
+                        "Judge {name}: a judge from a rider has no firstname, lastname or birthdate of their own."
+                    ));
+                }
+                let rider_id = match &judge.rider {
+                    Some(rider) => Some(
+                        sqlx::query_scalar!(
+                            r#"SELECT id as "id!: RiderId" FROM rider
+                            WHERE club_id = ? AND firstname || ' ' || lastname = ?"#,
+                            club_id,
+                            rider
+                        )
+                        .fetch_optional(&mut *conn)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .ok_or_else(|| {
+                            format!(
+                                "Judge {name}: rider {rider} doesn't exist in {}.",
+                                club.name
+                            )
+                        })?,
+                    ),
+                    None => None,
+                };
                 let registrations = judge
                     .registrations
                     .iter()
@@ -539,15 +578,21 @@ impl DemoData {
                 let fields = crate::jury::JudgeFields {
                     firstname: judge.firstname.clone(),
                     lastname: judge.lastname.clone(),
-                    birthdate: judge.birthdate.midnight().assume_utc(),
+                    birthdate: judge.birthdate.map(|date| date.midnight().assume_utc()),
                     is_trained: judge.trained,
                     max_deployments: judge.max_deployments,
                     note: judge.note.clone(),
                     registrations,
-                }
-                .normalize(competition.as_ref())
-                .map_err(|e| format!("Judge {name}: {e}"))?;
-                crate::jury::save_judge(&mut conn, JudgeId::new(), club_id, &fields)
+                };
+                let judge_id = JudgeId::new();
+                let identity =
+                    crate::jury::resolve_identity(&mut conn, None, club_id, rider_id, &fields)
+                        .await
+                        .map_err(|e| format!("Judge {name}: {e:?}"))?;
+                let fields = fields
+                    .normalize(competition.as_ref(), &identity)
+                    .map_err(|e| format!("Judge {name}: {e}"))?;
+                crate::jury::save_judge(&mut conn, judge_id, club_id, rider_id, &identity, &fields)
                     .await
                     .map_err(|e| format!("Judge {name}: {e:?}"))?;
             }
@@ -1062,6 +1107,35 @@ mod tests {
             "a final is not in the timeplan"
         );
         std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_demo_judge_can_be_created_from_a_rider() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        let (rider_id, name, birthdate): (Option<RiderId>, String, String) = sqlx::query_as(
+            "SELECT rider_id, firstname || ' ' || lastname, date(birthdate) FROM view_judge WHERE rider_id IS NOT NULL",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(rider_id.is_some());
+        assert_eq!(name, "Hannah Klein");
+        assert_eq!(birthdate, "1990-05-05");
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_demo_judge_from_a_rider_has_no_names_of_their_own() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        let judge = data.clubs[0].judges.last_mut().unwrap();
+        judge.firstname = Some("Anna".into());
+        let err = data.apply(&db, &data_dir()).await.unwrap_err();
+        assert!(err.contains("Hannah Klein"), "{err}");
     }
 
     #[tokio::test]

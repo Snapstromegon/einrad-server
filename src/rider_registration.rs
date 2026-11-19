@@ -9,7 +9,8 @@
 //! The operations take a connection and expect the caller to run them in one
 //! write transaction (`begin_write`), together with its own checks.
 
-use crate::ids::{ActId, ClubId, RiderId};
+use crate::ids::{ActId, ClubId, JudgeId, RiderId};
+use crate::people::{self, Person};
 use axum::http::StatusCode;
 use sqlx::SqliteConnection;
 
@@ -272,9 +273,82 @@ pub async fn replace_rider(
     Ok(())
 }
 
+/// What happens to the judge linked to a rider who is deleted (#384).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedJudgeChoice {
+    /// The judge goes too, with their registrations and assignments.
+    Delete,
+    /// The judge stays, unlinked, with the rider's name and birthdate.
+    Keep,
+}
+
+/// The judge linked to a rider and what deleting them would take along.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedJudgeCounts {
+    pub judge_id: JudgeId,
+    pub registrations: i64,
+    pub assignments: i64,
+}
+
+/// The judge linked to the rider, if any, with the number of their
+/// registrations and assignments.
+pub async fn linked_judge_counts(
+    conn: &mut SqliteConnection,
+    rider: RiderId,
+) -> Result<Option<LinkedJudgeCounts>, HttpError> {
+    Ok(sqlx::query!(
+        r#"
+        SELECT
+            judge.id as "judge_id!: JudgeId",
+            (SELECT COUNT(*) FROM judge_registration
+              WHERE judge_registration.judge_id = judge.id)
+            + (SELECT COUNT(*) FROM judge_registration_unmapped
+              WHERE judge_registration_unmapped.judge_id = judge.id) as "registrations!: i64",
+            (SELECT COUNT(*) FROM jury_assignments
+              WHERE jury_assignments.judge_id = judge.id) as "assignments!: i64"
+        FROM judge WHERE judge.rider_id = ?
+        "#,
+        rider
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .map(|row| LinkedJudgeCounts {
+        judge_id: row.judge_id,
+        registrations: row.registrations,
+        assignments: row.assignments,
+    }))
+}
+
 /// Deletes the rider with their single; their pair is dissolved (see
 /// [`leave_pair`]) and their groups keep the other riders.
-pub async fn delete_rider(conn: &mut SqliteConnection, rider: RiderId) -> Result<(), HttpError> {
+///
+/// A judge linked to the rider needs a `choice`, else it fails with 409 and
+/// changes nothing; a choice for a rider without a judge is ignored. The
+/// caller checks that the user may delete judges before passing
+/// [`LinkedJudgeChoice::Delete`].
+pub async fn delete_rider(
+    conn: &mut SqliteConnection,
+    rider: RiderId,
+    choice: Option<LinkedJudgeChoice>,
+) -> Result<(), HttpError> {
+    if let Some(judge) = linked_judge_counts(conn, rider).await? {
+        match choice {
+            None => {
+                let name = Rider::load(conn, rider).await?.name;
+                return Err(HttpError::Conflict(format!(
+                    "{name} ist als JurorIn verknüpft. Bitte wähle, was mit der JurorIn passiert."
+                )));
+            }
+            Some(LinkedJudgeChoice::Delete) => {
+                // Registrations, assignments and unmapped registrations go with it (cascade).
+                sqlx::query!("DELETE FROM judge WHERE id = ?", judge.judge_id)
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            Some(LinkedJudgeChoice::Keep) => keep_judge(conn, rider, judge.judge_id).await?,
+        }
+    }
     set_single(conn, rider, false).await?;
     leave_pair(conn, rider).await?;
     // Groups stay with their other riders and keep their type.
@@ -284,6 +358,46 @@ pub async fn delete_rider(conn: &mut SqliteConnection, rider: RiderId) -> Result
     sqlx::query!("DELETE FROM rider WHERE id = ?", rider)
         .execute(&mut *conn)
         .await?;
+    Ok(())
+}
+
+/// Unlinks the judge and copies the rider's name and birthdate into it.
+/// Fails like adding a judge if the club has another judge of that name.
+async fn keep_judge(
+    conn: &mut SqliteConnection,
+    rider: RiderId,
+    judge: JudgeId,
+) -> Result<(), HttpError> {
+    let row = sqlx::query!(
+        r#"SELECT club_id as "club_id!: ClubId", firstname, lastname FROM rider WHERE id = ?"#,
+        rider
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    people::ensure_name_is_free(
+        conn,
+        Person::Judge,
+        row.club_id,
+        &row.firstname,
+        &row.lastname,
+        Some(judge.0),
+    )
+    .await?;
+    sqlx::query!(
+        r#"
+        UPDATE judge SET
+            firstname = (SELECT firstname FROM rider WHERE id = ?1),
+            lastname = (SELECT lastname FROM rider WHERE id = ?1),
+            birthdate = (SELECT birthdate FROM rider WHERE id = ?1),
+            rider_id = NULL
+        WHERE id = ?2
+        "#,
+        rider,
+        judge
+    )
+    .execute(&mut *conn)
+    .await
+    .map_err(|e| people::map_duplicate(e, &row.firstname, &row.lastname))?;
     Ok(())
 }
 
@@ -728,7 +842,7 @@ mod tests {
             .await
             .unwrap();
 
-        delete_rider(&mut conn, anna).await.unwrap();
+        delete_rider(&mut conn, anna, None).await.unwrap();
 
         assert_eq!(
             pair_of(&db, berta).await,

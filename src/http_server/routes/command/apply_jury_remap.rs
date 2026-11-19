@@ -88,7 +88,7 @@ pub async fn apply_jury_remap(
         }
         let judges = sqlx::query_scalar!(
             r#"
-            SELECT judge.id as "id!: JudgeId" FROM judge
+            SELECT judge.id as "id!: JudgeId" FROM view_judge judge
             JOIN clubs ON clubs.id = judge.club_id
             WHERE clubs.name = ? AND judge.firstname = ? AND judge.lastname = ?
             "#,

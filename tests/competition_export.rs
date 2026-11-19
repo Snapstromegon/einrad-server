@@ -243,7 +243,7 @@ async fn registrations(app: &TestApp) -> Vec<(String, String, String)> {
         r#"
         SELECT judge.lastname, view_jury_unit.name, judge_registration.task
         FROM judge_registration
-        JOIN judge ON judge.id = judge_registration.judge_id
+        JOIN view_judge judge ON judge.id = judge_registration.judge_id
         JOIN view_jury_unit ON view_jury_unit.id = judge_registration.unit_id
         "#,
     )

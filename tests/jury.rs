@@ -430,6 +430,339 @@ async fn clubs_add_edit_and_delete_judges() {
     assert!(club_judges(&app, &owner, club_id).await.is_empty());
 }
 
+// ---------- Linked judges (#384) ----------
+
+/// Adds a rider "Firstname Lastname" born on `birthdate` to the club.
+async fn add_named_rider(
+    app: &TestApp,
+    cookie: &str,
+    club_id: ClubId,
+    firstname: &str,
+    lastname: &str,
+    birthdate: &str,
+) -> Value {
+    let response = app
+        .post(
+            "/api/command/add_rider",
+            json!({
+                "club_id": club_id,
+                "firstname": firstname,
+                "lastname": lastname,
+                "birthdate": birthdate,
+                "gender": "female",
+            }),
+            Some(cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body["rider_id"].clone()
+}
+
+/// Body for `add_club_judge` that links a rider, without any names.
+fn linked_judge_body(club_id: ClubId, rider_id: &Value, is_trained: bool) -> Value {
+    json!({
+        "club_id": club_id,
+        "rider_id": rider_id,
+        "is_trained": is_trained,
+        "registrations": [],
+    })
+}
+
+#[tokio::test]
+async fn a_club_creates_a_judge_from_its_rider() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let rider = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Max",
+        "Müller",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+
+    let added = add_judge(&app, &owner, linked_judge_body(club_id, &rider, true)).await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+
+    let judges = club_judges(&app, &owner, club_id).await;
+    assert_eq!(judges.len(), 1);
+    assert_eq!(judges[0]["id"], added.body["judge_id"]);
+    assert_eq!(judges[0]["rider_id"], rider);
+    assert_eq!(judges[0]["firstname"], "Max");
+    assert_eq!(judges[0]["lastname"], "Müller");
+    assert_eq!(judges[0]["birthdate"], "+001990-05-01T00:00:00.000000000Z");
+    assert_eq!(judges[0]["is_trained"], true);
+}
+
+#[tokio::test]
+async fn a_linked_judge_follows_the_rider() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let rider = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Max",
+        "Müller",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+    let added = add_judge(&app, &owner, linked_judge_body(club_id, &rider, true)).await;
+    let judge_id = added.body["judge_id"].clone();
+
+    let edited = app
+        .post(
+            "/api/command/edit_rider",
+            json!({
+                "rider_id": rider,
+                "firstname": "Max",
+                "lastname": "Beispiel",
+                "birthdate": "1991-06-02T00:00:00.000Z",
+            }),
+            Some(&owner),
+        )
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{:?}", edited.body);
+    let judge = club_judges(&app, &owner, club_id).await[0].clone();
+    assert_eq!(judge["lastname"], "Beispiel");
+    assert_eq!(judge["birthdate"], "+001991-06-02T00:00:00.000000000Z");
+
+    // Names sent for a linked judge are ignored; the rest is saved.
+    let edit = app
+        .post(
+            "/api/command/edit_club_judge",
+            json!({
+                "judge_id": judge_id,
+                "firstname": "Anna",
+                "lastname": "Andere",
+                "birthdate": "2000-01-01T00:00:00.000Z",
+                "is_trained": true,
+                "note": "x",
+            }),
+            Some(&owner),
+        )
+        .await;
+    assert_eq!(edit.status, StatusCode::OK, "{:?}", edit.body);
+    let judge = club_judges(&app, &owner, club_id).await[0].clone();
+    assert_eq!(judge["rider_id"], rider);
+    assert_eq!(judge["firstname"], "Max");
+    assert_eq!(judge["lastname"], "Beispiel");
+    assert_eq!(judge["birthdate"], "+001991-06-02T00:00:00.000000000Z");
+    assert_eq!(judge["note"], "x");
+
+    // A rider renamed like an unlinked judge doesn't break the list.
+    let typed = add_judge(&app, &owner, judge_body(club_id, "Erika", ADULT, true, &[])).await;
+    assert_eq!(typed.status, StatusCode::OK, "{:?}", typed.body);
+    let renamed = app
+        .post(
+            "/api/command/edit_rider",
+            json!({
+                "rider_id": rider,
+                "firstname": "Erika",
+                "lastname": "Jury",
+                "birthdate": "1991-06-02T00:00:00.000Z",
+            }),
+            Some(&owner),
+        )
+        .await;
+    assert_eq!(renamed.status, StatusCode::OK, "{:?}", renamed.body);
+    assert_eq!(club_judges(&app, &owner, club_id).await.len(), 2);
+}
+
+#[tokio::test]
+async fn linked_judges_follow_the_age_rule_of_the_riders_birthdate() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    // The first competition day is 2027-06-05: 14 years old.
+    let rider = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Petra",
+        "Beispiel",
+        "2012-06-06T00:00:00.000Z",
+    )
+    .await;
+
+    let trained = add_judge(&app, &owner, linked_judge_body(club_id, &rider, true)).await;
+    assert!(!trained.status.is_success(), "{:?}", trained.body);
+    assert!(
+        trained.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("mindestens 15 Jahre alt"),
+        "{:?}",
+        trained.body
+    );
+    let untrained = add_judge(&app, &owner, linked_judge_body(club_id, &rider, false)).await;
+    assert_eq!(untrained.status, StatusCode::OK, "{:?}", untrained.body);
+}
+
+#[tokio::test]
+async fn only_own_unlinked_riders_can_be_linked() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let (other, other_club) = app.create_club_owner("Other", "RSV Andere").await;
+    let own = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Max",
+        "Müller",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+    let foreign = add_named_rider(
+        &app,
+        &other,
+        other_club,
+        "Petra",
+        "Beispiel",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+
+    let response = add_judge(&app, &owner, linked_judge_body(club_id, &foreign, true)).await;
+    assert!(!response.status.is_success(), "{:?}", response.body);
+    assert!(
+        response.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("Nur FahrerInnen des eigenen Vereins"),
+        "{:?}",
+        response.body
+    );
+    // Not even by claiming the other club.
+    let response = add_judge(&app, &owner, linked_judge_body(other_club, &foreign, true)).await;
+    assert_eq!(
+        response.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        response.body
+    );
+
+    assert_eq!(
+        add_judge(&app, &owner, linked_judge_body(club_id, &own, true))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let again = add_judge(&app, &owner, linked_judge_body(club_id, &own, true)).await;
+    assert!(!again.status.is_success(), "{:?}", again.body);
+    assert!(
+        again.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("ist bereits als JurorIn gemeldet."),
+        "{:?}",
+        again.body
+    );
+
+    let unknown = add_judge(
+        &app,
+        &owner,
+        linked_judge_body(club_id, &json!(Uuid::now_v7()), true),
+    )
+    .await;
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{:?}", unknown.body);
+}
+
+#[tokio::test]
+async fn a_typed_judge_still_works_and_linked_judges_count_for_names() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let typed = add_judge(
+        &app,
+        &owner,
+        json!({
+            "club_id": club_id,
+            "firstname": "Erika",
+            "lastname": "Mustermann",
+            "birthdate": ADULT,
+            "is_trained": true,
+        }),
+    )
+    .await;
+    assert_eq!(typed.status, StatusCode::OK, "{:?}", typed.body);
+    let judges = club_judges(&app, &owner, club_id).await;
+    assert_eq!(judges[0]["rider_id"], Null);
+    assert_eq!(judges[0]["firstname"], "Erika");
+
+    let rider = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Max",
+        "Müller",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+    assert_eq!(
+        add_judge(&app, &owner, linked_judge_body(club_id, &rider, true))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let mut duplicate = judge_body(club_id, "Max", ADULT, true, &[]);
+    duplicate["lastname"] = json!("Müller");
+    let response = add_judge(&app, &owner, duplicate).await;
+    assert!(!response.status.is_success(), "{:?}", response.body);
+    assert!(
+        response.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("Max Müller ist bereits gemeldet."),
+        "{:?}",
+        response.body
+    );
+}
+
+#[tokio::test]
+async fn a_linked_judge_counts_for_the_obligation_and_the_jury_plan() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let admin = app.create_admin().await;
+    let (owner, club_id) = app.create_club_owner("Owner", "RSV").await;
+    let ids = category_ids(&app, &owner).await;
+    let rider = add_named_rider(
+        &app,
+        &owner,
+        club_id,
+        "Max",
+        "Müller",
+        "1990-05-01T00:00:00.000Z",
+    )
+    .await;
+    let mut body = linked_judge_body(club_id, &rider, true);
+    body["registrations"] =
+        json!([{ "unit_kind": ids[0]["kind"], "unit_id": ids[0]["id"], "task": "technical" }]);
+    let added = add_judge(&app, &owner, body).await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+
+    // The units are worth 2 deployments each.
+    assert_eq!(club(&app, &owner).await["jury"]["registered"], 2);
+    let assigned = app
+        .post(
+            "/api/command/assign_judge",
+            assignment(&added.body["judge_id"], &ids[0], "technical"),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(assigned.status, StatusCode::OK, "{:?}", assigned.body);
+    let all = plan(&app, &admin, None).await;
+    assert_eq!(all.status, StatusCode::OK, "{:?}", all.body);
+    assert_eq!(
+        all.body["assignments"],
+        json!([assignment(&added.body["judge_id"], &ids[0], "technical")])
+    );
+}
+
 #[tokio::test]
 async fn only_the_club_and_admins_manage_its_judges() {
     let db = common::in_memory_migrated().await;
