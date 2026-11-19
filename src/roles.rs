@@ -31,6 +31,8 @@ use sqlx::SqlitePool;
 pub enum Role {
     /// Everything, including granting roles.
     Admin,
+    /// Helps clubs: acts for any club like the Admin, but sees nothing else.
+    Support,
     /// Juryleitung: the jury and the results.
     JuryLead,
     /// Kasse: payments and fee waivers.
@@ -188,6 +190,14 @@ impl Role {
                 P::ViewUnpublishedStartlist,
             ],
             Role::MusicCheck => &[P::CheckSongs],
+            // Enters registrations for clubs, also after the Meldeschluss.
+            Role::Support => &[
+                P::ManageRegistrations,
+                P::ViewClubs,
+                P::ViewClubContacts,
+                P::ViewRiders,
+                P::ViewBirthdates,
+            ],
         }
     }
 }
@@ -297,6 +307,16 @@ mod tests {
                 ],
             ),
             (Role::MusicCheck, vec![P::CheckSongs]),
+            (
+                Role::Support,
+                vec![
+                    P::ManageRegistrations,
+                    P::ViewBirthdates,
+                    P::ViewClubs,
+                    P::ViewClubContacts,
+                    P::ViewRiders,
+                ],
+            ),
         ];
         for (role, expected) in table {
             assert_eq!(permissions_of(&[role]), expected, "{role:?}");
@@ -304,9 +324,10 @@ mod tests {
     }
 
     #[test]
-    fn only_admins_manage_users_plan_and_registrations() {
+    fn only_admins_manage_users_backups_planning_and_the_competition() {
         let roles = [
             Role::Admin,
+            Role::Support,
             Role::JuryLead,
             Role::Treasurer,
             Role::CheckIn,
@@ -320,7 +341,6 @@ mod tests {
                 P::ManageBackups,
                 P::PlanCompetition,
                 P::ManageCompetition,
-                P::ManageRegistrations,
             ];
             for permission in admin_only {
                 assert_eq!(
@@ -342,6 +362,7 @@ mod tests {
             (Role::MusicControl, false),
             (Role::Moderation, false),
             (Role::MusicCheck, false),
+            (Role::Support, false),
         ];
         for (role, mails) in roles {
             assert_eq!(

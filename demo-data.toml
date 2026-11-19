@@ -21,6 +21,7 @@
 # One login per role of the organizer team; the password is the part before
 # the @, e.g. kasse@example.org / kasse:
 # - admin@example.org             Admin
+# - support@example.org           Support, acts for any club
 # - juryleitung@example.org       Juryleitung
 # - kasse@example.org             Kasse
 # - checkin@example.org           Check-in
@@ -73,6 +74,12 @@ password = "admin"
 roles = ["admin"]
 
 # One account per role of the organizer team (ADR 0003).
+[[users]]
+name = "Support"
+email = "support@example.org"
+password = "support"
+roles = ["support"]
+
 [[users]]
 name = "Juryleitung"
 email = "juryleitung@example.org"

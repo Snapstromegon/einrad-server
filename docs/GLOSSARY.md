@@ -98,6 +98,10 @@ _Avoid_: Permission (for the set), Recht
 The role that may do everything, including granting roles.
 _Avoid_: Superuser, Orga-Leitung
 
+**Support**:
+The role for people who help clubs: it acts for any club like the Admin does (also after the Meldeschluss) and sees the clubs, contacts and riders with their birthdates, but has no access to payments, users, planning or backups.
+_Avoid_: Helpdesk, Club admin
+
 **Organizer team** (Orga-Team):
 Every user holding at least one role.
 _Avoid_: Staff, Helfer (as a term in the tool)

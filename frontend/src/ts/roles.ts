@@ -8,6 +8,7 @@ export type Role = schemas.Role;
 /** Every role, in the order of the role table. */
 export const ROLES: readonly Role[] = [
   "admin",
+  "support",
   "jury_lead",
   "treasurer",
   "check_in",
@@ -18,6 +19,7 @@ export const ROLES: readonly Role[] = [
 
 export const roleNames: Record<Role, string> = {
   admin: "Admin",
+  support: "Support",
   jury_lead: "Juryleitung",
   treasurer: "Kasse",
   check_in: "Check-in",
