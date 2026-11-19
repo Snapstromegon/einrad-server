@@ -475,7 +475,7 @@ describe("jury sessions: Durchgang numbers", () => {
 
 describe("jury sessions: ride warnings", () => {
   const start = { start_date: "2027-06-05" };
-  const at = "2027-06-05T10:15:00Z";
+  const at = "+002027-06-05T10:15:00.000000000Z";
   const time = formatTime(at);
   const judges = [
     { id: "j1", birthdate: "1990-01-01", firstname: "Max", lastname: "Müller" },

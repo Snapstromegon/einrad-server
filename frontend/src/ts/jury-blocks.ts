@@ -2,7 +2,7 @@
 // a Durchgang. Pure helpers over the predicted timeplan, so the unit tests
 // can import them without a DOM.
 import type { schemas } from "./apiClient";
-import { formatTime } from "./utils";
+import { dayKey, formatTime } from "./utils";
 
 type TimeplanItem = schemas.TimeplanItem;
 
@@ -10,7 +10,7 @@ type TimeplanItem = schemas.TimeplanItem;
 export interface PlanBlock {
   /** Index after dropping skipped and empty start blocks. */
   position: number;
-  /** The day of `start` (`YYYY-MM-DD`, as the backend serialised it). */
+  /** The local day of `start`, as the timeplan view groups by. */
   day: string;
   /** What people read: the block's description, or the custom entry's label. */
   title: string;
@@ -31,7 +31,7 @@ export const planBlocks = (items: TimeplanItem[]): PlanBlock[] => {
   const blocks: PlanBlock[] = [];
   for (const item of items) {
     const entry = item.timeplan_entry;
-    const day = item.planned_start.slice(0, 10);
+    const day = dayKey(item.planned_start);
     if ("Custom" in entry) {
       blocks.push({
         position: blocks.length,

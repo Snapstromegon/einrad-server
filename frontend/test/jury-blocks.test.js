@@ -9,11 +9,11 @@ import {
   rideLevel,
   sessionPositions,
 } from "../src/ts/jury-blocks.ts";
-import { formatTime } from "../src/ts/utils.ts";
+import { dayKey, formatTime } from "../src/ts/utils.ts";
 
 const act = (id) => ({ Act: { id } });
-const day1 = (time) => `2027-05-08T${time}:00Z`;
-const day2 = (time) => `2027-05-09T${time}:00Z`;
+const day1 = (time) => `+002027-05-08T${time}:00.000000000Z`;
+const day2 = (time) => `+002027-05-09T${time}:00.000000000Z`;
 
 /** A start block item; `slots` default to one act. */
 const start = (planned_start, description, extra = {}) => ({
@@ -52,7 +52,7 @@ describe("planBlocks", () => {
       ],
     );
     assert.deepEqual(blocks[0].categoryIds, ["c1"]);
-    assert.equal(blocks[0].day, "2027-05-08");
+    assert.equal(blocks[0].day, dayKey(day1("10:00")));
     assert.equal(blocks[0].start, day1("10:00"));
   });
 
