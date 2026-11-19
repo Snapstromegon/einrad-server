@@ -441,3 +441,177 @@ async fn only_registration_managers_edit_after_the_meldeschluss() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn whoami_lists_the_permissions_of_support() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let support = member(&app, "Support", &["support"]).await;
+
+    let response = app.get("/api/query/whoami", Some(&support)).await;
+
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(strings(&response.body["roles"]), ["support"]);
+    assert_eq!(
+        strings(&response.body["permissions"]),
+        [
+            "manage_registrations",
+            "view_birthdates",
+            "view_club_contacts",
+            "view_clubs",
+            "view_riders"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn support_sees_birthdates_in_the_rider_list() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (owner, club_id) = app.create_club_owner("Clara", "SSV").await;
+    app.add_rider(&owner, rider_body(club_id, "Anna", true, false))
+        .await;
+
+    let support = member(&app, "Support", &["support"]).await;
+    let riders = app.get("/api/query/list_riders", Some(&support)).await;
+
+    assert_eq!(riders.status, StatusCode::OK, "{:?}", riders.body);
+    assert_eq!(riders.body[0]["firstname"], "Anna");
+    assert_ne!(riders.body[0]["birthdate"], Value::Null);
+    assert_ne!(riders.body[0]["age_on_competition"], Value::Null);
+}
+
+#[tokio::test]
+async fn support_gets_nothing_beyond_registrations() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (_, club_id) = app.create_club_owner("Clara", "SSV").await;
+    let support = member(&app, "Support", &["support"]).await;
+
+    let payment = json!({ "club_id": club_id, "amount": 20.0, "date": "2027-03-01" });
+    assert_eq!(
+        status(&app, "/api/command/create_booking", payment, &support).await,
+        StatusCode::FORBIDDEN
+    );
+    let roles = json!({ "user_id": UserId::new(), "roles": ["admin"] });
+    assert_eq!(
+        status(&app, "/api/command/set_user_roles", roles, &support).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status(
+            &app,
+            "/api/command/add_category",
+            json!({ "name": "Extra" }),
+            &support
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status(&app, "/api/command/create_db_backup", json!({}), &support).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn support_registers_for_another_club_also_after_the_meldeschluss() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let (_, club_id) = app.create_club_owner("Clara", "SSV").await;
+    app.close_registration().await;
+    let support = member(&app, "Support", &["support"]).await;
+
+    let response = app
+        .get("/api/query/get_system_status", Some(&support))
+        .await;
+    assert_eq!(
+        response.body["can_register_rider"], true,
+        "{:?}",
+        response.body
+    );
+
+    // Riders.
+    let rider = app
+        .add_rider(&support, rider_body(club_id, "Anna", true, false))
+        .await;
+    let edit = json!({
+        "rider_id": rider,
+        "firstname": "Anne",
+        "lastname": "Muster",
+        "birthdate": "2015-05-01T00:00:00.000Z",
+    });
+    assert_eq!(
+        status(&app, "/api/command/edit_rider", edit, &support).await,
+        StatusCode::OK
+    );
+
+    // Acts: a group of the club, renamed and deleted again.
+    let group = app.create_group(&support, club_id, "Stars").await;
+    let rename = json!({ "act_id": group, "group_name": "Sterne" });
+    assert_eq!(
+        status(&app, "/api/command/rename_club_group", rename, &support).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(
+            &app,
+            "/api/command/delete_club_group",
+            json!({ "act_id": group }),
+            &support
+        )
+        .await,
+        StatusCode::OK
+    );
+
+    // Judges.
+    let judge = json!({
+        "club_id": club_id,
+        "firstname": "Max",
+        "lastname": "Müller",
+        "birthdate": "1997-01-01T00:00:00.000Z",
+        "is_trained": true,
+        "max_deployments": null,
+        "note": null,
+        "registrations": [],
+    });
+    let added = app
+        .post("/api/command/add_club_judge", judge, Some(&support))
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{:?}", added.body);
+    let judge_id = added.body["judge_id"].clone();
+    let edit = json!({
+        "judge_id": judge_id,
+        "firstname": "Moritz",
+        "lastname": "Müller",
+        "birthdate": "1997-01-01T00:00:00.000Z",
+        "is_trained": true,
+        "note": null,
+    });
+    assert_eq!(
+        status(&app, "/api/command/edit_club_judge", edit, &support).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status(
+            &app,
+            "/api/command/delete_club_judge",
+            json!({ "judge_id": judge_id }),
+            &support
+        )
+        .await,
+        StatusCode::OK
+    );
+
+    // The rider goes last: deleting takes their single act along.
+    assert_eq!(
+        status(
+            &app,
+            "/api/command/delete_rider",
+            json!({ "rider_id": rider }),
+            &support
+        )
+        .await,
+        StatusCode::OK
+    );
+}
