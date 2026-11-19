@@ -278,15 +278,19 @@ export default class CupViewAdminJudges extends LitElement {
    * the timeplan, acts or finals the feature is simply off.
    */
   private rides = new Task(this, {
-    args: () => [],
-    task: async () => {
-      const [timeplan, acts, finals, units] = await Promise.all([
+    // Reruns whenever the page reloads its units or plan, so the warnings
+    // are never staler than the rest of the page.
+    args: () => [this.units.value, this.judges.value] as const,
+    task: async ([units]) => {
+      if (!units) {
+        return null;
+      }
+      const [timeplan, acts, finals] = await Promise.all([
         unwrap(client.predictTimeplan()).catch(() => null),
         unwrap(client.listActs()).catch(() => null),
         unwrap(client.listFinals()).catch(() => null),
-        unwrap(client.listJuryUnits()).catch(() => null),
       ]);
-      if (!timeplan || !acts || !units) {
+      if (!timeplan || !acts) {
         return null;
       }
       const blocks = planBlocks(timeplan.items);
