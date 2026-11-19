@@ -32,6 +32,8 @@ import {
   neededFor,
   overMaxWarnings,
   planWarnings,
+  rideSuffix,
+  rideWarningLines,
   sessionLabel,
   sessionsOf,
   sessionNumber,
@@ -43,6 +45,12 @@ import {
   taskNames,
   unitName,
 } from "../../jury";
+import {
+  finalInfos,
+  judgeConflicts,
+  planBlocks,
+  rideIndex,
+} from "../../jury-blocks";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { formatDate, formatMoney } from "../../utils";
@@ -264,6 +272,40 @@ export default class CupViewAdminJudges extends LitElement {
         unwrap(client.listJuryPlan()),
       ]),
   });
+
+  /**
+   * Where riders ride, for the ride warnings (#385). Never rejects: without
+   * the timeplan, acts or finals the feature is simply off.
+   */
+  private rides = new Task(this, {
+    args: () => [],
+    task: async () => {
+      const [timeplan, acts, finals, units] = await Promise.all([
+        unwrap(client.predictTimeplan()).catch(() => null),
+        unwrap(client.listActs()).catch(() => null),
+        unwrap(client.listFinals()).catch(() => null),
+        unwrap(client.listJuryUnits()).catch(() => null),
+      ]);
+      if (!timeplan || !acts || !units) {
+        return null;
+      }
+      const blocks = planBlocks(timeplan.items);
+      const index = rideIndex(
+        blocks,
+        acts,
+        finals ? finalInfos(finals, units) : [],
+      );
+      return { blocks, index };
+    },
+  });
+
+  /** The ride conflicts of the linked judges with one Durchgang. */
+  private ridesOf(unit: JuryUnit, session: JurySession, judges: ClubJudge[]) {
+    const rides = this.rides.value;
+    return rides
+      ? judgeConflicts(judges, unit, session, rides.index, rides.blocks)
+      : new Map();
+  }
 
   override render() {
     return html`<div class="page-pad ${this.printingPlan ? "print-plan" : ""}">
@@ -497,6 +539,20 @@ export default class CupViewAdminJudges extends LitElement {
       judges,
       competition,
     );
+    const conflicts = this.ridesOf(unit, session, judges);
+    const rideLines = rideWarningLines(
+      unit,
+      session,
+      plan.assignments,
+      judges,
+      conflicts,
+    ).map(
+      (line) =>
+        html`<br /><small
+            class=${line.level === "same" ? "text-bad" : "text-warn"}
+            >${line.text}</small
+          >`,
+    );
     const label = sessionLabel(unit, session);
     const byId = new Map(judges.map((j) => [j.id, j]));
     const cells = TASKS.map((task) => {
@@ -541,7 +597,7 @@ export default class CupViewAdminJudges extends LitElement {
         ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
         ${first ? this.renderSplitPanel(unit) : nothing}
         ${label ? html`<span class="chip">${label}</span>` : nothing}
-        ${warningLines} ${this.renderNeeded(unit, session)}
+        ${warningLines} ${rideLines} ${this.renderNeeded(unit, session)}
       </td>
       ${cells}
     </tr>`;
@@ -731,6 +787,7 @@ export default class CupViewAdminJudges extends LitElement {
         elsewhere.set(a.judge_id, sessionLabel(unit, other));
       }
     }
+    const conflicts = this.ridesOf(unit, session, judges);
     const registered = (judge: ClubJudge) =>
       judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
     const options = judges
@@ -743,11 +800,12 @@ export default class CupViewAdminJudges extends LitElement {
       .map((judge) => {
         const l = assignedLoad(judge, load);
         const also = elsewhere.get(judge.id);
+        const ride = rideSuffix(conflicts.get(judge.id));
         return html`<option value=${judge.id}>
           ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
           (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
             l ? ` – ${loadLabel(l)}` : ""
-          }${also ? ` (auch in ${also})` : ""}
+          }${also ? ` (auch in ${also})` : ""}${ride}
         </option>`;
       });
     if (!options.length) {

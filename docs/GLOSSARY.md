@@ -320,6 +320,9 @@ _Avoid_: Jury category (gone), Category (without "Jury-"), Wertungsklasse
 The set of a jury unit's categories that one jury judges; a unit has one by default and only the Jury lead splits it. Registration stays per unit. (ADR 0019)
 _Avoid_: Jury unit (the whole heat or final), Jury category (gone)
 
+**Ride warning** (Fahrwarnung):
+A warning in the Jury plan that a linked judge rides in the block of a Durchgang (red) or in the block directly before or after it on the same day (amber); it never blocks the assignment.
+
 **Jury deployment** (Juryeinsatz):
 One unit of jury work; the Vorlauf of a heat counts 2 by default, a final 1, and the jury lead can change both per jury unit.
 _Avoid_: Einsatz (alone), shift
@@ -363,6 +366,7 @@ An award for each rider of the first three places of a final, and for each group
 - A **Heat** runs its **Preliminary round** as the **Blocks** of its categories; it has no block of its own. When the preliminary round is skipped, those blocks stay but run none of its acts, and its acts are **Direct acts** of its final.
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
 - A **Judge** may be a **Linked judge** of one **Rider** of the same club (a rider is linked to at most one judge). A **Judge** registers for **Jury units** (the Vorlauf of a **Heat**, or a **Final**) for **Tasks**; the **Jury plan** assigns each judge at most one task per jury unit.
+- A **Linked judge** gets a **Ride warning** for a **Jury session** that sits in or next to a block the rider rides in.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
 - A club's **Credited deployments** below its **Jury obligation** cost a **Jury fee** per missing **Jury deployment**.
 - A **Fee waiver** applies to a **Club**, a **Rider** or an **Act**; it lowers the **Amount due** but never the **Jury obligation**, except for a withdrawn act.
