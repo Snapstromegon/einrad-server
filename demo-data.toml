@@ -27,6 +27,7 @@
 # - musiksteuerung@example.org    Musiksteuerung, e.g. for players
 # - moderation@example.org        Moderation
 # - musikpruefung@example.org     Musikprüfung
+# - support@example.org           Support, acts for any club
 #
 # Links with the fixed tokens below:
 # - /verify_email?token=00000000-0000-4000-8000-000000000001
@@ -108,6 +109,12 @@ name = "Musikprüfung"
 email = "musikpruefung@example.org"
 password = "musikpruefung"
 roles = ["music_check"]
+
+[[users]]
+name = "Support"
+email = "support@example.org"
+password = "support"
+roles = ["support"]
 
 [[users]]
 name = "Maria Wagner"
