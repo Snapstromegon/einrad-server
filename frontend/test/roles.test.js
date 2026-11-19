@@ -145,3 +145,25 @@ describe("club mails", () => {
     assert.equal(canOpen("/admin-mails", ["view_clubs", "check_in"]), false);
   });
 });
+
+describe("support", () => {
+  const support = [
+    "manage_registrations",
+    "view_clubs",
+    "view_club_contacts",
+    "view_riders",
+    "view_birthdates",
+  ];
+
+  test("reaches the riders overview only", () => {
+    assert.deepEqual(adminPages(support), ["/admin-riders"]);
+  });
+
+  test("is granted in the order of the role table", () => {
+    assert.deepEqual(withRole(["admin", "support"], "treasurer", true), [
+      "admin",
+      "treasurer",
+      "support",
+    ]);
+  });
+});
