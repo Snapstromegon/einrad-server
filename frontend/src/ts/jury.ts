@@ -173,14 +173,8 @@ export const planWarnings = (
     categories: { name: string }[];
   },
   assignments: { judge_id: string; session_id: string; task: Task }[],
-  judges: {
-    id: string;
-    birthdate: string;
-    firstname?: string;
-    lastname?: string;
-  }[],
+  judges: { id: string; birthdate: string }[],
   competition: Pick<Competition, "start_date"> | null | undefined,
-  rides?: Map<string, RideConflict>,
 ) => {
   const own = assignments.filter((a) => a.session_id === session.id);
   const label = sessionLabel(unit, session);
@@ -201,13 +195,6 @@ export const planWarnings = (
   if (fifteen > MAX_FIFTEEN) {
     warnings.push(
       `${prefix}${fifteen} JurorInnen sind 15 (höchstens ${MAX_FIFTEEN})`,
-    );
-  }
-  if (rides) {
-    warnings.push(
-      ...rideWarningLines(unit, session, assignments, judges, rides).map(
-        (line) => line.text,
-      ),
     );
   }
   return warnings;

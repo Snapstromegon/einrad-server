@@ -474,7 +474,6 @@ describe("jury sessions: Durchgang numbers", () => {
 });
 
 describe("jury sessions: ride warnings", () => {
-  const start = { start_date: "2027-06-05" };
   const at = "+002027-06-05T10:15:00.000000000Z";
   const time = formatTime(at);
   const judges = [
@@ -541,20 +540,17 @@ describe("jury sessions: ride warnings", () => {
     assert.equal(lines.length, 1);
   });
 
-  test("planWarnings appends the lines; other Durchgänge give none", () => {
+  test("a split unit prefixes the Durchgang label; other Durchgänge give none", () => {
     const a = session("s1", ["EMU23", "EMU30"], done);
     const b = session("s2", ["EMU40"], done);
     const unit = unitOf(a, b);
     const rides = new Map([["j1", conflict("same")]]);
     const assignments = [assign("j1", "s1"), assign("j2", "s2")];
-    assert.deepEqual(planWarnings(unit, a, assignments, judges, start, rides), [
-      `EMU23, EMU30: Max Müller fährt in Einzel W Expert 1 (${time})`,
-    ]);
     assert.deepEqual(
-      planWarnings(unit, b, assignments, judges, start, rides),
-      [],
+      rideWarningLines(unit, a, assignments, judges, rides).map((l) => l.text),
+      [`EMU23, EMU30: Max Müller fährt in Einzel W Expert 1 (${time})`],
     );
-    assert.deepEqual(planWarnings(unit, a, assignments, judges, start), []);
+    assert.deepEqual(rideWarningLines(unit, b, assignments, judges, rides), []);
   });
 
   test("rideSuffix marks the level", () => {
