@@ -6,13 +6,14 @@
 //! In the file: the competition with its id, the features it sets, the
 //! photos with their password, the logo and break image as SVG or URL, the sponsors, the colors it sets, the
 //! categories with their ages, the heats, the finals (both with the jury
-//! settings that differ from the default) and the timeplan entries. Not in it: a raster image (only SVG fits
+//! settings that differ from the default, and their jury sessions if split or
+//! overridden) and the timeplan entries. Not in it: a raster image (only SVG fits
 //! into the file; the header says so), default colors (an import keeps the
 //! colors, like the logo, unless the file sets them), anything clubs
 //! entered, bookings, fee waivers, users and roles, the act order, timeplan
 //! progress, finals placements and the jury plan.
 
-use crate::ids::{FinalId, HeatId};
+use crate::ids::{FinalId, HeatId, JuryUnitId};
 use time::OffsetDateTime;
 
 use crate::{
@@ -25,6 +26,7 @@ use crate::{
     finals,
     images::{self, Image, ImageUrl},
     jury::{JuryUnitKind, UnitSettings},
+    jury_sessions,
     logo::{Format, SvgLogo},
     timeplan::EntryKind,
 };
@@ -126,6 +128,9 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
     })
     .collect();
 
+    // Only split or overridden units have Durchgänge in the file.
+    let mut sessions = jury_sessions::sessions_for_file(&mut *conn).await?;
+
     let group_categories: Vec<String> = categories
         .iter()
         .filter(|c| c.act_type.is_group())
@@ -181,6 +186,9 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             jury_needed_technical: jury[2],
             jury_needed_performance: jury[3],
             jury_needed_dismounts: jury[4],
+            jury_sessions: sessions
+                .remove(&JuryUnitId::from(row.id))
+                .unwrap_or_default(),
         });
     }
 
@@ -232,6 +240,9 @@ pub async fn export(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Option<Ex
             jury_needed_technical: jury[2],
             jury_needed_performance: jury[3],
             jury_needed_dismounts: jury[4],
+            jury_sessions: sessions
+                .remove(&JuryUnitId::from(row.id))
+                .unwrap_or_default(),
         });
     }
 

@@ -1,11 +1,13 @@
-use axum::{Extension, Json, http::StatusCode};
-use serde::Serialize;
+use axum::{Extension, Json};
+use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 use utoipa::ToSchema;
 
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
-    jury::{self, JudgeTask, JuryAssignment, JuryEnabled},
+    ids::{JudgeId, JurySessionId},
+    jury::{JudgeTask, JuryEnabled},
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -13,13 +15,22 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AssignJudgeResponse {}
 
-/// Assign a judge a task in a jury unit of the Juryplan. Untrained
-/// people only count dismounts; one task per judge and unit. Jury lead.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AssignJudgeBody {
+    pub judge_id: JudgeId,
+    /// The Durchgang; the unit is the one it belongs to.
+    pub session_id: JurySessionId,
+    pub task: JudgeTask,
+}
+
+/// Assign a judge a task in a Durchgang (jury session) of the Juryplan.
+/// Untrained people only count dismounts; one task per judge and Durchgang,
+/// but a judge may sit in several Durchgänge of a unit. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
     path="/assign_judge",
-    request_body=JuryAssignment,
+    request_body=AssignJudgeBody,
     responses(
         (status=200, content_type="application/json", body=AssignJudgeResponse),
         (status=403, content_type="application/json", body=ClientError),
@@ -33,49 +44,15 @@ pub async fn assign_judge(
     _jury: JuryEnabled,
     Extension(db): Extension<ReloadableSqlite>,
     _: Granted<permit::ManageJury>,
-    Json(body): Json<JuryAssignment>,
+    Json(body): Json<AssignJudgeBody>,
 ) -> Result<Json<AssignJudgeResponse>, HttpError> {
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
-    let is_trained =
-        sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", body.judge_id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(HttpError::StatusCode(StatusCode::NOT_FOUND))?;
-    if !is_trained && body.task != JudgeTask::Dismounts {
-        return Err(HttpError::ErrorMessages(
-            "Nicht geschulte Personen können nur Abstiege zählen.".to_string(),
-        ));
-    }
     info!(
-        "Assigning judge {} to jury unit {:?} {} ({:?})",
-        body.judge_id, body.unit_kind, body.unit_id, body.task
+        "Assigning judge {} to jury session {} ({:?})",
+        body.judge_id, body.session_id, body.task
     );
-    let (heat_id, final_id) = jury::unit_columns(body.unit_kind, body.unit_id);
-    let result = sqlx::query!(
-        "INSERT INTO jury_assignments (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",
-        body.judge_id,
-        heat_id,
-        final_id,
-        body.task,
-    )
-    .execute(&mut *transaction)
-    .await;
-    match result {
-        Ok(_) => {}
-        Err(e) if jury::is_unique_violation(&e) => {
-            return Err(HttpError::ErrorMessages(
-                "Die JurorIn ist hier schon eingeteilt.".to_string(),
-            ));
-        }
-        Err(e)
-            if e.as_database_error()
-                .is_some_and(|e| e.is_foreign_key_violation()) =>
-        {
-            return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
-        }
-        Err(e) => return Err(e.into()),
-    }
+    jury_sessions::assign(&mut transaction, body.judge_id, body.session_id, body.task).await?;
     transaction.commit().await?;
     Ok(Json(AssignJudgeResponse {}))
 }

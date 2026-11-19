@@ -7,7 +7,7 @@ use clap::Parser;
 use common::{TempDir, in_memory_migrated};
 use einrad_server::{
     competition::Competition,
-    config::{CliArgs, ConfigFile, Settings},
+    config::{CliArgs, CompetitionFile, ConfigFile, Settings},
     images::{self, Slot},
     seed::{self, Applied, Report},
 };
@@ -324,4 +324,154 @@ async fn checking_a_file_at_startup_never_writes_into_the_system_temp_dir() {
         .join("tests/fixtures/competition.toml");
     einrad_server::seed::check_file(&path).await.unwrap();
     assert_eq!(remap.exists(), existed);
+}
+
+// Jury sessions in the file (#386, ADR 0019).
+
+/// The fixture with `heat_extra` after the heat "JE EW" (categories EWU11,
+/// EWU13, EWU15) and `final_extra` after the final "Finale EW" (categories
+/// of both heats), parsed and resolved as the import does.
+fn resolve_sessions(
+    heat_extra: &str,
+    final_extra: &str,
+) -> Result<(Vec<seed::ResolvedHeat>, Vec<seed::ResolvedFinal>), String> {
+    let file = COMPETITION
+        .replacen(
+            "categories = [\"EWU11\", \"EWU13\", \"EWU15\"]\n",
+            &format!("categories = [\"EWU11\", \"EWU13\", \"EWU15\"]\n{heat_extra}"),
+            1,
+        )
+        .replacen(
+            "jury_needed_dismounts = 2\n",
+            &format!("jury_needed_dismounts = 2\n{final_extra}"),
+            1,
+        );
+    let file = CompetitionFile::parse(&file)?;
+    let heats = seed::resolve_heats(&file.heats, &file.categories)?;
+    let finals = seed::resolve_finals(&file.finals, &heats)?;
+    Ok((heats, finals))
+}
+
+fn session(categories: &[&str], extra: &str) -> String {
+    let names: Vec<String> = categories.iter().map(|c| format!("\"{c}\"")).collect();
+    format!(
+        "\n[[heats.jury_sessions]]\ncategories = [{}]\n{extra}",
+        names.join(", ")
+    )
+}
+
+#[test]
+fn a_file_without_jury_sessions_resolves_to_none() {
+    let (heats, finals) = resolve_sessions("", "").unwrap();
+    assert!(heats.iter().all(|h| h.sessions.is_empty()));
+    assert!(finals.iter().all(|f| f.sessions.is_empty()));
+}
+
+#[test]
+fn jury_sessions_resolve_with_their_overrides() {
+    let extra = format!(
+        "{}{}",
+        session(&["EWU11", "EWU13"], "needed_technical = 3\n"),
+        session(&["EWU15"], "")
+    );
+    let (heats, _) = resolve_sessions(&extra, "").unwrap();
+    let heat = heats.iter().find(|h| h.code == "JE EW").unwrap();
+    assert_eq!(heat.sessions.len(), 2);
+    assert_eq!(heat.sessions[0].categories, ["EWU11", "EWU13"]);
+    assert_eq!(heat.sessions[0].needed_technical, Some(3));
+    assert_eq!(heat.sessions[0].needed_performance, None);
+    assert_eq!(heat.sessions[1].categories, ["EWU15"]);
+}
+
+#[test]
+fn a_final_defines_jury_sessions_over_the_categories_of_its_heats() {
+    let final_extra = "\n[[finals.jury_sessions]]\ncategories = [\"EWU11\", \"EWU13\", \"EWU15\"]\n\
+                       \n[[finals.jury_sessions]]\ncategories = [\"EWU17\"]\nneeded_dismounts = 1\n";
+    let (_, finals) = resolve_sessions("", final_extra).unwrap();
+    assert_eq!(finals[0].sessions.len(), 2);
+    assert_eq!(finals[0].sessions[1].needed_dismounts, Some(1));
+
+    let missing = "\n[[finals.jury_sessions]]\ncategories = [\"EWU11\"]\n";
+    assert_eq!(
+        resolve_sessions("", missing).unwrap_err(),
+        "Final Finale EW: the category EWU13 is in no jury session; every category must be in exactly one."
+    );
+}
+
+#[test]
+fn a_jury_session_without_categories_is_refused() {
+    let extra = format!(
+        "{}{}",
+        session(&["EWU11", "EWU13", "EWU15"], ""),
+        session(&[], "")
+    );
+    assert_eq!(
+        resolve_sessions(&extra, "").unwrap_err(),
+        "Heat JE EW: jury session 2 has no categories."
+    );
+}
+
+#[test]
+fn a_jury_session_with_an_unknown_category_is_refused() {
+    let extra = format!(
+        "{}{}",
+        session(&["EWU11", "EWU13", "EWU15"], ""),
+        session(&["EWU17"], "")
+    );
+    assert_eq!(
+        resolve_sessions(&extra, "").unwrap_err(),
+        "Heat JE EW: jury session 2 lists the category EWU17, which isn't one of its categories."
+    );
+}
+
+#[test]
+fn a_category_in_two_jury_sessions_is_refused() {
+    let extra = format!(
+        "{}{}",
+        session(&["EWU11", "EWU13"], ""),
+        session(&["EWU13", "EWU15"], "")
+    );
+    assert_eq!(
+        resolve_sessions(&extra, "").unwrap_err(),
+        "Heat JE EW: the category EWU13 is in more than one jury session."
+    );
+}
+
+#[test]
+fn a_category_in_no_jury_session_is_refused() {
+    let extra = format!("{}{}", session(&["EWU11"], ""), session(&["EWU15"], ""));
+    assert_eq!(
+        resolve_sessions(&extra, "").unwrap_err(),
+        "Heat JE EW: the category EWU13 is in no jury session; every category must be in exactly one."
+    );
+}
+
+#[test]
+fn a_heat_without_categories_cannot_be_split() {
+    let file = COMPETITION.replacen(
+        "name = \"E EW\"\ncategories = [\"EWU17\"]\n",
+        "name = \"E EW\"\ncategories = []\n\n[[heats.jury_sessions]]\ncategories = [\"EWU17\"]\n",
+        1,
+    );
+    let file = CompetitionFile::parse(&file).unwrap();
+    assert_eq!(
+        seed::resolve_heats(&file.heats, &file.categories).unwrap_err(),
+        "Heat E EW: it has no categories, so it can't be split into jury sessions."
+    );
+}
+
+#[test]
+fn a_negative_jury_session_override_is_refused() {
+    let extra = session(&["EWU11", "EWU13", "EWU15"], "needed_performance = -1\n");
+    assert_eq!(
+        resolve_sessions(&extra, "").unwrap_err(),
+        "Heat JE EW: the jury deployments and needed judges can't be negative."
+    );
+}
+
+#[test]
+fn a_jury_session_with_an_unknown_key_is_refused() {
+    let extra = session(&["EWU11", "EWU13", "EWU15"], "needed_judges = 3\n");
+    let err = resolve_sessions(&extra, "").unwrap_err();
+    assert!(err.contains("unknown field `needed_judges`"), "{err}");
 }

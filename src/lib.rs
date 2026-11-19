@@ -20,6 +20,7 @@ pub mod ids;
 pub mod image_fetch;
 pub mod images;
 pub mod jury;
+pub mod jury_sessions;
 pub mod jwt;
 pub mod logo;
 pub mod mailer;

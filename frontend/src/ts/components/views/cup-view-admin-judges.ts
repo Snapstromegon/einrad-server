@@ -1,7 +1,7 @@
 import { consume } from "@lit/context";
 import { Task, TaskStatus } from "@lit/task";
 import { css, html, LitElement, nothing } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { customElement, query, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { isLinked } from "../../linked-judge";
 import { errorMessage, unwrap } from "../../api";
@@ -14,15 +14,31 @@ import {
   ageOnStart,
   assignedDeployments,
   assignedLoad,
+  canSplit,
+  showsNeeded,
   coverage,
   closedReason,
   deploymentNote,
+  initialKeep,
   judgeRegistrationEnd,
+  keepIds,
   loadLabel,
+  mergeRows,
+  mergeSummary,
+  type MergeRow,
+  needBody,
+  type KeepState,
+  type SessionSplitBody,
   neededFor,
   overMaxWarnings,
   planWarnings,
+  sessionLabel,
+  sessionsOf,
+  sessionNumber,
+  MAX_SESSION_NUMBER,
+  splitBody,
   TASKS,
+  toggleKeep,
   taskLabels,
   taskNames,
   unitName,
@@ -37,6 +53,7 @@ type ClubJudge = schemas.ClubJudge;
 type ClubOverview = schemas.ClubOverview;
 type JuryPlan = schemas.JuryPlan;
 type JudgeTask = schemas.JudgeTask;
+type JurySession = schemas.JurySession;
 type NumberField =
   | "deployments"
   | "needed_technical"
@@ -94,6 +111,91 @@ export default class CupViewAdminJudges extends LitElement {
         margin-top: 1.5rem;
       }
 
+      .split-panel {
+        margin-top: 0.5rem;
+        display: grid;
+        gap: 0.4rem;
+      }
+
+      .split-panel .cat {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem 0.5rem;
+      }
+
+      .split-panel input {
+        width: 4rem;
+        min-width: 0;
+      }
+
+      .need {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-top: 0.25rem;
+      }
+
+      .need label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.15rem;
+      }
+
+      td .need input[type="number"] {
+        width: 3.5em;
+        min-width: 0;
+      }
+
+      /* The merge question is a popover in the top layer, like the rider
+         delete question: it must escape the table's overflow. */
+      .merge-dialog {
+        position: fixed;
+        inset: 0;
+        margin: auto;
+        width: 36rem;
+        max-width: min(36rem, calc(100vw - 2rem));
+        height: fit-content;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        box-sizing: border-box;
+        padding: 1.5rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.75rem;
+        background: var(--color-surface);
+        color: var(--color-text);
+        box-shadow: 0 12px 48px var(--color-shadow);
+      }
+
+      /* ::backdrop cannot read custom properties everywhere: literal. */
+      .merge-dialog::backdrop {
+        background: rgb(0 0 0 / 0.6); /* color-literal-ok */
+      }
+
+      .merge-dialog h3 {
+        margin-top: 0;
+      }
+
+      .merge-dialog ul {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 1rem;
+        display: grid;
+        gap: 0.5rem;
+      }
+
+      .merge-dialog li label {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+      }
+
+      .merge-dialog .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
       /* "Juryplan drucken": only the plan, one page per day. */
       @media print {
         .print-plan section:not(.plan-section),
@@ -120,6 +222,30 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private printingPlan = false;
   /** What applying a remap file did. */
   @state() private remapResult: schemas.ApplyJuryRemapResponse | null = null;
+  /** Id of the unit whose Durchgänge panel is open, or null. */
+  @state() private splitting: string | null = null;
+  /** The panel's choice: group number (1-based) per category id. */
+  @state() private choice = new Map<string, number>();
+  /** Categories whose typed Durchgang number is not 1 to 9. */
+  @state() private invalidChoice = new Set<string>();
+  /** A split that merges Durchgänge with Einteilungen, awaiting the keep list. */
+  @state() private merging: {
+    body: SessionSplitBody;
+    rows: MergeRow[];
+    keep: KeepState;
+  } | null = null;
+  /** What the last split did (kept and deleted Einteilungen). */
+  @state() private status: string | null = null;
+
+  @query(".merge-dialog") private mergeDialog?: HTMLElement;
+
+  override updated() {
+    // The merge question is a popover: open it once it is rendered.
+    const dialog = this.mergeDialog;
+    if (dialog && !dialog.matches(":popover-open")) {
+      dialog.showPopover();
+    }
+  }
 
   @consume({ context: systemStatusContext, subscribe: true })
   systemStatus: SystemStatus | null = null;
@@ -159,6 +285,14 @@ export default class CupViewAdminJudges extends LitElement {
             </div>`
           : nothing
       }
+      ${
+        this.status
+          ? html`<div class="ok-banner no-print" role="status">
+              ${this.status}
+            </div>`
+          : nothing
+      }
+      ${this.renderMergeDialog()}
       ${
         this.error
           ? html`<div class="error-banner" role="alert">
@@ -324,15 +458,46 @@ export default class CupViewAdminJudges extends LitElement {
     </section>`;
   }
 
+  /** One row per Durchgang; an unsplit unit has one, labelled by nothing. */
   private renderPlanRow(
     unit: JuryUnit,
     judges: ClubJudge[],
     plan: JuryPlan,
     load: Map<string, number>,
   ) {
+    const unitAssigned = plan.assignments.filter((a) => a.unit_id === unit.id);
+    return sessionsOf(unit).map((session, index) =>
+      this.renderSessionRow(
+        unit,
+        session,
+        index === 0,
+        judges,
+        plan,
+        unitAssigned,
+        load,
+      ),
+    );
+  }
+
+  private renderSessionRow(
+    unit: JuryUnit,
+    session: JurySession,
+    first: boolean,
+    judges: ClubJudge[],
+    plan: JuryPlan,
+    unitAssigned: JuryPlan["assignments"],
+    load: Map<string, number>,
+  ) {
     const competition = this.systemStatus?.competition;
-    const assigned = plan.assignments.filter((a) => a.unit_id === unit.id);
-    const warnings = planWarnings(unit, plan.assignments, judges, competition);
+    const assigned = unitAssigned.filter((a) => a.session_id === session.id);
+    const warnings = planWarnings(
+      unit,
+      session,
+      plan.assignments,
+      judges,
+      competition,
+    );
+    const label = sessionLabel(unit, session);
     const byId = new Map(judges.map((j) => [j.id, j]));
     const cells = TASKS.map((task) => {
       const names = assigned
@@ -351,7 +516,7 @@ export default class CupViewAdminJudges extends LitElement {
               title="Entfernen"
               aria-label="Entfernen"
               data-judge=${a.judge_id}
-              data-unit=${unit.id}
+              data-session=${session.id}
               ?disabled=${this.saving}
               @click=${this.onUnassignClick}
             >
@@ -362,9 +527,9 @@ export default class CupViewAdminJudges extends LitElement {
       return html`<td>
         <div class="chips">${names}</div>
         <small class="muted"
-          >${assigned.filter((a) => a.task === task).length}/${neededFor(unit, task)}</small
+          >${assigned.filter((a) => a.task === task).length}/${neededFor(session, task)}</small
         >
-        ${this.renderPicker(unit, task, judges, assigned, load)}
+        ${this.renderPicker(unit, session, task, judges, unitAssigned, load)}
       </td>`;
     });
     const warningLines = warnings.map(
@@ -372,23 +537,200 @@ export default class CupViewAdminJudges extends LitElement {
     );
     return html`<tr>
       <td>
-        <b>${unitName(unit)}</b>
-        ${closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
-        ${warningLines}
+        ${first ? html`<b>${unitName(unit)}</b>` : nothing}
+        ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
+        ${first ? this.renderSplitPanel(unit) : nothing}
+        ${label ? html`<span class="chip">${label}</span>` : nothing}
+        ${warningLines} ${this.renderNeeded(unit, session)}
       </td>
       ${cells}
     </tr>`;
   }
 
-  /** Judges that can be added to a task; untrained ones only count dismounts. */
+  /**
+   * The needed judges per task of a Durchgang of a split unit: the unit's
+   * count shows as placeholder, a value overrides it.
+   */
+  private renderNeeded(unit: JuryUnit, session: JurySession) {
+    if (!showsNeeded(unit)) {
+      return nothing;
+    }
+    const label = sessionLabel(unit, session);
+    const overrides = {
+      technical: session.override_technical,
+      performance: session.override_performance,
+      dismounts: session.override_dismounts,
+    };
+    const inputs = TASKS.map(
+      (
+        task,
+      ) => html`<label title="${taskNames[task]}: benötigt, leer = ${neededFor(unit, task)} wie im Vorlauf/Finale"
+          >${taskLabels[task]}
+          <input
+            type="number"
+            min="0"
+            inputmode="numeric"
+            aria-label="${label}: ${taskNames[task]} benötigt"
+            placeholder=${neededFor(unit, task)}
+            .value=${overrides[task] == null ? "" : String(overrides[task])}
+            data-session=${session.id}
+            data-task=${task}
+            ?disabled=${this.saving}
+            @change=${this.onNeededChange}
+          />
+        </label>`,
+    );
+    return html`<div class="need no-print">${inputs}</div>`;
+  }
+
+  /** "Durchgänge": one select per category to group them. */
+  private renderSplitPanel(unit: JuryUnit) {
+    if (!canSplit(unit)) {
+      return nothing;
+    }
+    const open = this.splitting === unit.id;
+    const toggle = html`<button
+      class="btn small no-print"
+      aria-expanded=${open}
+      data-unit=${unit.id}
+      @click=${this.onSplitToggle}
+    >
+      Durchgänge
+    </button>`;
+    if (!open) {
+      return html`<div class="no-print">${toggle}</div>`;
+    }
+    const inputs = sessionsOf(unit)
+      .flatMap((session) => session.categories)
+      .map(
+        (category) => html`<label class="cat"
+          ><span>${category.name}</span>
+          <input
+            type="number"
+            inputmode="numeric"
+            min="1"
+            max=${MAX_SESSION_NUMBER}
+            step="1"
+            aria-label="Durchgang für ${category.name}"
+            data-category=${category.id}
+            .value=${String(this.choice.get(category.id) ?? "")}
+            ?disabled=${this.saving}
+            @input=${this.onChoiceChange}
+          /></label
+        >`,
+      );
+    const invalid = this.invalidChoice.size > 0;
+    return html`<div class="no-print">${toggle}</div>
+      <div class="split-panel no-print">
+        <small class="muted"
+          >Durchgang je Altersklasse (1–${MAX_SESSION_NUMBER}); gleiche Nummer
+          = gleicher Durchgang.</small
+        >
+        ${inputs}
+        ${
+          invalid
+            ? html`<small class="text-warn" role="alert"
+              >Bitte für jede Altersklasse eine Zahl von 1 bis
+              ${MAX_SESSION_NUMBER} eingeben.</small
+            >`
+            : nothing
+        }
+        <div>
+          <button
+            class="btn small primary"
+            data-unit=${unit.id}
+            ?disabled=${this.saving || invalid}
+            @click=${this.onSplitSave}
+          >
+            Speichern
+          </button>
+        </div>
+      </div>`;
+  }
+
+  /** The keep list of a merge: which Einteilungen move on, which are deleted. */
+  private renderMergeDialog() {
+    const merging = this.merging;
+    if (!merging) {
+      return nothing;
+    }
+    const { rows, keep } = merging;
+    const items = rows.map((row) => {
+      const state = keep.get(row.assignment_id);
+      return html`<li>
+        <label
+          ><input
+            type="checkbox"
+            .checked=${state?.ticked ?? false}
+            ?disabled=${state?.disabled ?? false}
+            data-id=${row.assignment_id}
+            @change=${this.onKeepToggle}
+          />
+          <span
+            >${row.judge_name} (${row.club_name}) – ${taskNames[row.task]}, aus
+            ${row.from}${
+              state?.disabled
+                ? html`<br /><small class="muted"
+                      >Schon im verbleibenden Durchgang eingeteilt</small
+                    >`
+                : nothing
+            }</span
+          ></label
+        >
+      </li>`;
+    });
+    return html`<div
+      class="merge-dialog"
+      popover="auto"
+      @toggle=${this.onMergeToggle}
+    >
+      <h3>Durchgänge zusammenführen</h3>
+      <p>
+        Welche Einteilungen sollen im verbleibenden Durchgang bleiben? Die
+        anderen werden gelöscht.
+      </p>
+      <ul>
+        ${items}
+      </ul>
+      <p><b>${mergeSummary(rows, keep)}</b></p>
+      <div class="actions">
+        <button
+          class="btn danger"
+          ?disabled=${this.saving}
+          @click=${this.onMergeConfirm}
+        >
+          Zusammenführen
+        </button>
+        <button class="btn" @click=${this.closeMerge}>Abbrechen</button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * Judges that can be added to a task of a Durchgang; untrained ones only
+   * count dismounts. Registration is per unit, so a judge already in another
+   * Durchgang of the unit stays selectable, tagged with that Durchgang.
+   */
   private renderPicker(
     unit: JuryUnit,
+    session: JurySession,
     task: JudgeTask,
     judges: ClubJudge[],
-    assigned: { judge_id: string }[],
+    unitAssigned: JuryPlan["assignments"],
     load: Map<string, number>,
   ) {
-    const taken = new Set(assigned.map((a) => a.judge_id));
+    const taken = new Set(
+      unitAssigned
+        .filter((a) => a.session_id === session.id)
+        .map((a) => a.judge_id),
+    );
+    const elsewhere = new Map<string, string>();
+    for (const a of unitAssigned) {
+      const other = sessionsOf(unit).find((s) => s.id === a.session_id);
+      if (other && other.id !== session.id) {
+        elsewhere.set(a.judge_id, sessionLabel(unit, other));
+      }
+    }
     const registered = (judge: ClubJudge) =>
       judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
     const options = judges
@@ -400,20 +742,22 @@ export default class CupViewAdminJudges extends LitElement {
       )
       .map((judge) => {
         const l = assignedLoad(judge, load);
+        const also = elsewhere.get(judge.id);
         return html`<option value=${judge.id}>
           ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
           (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
             l ? ` – ${loadLabel(l)}` : ""
-          }
+          }${also ? ` (auch in ${also})` : ""}
         </option>`;
       });
     if (!options.length) {
       return nothing;
     }
+    const label = sessionLabel(unit, session);
     return html`<select
       class="no-print"
-      aria-label="${unitName(unit)}: ${taskNames[task]} einteilen"
-      data-unit=${unit.id}
+      aria-label="${unitName(unit)}${label ? ` (${label})` : ""}: ${taskNames[task]} einteilen"
+      data-session=${session.id}
       data-task=${task}
       ?disabled=${this.saving}
       @change=${this.onAssignChange}
@@ -1005,14 +1349,9 @@ export default class CupViewAdminJudges extends LitElement {
     if (!judge_id) {
       return;
     }
-    const unit = this.units.value?.find((u) => u.id === select.dataset.unit);
-    if (!unit) {
-      return;
-    }
     const body = {
       judge_id,
-      unit_kind: unit.kind,
-      unit_id: unit.id,
+      session_id: select.dataset.session!,
       task: select.dataset.task as JudgeTask,
     };
     await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
@@ -1022,11 +1361,140 @@ export default class CupViewAdminJudges extends LitElement {
     const button = e.currentTarget as HTMLElement;
     const body = {
       judge_id: button.dataset.judge!,
-      unit_id: button.dataset.unit!,
+      session_id: button.dataset.session!,
     };
     await this.change(
       () => unwrap(client.unassignJudge({ body })),
       "Entfernen",
+    );
+  }
+
+  private onSplitToggle(e: Event) {
+    const id = (e.currentTarget as HTMLElement).dataset.unit!;
+    if (this.splitting === id) {
+      this.splitting = null;
+      return;
+    }
+    const unit = this.units.value?.find((u) => u.id === id);
+    if (!unit) {
+      return;
+    }
+    // Each category starts in the Durchgang it is in now.
+    this.invalidChoice = new Set();
+    this.choice = new Map(
+      sessionsOf(unit).flatMap((session, i) =>
+        session.categories.map((c): [string, number] => [c.id, i + 1]),
+      ),
+    );
+    this.splitting = id;
+  }
+
+  private onChoiceChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const id = input.dataset.category!;
+    const number = sessionNumber(input.value);
+    const invalid = new Set(this.invalidChoice);
+    if (number === null) {
+      invalid.add(id);
+    } else {
+      invalid.delete(id);
+      this.choice = new Map(this.choice).set(id, number);
+    }
+    this.invalidChoice = invalid;
+  }
+
+  private async onSplitSave() {
+    const unit = this.units.value?.find((u) => u.id === this.splitting);
+    const plan = this.judges.value?.[2];
+    if (!unit) {
+      return;
+    }
+    const body = splitBody(unit, this.choice);
+    const rows = mergeRows(
+      unit,
+      body,
+      plan?.assignments ?? [],
+      this.judges.value?.[0] ?? [],
+    );
+    if (rows.length) {
+      this.merging = { body, rows, keep: initialKeep(rows) };
+      return;
+    }
+    await this.postSplit(body, []);
+  }
+
+  private async postSplit(
+    body: SessionSplitBody,
+    keep_assignment_ids: string[],
+  ) {
+    const result = await this.change(
+      () =>
+        unwrap(
+          client.setJurySessions({ body: { ...body, keep_assignment_ids } }),
+        ),
+      "Durchgänge speichern",
+    );
+    if (result) {
+      this.splitting = null;
+      this.status =
+        result.moved || result.deleted
+          ? `Durchgänge gespeichert: ${result.moved} Einteilung${result.moved === 1 ? "" : "en"} übernommen, ${result.deleted} gelöscht.`
+          : "Durchgänge gespeichert.";
+    }
+  }
+
+  private onKeepToggle(e: Event) {
+    const merging = this.merging;
+    if (!merging) {
+      return;
+    }
+    const id = (e.target as HTMLElement).dataset.id!;
+    this.merging = {
+      ...merging,
+      keep: toggleKeep(merging.keep, merging.rows, id),
+    };
+  }
+
+  private async onMergeConfirm() {
+    const merging = this.merging;
+    if (!merging) {
+      return;
+    }
+    this.closeMerge();
+    await this.postSplit(merging.body, keepIds(merging.keep));
+  }
+
+  /** `popover="auto"`: Escape and the backdrop cancel, the safe answer. */
+  private onMergeToggle(e: Event) {
+    if ((e as ToggleEvent).newState === "closed") {
+      this.merging = null;
+    }
+  }
+
+  private closeMerge() {
+    const dialog = this.mergeDialog;
+    if (dialog?.matches(":popover-open")) {
+      dialog.hidePopover();
+    }
+    this.merging = null;
+  }
+
+  private async onNeededChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const session = this.units.value
+      ?.flatMap(sessionsOf)
+      .find((s) => s.id === input.dataset.session);
+    if (!session) {
+      return;
+    }
+    const body = needBody(
+      session,
+      input.dataset.task as JudgeTask,
+      input.value,
+    );
+    await this.change(
+      () => unwrap(client.editJurySession({ body })),
+      "Benötigte JurorInnen speichern",
     );
   }
 
@@ -1102,16 +1570,22 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   /** Runs a change, then reloads; a failure is shown above the table. */
-  private async change(run: () => Promise<unknown>, action: string) {
+  private async change<T>(
+    run: () => Promise<T>,
+    action: string,
+  ): Promise<T | undefined> {
     this.saving = true;
+    this.status = null;
     try {
-      await run();
+      const result = await run();
       this.error = null;
       this.editing = null;
       this.draft = null;
       await Promise.all([this.units.run(), this.judges.run()]);
+      return result;
     } catch (error) {
       this.error = `${action} fehlgeschlagen: ${errorMessage(error)}`;
+      return undefined;
     } finally {
       this.saving = false;
     }

@@ -14,6 +14,7 @@ export const partNames: Record<Part, string> = {
   categories: "Kategorien",
   heats: "Vorlaufklassen",
   finals: "Finals",
+  jury_sessions: "Jurydurchgänge",
   timeplan: "Zeitplan",
 };
 

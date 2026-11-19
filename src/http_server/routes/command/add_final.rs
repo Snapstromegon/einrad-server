@@ -7,6 +7,8 @@ use utoipa::ToSchema;
 use crate::{
     finals::{self, FinalFields},
     http_server::{ClientError, HttpError, extractor::auth::Granted},
+    jury::JuryUnitKind,
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -80,6 +82,7 @@ pub async fn add_final(
     )
     .execute(&mut *tx)
     .await?;
+    jury_sessions::create_default_session(&mut tx, JuryUnitKind::Final, id.into()).await?;
     finals::check_heats(
         &mut tx,
         id,

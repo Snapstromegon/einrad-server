@@ -88,6 +88,8 @@ const COMMANDS: &[&str] = &[
     "timeplan_forward",
     "verify_email",
     "edit_jury_unit",
+    "edit_jury_session",
+    "set_jury_sessions",
     "move_judge_registrations",
     "resolve_unmapped_registration",
     "add_club_judge",
