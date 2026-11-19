@@ -661,6 +661,78 @@ async fn splitting_a_heat_gives_two_ordered_sessions() {
 }
 
 #[tokio::test]
+async fn sessions_of_a_heat_follow_the_timeplan_after_a_category_rename() {
+    let s = split_heat().await;
+    for _ in 0..3 {
+        let id: i64 = sqlx::query_scalar(
+            "SELECT id FROM timeplan WHERE category_id = (SELECT id FROM categories WHERE name = 'EMU23')",
+        )
+        .fetch_one(&s.app.db)
+        .await
+        .unwrap();
+        let moved = s
+            .app
+            .post(
+                "/api/command/move_timeplan_up",
+                json!({ "id": id }),
+                Some(&s.admin),
+            )
+            .await;
+        assert_eq!(moved.status, StatusCode::OK, "{:?}", moved.body);
+    }
+    let unit = unit_named(&s.app, &s.admin, "Neu").await;
+    assert_eq!(category_names(&unit["sessions"][0]), ["EMU23"]);
+    assert_eq!(category_names(&unit["sessions"][1]), ["EMU17"]);
+
+    // A rename changes the name, not the id: the order and the day stay.
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        description: Option<String>,
+        min_age: Option<f64>,
+        under_age: Option<f64>,
+        act_type: String,
+        is_single_male: bool,
+        einfahrzeit_seconds: i32,
+        act_duration_seconds: i32,
+        judge_duration_seconds: i32,
+    }
+    let row: Row = sqlx::query_as(
+        "SELECT description, min_age, under_age, act_type, is_single_male, \
+         einfahrzeit_seconds, act_duration_seconds, judge_duration_seconds \
+         FROM categories WHERE name = 'EMU23'",
+    )
+    .fetch_one(&s.app.db)
+    .await
+    .unwrap();
+    let renamed = s
+        .app
+        .post(
+            "/api/command/edit_category",
+            json!({
+                "category_id": s.emu23,
+                "new_name": "EMU23 neu",
+                "description": row.description,
+                "min_age": row.min_age,
+                "under_age": row.under_age,
+                "act_type": row.act_type,
+                "is_single_male": row.is_single_male,
+                "einfahrzeit_seconds": row.einfahrzeit_seconds,
+                "act_duration_seconds": row.act_duration_seconds,
+                "judge_duration_seconds": row.judge_duration_seconds,
+            }),
+            Some(&s.admin),
+        )
+        .await;
+    assert_eq!(renamed.status, StatusCode::OK, "{:?}", renamed.body);
+    let after = unit_named(&s.app, &s.admin, "Neu").await;
+    assert_eq!(after["sessions"][0]["id"], s.second);
+    assert_eq!(category_names(&after["sessions"][0]), ["EMU23 neu"]);
+    assert_eq!(after["sessions"][1]["id"], s.first);
+    assert_eq!(after["day"], unit["day"]);
+    assert!(after["day"].is_string(), "{after}");
+}
+
+#[tokio::test]
 async fn a_split_must_cover_every_category_exactly_once() {
     let s = split_heat().await;
     let foreign = s.app.category_id("EMU19").await;

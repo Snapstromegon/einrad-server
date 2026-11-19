@@ -331,11 +331,11 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
             let block = match row.kind {
                 JuryUnitKind::Heat => first_block(&|entry| match entry {
                     TimeplanEntry::Acts {
-                        home_category: Some(category),
+                        home_category_id: Some(category),
                         ..
                     } => categories
                         .iter()
-                        .any(|c| &c.name == category && c.heat_id == Some(row.id.as_heat())),
+                        .any(|c| c.id == *category && c.heat_id == Some(row.id.as_heat())),
                     _ => false,
                 }),
                 JuryUnitKind::Final => first_block(&|entry| match entry {
@@ -386,8 +386,8 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
                     .iter()
                     .position(|item| {
                         matches!(&item.timeplan_entry, TimeplanEntry::Acts {
-                            home_category: Some(name), ..
-                        } if *name == category.name)
+                            home_category_id: Some(id), ..
+                        } if *id == category.id)
                     })
                     .unwrap_or(usize::MAX)
             };
