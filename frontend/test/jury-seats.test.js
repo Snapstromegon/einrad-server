@@ -5,6 +5,8 @@ import { formatTime } from "../src/ts/utils.ts";
 import {
   emptySeats,
   formatLongDay,
+  formatWeekday,
+  sessionBlockLine,
   pickerGroups,
   rideDetail,
   seatColumns,
@@ -435,5 +437,49 @@ describe("jury seats: summary and days", () => {
   test("formatLongDay spells out the weekday", () => {
     assert.equal(formatLongDay("2027-04-03"), "Samstag, 03.04.2027");
     assert.equal(formatLongDay(null), "Ohne Tag");
+  });
+});
+
+describe("jury seats: block line", () => {
+  const block = (position, title, categoryIds, finalId = null) => ({
+    position,
+    day: "2027-4-3",
+    title,
+    isCustom: false,
+    categoryIds,
+    finalId,
+    actIds: [],
+    start: "2027-04-03T13:30:00",
+  });
+  const time = formatTime("2027-04-03T13:30:00");
+
+  test("a heat's Durchgang names its first block", () => {
+    const blocks = [block(0, "Block 3", ["c9"]), block(1, "Block 4", ["c1"])];
+    assert.equal(
+      sessionBlockLine(
+        { id: "u", kind: "heat" },
+        { categories: [{ id: "c1" }] },
+        blocks,
+      ),
+      `Block 4 (${time})`,
+    );
+  });
+
+  test("a final names its own block; none without a timeplan", () => {
+    const blocks = [block(0, "Finale", [], "f")];
+    const session = { categories: [{ id: "c1" }] };
+    assert.equal(
+      sessionBlockLine({ id: "f", kind: "final" }, session, blocks),
+      `Finale (${time})`,
+    );
+    assert.equal(
+      sessionBlockLine({ id: "f", kind: "final" }, session, []),
+      null,
+    );
+  });
+
+  test("formatWeekday is the short weekday without a dot", () => {
+    assert.equal(formatWeekday("2027-04-03"), "Sa");
+    assert.equal(formatWeekday(null), "");
   });
 });

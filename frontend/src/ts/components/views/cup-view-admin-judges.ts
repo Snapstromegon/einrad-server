@@ -52,6 +52,11 @@ import {
   rideIndex,
 } from "../../jury-blocks";
 import { adminStyles } from "../../styles/admin";
+import type {
+  SeatAssignDetail,
+  SeatClearDetail,
+} from "../elements/cup-jury-seat-table";
+import "../elements/cup-jury-seat-table";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { formatDate, formatMoney } from "../../utils";
 
@@ -500,7 +505,18 @@ export default class CupViewAdminJudges extends LitElement {
           end ? ` (${formatDate(end)})` : ""
         }.
       </p>
-      ${overMaxList} ${groups}
+      ${overMaxList}
+      <cup-jury-seat-table
+        .units=${units}
+        .judges=${judges}
+        .plan=${plan}
+        .rides=${this.rides.value ?? null}
+        .competition=${this.systemStatus?.competition ?? null}
+        ?saving=${this.saving}
+        @seat-assign=${this.onSeatAssign}
+        @seat-clear=${this.onSeatClear}
+      ></cup-jury-seat-table>
+      ${groups}
     </section>`;
   }
 
@@ -1417,6 +1433,23 @@ export default class CupViewAdminJudges extends LitElement {
       task: select.dataset.task as JudgeTask,
     };
     await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
+  }
+
+  private async onSeatAssign(e: CustomEvent<SeatAssignDetail>) {
+    const { judgeId, sessionId, task, seat } = e.detail;
+    const body = { judge_id: judgeId, session_id: sessionId, task, seat };
+    await this.change(() => unwrap(client.seatJudge({ body })), "Einteilen");
+  }
+
+  private async onSeatClear(e: CustomEvent<SeatClearDetail>) {
+    const body = {
+      judge_id: e.detail.judgeId,
+      session_id: e.detail.sessionId,
+    };
+    await this.change(
+      () => unwrap(client.unassignJudge({ body })),
+      "Entfernen",
+    );
   }
 
   private async onUnassignClick(e: Event) {

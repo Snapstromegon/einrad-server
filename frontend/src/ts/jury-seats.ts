@@ -10,7 +10,11 @@ import {
   TASKS,
   taskLabels,
 } from "./jury";
-import type { RideConflict } from "./jury-blocks";
+import {
+  type PlanBlock,
+  type RideConflict,
+  sessionPositions,
+} from "./jury-blocks";
 import { formatTime } from "./utils";
 
 export type SeatTask = (typeof TASKS)[number];
@@ -278,3 +282,25 @@ export const formatLongDay = (day: string | null | undefined) =>
         timeZone: "UTC",
       })
     : "Ohne Tag";
+
+/** "Sa" for a plain date; empty without one. */
+export const formatWeekday = (day: string | null | undefined) =>
+  day
+    ? new Date(day)
+        .toLocaleDateString("de-DE", { weekday: "short", timeZone: "UTC" })
+        .replace(/\.$/, "")
+    : "";
+
+/**
+ * "Block 4 (13:30)": the first block a Durchgang plays in, named
+ * "<description> (HH:MM)" as everywhere in the jury views; null without a
+ * timeplan or a block.
+ */
+export const sessionBlockLine = (
+  unit: { id: string; kind: "heat" | "final" },
+  session: { categories: { id: string }[] },
+  blocks: PlanBlock[],
+) => {
+  const block = blocks[sessionPositions(unit, session, blocks)[0]];
+  return block ? `${block.title} (${formatTime(block.start)})` : null;
+};
