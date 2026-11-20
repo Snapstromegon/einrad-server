@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     jury::{JuryEnabled, JuryUnitFields, JuryUnitKind},
+    jury_sessions,
     reloadable_sqlite::{ReloadableSqlite, begin_write},
     roles::permit,
 };
@@ -16,7 +17,7 @@ pub struct EditJuryUnitResponse {}
 /// Change the jury settings of a heat's Vorlauf or of a final: whether judges
 /// can register for it, its deployments and the judges it needs per task.
 /// Changing its deployments changes every club's registered deployments.
-/// Jury lead.
+/// Lowering a needed count below an occupied seat is refused (409). Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -26,6 +27,7 @@ pub struct EditJuryUnitResponse {}
         (status=200, content_type="application/json", body=EditJuryUnitResponse),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -41,6 +43,7 @@ pub async fn edit_jury_unit(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
     info!("Editing jury unit {:?} {}", body.kind, body.id);
+    let needed_before = jury_sessions::needed_snapshot(&mut transaction, body.id).await?;
     let result = match body.kind {
         JuryUnitKind::Heat => {
             sqlx::query!(
@@ -84,6 +87,7 @@ pub async fn edit_jury_unit(
     if result.rows_affected() == 0 {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
+    jury_sessions::ensure_seats_fit(&mut transaction, needed_before).await?;
     transaction.commit().await?;
     Ok(Json(EditJuryUnitResponse {}))
 }

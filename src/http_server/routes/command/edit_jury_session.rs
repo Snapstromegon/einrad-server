@@ -28,7 +28,8 @@ pub struct EditJurySessionBody {
 }
 
 /// Override the judges a Durchgang (jury session) needs per task; `null` or
-/// absent follows the jury unit's counts. Jury lead.
+/// absent follows the jury unit's counts. Lowering a count below an occupied
+/// seat is refused (409). Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -39,6 +40,7 @@ pub struct EditJurySessionBody {
         (status=400, content_type="application/json", body=ClientError),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -53,6 +55,8 @@ pub async fn edit_jury_session(
     let db = db.get().await.clone();
     let mut transaction = begin_write(&db).await?;
     info!("Editing jury session {}", body.id);
+    let unit = jury_sessions::unit_of_session(&mut transaction, body.id).await?;
+    let needed_before = jury_sessions::needed_snapshot(&mut transaction, unit).await?;
     jury_sessions::set_session_needed(
         &mut transaction,
         body.id,
@@ -61,6 +65,7 @@ pub async fn edit_jury_session(
         body.needed_dismounts,
     )
     .await?;
+    jury_sessions::ensure_seats_fit(&mut transaction, needed_before).await?;
     transaction.commit().await?;
     Ok(Json(EditJurySessionResponse {}))
 }

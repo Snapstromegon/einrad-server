@@ -1072,6 +1072,124 @@ pub async fn seat_judge(
     Ok(SeatOutcome::Swapped)
 }
 
+/// The unit a session belongs to. Unknown session: 404.
+pub async fn unit_of_session(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+) -> Result<JuryUnitId, HttpError> {
+    Ok(session_unit(conn, session).await?.1)
+}
+
+/// The effective needed count of every (session, task) of a unit, taken
+/// before an edit.
+pub struct NeededSnapshot(Vec<(JurySessionId, JudgeTask, i64)>);
+
+/// Takes the unit's [`NeededSnapshot`].
+pub async fn needed_snapshot(
+    conn: &mut SqliteConnection,
+    unit: JuryUnitId,
+) -> sqlx::Result<NeededSnapshot> {
+    let sessions: Vec<JurySessionId> = sqlx::query_scalar!(
+        r#"SELECT id as "id!: JurySessionId" FROM jury_sessions WHERE unit_id = ? ORDER BY id"#,
+        unit
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut counts = vec![];
+    for session in sessions {
+        for task in [
+            JudgeTask::Technical,
+            JudgeTask::Performance,
+            JudgeTask::Dismounts,
+        ] {
+            let needed = match session_needed(conn, session, task).await {
+                Ok(needed) => needed,
+                Err(HttpError::DBError(e)) => return Err(e),
+                Err(_) => continue,
+            };
+            counts.push((session, task, needed));
+        }
+    }
+    Ok(NeededSnapshot(counts))
+}
+
+/// A split unit's Durchgang as people read it: its categories' names, `None`
+/// for an unsplit unit.
+async fn session_label(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+) -> Result<Option<String>, HttpError> {
+    let (kind, unit) = session_unit(conn, session).await?;
+    let sessions: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM jury_sessions WHERE unit_id = ?"#,
+        unit
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if sessions < 2 {
+        return Ok(None);
+    }
+    let owner = session_of_category(conn, kind, unit).await?;
+    let mut names: Vec<UnitCategory> = unit_categories(conn, kind, unit)
+        .await?
+        .into_iter()
+        .filter(|c| owner.get(&c.id) == Some(&session))
+        .collect();
+    names.sort_by(|a, b| {
+        (a.order.unwrap_or(i64::MAX), &a.name).cmp(&(b.order.unwrap_or(i64::MAX), &b.name))
+    });
+    Ok(Some(
+        names
+            .into_iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+            .join(", "),
+    ))
+}
+
+/// After an edit, in the same transaction: refuses (409) when an effective
+/// needed count went down to below its highest occupied seat. Only a real
+/// lowering counts, so saving other fields of a unit whose migrated seats
+/// already exceed its count still works.
+pub async fn ensure_seats_fit(
+    conn: &mut SqliteConnection,
+    before: NeededSnapshot,
+) -> Result<(), HttpError> {
+    for (session, task, old) in before.0 {
+        let new = session_needed(conn, session, task).await?;
+        if new >= old {
+            continue;
+        }
+        let highest = sqlx::query!(
+            r#"
+            SELECT a.seat as "seat!: i64", j.firstname as "firstname!", j.lastname as "lastname!"
+            FROM jury_assignments a
+            JOIN view_judge j ON j.id = a.judge_id
+            WHERE a.session_id = ? AND a.task = ?
+            ORDER BY a.seat DESC LIMIT 1
+            "#,
+            session,
+            task
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some(highest) = highest.filter(|h| h.seat > new) else {
+            continue;
+        };
+        let prefix = session_label(conn, session)
+            .await?
+            .map(|label| format!("{label}: "))
+            .unwrap_or_default();
+        return Err(HttpError::Conflict(format!(
+            "{prefix}Platz {} ist noch besetzt ({} {}). Erst den Platz freigeben, dann den Bedarf auf {new} senken.",
+            seat_label(task, highest.seat),
+            highest.firstname,
+            highest.lastname,
+        )));
+    }
+    Ok(())
+}
+
 /// Removes a judge from a session.
 pub async fn unassign(
     conn: &mut SqliteConnection,

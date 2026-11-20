@@ -905,3 +905,134 @@ async fn seat_judge_answers_404_for_unknowns_and_403_for_a_club() {
     );
     assert!(assignments_state(&f.app).await.is_empty());
 }
+
+// ---------- Never lower a needed count below an occupied seat ----------
+
+impl Fixture {
+    async fn edit_session(&self, session: &Value, technical: Option<i64>) -> common::TestResponse {
+        self.app
+            .post(
+                "/api/command/edit_jury_session",
+                json!({ "id": session, "needed_technical": technical }),
+                Some(&self.admin),
+            )
+            .await
+    }
+
+    async fn unit_technical(&self) -> i64 {
+        unit_named(&self.app, &self.admin, "Neu").await["needed_technical"]
+            .as_i64()
+            .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn lowering_the_unit_count_below_an_occupied_seat_is_refused() {
+    let f = Fixture::new().await;
+    f.set_unit_needed(5, 2, 2, true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(4)).await;
+
+    let response = f.edit_unit(3, 2, 2, 2).await;
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    assert_eq!(
+        message(&response),
+        "Platz T4 ist noch besetzt (Max Müller). Erst den Platz freigeben, dann den Bedarf auf 3 senken."
+    );
+    assert_eq!(f.unit_technical().await, 5);
+
+    assert_eq!(f.edit_unit(4, 2, 2, 2).await.status, StatusCode::OK);
+    f.unassign(&max, &f.session).await;
+    assert_eq!(f.edit_unit(3, 2, 2, 2).await.status, StatusCode::OK);
+    assert_eq!(f.unit_technical().await, 3);
+}
+
+#[tokio::test]
+async fn a_durchgang_without_override_follows_the_unit_count() {
+    let mut f = Fixture::new().await;
+    f.set_unit_needed(5, 2, 2, true).await;
+    let second = f.split_in_two().await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign(&anna, &second, "technical", Some(5)).await;
+
+    // Durchgang 2 inherits the unit's count.
+    let response = f.edit_unit(4, 2, 2, 2).await;
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    assert_eq!(
+        message(&response),
+        "EMU23: Platz T5 ist noch besetzt (Anna Beispiel). Erst den Platz freigeben, dann den Bedarf auf 4 senken."
+    );
+    assert_eq!(f.unit_technical().await, 5);
+
+    // With an override of 5 its effective count stays 5, Durchgang 1 follows.
+    assert_eq!(
+        f.edit_session(&second, Some(5)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(f.edit_unit(4, 2, 2, 2).await.status, StatusCode::OK);
+    assert_eq!(f.unit_technical().await, 4);
+}
+
+#[tokio::test]
+async fn lowering_or_clearing_a_durchgang_override_is_checked() {
+    let f = Fixture::new().await;
+    assert_eq!(
+        f.edit_session(&f.session, Some(5)).await.status,
+        StatusCode::OK
+    );
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign_ok(&anna, "technical", Some(5)).await;
+
+    for lowered in [Some(4), None] {
+        let response = f.edit_session(&f.session, lowered).await;
+        assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+        assert!(message(&response).starts_with("Platz T5 ist noch besetzt (Anna Beispiel)."));
+    }
+    assert_eq!(
+        f.edit_session(&f.session, Some(5)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.edit_session(&f.session, Some(6)).await.status,
+        StatusCode::OK
+    );
+    // Raising the unit's count never refuses.
+    assert_eq!(f.edit_unit(9, 2, 2, 2).await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn unrelated_edits_pass_when_migrated_seats_exceed_the_count() {
+    let f = Fixture::new().await;
+    f.set_unit_needed(5, 2, 2, true).await;
+    let heat = uuid::Uuid::parse_str(f.unit["id"].as_str().unwrap()).unwrap();
+    let session = uuid::Uuid::parse_str(f.session.as_str().unwrap()).unwrap();
+    for seat in 1..=7 {
+        let judge = f.judge("Gast", &format!("Nummer{seat}"), true).await;
+        sqlx::query(
+            "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) \
+             VALUES (?, ?, ?, 'technical', ?)",
+        )
+        .bind(uuid::Uuid::parse_str(judge.as_str().unwrap()).unwrap())
+        .bind(heat)
+        .bind(session)
+        .bind(seat)
+        .execute(&f.app.db)
+        .await
+        .unwrap();
+    }
+    // Only the deployments change; the count stays 5.
+    assert_eq!(f.edit_unit(5, 2, 2, 3).await.status, StatusCode::OK);
+    assert_eq!(f.edit_unit(5, 2, 2, 3).await.status, StatusCode::OK);
+    let response = f.edit_unit(4, 2, 2, 3).await;
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    assert!(message(&response).starts_with("Platz T7 ist noch besetzt"));
+}
+
+#[tokio::test]
+async fn other_tasks_are_not_affected() {
+    let f = Fixture::new().await;
+    f.set_unit_needed(5, 2, 2, true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(4)).await;
+    assert_eq!(f.edit_unit(5, 0, 2, 2).await.status, StatusCode::OK);
+}
