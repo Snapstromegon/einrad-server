@@ -11,7 +11,7 @@ use crate::{
     config::JurySessionConfig,
     http_server::HttpError,
     ids::{CategoryId, JudgeId, JuryAssignmentId, JurySessionId, JuryUnitId},
-    jury::{self, JudgeTask, JuryAssignment, JuryUnitKind},
+    jury::{self, JudgeTask, JuryUnitKind},
 };
 
 /// A category of a jury unit: a heat's own, or one of the heats feeding a
@@ -497,6 +497,14 @@ pub struct SplitResult {
     pub deleted: i64,
 }
 
+/// An assignment of a Durchgang a save of the split removes.
+struct RemovedAssignment {
+    session: JurySessionId,
+    judge: JudgeId,
+    task: JudgeTask,
+    seat: i64,
+}
+
 fn refuse(message: &str) -> HttpError {
     HttpError::ErrorMessages(message.to_string())
 }
@@ -513,7 +521,9 @@ fn not_found() -> HttpError {
 /// sessions that are not listed are removed. Of a removed session's
 /// assignments only those in `keep` survive, in the listed session that
 /// receives most of its categories (a tie: the earliest in the list); the
-/// rest is deleted.
+/// rest is deleted. A kept assignment keeps its seat if that is free in its
+/// target (within the target's count), else gets the lowest free one; with
+/// none within the count the save is refused (ADR 0020).
 pub async fn set_sessions(
     conn: &mut SqliteConnection,
     kind: JuryUnitKind,
@@ -602,17 +612,26 @@ pub async fn set_sessions(
     }
 
     // The assignments of the removed sessions, and the ones kept.
-    let mut of_removed: HashMap<JuryAssignmentId, (JurySessionId, JudgeId)> = HashMap::new();
+    let mut of_removed: HashMap<JuryAssignmentId, RemovedAssignment> = HashMap::new();
     for session in &removed {
         for row in sqlx::query!(
-            r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId"
+            r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId",
+                task as "task!: JudgeTask", seat as "seat!: i64"
             FROM jury_assignments WHERE session_id = ?"#,
             session
         )
         .fetch_all(&mut *conn)
         .await?
         {
-            of_removed.insert(row.id, (*session, row.judge_id));
+            of_removed.insert(
+                row.id,
+                RemovedAssignment {
+                    session: *session,
+                    judge: row.judge_id,
+                    task: row.task,
+                    seat: row.seat,
+                },
+            );
         }
     }
     let keep: HashSet<JuryAssignmentId> = keep.into_iter().collect();
@@ -636,8 +655,10 @@ pub async fn set_sessions(
         }
     }
     for id in &keep {
-        let (from, judge) = of_removed[id];
-        *judges.entry((target_of[&from], judge)).or_default() += 1;
+        let moved = &of_removed[id];
+        *judges
+            .entry((target_of[&moved.session], moved.judge))
+            .or_default() += 1;
     }
     if let Some((_, judge)) = judges.iter().find(|(_, n)| **n > 1).map(|(k, _)| *k) {
         let name = sqlx::query!(
@@ -686,23 +707,76 @@ pub async fn set_sessions(
         moved: 0,
         deleted: 0,
     };
-    for (id, (from, _)) in &of_removed {
-        if keep.contains(id) {
-            let target = target_of[from];
-            sqlx::query!(
-                "UPDATE jury_assignments SET session_id = ? WHERE id = ?",
-                target,
-                id
-            )
+    for id in of_removed.keys().filter(|id| !keep.contains(id)) {
+        sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", id)
             .execute(&mut *conn)
             .await?;
-            result.moved += 1;
+        result.deleted += 1;
+    }
+    // Kept assignments keep their seat if it is free in the target (taken
+    // ones include those moved before), else get its lowest free one; none
+    // within the target's count refuses the save. Order: old seat, then id.
+    let mut kept: Vec<(&JuryAssignmentId, &RemovedAssignment)> = of_removed
+        .iter()
+        .filter(|(id, _)| keep.contains(id))
+        .collect();
+    kept.sort_by_key(|(id, moved)| (moved.seat, **id));
+    for (id, moved) in kept {
+        let target = target_of[&moved.session];
+        let needed = session_needed(conn, target, moved.task).await?;
+        let used = used_seats(conn, target, moved.task).await?;
+        let lowest_free = (1..).find(|n| !used.contains(n)).unwrap_or(1);
+        let seat = if !used.contains(&moved.seat) && moved.seat <= needed {
+            moved.seat
         } else {
-            sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", id)
-                .execute(&mut *conn)
-                .await?;
-            result.deleted += 1;
+            lowest_free
+        };
+        if seat > needed {
+            let label = if listed.len() == 1 {
+                sqlx::query_scalar!(
+                    r#"SELECT name as "name!" FROM view_jury_unit WHERE id = ?"#,
+                    unit
+                )
+                .fetch_one(&mut *conn)
+                .await?
+            } else {
+                let group = listed.iter().find(|(id, _)| *id == target).map(|(_, s)| *s);
+                let mut names: Vec<&UnitCategory> = categories
+                    .iter()
+                    .filter(|c| group.is_some_and(|g| g.category_ids.contains(&c.id)))
+                    .collect();
+                names.sort_by(|a, b| {
+                    (a.order.unwrap_or(i64::MAX), &a.name)
+                        .cmp(&(b.order.unwrap_or(i64::MAX), &b.name))
+                });
+                names
+                    .into_iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let name = sqlx::query!(
+                r#"SELECT firstname as "firstname!", lastname as "lastname!" FROM view_judge WHERE id = ?"#,
+                moved.judge
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            return Err(HttpError::ErrorMessages(format!(
+                "Im Durchgang {label} gibt es nicht genug freie Plätze für {}: {} {} bekommt keinen Platz.",
+                task_name(moved.task),
+                name.firstname,
+                name.lastname
+            )));
         }
+        sqlx::query!(
+            "UPDATE jury_assignments SET session_id = ?, seat = ? WHERE id = ?",
+            target,
+            seat,
+            id
+        )
+        .execute(&mut *conn)
+        .await?;
+        result.moved += 1;
     }
     for session in &removed {
         sqlx::query!("DELETE FROM jury_sessions WHERE id = ?", session)
@@ -744,64 +818,441 @@ pub async fn set_session_needed(
     Ok(())
 }
 
-/// Assigns a judge a task in a session; the unit is the session's. Unknown
-/// judge or session: 404. Untrained people only count dismounts. A judge sits
-/// once per session, but may sit in several sessions of a unit.
-pub async fn assign(
+/// The seat's name: the task's letter (T, P or A), then the number.
+pub fn seat_label(task: JudgeTask, seat: i64) -> String {
+    let letter = match task {
+        JudgeTask::Technical => 'T',
+        JudgeTask::Performance => 'P',
+        JudgeTask::Dismounts => 'A',
+    };
+    format!("{letter}{seat}")
+}
+
+fn task_name(task: JudgeTask) -> &'static str {
+    match task {
+        JudgeTask::Technical => "Technik",
+        JudgeTask::Performance => "Performance",
+        JudgeTask::Dismounts => "Abstiege",
+    }
+}
+
+/// The unit a session belongs to. Unknown session: 404.
+async fn session_unit(
     conn: &mut SqliteConnection,
-    judge: JudgeId,
     session: JurySessionId,
-    task: JudgeTask,
-) -> Result<JuryAssignment, HttpError> {
-    let is_trained = sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", judge)
-        .fetch_optional(&mut *conn)
-        .await?
-        .ok_or_else(not_found)?;
+) -> Result<(JuryUnitKind, JuryUnitId), HttpError> {
     let unit = sqlx::query!(
         r#"SELECT heat_id as "heat_id: crate::ids::HeatId", final_id as "final_id: crate::ids::FinalId"
         FROM jury_sessions WHERE id = ?"#,
         session
     )
-    .fetch_optional(&mut *conn)
+    .fetch_optional(conn)
     .await?
     .ok_or_else(not_found)?;
-    let (unit_kind, unit_id) = match (unit.heat_id, unit.final_id) {
-        (Some(heat), _) => (JuryUnitKind::Heat, JuryUnitId::from(heat)),
-        (None, Some(final_id)) => (JuryUnitKind::Final, JuryUnitId::from(final_id)),
-        (None, None) => return Err(not_found()),
-    };
+    match (unit.heat_id, unit.final_id) {
+        (Some(heat), _) => Ok((JuryUnitKind::Heat, JuryUnitId::from(heat))),
+        (None, Some(final_id)) => Ok((JuryUnitKind::Final, JuryUnitId::from(final_id))),
+        (None, None) => Err(not_found()),
+    }
+}
+
+/// How many judges the session needs for the task (its seat count): the
+/// session's override, else its unit's count. Unknown session: 404.
+pub async fn session_needed(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+    task: JudgeTask,
+) -> Result<i64, HttpError> {
+    let row = sqlx::query!(
+        r#"
+        SELECT s.needed_technical, s.needed_performance, s.needed_dismounts,
+            u.needed_technical as "unit_technical!: i64",
+            u.needed_performance as "unit_performance!: i64",
+            u.needed_dismounts as "unit_dismounts!: i64"
+        FROM jury_sessions s
+        JOIN view_jury_unit u ON u.id = s.unit_id
+        WHERE s.id = ?
+        "#,
+        session
+    )
+    .fetch_optional(conn)
+    .await?
+    .ok_or_else(not_found)?;
+    Ok(match task {
+        JudgeTask::Technical => row.needed_technical.unwrap_or(row.unit_technical),
+        JudgeTask::Performance => row.needed_performance.unwrap_or(row.unit_performance),
+        JudgeTask::Dismounts => row.needed_dismounts.unwrap_or(row.unit_dismounts),
+    })
+}
+
+/// The seat numbers of the session's task that somebody sits on (migrated
+/// seats beyond the count included).
+async fn used_seats(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+    task: JudgeTask,
+) -> sqlx::Result<HashSet<i64>> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT seat as "seat!: i64" FROM jury_assignments WHERE session_id = ? AND task = ?"#,
+        session,
+        task
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .collect())
+}
+
+fn no_such_seat(task: JudgeTask, seat: i64) -> HttpError {
+    HttpError::ErrorMessages(format!(
+        "Platz {} gibt es in diesem Durchgang nicht.",
+        seat_label(task, seat)
+    ))
+}
+
+/// Assigns a judge a task and seat in a session; the unit is the session's.
+/// Without a `seat` the lowest free one is taken. Unknown judge or session:
+/// 404. Untrained people only count dismounts. A judge sits once per
+/// session, but may sit in several sessions of a unit. Only seats within the
+/// session's needed count exist; a taken seat is a conflict, and no free seat
+/// is refused (ADR 0020).
+pub async fn assign(
+    conn: &mut SqliteConnection,
+    judge: JudgeId,
+    session: JurySessionId,
+    task: JudgeTask,
+    seat: Option<i64>,
+) -> Result<JuryAssignmentId, HttpError> {
+    let is_trained = sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", judge)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(not_found)?;
+    let (unit_kind, unit_id) = session_unit(conn, session).await?;
     if !is_trained && task != JudgeTask::Dismounts {
         return Err(refuse(
             "Nicht geschulte Personen können nur Abstiege zählen.",
         ));
     }
+    let needed = session_needed(conn, session, task).await?;
+    let used = used_seats(conn, session, task).await?;
+    let seat = match seat {
+        Some(seat) => {
+            if seat < 1 || seat > needed {
+                return Err(no_such_seat(task, seat));
+            }
+            if used.contains(&seat) {
+                return Err(HttpError::Conflict(format!(
+                    "Platz {} ist schon besetzt.",
+                    seat_label(task, seat)
+                )));
+            }
+            seat
+        }
+        None => {
+            let seat = (1..).find(|n| !used.contains(n)).unwrap_or(1);
+            if seat > needed {
+                return Err(HttpError::ErrorMessages(format!(
+                    "Alle Plätze für {} sind besetzt.",
+                    task_name(task)
+                )));
+            }
+            seat
+        }
+    };
     let id = JuryAssignmentId::new();
     let (heat_id, final_id) = jury::unit_columns(unit_kind, unit_id);
     let result = sqlx::query!(
-        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
         id,
         judge,
         heat_id,
         final_id,
         session,
         task,
+        seat,
     )
     .execute(conn)
     .await;
     match result {
-        Ok(_) => Ok(JuryAssignment {
-            id,
-            judge_id: judge,
-            session_id: session,
-            unit_kind,
-            unit_id,
-            task,
-        }),
+        Ok(_) => Ok(id),
         Err(e) if jury::is_unique_violation(&e) => {
             Err(refuse("Die JurorIn ist hier schon eingeteilt."))
         }
         Err(e) => Err(e.into()),
     }
+}
+
+/// What [`seat_judge`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatOutcome {
+    /// The judge had no seat in the Durchgang and the seat was free.
+    Assigned,
+    /// The judge moved from another seat to the free seat.
+    Moved,
+    /// The judge and the seat's occupant changed seats.
+    Swapped,
+    /// The judge moved to the occupied seat; the occupant could not take the
+    /// judge's old seat and was removed.
+    MovedReplaced,
+    /// The judge had no seat and replaced the occupant, who was removed.
+    Replaced,
+    /// The judge already sat on the seat.
+    Unchanged,
+}
+
+/// Whether the occupant O of the seat a judge moves to takes the judge's old
+/// seat (task `a`), the judge now being on a seat of task `b`: on the same
+/// task, or when O is registered for task `a` of the unit, and O may judge
+/// `a` (trained, or `a` is dismounts).
+fn occupant_follows(
+    task_a: JudgeTask,
+    task_b: JudgeTask,
+    o_registered_for_a: bool,
+    o_trained: bool,
+) -> bool {
+    (task_a == task_b || o_registered_for_a) && (o_trained || task_a == JudgeTask::Dismounts)
+}
+
+/// Puts a judge on a seat of a session: assigns, moves, swaps or replaces,
+/// as the state of the judge and the seat requires, in the caller's
+/// transaction (it must roll back on an error). A judge sits once per
+/// session, so a judge on another seat moves; the seat's occupant then takes
+/// the judge's old seat (see [`occupant_follows`]) or is removed. A judge
+/// without a seat replaces the occupant. Only seats within the needed count
+/// can be chosen; an old seat beyond it can be the occupant's new one.
+pub async fn seat_judge(
+    conn: &mut SqliteConnection,
+    judge: JudgeId,
+    session: JurySessionId,
+    task: JudgeTask,
+    seat: i64,
+) -> Result<SeatOutcome, HttpError> {
+    let is_trained = sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", judge)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(not_found)?;
+    let (unit_kind, unit_id) = session_unit(conn, session).await?;
+    let needed = session_needed(conn, session, task).await?;
+    if seat < 1 || seat > needed {
+        return Err(no_such_seat(task, seat));
+    }
+    let current = sqlx::query!(
+        r#"SELECT id as "id!: JuryAssignmentId", task as "task!: JudgeTask", seat as "seat!: i64"
+        FROM jury_assignments WHERE judge_id = ? AND session_id = ?"#,
+        judge,
+        session
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if current
+        .as_ref()
+        .is_some_and(|c| c.task == task && c.seat == seat)
+    {
+        return Ok(SeatOutcome::Unchanged);
+    }
+    if !is_trained && task != JudgeTask::Dismounts {
+        return Err(refuse(
+            "Nicht geschulte Personen können nur Abstiege zählen.",
+        ));
+    }
+    let occupant = sqlx::query!(
+        r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId"
+        FROM jury_assignments WHERE session_id = ? AND task = ? AND seat = ?"#,
+        session,
+        task,
+        seat
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (heat_id, final_id) = jury::unit_columns(unit_kind, unit_id);
+
+    // The occupant's row is removed first, so the seat is free for the judge.
+    if let Some(occupant) = &occupant {
+        sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", occupant.id)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let Some(current) = current else {
+        sqlx::query!(
+            "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            JuryAssignmentId::new(),
+            judge,
+            heat_id,
+            final_id,
+            session,
+            task,
+            seat,
+        )
+        .execute(&mut *conn)
+        .await?;
+        return Ok(if occupant.is_some() {
+            SeatOutcome::Replaced
+        } else {
+            SeatOutcome::Assigned
+        });
+    };
+    sqlx::query!(
+        "UPDATE jury_assignments SET task = ?, seat = ? WHERE id = ?",
+        task,
+        seat,
+        current.id
+    )
+    .execute(&mut *conn)
+    .await?;
+    let Some(occupant) = occupant else {
+        return Ok(SeatOutcome::Moved);
+    };
+    let o_trained = sqlx::query_scalar!(
+        "SELECT is_trained FROM judge WHERE id = ?",
+        occupant.judge_id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let o_registered = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM judge_registration
+        WHERE judge_id = ? AND unit_id = ? AND task = ?"#,
+        occupant.judge_id,
+        unit_id,
+        current.task
+    )
+    .fetch_one(&mut *conn)
+    .await?
+        > 0;
+    if !occupant_follows(current.task, task, o_registered, o_trained) {
+        return Ok(SeatOutcome::MovedReplaced);
+    }
+    sqlx::query!(
+        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        occupant.id,
+        occupant.judge_id,
+        heat_id,
+        final_id,
+        session,
+        current.task,
+        current.seat,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(SeatOutcome::Swapped)
+}
+
+/// The unit a session belongs to. Unknown session: 404.
+pub async fn unit_of_session(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+) -> Result<JuryUnitId, HttpError> {
+    Ok(session_unit(conn, session).await?.1)
+}
+
+/// The effective needed count of every (session, task) of a unit, taken
+/// before an edit.
+pub struct NeededSnapshot(Vec<(JurySessionId, JudgeTask, i64)>);
+
+/// Takes the unit's [`NeededSnapshot`].
+pub async fn needed_snapshot(
+    conn: &mut SqliteConnection,
+    unit: JuryUnitId,
+) -> sqlx::Result<NeededSnapshot> {
+    let sessions: Vec<JurySessionId> = sqlx::query_scalar!(
+        r#"SELECT id as "id!: JurySessionId" FROM jury_sessions WHERE unit_id = ? ORDER BY id"#,
+        unit
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut counts = vec![];
+    for session in sessions {
+        for task in [
+            JudgeTask::Technical,
+            JudgeTask::Performance,
+            JudgeTask::Dismounts,
+        ] {
+            let needed = match session_needed(conn, session, task).await {
+                Ok(needed) => needed,
+                Err(HttpError::DBError(e)) => return Err(e),
+                Err(_) => continue,
+            };
+            counts.push((session, task, needed));
+        }
+    }
+    Ok(NeededSnapshot(counts))
+}
+
+/// A split unit's Durchgang as people read it: its categories' names, `None`
+/// for an unsplit unit.
+async fn session_label(
+    conn: &mut SqliteConnection,
+    session: JurySessionId,
+) -> Result<Option<String>, HttpError> {
+    let (kind, unit) = session_unit(conn, session).await?;
+    let sessions: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM jury_sessions WHERE unit_id = ?"#,
+        unit
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if sessions < 2 {
+        return Ok(None);
+    }
+    let owner = session_of_category(conn, kind, unit).await?;
+    let mut names: Vec<UnitCategory> = unit_categories(conn, kind, unit)
+        .await?
+        .into_iter()
+        .filter(|c| owner.get(&c.id) == Some(&session))
+        .collect();
+    names.sort_by(|a, b| {
+        (a.order.unwrap_or(i64::MAX), &a.name).cmp(&(b.order.unwrap_or(i64::MAX), &b.name))
+    });
+    Ok(Some(
+        names
+            .into_iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+            .join(", "),
+    ))
+}
+
+/// After an edit, in the same transaction: refuses (409) when an effective
+/// needed count went down to below its highest occupied seat. Only a real
+/// lowering counts, so saving other fields of a unit whose migrated seats
+/// already exceed its count still works.
+pub async fn ensure_seats_fit(
+    conn: &mut SqliteConnection,
+    before: NeededSnapshot,
+) -> Result<(), HttpError> {
+    for (session, task, old) in before.0 {
+        let new = session_needed(conn, session, task).await?;
+        if new >= old {
+            continue;
+        }
+        let highest = sqlx::query!(
+            r#"
+            SELECT a.seat as "seat!: i64", j.firstname as "firstname!", j.lastname as "lastname!"
+            FROM jury_assignments a
+            JOIN view_judge j ON j.id = a.judge_id
+            WHERE a.session_id = ? AND a.task = ?
+            ORDER BY a.seat DESC LIMIT 1
+            "#,
+            session,
+            task
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some(highest) = highest.filter(|h| h.seat > new) else {
+            continue;
+        };
+        let prefix = session_label(conn, session)
+            .await?
+            .map(|label| format!("{label}: "))
+            .unwrap_or_default();
+        return Err(HttpError::Conflict(format!(
+            "{prefix}Platz {} ist noch besetzt ({} {}). Erst den Platz freigeben, dann den Bedarf auf {new} senken.",
+            seat_label(task, highest.seat),
+            highest.firstname,
+            highest.lastname,
+        )));
+    }
+    Ok(())
 }
 
 /// Removes a judge from a session.
@@ -818,4 +1269,30 @@ pub async fn unassign(
     .execute(conn)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use JudgeTask::*;
+
+    #[test]
+    fn the_occupant_follows_on_the_same_task_or_when_registered_and_allowed() {
+        // Same task: no registration needed.
+        assert!(occupant_follows(Technical, Technical, false, true));
+        // Another task: registered for the judge's old task.
+        assert!(occupant_follows(Technical, Performance, true, true));
+        assert!(!occupant_follows(Technical, Performance, false, true));
+        // An untrained occupant only follows onto dismounts.
+        assert!(!occupant_follows(Technical, Performance, true, false));
+        assert!(occupant_follows(Dismounts, Technical, true, false));
+        assert!(!occupant_follows(Dismounts, Technical, false, false));
+    }
+
+    #[test]
+    fn seats_are_named_by_task_letter_and_number() {
+        assert_eq!(seat_label(Technical, 3), "T3");
+        assert_eq!(seat_label(Performance, 1), "P1");
+        assert_eq!(seat_label(Dismounts, 12), "A12");
+    }
 }

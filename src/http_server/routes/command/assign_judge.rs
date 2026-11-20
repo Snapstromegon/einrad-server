@@ -21,11 +21,18 @@ pub struct AssignJudgeBody {
     /// The Durchgang; the unit is the one it belongs to.
     pub session_id: JurySessionId,
     pub task: JudgeTask,
+    /// The seat (T1.., P1.., A1..) within the Durchgang's needed count;
+    /// absent: the lowest free one.
+    #[serde(default)]
+    pub seat: Option<i64>,
 }
 
-/// Assign a judge a task in a Durchgang (jury session) of the Juryplan.
-/// Untrained people only count dismounts; one task per judge and Durchgang,
-/// but a judge may sit in several Durchgänge of a unit. Jury lead.
+/// Assign a judge a task and seat in a Durchgang (jury session) of the
+/// Juryplan. Without a seat the lowest free one is taken; a taken seat is a
+/// conflict (409), a seat beyond the Durchgang's needed count or no free seat
+/// is refused with a German message. Untrained people only count dismounts;
+/// one task per judge and Durchgang, but a judge may sit in several
+/// Durchgänge of a unit. Jury lead.
 #[utoipa::path(
     post,
     tags=["command", "jury"],
@@ -35,6 +42,7 @@ pub struct AssignJudgeBody {
         (status=200, content_type="application/json", body=AssignJudgeResponse),
         (status=403, content_type="application/json", body=ClientError),
         (status=404, content_type="application/json", body=ClientError),
+        (status=409, content_type="application/json", body=ClientError),
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
@@ -52,7 +60,14 @@ pub async fn assign_judge(
         "Assigning judge {} to jury session {} ({:?})",
         body.judge_id, body.session_id, body.task
     );
-    jury_sessions::assign(&mut transaction, body.judge_id, body.session_id, body.task).await?;
+    jury_sessions::assign(
+        &mut transaction,
+        body.judge_id,
+        body.session_id,
+        body.task,
+        body.seat,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(Json(AssignJudgeResponse {}))
 }

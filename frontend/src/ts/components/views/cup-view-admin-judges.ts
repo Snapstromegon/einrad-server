@@ -30,10 +30,6 @@ import {
   type KeepState,
   type SessionSplitBody,
   neededFor,
-  overMaxWarnings,
-  planWarnings,
-  rideSuffix,
-  rideWarningLines,
   sessionLabel,
   sessionsOf,
   sessionNumber,
@@ -45,13 +41,14 @@ import {
   taskNames,
   unitName,
 } from "../../jury";
-import {
-  finalInfos,
-  judgeConflicts,
-  planBlocks,
-  rideIndex,
-} from "../../jury-blocks";
+import { finalInfos, planBlocks, rideIndex } from "../../jury-blocks";
+import { seatOutcomeMessage } from "../../jury-seats";
 import { adminStyles } from "../../styles/admin";
+import type {
+  SeatAssignDetail,
+  SeatClearDetail,
+} from "../elements/cup-jury-seat-table";
+import "../elements/cup-jury-seat-table";
 import { iconStyles, resetStyles } from "../../styles/base";
 import { formatDate, formatMoney } from "../../utils";
 
@@ -204,15 +201,102 @@ export default class CupViewAdminJudges extends LitElement {
         gap: 0.5rem;
       }
 
-      /* "Juryplan drucken": only the plan, one page per day. */
+      /* Phone (the seat table's breakpoint): the dense tables become cards,
+         one per row, each cell labelled by its column's name. */
+      @media (max-width: 720px) {
+        table.cards,
+        table.cards tbody,
+        table.cards tr,
+        table.cards td {
+          display: block;
+        }
+
+        table.cards.fit {
+          width: 100%;
+        }
+
+        /* The header row stays for screen readers only. */
+        table.cards thead {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip-path: inset(50%);
+        }
+
+        table.cards tbody tr {
+          margin-bottom: 0.5rem;
+          padding: 0.25rem 0.5rem;
+          border: 1px solid var(--color-border);
+          border-radius: 0.5rem;
+          background: var(--color-surface);
+        }
+
+        table.dense.cards tbody tr > td {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.25rem 0.75rem;
+          min-width: 0;
+          border-bottom: 1px solid var(--color-border);
+          background: transparent;
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+
+        table.dense.cards tbody tr > td:last-child {
+          border-bottom: 0;
+        }
+
+        table.cards td[data-label]::before {
+          content: attr(data-label);
+          flex: none;
+          color: var(--color-text-muted);
+          font-weight: 600;
+        }
+
+        table.dense.cards tbody tr > td.head {
+          display: block;
+          font-size: 1.1em;
+        }
+
+        table.dense.cards tbody tr > td.actions {
+          width: auto;
+          justify-content: flex-end;
+        }
+
+        table.cards .chips {
+          display: flex;
+          max-width: 100%;
+          min-width: 0;
+        }
+
+        table.cards .chip {
+          max-width: 100%;
+          white-space: normal;
+          border-radius: 0.75em;
+        }
+
+        table.cards select {
+          max-width: 100%;
+        }
+
+        table.dense.cards tbody tr > td.empty {
+          display: block;
+        }
+
+        table.cards td input[type="number"] {
+          width: 4.5em;
+          min-width: 0;
+        }
+      }
+
+      /* "Juryplan drucken": only the plan; the seat table breaks pages per day. */
       @media print {
         .print-plan section:not(.plan-section),
         .print-plan > .toolbar {
           display: none;
-        }
-
-        .print-plan .plan-section h3:not(:first-of-type) {
-          break-before: page;
         }
       }
     `,
@@ -224,8 +308,6 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private saving = false;
   @state() private error: string | null = null;
   @state() private search = "";
-  /** Offer every judge for a task, not only those who registered for it. */
-  @state() private showAll = false;
   /** While printing only the Juryplan. */
   @state() private printingPlan = false;
   /** What applying a remap file did. */
@@ -246,6 +328,7 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private status: string | null = null;
 
   @query(".merge-dialog") private mergeDialog?: HTMLElement;
+  @query(".error-banner") private errorBanner?: HTMLElement;
 
   override updated() {
     // The merge question is a popover: open it once it is rendered.
@@ -302,14 +385,6 @@ export default class CupViewAdminJudges extends LitElement {
       return { blocks, index };
     },
   });
-
-  /** The ride conflicts of the linked judges with one Durchgang. */
-  private ridesOf(unit: JuryUnit, session: JurySession, judges: ClubJudge[]) {
-    const rides = this.rides.value;
-    return rides
-      ? judgeConflicts(judges, unit, session, rides.index, rides.blocks)
-      : new Map();
-  }
 
   override render() {
     return html`<div class="page-pad ${this.printingPlan ? "print-plan" : ""}">
@@ -412,47 +487,10 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   /**
-   * The Juryplan: per jury unit and task the assigned judges, a picker to
-   * assign more and the unit's warnings; grouped by day for printing.
+   * The Juryplan: the seat table (per Durchgang the seats T, P, A and their
+   * judges), with the publish and print controls.
    */
   private renderPlan(units: JuryUnit[], judges: ClubJudge[], plan: JuryPlan) {
-    const load = assignedDeployments(units, plan.assignments);
-    const byDay = new Map<string, JuryUnit[]>();
-    for (const unit of units) {
-      const day = unit.day ?? "";
-      byDay.set(day, [...(byDay.get(day) ?? []), unit]);
-    }
-    const days = [...byDay].sort(([a], [b]) =>
-      a === "" ? 1 : b === "" ? -1 : a.localeCompare(b),
-    );
-    const headers = TASKS.map((task) => html`<th>${taskNames[task]}</th>`);
-    const groups = days.map(
-      ([day, dayUnits]) =>
-        html`<h3>${day ? formatDate(day) : "Ohne Tag"}</h3>
-          <table class="dense fit plan">
-            <thead>
-              <tr>
-                <th>Vorlauf / Finale</th>
-                ${headers}
-              </tr>
-            </thead>
-            <tbody>
-              ${repeat(
-                dayUnits,
-                (unit) => unit.id,
-                (unit) => this.renderPlanRow(unit, judges, plan, load),
-              )}
-            </tbody>
-          </table>`,
-    );
-    const overMax = overMaxWarnings(plan.assignments, judges, units);
-    const overMaxLines = overMax.map(
-      (line, i) =>
-        html`${i ? html`<br />` : nothing}<small class="text-warn"
-            >${line}</small
-          >`,
-    );
-    const overMaxList = overMax.length ? html`<p>${overMaxLines}</p>` : nothing;
     const published = plan.published_at;
     // Clubs can change their judges until the judge deadline.
     const end = judgeRegistrationEnd(this.systemStatus?.competition);
@@ -468,14 +506,6 @@ export default class CupViewAdminJudges extends LitElement {
           }</span
         >
         <span class="spacer"></span>
-        <label class="no-print"
-          ><input
-            type="checkbox"
-            .checked=${this.showAll}
-            @change=${this.onShowAllChange}
-          />
-          alle zeigen</label
-        >
         <button class="btn small no-print" @click=${this.printPlan}>
           <span class="material-icon">print</span> Juryplan drucken
         </button>
@@ -493,118 +523,22 @@ export default class CupViewAdminJudges extends LitElement {
         </button>
       </div>
       <p class="muted small no-print">
-        Vorgeschlagen werden die JurorInnen, die sich für Vorlauf oder Finale
-        und Aufgabe gemeldet haben; mit „alle zeigen“ auch alle anderen.
-        Veröffentlicht sieht jeder Verein die Einteilung seiner JurorInnen; das
-        geht erst nach dem Ende der Jury-Anmeldung${
-          end ? ` (${formatDate(end)})` : ""
-        }.
+        Ein Klick auf einen Platz öffnet die Auswahl: zuerst die JurorInnen, die
+        sich für Vorlauf oder Finale und Aufgabe gemeldet haben. Veröffentlicht
+        sieht jeder Verein die Einteilung seiner JurorInnen; das geht erst nach
+        dem Ende der Jury-Anmeldung${end ? ` (${formatDate(end)})` : ""}.
       </p>
-      ${overMaxList} ${groups}
+      <cup-jury-seat-table
+        .units=${units}
+        .judges=${judges}
+        .plan=${plan}
+        .rides=${this.rides.value ?? null}
+        .competition=${this.systemStatus?.competition ?? null}
+        ?saving=${this.saving}
+        @seat-assign=${this.onSeatAssign}
+        @seat-clear=${this.onSeatClear}
+      ></cup-jury-seat-table>
     </section>`;
-  }
-
-  /** One row per Durchgang; an unsplit unit has one, labelled by nothing. */
-  private renderPlanRow(
-    unit: JuryUnit,
-    judges: ClubJudge[],
-    plan: JuryPlan,
-    load: Map<string, number>,
-  ) {
-    const unitAssigned = plan.assignments.filter((a) => a.unit_id === unit.id);
-    return sessionsOf(unit).map((session, index) =>
-      this.renderSessionRow(
-        unit,
-        session,
-        index === 0,
-        judges,
-        plan,
-        unitAssigned,
-        load,
-      ),
-    );
-  }
-
-  private renderSessionRow(
-    unit: JuryUnit,
-    session: JurySession,
-    first: boolean,
-    judges: ClubJudge[],
-    plan: JuryPlan,
-    unitAssigned: JuryPlan["assignments"],
-    load: Map<string, number>,
-  ) {
-    const competition = this.systemStatus?.competition;
-    const assigned = unitAssigned.filter((a) => a.session_id === session.id);
-    const warnings = planWarnings(
-      unit,
-      session,
-      plan.assignments,
-      judges,
-      competition,
-    );
-    const conflicts = this.ridesOf(unit, session, judges);
-    const rideLines = rideWarningLines(
-      unit,
-      session,
-      plan.assignments,
-      judges,
-      conflicts,
-    ).map(
-      (line) =>
-        html`<br /><small
-            class=${line.level === "same" ? "text-bad" : "text-warn"}
-            >${line.text}</small
-          >`,
-    );
-    const label = sessionLabel(unit, session);
-    const byId = new Map(judges.map((j) => [j.id, j]));
-    const cells = TASKS.map((task) => {
-      const names = assigned
-        .filter((a) => a.task === task)
-        .map((a) => {
-          const judge = byId.get(a.judge_id);
-          const registered = judge?.registrations.some(
-            (r) => r.unit_id === unit.id && r.task === task,
-          );
-          return html`<span
-            class="chip ${registered ? "" : "warn"}"
-            title=${registered ? (judge?.club_name ?? "") : "Nicht dafür gemeldet"}
-            >${judge ? `${judge.firstname} ${judge.lastname}` : "?"}
-            <button
-              class="icon-btn no-print"
-              title="Entfernen"
-              aria-label="Entfernen"
-              data-judge=${a.judge_id}
-              data-session=${session.id}
-              ?disabled=${this.saving}
-              @click=${this.onUnassignClick}
-            >
-              close
-            </button></span
-          >`;
-        });
-      return html`<td>
-        <div class="chips">${names}</div>
-        <small class="muted"
-          >${assigned.filter((a) => a.task === task).length}/${neededFor(session, task)}</small
-        >
-        ${this.renderPicker(unit, session, task, judges, unitAssigned, load)}
-      </td>`;
-    });
-    const warningLines = warnings.map(
-      (warning) => html`<br /><small class="text-warn">${warning}</small>`,
-    );
-    return html`<tr>
-      <td>
-        ${first ? html`<b>${unitName(unit)}</b>` : nothing}
-        ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
-        ${first ? this.renderSplitPanel(unit) : nothing}
-        ${label ? html`<span class="chip">${label}</span>` : nothing}
-        ${warningLines} ${rideLines} ${this.renderNeeded(unit, session)}
-      </td>
-      ${cells}
-    </tr>`;
   }
 
   /**
@@ -640,7 +574,9 @@ export default class CupViewAdminJudges extends LitElement {
           />
         </label>`,
     );
-    return html`<div class="need no-print">${inputs}</div>`;
+    return html`<div class="need no-print">
+      <small class="muted">${label || "Durchgang"}</small> ${inputs}
+    </div>`;
   }
 
   /** "Durchgänge": one select per category to group them. */
@@ -766,69 +702,6 @@ export default class CupViewAdminJudges extends LitElement {
     </div>`;
   }
 
-  /**
-   * Judges that can be added to a task of a Durchgang; untrained ones only
-   * count dismounts. Registration is per unit, so a judge already in another
-   * Durchgang of the unit stays selectable, tagged with that Durchgang.
-   */
-  private renderPicker(
-    unit: JuryUnit,
-    session: JurySession,
-    task: JudgeTask,
-    judges: ClubJudge[],
-    unitAssigned: JuryPlan["assignments"],
-    load: Map<string, number>,
-  ) {
-    const taken = new Set(
-      unitAssigned
-        .filter((a) => a.session_id === session.id)
-        .map((a) => a.judge_id),
-    );
-    const elsewhere = new Map<string, string>();
-    for (const a of unitAssigned) {
-      const other = sessionsOf(unit).find((s) => s.id === a.session_id);
-      if (other && other.id !== session.id) {
-        elsewhere.set(a.judge_id, sessionLabel(unit, other));
-      }
-    }
-    const conflicts = this.ridesOf(unit, session, judges);
-    const registered = (judge: ClubJudge) =>
-      judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
-    const options = judges
-      .filter(
-        (judge) =>
-          !taken.has(judge.id) &&
-          (judge.is_trained || task === "dismounts") &&
-          (this.showAll || registered(judge)),
-      )
-      .map((judge) => {
-        const l = assignedLoad(judge, load);
-        const also = elsewhere.get(judge.id);
-        const ride = rideSuffix(conflicts.get(judge.id));
-        return html`<option value=${judge.id}>
-          ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
-          (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
-            l ? ` – ${loadLabel(l)}` : ""
-          }${also ? ` (auch in ${also})` : ""}${ride}
-        </option>`;
-      });
-    if (!options.length) {
-      return nothing;
-    }
-    const label = sessionLabel(unit, session);
-    return html`<select
-      class="no-print"
-      aria-label="${unitName(unit)}${label ? ` (${label})` : ""}: ${taskNames[task]} einteilen"
-      data-session=${session.id}
-      data-task=${task}
-      ?disabled=${this.saving}
-      @change=${this.onAssignChange}
-    >
-      <option value="" selected>+ einteilen</option>
-      ${options}
-    </select>`;
-  }
-
   /** Jury unit × task: trained (and untrained) judges against needed. */
   private renderCoverage(units: JuryUnit[], judges: ClubJudge[]) {
     const counts = coverage(units, judges, this.systemStatus?.competition);
@@ -846,15 +719,19 @@ export default class CupViewAdminJudges extends LitElement {
         const tone = available < needed(unit, task) ? "text-bad" : "text-ok";
         return html`<td
           class="num ${tone}"
+          data-label=${taskNames[task]}
           title="${trained} geschult${untrained ? `, ${untrained} nicht geschult` : ""} · benötigt ${needed(unit, task)}"
         >
           ${available}/${needed(unit, task)}
         </td>`;
       });
       return html`<tr>
-        <td>${unitName(unit)}</td>
+        <td class="head wrap">${unitName(unit)}</td>
         ${cells}
-        <td class="num ${count.fifteen > 3 ? "fifteen" : ""}">
+        <td
+          class="num ${count.fifteen > 3 ? "fifteen" : ""}"
+          data-label="15-jährig"
+        >
           ${count.fifteen || ""}
         </td>
       </tr>`;
@@ -866,7 +743,7 @@ export default class CupViewAdminJudges extends LitElement {
         für Abstiege zählen auch nicht geschulte. „15“: davon 15-jährig (höchstens
         drei je Wertungsklasse).
       </p>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Vorlauf / Finale</th>
@@ -888,11 +765,11 @@ export default class CupViewAdminJudges extends LitElement {
       .map((club) => {
         const jury = club.jury!;
         return html`<tr>
-          <td>${club.name}</td>
-          <td class="num">${jury.acts}</td>
-          <td class="num">${jury.required}</td>
-          <td class="num">${jury.registered}</td>
-          <td class="num">
+          <td class="head wrap">${club.name}</td>
+          <td class="num" data-label="Küren">${jury.acts}</td>
+          <td class="num" data-label="Pflicht">${jury.required}</td>
+          <td class="num" data-label="Gemeldet">${jury.registered}</td>
+          <td class="num" data-label="Korrektur">
             <input
               class="override"
               type="number"
@@ -907,15 +784,18 @@ export default class CupViewAdminJudges extends LitElement {
               @change=${this.onOverrideChange}
             />
           </td>
-          <td class="num ${jury.missing ? "text-bad" : "text-ok"}">
+          <td
+            class="num ${jury.missing ? "text-bad" : "text-ok"}"
+            data-label="Fehlend"
+          >
             ${jury.missing}
           </td>
-          <td class="num">${jury.fee ? formatMoney(jury.fee) : ""}</td>
+          <td class="num" data-label="Jurygebühr">${jury.fee ? formatMoney(jury.fee) : ""}</td>
         </tr>`;
       });
     return html`<section>
       <h2>Pflicht je Verein</h2>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Verein</th>
@@ -993,8 +873,8 @@ export default class CupViewAdminJudges extends LitElement {
       ];
       const l = assignedLoad(judge, load);
       return html`<tr>
-        <td>${judge.club_name}</td>
-        <td>
+        <td class="wrap" data-label="Verein">${judge.club_name}</td>
+        <td class="head wrap">
           ${judge.lastname}, ${judge.firstname}${
             isLinked(judge)
               ? html` <span
@@ -1005,7 +885,9 @@ export default class CupViewAdminJudges extends LitElement {
               : nothing
           }
         </td>
-        <td class="num ${age === 15 ? "fifteen" : ""}">${age ?? ""}</td>
+        <td class="num ${age === 15 ? "fifteen" : ""}" data-label="Alter">
+          ${age ?? ""}
+        </td>
         <td>
           ${
             judge.is_trained
@@ -1013,8 +895,12 @@ export default class CupViewAdminJudges extends LitElement {
               : html`<span class="chip warn">AbstiegszählerIn</span>`
           }
         </td>
-        <td><div class="chips">${chips}</div></td>
-        <td class="num" title=${deploymentNote(judge)}>
+        <td class="wrap" data-label="Wertet"><div class="chips">${chips}</div></td>
+        <td
+          class="num"
+          data-label="Einsätze"
+          title=${deploymentNote(judge)}
+        >
           ${judge.counted_deployments}${
             deploymentNote(judge)
               ? html`<br /><small class="muted">${deploymentNote(judge)}</small>`
@@ -1029,7 +915,7 @@ export default class CupViewAdminJudges extends LitElement {
               : nothing
           }
         </td>
-        <td>${judge.note ?? ""}</td>
+        <td data-label="Notiz">${judge.note ?? ""}</td>
       </tr>`;
     });
     return html`<section>
@@ -1045,7 +931,7 @@ export default class CupViewAdminJudges extends LitElement {
           @input=${this.onSearchInput}
         />
       </div>
-      <table class="dense">
+      <table class="dense cards">
         <thead>
           <tr>
             <th>Verein</th>
@@ -1255,7 +1141,7 @@ export default class CupViewAdminJudges extends LitElement {
         Abstiege. Entfällt ein Vorlauf, nimmt er keine Anmeldungen mehr an; die
         schon gemeldeten zählen weiter.
       </p>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Vorlauf / Finale</th>
@@ -1295,19 +1181,24 @@ export default class CupViewAdminJudges extends LitElement {
 
   private renderRow(unit: JuryUnit) {
     const idle = this.editing === null && !this.saving;
+    // Per Durchgang the needed counts that differ from the unit's.
+    const needed = sessionsOf(unit).map((session) =>
+      this.renderNeeded(unit, session),
+    );
     return html`<tr>
-      <td>
+      <td class="head wrap">
         <b>${unitName(unit)}</b>
         ${
           closedReason(unit)
             ? html`<br /><small class="text-warn">${closedReason(unit)}</small>`
             : nothing
         }
+        ${this.renderSplitPanel(unit)} ${needed}
       </td>
-      <td>
+      <td data-label="Tag">
         ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
       </td>
-      <td>
+      <td data-label="Anmeldung">
         ${
           unit.registrable
             ? "offen"
@@ -1316,11 +1207,11 @@ export default class CupViewAdminJudges extends LitElement {
               >`
         }
       </td>
-      <td class="num">${unit.deployments}</td>
-      <td class="num">${unit.needed_technical}</td>
-      <td class="num">${unit.needed_performance}</td>
-      <td class="num">${unit.needed_dismounts}</td>
-      <td class="nowrap">
+      <td class="num" data-label="Einsätze">${unit.deployments}</td>
+      <td class="num" data-label="Technik">${unit.needed_technical}</td>
+      <td class="num" data-label="Performance">${unit.needed_performance}</td>
+      <td class="num" data-label="Abstiege">${unit.needed_dismounts}</td>
+      <td class="nowrap actions">
         <button
           class="icon-btn"
           title="Bearbeiten"
@@ -1337,8 +1228,8 @@ export default class CupViewAdminJudges extends LitElement {
 
   private renderForm(unit: JuryUnit) {
     const draft = this.draft!;
-    const number = (key: NumberField, label: string) =>
-      html`<td class="num">
+    const number = (key: NumberField, label: string, short: string) =>
+      html`<td class="num" data-label=${short}>
         <input
           type="number"
           min="0"
@@ -1351,11 +1242,11 @@ export default class CupViewAdminJudges extends LitElement {
         />
       </td>`;
     return html`<tr class="editing">
-      <td><b>${unitName(unit)}</b></td>
-      <td>
+      <td class="head wrap"><b>${unitName(unit)}</b></td>
+      <td data-label="Tag">
         ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
       </td>
-      <td>
+      <td data-label="Anmeldung">
         <label>
           <input
             type="checkbox"
@@ -1366,11 +1257,11 @@ export default class CupViewAdminJudges extends LitElement {
           möglich
         </label>
       </td>
-      ${number("deployments", "Einsätze")}
-      ${number("needed_technical", "Benötigte JurorInnen Technik")}
-      ${number("needed_performance", "Benötigte JurorInnen Performance")}
-      ${number("needed_dismounts", "Benötigte AbstiegszählerInnen")}
-      <td class="nowrap">
+      ${number("deployments", "Einsätze", "Einsätze")}
+      ${number("needed_technical", "Benötigte JurorInnen Technik", "Technik")}
+      ${number("needed_performance", "Benötigte JurorInnen Performance", "Performance")}
+      ${number("needed_dismounts", "Benötigte AbstiegszählerInnen", "Abstiege")}
+      <td class="nowrap actions">
         <button
           class="icon-btn primary"
           title="Speichern"
@@ -1393,10 +1284,6 @@ export default class CupViewAdminJudges extends LitElement {
     </tr>`;
   }
 
-  private onShowAllChange(e: Event) {
-    this.showAll = (e.target as HTMLInputElement).checked;
-  }
-
   private async onPublishClick() {
     const published = !this.judges.value?.[2].published_at;
     await this.change(
@@ -1405,25 +1292,38 @@ export default class CupViewAdminJudges extends LitElement {
     );
   }
 
-  private async onAssignChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    const judge_id = select.value;
-    if (!judge_id) {
-      return;
-    }
-    const body = {
-      judge_id,
-      session_id: select.dataset.session!,
-      task: select.dataset.task as JudgeTask,
+  private async onSeatAssign(e: CustomEvent<SeatAssignDetail>) {
+    const { judgeId, sessionId, task, seat } = e.detail;
+    const body = { judge_id: judgeId, session_id: sessionId, task, seat };
+    // Who sat there as far as this view knew; the server decides the outcome.
+    const nameOf = (id: string | undefined) => {
+      const judge = this.judges.value?.[0].find((j) => j.id === id);
+      return judge ? `${judge.firstname} ${judge.lastname}` : null;
     };
-    await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
+    const occupant = this.judges.value?.[2].assignments.find(
+      (a) => a.session_id === sessionId && a.task === task && a.seat === seat,
+    );
+    const result = await this.change(
+      () => unwrap(client.seatJudge({ body })),
+      "Einteilen",
+    );
+    // Only when somebody else is affected; the picker said the rest before.
+    const message =
+      result &&
+      seatOutcomeMessage(
+        result.outcome,
+        nameOf(judgeId) ?? "JurorIn",
+        nameOf(occupant?.judge_id),
+      );
+    if (message) {
+      this.status = message;
+    }
   }
 
-  private async onUnassignClick(e: Event) {
-    const button = e.currentTarget as HTMLElement;
+  private async onSeatClear(e: CustomEvent<SeatClearDetail>) {
     const body = {
-      judge_id: button.dataset.judge!,
-      session_id: button.dataset.session!,
+      judge_id: e.detail.judgeId,
+      session_id: e.detail.sessionId,
     };
     await this.change(
       () => unwrap(client.unassignJudge({ body })),
@@ -1647,6 +1547,12 @@ export default class CupViewAdminJudges extends LitElement {
       return result;
     } catch (error) {
       this.error = `${action} fehlgeschlagen: ${errorMessage(error)}`;
+      // A refusal usually means the view was stale: show the current plan.
+      void Promise.all([this.units.run(), this.judges.run()]);
+      // The banner is at the top; the refusal may come from further down.
+      void this.updateComplete.then(() =>
+        this.errorBanner?.scrollIntoView?.({ block: "nearest" }),
+      );
       return undefined;
     } finally {
       this.saving = false;

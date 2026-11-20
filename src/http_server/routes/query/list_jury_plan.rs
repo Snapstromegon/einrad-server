@@ -1,4 +1,4 @@
-use crate::ids::{ClubId, JudgeId, JuryAssignmentId, JurySessionId, JuryUnitId};
+use crate::ids::ClubId;
 use axum::{Extension, Json, extract::Query, http::StatusCode};
 use time::OffsetDateTime;
 use tracing::instrument;
@@ -9,7 +9,7 @@ use crate::{
         ClientError, HttpError,
         extractor::auth::{Auth, Granted},
     },
-    jury::{JudgeTask, JuryAssignment, JuryEnabled, JuryUnitKind},
+    jury::{self, JuryAssignment, JuryEnabled},
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -25,11 +25,13 @@ pub struct JuryPlan {
     /// When the plan was published; `None` while only the jury lead sees it.
     #[serde(with = "time::serde::rfc3339::option")]
     published_at: Option<OffsetDateTime>,
+    /// One entry per assignment (per seat), sorted by time.
     assignments: Vec<JuryAssignment>,
 }
 
 /// The Juryplan. Admins see all of it; a club sees its own judges'
-/// assignments once the plan is published.
+/// assignments once the plan is published. Every assignment carries its seat
+/// and the day, block and time of its Durchgang.
 #[utoipa::path(
     get,
     tags=["query", "jury"],
@@ -58,38 +60,15 @@ pub async fn list_jury_plan(
         None if jury_lead.is_some() => {}
         None => return Err(HttpError::StatusCode(StatusCode::FORBIDDEN)),
     }
-    let published_at = sqlx::query_scalar!(
-        r#"SELECT jury_plan_published_at as "published_at: OffsetDateTime" FROM competition ORDER BY start_date DESC LIMIT 1"#
-    )
-    .fetch_optional(&mut *conn)
-    .await?
-    .flatten();
+    let published_at = jury::plan_published_at(&mut conn).await?;
+    drop(conn);
     if published_at.is_none() && jury_lead.is_none() {
         return Ok(Json(JuryPlan {
             published_at,
             assignments: vec![],
         }));
     }
-    let assignments = sqlx::query_as!(
-        JuryAssignment,
-        r#"
-        SELECT
-            jury_assignments.id as "id!: JuryAssignmentId",
-            jury_assignments.session_id as "session_id!: JurySessionId",
-            jury_assignments.judge_id as "judge_id!: JudgeId",
-            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
-            jury_assignments.unit_id as "unit_id!: JuryUnitId",
-            jury_assignments.task as "task!: JudgeTask"
-        FROM jury_assignments
-        JOIN view_judge judge ON judge.id = jury_assignments.judge_id
-        JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
-        WHERE ?1 IS NULL OR judge.club_id = ?1
-        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.session_id, jury_assignments.task, judge.lastname, judge.firstname
-        "#,
-        query.club_id
-    )
-    .fetch_all(&mut *conn)
-    .await?;
+    let assignments = jury::plan_assignments(&db, query.club_id).await?;
     Ok(Json(JuryPlan {
         published_at,
         assignments,

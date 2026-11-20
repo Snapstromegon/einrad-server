@@ -633,7 +633,7 @@ impl DemoData {
                         .ok_or_else(|| {
                             format!("Judge {name}: {:?} has no Durchgang.", seat.unit)
                         })?;
-                    crate::jury_sessions::assign(&mut conn, judge_id, session, seat.task)
+                    crate::jury_sessions::assign(&mut conn, judge_id, session, seat.task, None)
                         .await
                         .map_err(|e| format!("Judge {name}, {}: {e}", seat.unit))?;
                 }

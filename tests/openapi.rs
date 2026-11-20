@@ -97,6 +97,7 @@ const COMMANDS: &[&str] = &[
     "edit_club_judge",
     "set_jury_deployments_override",
     "assign_judge",
+    "seat_judge",
     "set_jury_plan_published",
     "set_startlist_published",
     "unassign_judge",

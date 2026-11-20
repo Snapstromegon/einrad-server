@@ -68,6 +68,7 @@ mod reset_password;
 mod resolve_unmapped_registration;
 mod restore_db_backup;
 mod save_act_song;
+mod seat_judge;
 mod send_club_mail;
 mod set_act_music_started;
 mod set_act_order;
@@ -194,6 +195,7 @@ pub fn get_command_router() -> OpenApiRouter {
             set_jury_deployments_override::set_jury_deployments_override
         ))
         .routes(routes!(assign_judge::assign_judge))
+        .routes(routes!(seat_judge::seat_judge))
         .routes(routes!(set_jury_plan_published::set_jury_plan_published))
         .routes(routes!(set_jury_sessions::set_jury_sessions))
         .routes(routes!(set_startlist_published::set_startlist_published))

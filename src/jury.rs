@@ -259,6 +259,37 @@ impl JuryUnitFields {
 /// the heat's categories or of the final; units the timeplan doesn't run
 /// last, by name. The day is the planned day of that block.
 pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpError> {
+    let blocks = predicted_blocks(db).await;
+    list_units_in(db, &blocks).await
+}
+
+/// The blocks of the predicted timeplan; none while it can't be predicted
+/// (logged), so the jury pages still work without a timeplan.
+async fn predicted_blocks(db: &sqlx::SqlitePool) -> Vec<predict_timeplan::TimeplanItem> {
+    match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
+        Ok(plan) => plan.items,
+        Err(e) => {
+            tracing::warn!("No days for the jury units, the timeplan can't be predicted: {e:?}");
+            vec![]
+        }
+    }
+}
+
+/// Whether the block runs a category the predicate accepts.
+fn runs_category(entry: &TimeplanEntry, wanted: &dyn Fn(CategoryId) -> bool) -> bool {
+    matches!(entry, TimeplanEntry::Acts { home_category_id: Some(id), .. } if wanted(*id))
+}
+
+/// Whether the block is the final's.
+fn runs_final(entry: &TimeplanEntry, wanted: FinalId) -> bool {
+    matches!(entry, TimeplanEntry::Acts { final_id: Some(id), .. } if *id == wanted)
+}
+
+/// [`list_units`] with the predicted timeplan blocks at hand.
+async fn list_units_in(
+    db: &sqlx::SqlitePool,
+    blocks: &[predict_timeplan::TimeplanItem],
+) -> Result<Vec<JuryUnit>, HttpError> {
     let mut conn = db.acquire().await?;
     let rows = sqlx::query!(
         r#"
@@ -311,13 +342,6 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
     // Where each unit first runs: the position and planned day of its block.
     // Without a timeplan (or without a start time for its first block) there
     // are no days.
-    let blocks = match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
-        Ok(plan) => plan.items,
-        Err(e) => {
-            tracing::warn!("No days for the jury units, the timeplan can't be predicted: {e:?}");
-            vec![]
-        }
-    };
     let first_block = |matches: &dyn Fn(&TimeplanEntry) -> bool| {
         blocks
             .iter()
@@ -329,21 +353,14 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
         .into_iter()
         .map(|row| {
             let block = match row.kind {
-                JuryUnitKind::Heat => first_block(&|entry| match entry {
-                    TimeplanEntry::Acts {
-                        home_category_id: Some(category),
-                        ..
-                    } => categories
-                        .iter()
-                        .any(|c| c.id == *category && c.heat_id == Some(row.id.as_heat())),
-                    _ => false,
+                JuryUnitKind::Heat => first_block(&|entry| {
+                    runs_category(entry, &|category| {
+                        categories
+                            .iter()
+                            .any(|c| c.id == category && c.heat_id == Some(row.id.as_heat()))
+                    })
                 }),
-                JuryUnitKind::Final => first_block(&|entry| match entry {
-                    TimeplanEntry::Acts {
-                        final_id: Some(id), ..
-                    } => *id == row.id.as_final(),
-                    _ => false,
-                }),
+                JuryUnitKind::Final => first_block(&|entry| runs_final(entry, row.id.as_final())),
             };
             let final_id = match row.kind {
                 JuryUnitKind::Heat => feeds
@@ -1205,4 +1222,139 @@ pub struct JuryAssignment {
     /// The heat's or the final's id.
     pub unit_id: JuryUnitId,
     pub task: JudgeTask,
+    /// The seat number within the Durchgang and task (1-based, ADR 0020).
+    pub seat: i64,
+    /// The seat's name: T, P or A (by task), then the number, e.g. "T3".
+    pub seat_label: String,
+    /// The heat's or the final's readable name.
+    pub unit_name: String,
+    /// The Durchgang's category names joined by ", "; empty for an unsplit
+    /// unit.
+    pub session_label: String,
+    /// The planned day of the Durchgang's first block; `None` while it isn't
+    /// in the timeplan (or the timeplan can't be predicted).
+    #[serde(with = "iso_date::option")]
+    #[schema(value_type = Option<String>, format = Date)]
+    pub day: Option<Date>,
+    /// The title of that block (a block is named "<title> (HH:MM)").
+    pub block_title: Option<String>,
+    /// The planned start of that block.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub starts_at: Option<OffsetDateTime>,
+}
+
+/// When the Juryplan was published; `None` while only the jury lead sees it.
+pub async fn plan_published_at(
+    conn: &mut sqlx::SqliteConnection,
+) -> sqlx::Result<Option<OffsetDateTime>> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT jury_plan_published_at as "published_at: OffsetDateTime" FROM competition ORDER BY start_date DESC LIMIT 1"#
+    )
+    .fetch_optional(conn)
+    .await?
+    .flatten())
+}
+
+/// The Juryplan: one entry per assignment (so per seat) of all judges or of a
+/// club's, with the Durchgang's label, day, block and time, sorted by time
+/// (entries without one last), then unit, Durchgang, task and seat. A
+/// Durchgang's block is the first one running its categories (a final's: the
+/// final's own), as the timeplan predicts it.
+pub async fn plan_assignments(
+    db: &sqlx::SqlitePool,
+    club: Option<ClubId>,
+) -> Result<Vec<JuryAssignment>, HttpError> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            jury_assignments.id as "id!: JuryAssignmentId",
+            jury_assignments.session_id as "session_id!: JurySessionId",
+            jury_assignments.judge_id as "judge_id!: JudgeId",
+            view_jury_unit.kind as "unit_kind!: JuryUnitKind",
+            jury_assignments.unit_id as "unit_id!: JuryUnitId",
+            jury_assignments.task as "task!: JudgeTask",
+            jury_assignments.seat as "seat!: i64"
+        FROM jury_assignments
+        JOIN view_judge judge ON judge.id = jury_assignments.judge_id
+        JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
+        WHERE ?1 IS NULL OR judge.club_id = ?1
+        "#,
+        club
+    )
+    .fetch_all(db)
+    .await?;
+    if rows.is_empty() {
+        return Ok(vec![]);
+    }
+    let blocks = predicted_blocks(db).await;
+    let units = list_units_in(db, &blocks).await?;
+    let mut entries: Vec<(usize, JuryAssignment)> = rows
+        .into_iter()
+        .map(|row| {
+            let unit = units.iter().find(|u| u.id == row.unit_id);
+            let session = unit.and_then(|u| u.sessions.iter().find(|s| s.id == row.session_id));
+            let block = unit.zip(session).and_then(|(unit, session)| {
+                blocks.iter().find(|item| match unit.kind {
+                    JuryUnitKind::Heat => {
+                        runs_category(&item.timeplan_entry, &|category| {
+                            session.categories.iter().any(|c| c.id == category)
+                        }) && !matches!(
+                            item.timeplan_entry,
+                            TimeplanEntry::Acts {
+                                preliminary_skipped: true,
+                                ..
+                            }
+                        )
+                    }
+                    JuryUnitKind::Final => runs_final(&item.timeplan_entry, unit.id.as_final()),
+                })
+            });
+            let title = block.and_then(|item| match &item.timeplan_entry {
+                TimeplanEntry::Acts { description, .. } => Some(description.clone()),
+                _ => None,
+            });
+            let session_label = match (unit, session) {
+                (Some(unit), Some(session)) if unit.sessions.len() > 1 => session
+                    .categories
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => String::new(),
+            };
+            (
+                session.map_or(0, |s| s.number as usize),
+                JuryAssignment {
+                    id: row.id,
+                    judge_id: row.judge_id,
+                    session_id: row.session_id,
+                    unit_kind: row.unit_kind,
+                    unit_id: row.unit_id,
+                    task: row.task,
+                    seat: row.seat,
+                    seat_label: jury_sessions::seat_label(row.task, row.seat),
+                    unit_name: unit.map(|u| u.name.clone()).unwrap_or_default(),
+                    session_label,
+                    day: block.map(|item| item.planned_start.date()),
+                    block_title: title,
+                    starts_at: block.map(|item| item.planned_start),
+                },
+            )
+        })
+        .collect();
+    entries.sort_by(|(a_number, a), (b_number, b)| {
+        let key = |number: &usize, a: &JuryAssignment| {
+            (
+                a.starts_at.is_none(),
+                a.starts_at,
+                a.unit_name.clone(),
+                *number,
+                a.task as u8,
+                a.seat,
+                a.id,
+            )
+        };
+        key(a_number, a).cmp(&key(b_number, b))
+    });
+    Ok(entries.into_iter().map(|(_, a)| a).collect())
 }
