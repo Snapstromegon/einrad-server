@@ -1263,7 +1263,10 @@ async fn a_refused_merge_names_the_categories_of_a_split_target() {
     assert_eq!(response.status, REFUSED, "{:?}", response.body);
     let text = message(&response);
     assert!(text.contains("Im Durchgang EMU17, EMU19 "), "{text}");
-    assert!(text.contains("Anna Beispiel bekommt keinen Platz"), "{text}");
+    assert!(
+        text.contains("Anna Beispiel bekommt keinen Platz"),
+        "{text}"
+    );
     assert_eq!(assignments_state(&f.app).await, before);
 }
 
