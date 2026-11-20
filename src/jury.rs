@@ -475,6 +475,119 @@ pub async fn unit_is_registrable(
     .await
 }
 
+/// A linked judge's rider has an act in a category of a heat (#405).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+pub struct RideConflict {
+    /// The category the rider rides in.
+    pub category: String,
+    /// The rider is only a replacement (Ersatzfahrer) there.
+    pub replacement: bool,
+}
+
+/// One heat a rider rides in: the category, and whether only as replacement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HeatRide {
+    pub rider_id: RiderId,
+    pub heat_id: HeatId,
+    pub category: String,
+    pub replacement: bool,
+}
+
+/// The heats riders ride in (#405), one row per rider and heat. A rider rides
+/// in a heat when they take part (also as replacement) in a not withdrawn act
+/// whose category belongs to it; an act without a category rides nowhere. The
+/// regular ride is preferred over a replacement ride, then the first category.
+/// Each of `club_id`, `rider_id` and `heat_id` narrows the rows when given.
+pub(crate) async fn heat_rides(
+    conn: &mut sqlx::SqliteConnection,
+    club_id: Option<ClubId>,
+    rider_id: Option<RiderId>,
+    heat_id: Option<HeatId>,
+) -> sqlx::Result<Vec<HeatRide>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            p.rider_id as "rider_id!: RiderId",
+            c.heat_id as "heat_id!: HeatId",
+            c.name as "category!",
+            c."order" as "order: i64",
+            p.is_replacement as "replacement!: bool"
+        FROM act_participants p
+        JOIN view_act a ON a.id = p.act_id
+        JOIN categories c ON c.id = a.category_id
+        JOIN rider r ON r.id = p.rider_id
+        WHERE a.withdrawn_at IS NULL
+            AND c.heat_id IS NOT NULL
+            AND (?1 IS NULL OR r.club_id = ?1)
+            AND (?2 IS NULL OR p.rider_id = ?2)
+            AND (?3 IS NULL OR c.heat_id = ?3)
+        "#,
+        club_id,
+        rider_id,
+        heat_id
+    )
+    .fetch_all(conn)
+    .await?;
+    let mut rides: Vec<(bool, Option<i64>, HeatRide)> = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.replacement,
+                row.order,
+                HeatRide {
+                    rider_id: row.rider_id,
+                    heat_id: row.heat_id,
+                    category: row.category,
+                    replacement: row.replacement,
+                },
+            )
+        })
+        .collect();
+    rides.sort_by(|(a_replacement, a_order, a), (b_replacement, b_order, b)| {
+        (a_replacement, a_order.is_none(), a_order, &a.category).cmp(&(
+            b_replacement,
+            b_order.is_none(),
+            b_order,
+            &b.category,
+        ))
+    });
+    let mut seen = std::collections::HashSet::new();
+    Ok(rides
+        .into_iter()
+        .map(|(_, _, ride)| ride)
+        .filter(|ride| seen.insert((ride.rider_id, ride.heat_id)))
+        .collect())
+}
+
+/// How `rider_id` rides in the heat `heat_id`, or `None` when they don't.
+pub async fn ride_conflict(
+    conn: &mut sqlx::SqliteConnection,
+    rider_id: RiderId,
+    heat_id: HeatId,
+) -> sqlx::Result<Option<RideConflict>> {
+    Ok(heat_rides(conn, None, Some(rider_id), Some(heat_id))
+        .await?
+        .into_iter()
+        .next()
+        .map(|ride| RideConflict {
+            category: ride.category,
+            replacement: ride.replacement,
+        }))
+}
+
+/// The refusal for a new registration of a rider who rides in the heat (German).
+pub fn ride_conflict_message(name: &str, conflict: &RideConflict) -> String {
+    format!(
+        "{name} fährt in {}{} und kann deshalb nicht für diesen Vorlauf gemeldet werden.",
+        conflict.category,
+        if conflict.replacement {
+            " als Ersatzfahrer"
+        } else {
+            ""
+        }
+    )
+}
+
 /// The refusal for a unit that takes no registrations (D6, German message).
 pub fn not_registrable() -> HttpError {
     HttpError::ErrorMessages(
@@ -918,6 +1031,24 @@ pub async fn save_judge(
                 return Err(not_registrable());
             }
             Some(_) => {}
+        }
+        // A rider can't judge the Vorlauf they ride in (#405). Only new
+        // registrations: what the judge already has stays, like for a closed
+        // unit. Finals are #408.
+        if registration.unit_kind == JuryUnitKind::Heat
+            && let Some(rider_id) = rider_id
+            && !existing.contains(&(
+                registration.unit_kind,
+                registration.unit_id,
+                registration.task,
+            ))
+            && let Some(conflict) =
+                ride_conflict(conn, rider_id, HeatId(registration.unit_id.0)).await?
+        {
+            return Err(HttpError::ErrorMessages(ride_conflict_message(
+                &format!("{} {}", identity.firstname, identity.lastname),
+                &conflict,
+            )));
         }
         let (heat_id, final_id) = unit_columns(registration.unit_kind, registration.unit_id);
         sqlx::query!(
