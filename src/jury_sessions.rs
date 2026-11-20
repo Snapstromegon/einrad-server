@@ -497,6 +497,14 @@ pub struct SplitResult {
     pub deleted: i64,
 }
 
+/// An assignment of a Durchgang a save of the split removes.
+struct RemovedAssignment {
+    session: JurySessionId,
+    judge: JudgeId,
+    task: JudgeTask,
+    seat: i64,
+}
+
 fn refuse(message: &str) -> HttpError {
     HttpError::ErrorMessages(message.to_string())
 }
@@ -513,7 +521,9 @@ fn not_found() -> HttpError {
 /// sessions that are not listed are removed. Of a removed session's
 /// assignments only those in `keep` survive, in the listed session that
 /// receives most of its categories (a tie: the earliest in the list); the
-/// rest is deleted.
+/// rest is deleted. A kept assignment keeps its seat if that is free in its
+/// target (within the target's count), else gets the lowest free one; with
+/// none within the count the save is refused (ADR 0020).
 pub async fn set_sessions(
     conn: &mut SqliteConnection,
     kind: JuryUnitKind,
@@ -602,17 +612,26 @@ pub async fn set_sessions(
     }
 
     // The assignments of the removed sessions, and the ones kept.
-    let mut of_removed: HashMap<JuryAssignmentId, (JurySessionId, JudgeId)> = HashMap::new();
+    let mut of_removed: HashMap<JuryAssignmentId, RemovedAssignment> = HashMap::new();
     for session in &removed {
         for row in sqlx::query!(
-            r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId"
+            r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId",
+                task as "task!: JudgeTask", seat as "seat!: i64"
             FROM jury_assignments WHERE session_id = ?"#,
             session
         )
         .fetch_all(&mut *conn)
         .await?
         {
-            of_removed.insert(row.id, (*session, row.judge_id));
+            of_removed.insert(
+                row.id,
+                RemovedAssignment {
+                    session: *session,
+                    judge: row.judge_id,
+                    task: row.task,
+                    seat: row.seat,
+                },
+            );
         }
     }
     let keep: HashSet<JuryAssignmentId> = keep.into_iter().collect();
@@ -636,8 +655,10 @@ pub async fn set_sessions(
         }
     }
     for id in &keep {
-        let (from, judge) = of_removed[id];
-        *judges.entry((target_of[&from], judge)).or_default() += 1;
+        let moved = &of_removed[id];
+        *judges
+            .entry((target_of[&moved.session], moved.judge))
+            .or_default() += 1;
     }
     if let Some((_, judge)) = judges.iter().find(|(_, n)| **n > 1).map(|(k, _)| *k) {
         let name = sqlx::query!(
@@ -686,23 +707,76 @@ pub async fn set_sessions(
         moved: 0,
         deleted: 0,
     };
-    for (id, (from, _)) in &of_removed {
-        if keep.contains(id) {
-            let target = target_of[from];
-            sqlx::query!(
-                "UPDATE jury_assignments SET session_id = ? WHERE id = ?",
-                target,
-                id
-            )
+    for id in of_removed.keys().filter(|id| !keep.contains(id)) {
+        sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", id)
             .execute(&mut *conn)
             .await?;
-            result.moved += 1;
+        result.deleted += 1;
+    }
+    // Kept assignments keep their seat if it is free in the target (taken
+    // ones include those moved before), else get its lowest free one; none
+    // within the target's count refuses the save. Order: old seat, then id.
+    let mut kept: Vec<(&JuryAssignmentId, &RemovedAssignment)> = of_removed
+        .iter()
+        .filter(|(id, _)| keep.contains(id))
+        .collect();
+    kept.sort_by_key(|(id, moved)| (moved.seat, **id));
+    for (id, moved) in kept {
+        let target = target_of[&moved.session];
+        let needed = session_needed(conn, target, moved.task).await?;
+        let used = used_seats(conn, target, moved.task).await?;
+        let lowest_free = (1..).find(|n| !used.contains(n)).unwrap_or(1);
+        let seat = if !used.contains(&moved.seat) && moved.seat <= needed {
+            moved.seat
         } else {
-            sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", id)
-                .execute(&mut *conn)
-                .await?;
-            result.deleted += 1;
+            lowest_free
+        };
+        if seat > needed {
+            let label = if listed.len() == 1 {
+                sqlx::query_scalar!(
+                    r#"SELECT name as "name!" FROM view_jury_unit WHERE id = ?"#,
+                    unit
+                )
+                .fetch_one(&mut *conn)
+                .await?
+            } else {
+                let group = listed.iter().find(|(id, _)| *id == target).map(|(_, s)| *s);
+                let mut names: Vec<&UnitCategory> = categories
+                    .iter()
+                    .filter(|c| group.is_some_and(|g| g.category_ids.contains(&c.id)))
+                    .collect();
+                names.sort_by(|a, b| {
+                    (a.order.unwrap_or(i64::MAX), &a.name)
+                        .cmp(&(b.order.unwrap_or(i64::MAX), &b.name))
+                });
+                names
+                    .into_iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let name = sqlx::query!(
+                r#"SELECT firstname as "firstname!", lastname as "lastname!" FROM view_judge WHERE id = ?"#,
+                moved.judge
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            return Err(HttpError::ErrorMessages(format!(
+                "Im Durchgang {label} gibt es nicht genug freie Plätze für {}: {} {} bekommt keinen Platz.",
+                task_name(moved.task),
+                name.firstname,
+                name.lastname
+            )));
         }
+        sqlx::query!(
+            "UPDATE jury_assignments SET session_id = ?, seat = ? WHERE id = ?",
+            target,
+            seat,
+            id
+        )
+        .execute(&mut *conn)
+        .await?;
+        result.moved += 1;
     }
     for session in &removed {
         sqlx::query!("DELETE FROM jury_sessions WHERE id = ?", session)

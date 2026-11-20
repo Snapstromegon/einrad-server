@@ -329,10 +329,14 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_categories(&["EMU17", "EMU23"]).await
+    }
+
+    async fn with_categories(categories: &[&str]) -> Self {
         let app = TestApp::new(common::in_memory_migrated().await).await;
         let admin = app.create_admin().await;
         let club = app.create_club_owner("Owner RSV", "RSV").await;
-        let unit = new_heat(&app, &admin, "Neu", &["EMU17", "EMU23"]).await;
+        let unit = new_heat(&app, &admin, "Neu", categories).await;
         let session = unit["sessions"][0]["id"].clone();
         let f = Fixture {
             app,
@@ -1035,4 +1039,223 @@ async fn other_tasks_are_not_affected() {
     let max = f.judge("Max", "Müller", true).await;
     f.assign_ok(&max, "technical", Some(4)).await;
     assert_eq!(f.edit_unit(5, 0, 2, 2).await.status, StatusCode::OK);
+}
+
+// ---------- Re-merge gives moved assignments free seats ----------
+
+const MERGE_NO_SEATS: &str = "Im Durchgang Neu gibt es nicht genug freie Plätze für Technik: Anna Beispiel bekommt keinen Platz.";
+
+impl Fixture {
+    /// Saves the split of the unit: groups of (existing Durchgang or new,
+    /// categories), keeping these assignments.
+    async fn save_split(&self, groups: Value, keep: Vec<Value>) -> common::TestResponse {
+        self.app
+            .post(
+                "/api/command/set_jury_sessions",
+                json!({
+                    "kind": self.unit["kind"], "id": self.unit["id"],
+                    "sessions": groups, "keep_assignment_ids": keep,
+                }),
+                Some(&self.admin),
+            )
+            .await
+    }
+
+    async fn id_of(&self, judge: &Value, session: &Value) -> Value {
+        self.assignment_id(judge, session).await.unwrap()
+    }
+}
+
+/// No (session, task, seat) twice.
+async fn no_duplicate_seats(app: &TestApp) {
+    let duplicates: Vec<i64> = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM jury_assignments GROUP BY session_id, task, seat HAVING COUNT(*) > 1",
+    )
+    .fetch_all(&app.db)
+    .await
+    .unwrap();
+    assert!(duplicates.is_empty());
+}
+
+#[tokio::test]
+async fn a_moved_assignment_keeps_its_seat_when_it_is_free() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let max = f.judge("Max", "Müller", true).await;
+    assert_eq!(
+        f.assign(&max, &second, "technical", Some(2)).await.status,
+        StatusCode::OK
+    );
+    let id = f.id_of(&max, &second).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+
+    let response = f
+        .save_split(
+            json!([{ "id": f.session, "category_ids": [emu17, emu23] }]),
+            vec![id],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T2"));
+    no_duplicate_seats(&f.app).await;
+}
+
+#[tokio::test]
+async fn a_moved_assignment_gets_the_lowest_free_seat_when_its_seat_is_taken() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&erika, "technical", Some(1)).await;
+    assert_eq!(
+        f.assign(&max, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    let id = f.id_of(&max, &second).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+
+    let response = f
+        .save_split(
+            json!([{ "id": f.session, "category_ids": [emu17, emu23] }]),
+            vec![id],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(f.seat_of(&erika, &f.session).await.as_deref(), Some("T1"));
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T2"));
+    no_duplicate_seats(&f.app).await;
+}
+
+#[tokio::test]
+async fn two_moved_assignments_do_not_collide() {
+    let mut f = Fixture::with_categories(&["EMU17", "EMU19", "EMU23"]).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu19 = f.app.category_id("EMU19").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    let d1 = f.session.clone();
+    let response = f
+        .save_split(
+            json!([
+                { "id": d1, "category_ids": [emu17] },
+                { "id": null, "category_ids": [emu19] },
+                { "id": null, "category_ids": [emu23] },
+            ]),
+            vec![],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    f.reload_unit().await;
+    let sessions: Vec<Value> = f.unit["sessions"].as_array().unwrap().clone();
+    assert_eq!(sessions.len(), 3);
+    let (d2, d3) = (sessions[1]["id"].clone(), sessions[2]["id"].clone());
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    for (judge, session) in [(&erika, &d1), (&max, &d2), (&anna, &d3)] {
+        let response = f.assign(judge, session, "technical", Some(1)).await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+    let keep = vec![f.id_of(&max, &d2).await, f.id_of(&anna, &d3).await];
+
+    let response = f
+        .save_split(
+            json!([{ "id": d1, "category_ids": [emu17, emu19, emu23] }]),
+            keep,
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    // By old seat, then assignment id: Max before Anna.
+    assert_eq!(f.seat_of(&erika, &d1).await.as_deref(), Some("T1"));
+    assert_eq!(f.seat_of(&max, &d1).await.as_deref(), Some("T2"));
+    assert_eq!(f.seat_of(&anna, &d1).await.as_deref(), Some("T3"));
+    no_duplicate_seats(&f.app).await;
+}
+
+#[tokio::test]
+async fn a_merge_that_leaves_no_free_seat_is_refused() {
+    let mut f = Fixture::new().await;
+    f.set_unit_needed(2, 2, 2, true).await;
+    let second = f.split_in_two().await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign_ok(&erika, "technical", Some(1)).await;
+    f.assign_ok(&max, "technical", Some(2)).await;
+    assert_eq!(
+        f.assign(&anna, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    let id = f.id_of(&anna, &second).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    let merged = json!([{ "id": f.session, "category_ids": [emu17, emu23] }]);
+    let before = assignments_state(&f.app).await;
+    let sessions_before = texts(&f.app.db, "SELECT hex(id) FROM jury_sessions ORDER BY 1").await;
+
+    let response = f.save_split(merged.clone(), vec![id]).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(message(&response), MERGE_NO_SEATS);
+    assert_eq!(assignments_state(&f.app).await, before);
+    assert_eq!(
+        texts(&f.app.db, "SELECT hex(id) FROM jury_sessions ORDER BY 1").await,
+        sessions_before
+    );
+
+    // Not kept, it merges and Anna's assignment is deleted.
+    let response = f.save_split(merged, vec![]).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(f.seat_of(&anna, &f.session).await, None);
+    assert_eq!(plan(&f.app, &f.admin).await.len(), 2);
+}
+
+#[tokio::test]
+async fn moved_seats_follow_the_target_of_each_assignment() {
+    let mut f = Fixture::with_categories(&["EMU17", "EMU19", "EMU21", "EMU23"]).await;
+    let c17 = f.app.category_id("EMU17").await;
+    let c19 = f.app.category_id("EMU19").await;
+    let c21 = f.app.category_id("EMU21").await;
+    let c23 = f.app.category_id("EMU23").await;
+    let first = f.session.clone();
+    let response = f
+        .save_split(
+            json!([
+                { "id": first, "category_ids": [c17, c19, c21] },
+                { "id": null, "category_ids": [c23] },
+            ]),
+            vec![],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    f.reload_unit().await;
+    let second = f.unit["sessions"][1]["id"].clone();
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    assert_eq!(
+        f.assign(&max, &first, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.assign(&erika, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    let id = f.id_of(&max, &first).await;
+
+    // The first Durchgang goes: EMU17 to a new group, EMU19 and EMU21 to the
+    // second, which receives most of its categories; Max's seat 1 is taken
+    // there by Erika.
+    let response = f
+        .save_split(
+            json!([
+                { "id": null, "category_ids": [c17] },
+                { "id": second, "category_ids": [c19, c21, c23] },
+            ]),
+            vec![id],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(f.seat_of(&max, &second).await.as_deref(), Some("T2"));
+    assert_eq!(f.seat_of(&erika, &second).await.as_deref(), Some("T1"));
+    no_duplicate_seats(&f.app).await;
 }
