@@ -214,11 +214,12 @@ describe("jury", () => {
       { id: "4", birthdate: "2012-01-01T00:00:00.000Z" },
       { id: "5", birthdate: "1990-01-01T00:00:00.000Z" },
     ];
-    const assign = (judge_id, task, session_id = "s") => ({
+    const assign = (judge_id, task, session_id = "s", seat = 1) => ({
       judge_id,
       unit_id: "a",
       session_id,
       task,
+      seat,
     });
     assert.deepEqual(
       planWarnings(
@@ -228,14 +229,14 @@ describe("jury", () => {
         judges,
         start,
       ),
-      ["Technik: 1 von 2", "Performance: 0 von 1"],
+      ["2 Plätze unbesetzt (T2, P1)"],
     );
     assert.deepEqual(
       planWarnings(
         unit,
         session,
         ["1", "2", "3", "4"].map((id, i) =>
-          assign(id, i < 2 ? "technical" : "performance"),
+          assign(id, i < 2 ? "technical" : "performance", "s", (i % 2) + 1),
         ),
         judges,
         start,

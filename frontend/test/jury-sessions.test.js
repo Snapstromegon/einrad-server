@@ -58,11 +58,12 @@ describe("jury sessions: warnings per Durchgang", () => {
     id,
     birthdate: fifteen,
   }));
-  const assign = (judge_id, session_id, task = "technical") => ({
+  const assign = (judge_id, session_id, task = "technical", seat = 1) => ({
     judge_id,
     unit_id: "u",
     session_id,
     task,
+    seat,
   });
 
   test("session 2 ignores the assignments of session 1 and is prefixed", () => {
@@ -75,8 +76,7 @@ describe("jury sessions: warnings per Durchgang", () => {
       assign("3", "s2"),
     ];
     assert.deepEqual(planWarnings(unit, b, assignments, [], start), [
-      "EMU30, EMU40: Technik: 1 von 5",
-      "EMU30, EMU40: Performance: 0 von 1",
+      "EMU30, EMU40: 5 Plätze unbesetzt (T2, T3, T4, T5, P1)",
     ]);
     assert.deepEqual(planWarnings(unit, a, assignments, [], start), []);
   });
@@ -84,8 +84,7 @@ describe("jury sessions: warnings per Durchgang", () => {
   test("an unsplit unit's warnings are not prefixed", () => {
     const s = session("s1", ["EMU23", "EMU30"]);
     assert.deepEqual(planWarnings(unitOf(s), s, [], [], start), [
-      "Technik: 0 von 1",
-      "Performance: 0 von 1",
+      "2 Plätze unbesetzt (T1, P1)",
     ]);
   });
 
@@ -494,11 +493,12 @@ describe("jury sessions: ride warnings", () => {
     text: `fährt in Einzel W Expert 1 (${time})`,
     ...extra,
   });
-  const assign = (judge_id, session_id, task = "technical") => ({
+  const assign = (judge_id, session_id, task = "technical", seat = 1) => ({
     judge_id,
     unit_id: "u",
     session_id,
     task,
+    seat,
   });
   const done = { needed_technical: 1, needed_performance: 0 };
 

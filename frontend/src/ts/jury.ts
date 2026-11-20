@@ -2,6 +2,7 @@
 // helpers, so the unit tests can import them without a DOM.
 import type { schemas } from "./apiClient";
 import type { RideConflict, RideLevel } from "./jury-blocks";
+import { emptySeats } from "./jury-seats";
 import type { Competition } from "./utils";
 
 export type JurySession = schemas.JurySession;
@@ -161,10 +162,9 @@ export const neededFor = (
 export const MAX_FIFTEEN = 3;
 
 /**
- * What's wrong with a Durchgang in the Juryplan: tasks with fewer judges
- * than needed, and more than three 15-year-old judges (one jury). More
- * judges than needed are fine. A split unit's lines are prefixed with the
- * Durchgang's label.
+ * What's wrong with a Durchgang in the Juryplan: empty seats (one line, "1
+ * Platz unbesetzt (A3)"), and more than three 15-year-old judges (one jury).
+ * A split unit's lines are prefixed with the Durchgang's label.
  */
 export const planWarnings = (
   unit: { sessions?: unknown[] },
@@ -172,7 +172,7 @@ export const planWarnings = (
     id: string;
     categories: { name: string }[];
   },
-  assignments: { judge_id: string; session_id: string; task: Task }[],
+  assignments: schemas.JuryPlan["assignments"],
   judges: { id: string; birthdate: string }[],
   competition: Pick<Competition, "start_date"> | null | undefined,
 ) => {
@@ -180,12 +180,12 @@ export const planWarnings = (
   const label = sessionLabel(unit, session);
   const prefix = label ? `${label}: ` : "";
   const warnings: string[] = [];
-  for (const task of TASKS) {
-    const assigned = own.filter((a) => a.task === task).length;
-    const needed = neededFor(session, task);
-    if (assigned < needed) {
-      warnings.push(`${prefix}${taskNames[task]}: ${assigned} von ${needed}`);
-    }
+  const empty = emptySeats(session, own);
+  if (empty.length) {
+    const labels = empty.map((seat) => seat.label).join(", ");
+    warnings.push(
+      `${prefix}${empty.length} ${empty.length === 1 ? "Platz" : "Plätze"} unbesetzt (${labels})`,
+    );
   }
   const birthdates = new Map(judges.map((j) => [j.id, j.birthdate]));
   const fifteen = own.filter((a) => {
