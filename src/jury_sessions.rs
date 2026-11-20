@@ -917,6 +917,161 @@ pub async fn assign(
     }
 }
 
+/// What [`seat_judge`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatOutcome {
+    /// The judge had no seat in the Durchgang and the seat was free.
+    Assigned,
+    /// The judge moved from another seat to the free seat.
+    Moved,
+    /// The judge and the seat's occupant changed seats.
+    Swapped,
+    /// The judge moved to the occupied seat; the occupant could not take the
+    /// judge's old seat and was removed.
+    MovedReplaced,
+    /// The judge had no seat and replaced the occupant, who was removed.
+    Replaced,
+    /// The judge already sat on the seat.
+    Unchanged,
+}
+
+/// Whether the occupant O of the seat a judge moves to takes the judge's old
+/// seat (task `a`), the judge now being on a seat of task `b`: on the same
+/// task, or when O is registered for task `a` of the unit, and O may judge
+/// `a` (trained, or `a` is dismounts).
+fn occupant_follows(
+    task_a: JudgeTask,
+    task_b: JudgeTask,
+    o_registered_for_a: bool,
+    o_trained: bool,
+) -> bool {
+    (task_a == task_b || o_registered_for_a) && (o_trained || task_a == JudgeTask::Dismounts)
+}
+
+/// Puts a judge on a seat of a session: assigns, moves, swaps or replaces,
+/// as the state of the judge and the seat requires, in the caller's
+/// transaction (it must roll back on an error). A judge sits once per
+/// session, so a judge on another seat moves; the seat's occupant then takes
+/// the judge's old seat (see [`occupant_follows`]) or is removed. A judge
+/// without a seat replaces the occupant. Only seats within the needed count
+/// can be chosen; an old seat beyond it can be the occupant's new one.
+pub async fn seat_judge(
+    conn: &mut SqliteConnection,
+    judge: JudgeId,
+    session: JurySessionId,
+    task: JudgeTask,
+    seat: i64,
+) -> Result<SeatOutcome, HttpError> {
+    let is_trained = sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", judge)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(not_found)?;
+    let (unit_kind, unit_id) = session_unit(conn, session).await?;
+    let needed = session_needed(conn, session, task).await?;
+    if seat < 1 || seat > needed {
+        return Err(no_such_seat(task, seat));
+    }
+    let current = sqlx::query!(
+        r#"SELECT id as "id!: JuryAssignmentId", task as "task!: JudgeTask", seat as "seat!: i64"
+        FROM jury_assignments WHERE judge_id = ? AND session_id = ?"#,
+        judge,
+        session
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if current
+        .as_ref()
+        .is_some_and(|c| c.task == task && c.seat == seat)
+    {
+        return Ok(SeatOutcome::Unchanged);
+    }
+    if !is_trained && task != JudgeTask::Dismounts {
+        return Err(refuse(
+            "Nicht geschulte Personen können nur Abstiege zählen.",
+        ));
+    }
+    let occupant = sqlx::query!(
+        r#"SELECT id as "id!: JuryAssignmentId", judge_id as "judge_id!: JudgeId"
+        FROM jury_assignments WHERE session_id = ? AND task = ? AND seat = ?"#,
+        session,
+        task,
+        seat
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (heat_id, final_id) = jury::unit_columns(unit_kind, unit_id);
+
+    // The occupant's row is removed first, so the seat is free for the judge.
+    if let Some(occupant) = &occupant {
+        sqlx::query!("DELETE FROM jury_assignments WHERE id = ?", occupant.id)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let Some(current) = current else {
+        sqlx::query!(
+            "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            JuryAssignmentId::new(),
+            judge,
+            heat_id,
+            final_id,
+            session,
+            task,
+            seat,
+        )
+        .execute(&mut *conn)
+        .await?;
+        return Ok(if occupant.is_some() {
+            SeatOutcome::Replaced
+        } else {
+            SeatOutcome::Assigned
+        });
+    };
+    sqlx::query!(
+        "UPDATE jury_assignments SET task = ?, seat = ? WHERE id = ?",
+        task,
+        seat,
+        current.id
+    )
+    .execute(&mut *conn)
+    .await?;
+    let Some(occupant) = occupant else {
+        return Ok(SeatOutcome::Moved);
+    };
+    let o_trained = sqlx::query_scalar!(
+        "SELECT is_trained FROM judge WHERE id = ?",
+        occupant.judge_id
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let o_registered = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!: i64" FROM judge_registration
+        WHERE judge_id = ? AND unit_id = ? AND task = ?"#,
+        occupant.judge_id,
+        unit_id,
+        current.task
+    )
+    .fetch_one(&mut *conn)
+    .await?
+        > 0;
+    if !occupant_follows(current.task, task, o_registered, o_trained) {
+        return Ok(SeatOutcome::MovedReplaced);
+    }
+    sqlx::query!(
+        "INSERT INTO jury_assignments (id, judge_id, heat_id, final_id, session_id, task, seat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        occupant.id,
+        occupant.judge_id,
+        heat_id,
+        final_id,
+        session,
+        current.task,
+        current.seat,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(SeatOutcome::Swapped)
+}
+
 /// Removes a judge from a session.
 pub async fn unassign(
     conn: &mut SqliteConnection,
@@ -931,4 +1086,30 @@ pub async fn unassign(
     .execute(conn)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use JudgeTask::*;
+
+    #[test]
+    fn the_occupant_follows_on_the_same_task_or_when_registered_and_allowed() {
+        // Same task: no registration needed.
+        assert!(occupant_follows(Technical, Technical, false, true));
+        // Another task: registered for the judge's old task.
+        assert!(occupant_follows(Technical, Performance, true, true));
+        assert!(!occupant_follows(Technical, Performance, false, true));
+        // An untrained occupant only follows onto dismounts.
+        assert!(!occupant_follows(Technical, Performance, true, false));
+        assert!(occupant_follows(Dismounts, Technical, true, false));
+        assert!(!occupant_follows(Dismounts, Technical, false, false));
+    }
+
+    #[test]
+    fn seats_are_named_by_task_letter_and_number() {
+        assert_eq!(seat_label(Technical, 3), "T3");
+        assert_eq!(seat_label(Performance, 1), "P1");
+        assert_eq!(seat_label(Dismounts, 12), "A12");
+    }
 }

@@ -587,3 +587,321 @@ async fn unknown_judge_or_session_and_duplicates_keep_their_answers() {
     assert_eq!(response.status, REFUSED, "{:?}", response.body);
     assert_eq!(message(&response), "Die JurorIn ist hier schon eingeteilt.");
 }
+
+// ---------- seat_judge ----------
+
+impl Fixture {
+    /// A judge registered for these tasks of the unit.
+    async fn registered(&self, first: &str, last: &str, tasks: &[&str]) -> Value {
+        let registrations: Vec<Value> = tasks
+            .iter()
+            .map(|task| {
+                json!({ "unit_kind": self.unit["kind"], "unit_id": self.unit["id"], "task": task })
+            })
+            .collect();
+        add_judge(
+            &self.app,
+            &self.club.0,
+            self.club.1,
+            first,
+            last,
+            true,
+            json!(registrations),
+        )
+        .await
+    }
+
+    /// Splits the heat into EMU17 (the first Durchgang) and EMU23; returns the
+    /// second Durchgang's id.
+    async fn split_in_two(&mut self) -> Value {
+        let emu17 = self.app.category_id("EMU17").await;
+        let emu23 = self.app.category_id("EMU23").await;
+        let response = self
+            .app
+            .post(
+                "/api/command/set_jury_sessions",
+                json!({
+                    "kind": self.unit["kind"], "id": self.unit["id"],
+                    "sessions": [
+                        { "id": self.session, "category_ids": [emu17] },
+                        { "id": null, "category_ids": [emu23] },
+                    ],
+                }),
+                Some(&self.admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+        self.reload_unit().await;
+        self.unit["sessions"][1]["id"].clone()
+    }
+
+    async fn seat_judge(
+        &self,
+        judge: &Value,
+        session: &Value,
+        task: &str,
+        seat: i64,
+    ) -> common::TestResponse {
+        self.app
+            .post(
+                "/api/command/seat_judge",
+                json!({ "judge_id": judge, "session_id": session, "task": task, "seat": seat }),
+                Some(&self.admin),
+            )
+            .await
+    }
+
+    /// Seats the judge in the first Durchgang and returns the outcome.
+    async fn seat_ok(&self, judge: &Value, task: &str, seat: i64) -> String {
+        let response = self.seat_judge(judge, &self.session, task, seat).await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+        response.body["outcome"].as_str().unwrap().to_string()
+    }
+
+    /// The assignment id of `judge` in `session`.
+    async fn assignment_id(&self, judge: &Value, session: &Value) -> Option<Value> {
+        plan(&self.app, &self.admin)
+            .await
+            .into_iter()
+            .find(|a| &a["judge_id"] == judge && &a["session_id"] == session)
+            .map(|a| a["id"].clone())
+    }
+
+    /// Registers the judge (any training) for the task of the unit, in SQL.
+    async fn register_raw(&self, judge: &Value, task: &str) {
+        let judge = uuid::Uuid::parse_str(judge.as_str().unwrap()).unwrap();
+        let heat = uuid::Uuid::parse_str(self.unit["id"].as_str().unwrap()).unwrap();
+        sqlx::query("INSERT INTO judge_registration (judge_id, heat_id, task) VALUES (?, ?, ?)")
+            .bind(judge)
+            .bind(heat)
+            .bind(task)
+            .execute(&self.app.db)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn seat_judge_assigns_to_a_free_seat() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    assert_eq!(f.seat_ok(&max, "technical", 2).await, "assigned");
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T2"));
+}
+
+#[tokio::test]
+async fn a_judge_on_another_seat_moves_when_the_seat_is_empty() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    let id = f.assignment_id(&max, &f.session).await;
+    assert_eq!(f.seat_ok(&max, "performance", 2).await, "moved");
+    assert_eq!(plan(&f.app, &f.admin).await.len(), 1);
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("P2"));
+    assert_eq!(f.assignment_id(&max, &f.session).await, id);
+}
+
+#[tokio::test]
+async fn a_judge_on_another_seat_swaps_with_the_occupant_when_it_may_follow() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.registered("Erika", "Mustermann", &["technical"]).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    f.assign_ok(&erika, "performance", Some(2)).await;
+    let max_id = f.assignment_id(&max, &f.session).await;
+    let erika_id = f.assignment_id(&erika, &f.session).await;
+    assert_eq!(f.seat_ok(&max, "performance", 2).await, "swapped");
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("P2"));
+    assert_eq!(f.seat_of(&erika, &f.session).await.as_deref(), Some("T1"));
+    assert_eq!(f.assignment_id(&max, &f.session).await, max_id);
+    assert_eq!(f.assignment_id(&erika, &f.session).await, erika_id);
+    assert_eq!(plan(&f.app, &f.admin).await.len(), 2);
+
+    // The same task needs no registration.
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    let jonas = f.judge("Jonas", "Becker", true).await;
+    f.assign_ok(&anna, "technical", Some(2)).await;
+    f.assign_ok(&jonas, "technical", Some(3)).await;
+    assert_eq!(f.seat_ok(&anna, "technical", 3).await, "swapped");
+    assert_eq!(f.seat_of(&anna, &f.session).await.as_deref(), Some("T3"));
+    assert_eq!(f.seat_of(&jonas, &f.session).await.as_deref(), Some("T2"));
+}
+
+#[tokio::test]
+async fn the_occupant_is_removed_when_it_is_not_registered_for_the_judges_task() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    f.assign_ok(&erika, "performance", Some(2)).await;
+    let response = f.assign(&erika, &second, "technical", Some(1)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    let max_id = f.assignment_id(&max, &f.session).await;
+
+    assert_eq!(f.seat_ok(&max, "performance", 2).await, "moved_replaced");
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("P2"));
+    assert_eq!(f.assignment_id(&max, &f.session).await, max_id);
+    assert_eq!(f.seat_of(&erika, &f.session).await, None);
+    let rows = plan(&f.app, &f.admin).await;
+    assert!(
+        !rows
+            .iter()
+            .any(|a| a["seat_label"] == "T1" && a["session_id"] == f.session)
+    );
+    // Erika's seat in the other Durchgang is untouched.
+    assert_eq!(f.seat_of(&erika, &second).await.as_deref(), Some("T1"));
+
+    // Registered for the unit's P, but not for T: the same.
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    let jonas = f.registered("Jonas", "Becker", &["performance"]).await;
+    f.assign_ok(&anna, "technical", Some(2)).await;
+    f.assign_ok(&jonas, "performance", Some(1)).await;
+    assert_eq!(f.seat_ok(&anna, "performance", 1).await, "moved_replaced");
+    assert_eq!(f.seat_of(&jonas, &f.session).await, None);
+}
+
+#[tokio::test]
+async fn an_untrained_occupant_that_cannot_follow_is_removed() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let anna = f.judge("Anna", "Beispiel", false).await;
+    // Registered for technical although untrained (an old registration).
+    f.register_raw(&anna, "technical").await;
+    f.assign_ok(&anna, "dismounts", Some(1)).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    assert_eq!(f.seat_ok(&max, "dismounts", 1).await, "moved_replaced");
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("A1"));
+    assert_eq!(f.seat_of(&anna, &f.session).await, None);
+}
+
+#[tokio::test]
+async fn picking_an_unseated_judge_on_an_occupied_seat_replaces_the_occupant() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign_ok(&erika, "performance", Some(1)).await;
+    assert_eq!(
+        f.assign(&erika, &second, "performance", Some(1))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(f.seat_ok(&anna, "performance", 1).await, "replaced");
+    assert_eq!(f.seat_of(&anna, &f.session).await.as_deref(), Some("P1"));
+    assert_eq!(f.seat_of(&erika, &f.session).await, None);
+    assert_eq!(f.seat_of(&erika, &second).await.as_deref(), Some("P1"));
+}
+
+#[tokio::test]
+async fn seat_judge_on_the_judges_own_seat_changes_nothing() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(2)).await;
+    let before = assignments_state(&f.app).await;
+    assert_eq!(f.seat_ok(&max, "technical", 2).await, "unchanged");
+    assert_eq!(assignments_state(&f.app).await, before);
+}
+
+#[tokio::test]
+async fn seats_beyond_the_count_cannot_be_targeted() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    for (seat, label) in [(4, "T4"), (0, "T0")] {
+        let response = f.seat_judge(&max, &f.session, "technical", seat).await;
+        assert_eq!(response.status, REFUSED, "{:?}", response.body);
+        assert_eq!(
+            message(&response),
+            format!("Platz {label} gibt es in diesem Durchgang nicht.")
+        );
+    }
+    assert!(assignments_state(&f.app).await.is_empty());
+
+    // A migrated extra seat can't be chosen, but a swap may put the occupant
+    // of a real seat there: Max sits on T7 (count 3), Erika on T1.
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let max_uuid = uuid::Uuid::parse_str(max.as_str().unwrap()).unwrap();
+    let heat = uuid::Uuid::parse_str(f.unit["id"].as_str().unwrap()).unwrap();
+    let session = uuid::Uuid::parse_str(f.session.as_str().unwrap()).unwrap();
+    sqlx::query(
+        "INSERT INTO jury_assignments (judge_id, heat_id, session_id, task, seat) \
+         VALUES (?, ?, ?, 'technical', 7)",
+    )
+    .bind(max_uuid)
+    .bind(heat)
+    .bind(session)
+    .execute(&f.app.db)
+    .await
+    .unwrap();
+    f.assign_ok(&erika, "technical", Some(1)).await;
+    let response = f.seat_judge(&erika, &f.session, "technical", 7).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(f.seat_ok(&max, "technical", 1).await, "swapped");
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T1"));
+    assert_eq!(f.seat_of(&erika, &f.session).await.as_deref(), Some("T7"));
+}
+
+#[tokio::test]
+async fn an_untrained_judge_cannot_land_on_a_technical_seat() {
+    let f = Fixture::new().await;
+    let anna = f.judge("Anna", "Beispiel", false).await;
+    f.assign_ok(&anna, "dismounts", Some(1)).await;
+    let before = assignments_state(&f.app).await;
+    let response = f.seat_judge(&anna, &f.session, "technical", 2).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(
+        message(&response),
+        "Nicht geschulte Personen können nur Abstiege zählen."
+    );
+    assert_eq!(assignments_state(&f.app).await, before);
+    assert_eq!(f.seat_ok(&anna, "dismounts", 2).await, "moved");
+}
+
+#[tokio::test]
+async fn a_seat_in_another_durchgang_is_not_touched() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    f.assign_ok(&erika, "technical", Some(2)).await;
+    assert_eq!(
+        f.assign(&max, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(f.seat_ok(&max, "technical", 2).await, "swapped");
+    assert_eq!(f.seat_of(&max, &second).await.as_deref(), Some("T1"));
+}
+
+#[tokio::test]
+async fn seat_judge_answers_404_for_unknowns_and_403_for_a_club() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let ghost = json!("00000000-0000-7000-8000-000000000000");
+    assert_eq!(
+        f.seat_judge(&ghost, &f.session, "technical", 1)
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        f.seat_judge(&max, &ghost, "technical", 1).await.status,
+        StatusCode::NOT_FOUND
+    );
+    let response = f
+        .app
+        .post(
+            "/api/command/seat_judge",
+            json!({ "judge_id": max, "session_id": f.session, "task": "technical", "seat": 1 }),
+            Some(&f.club.0),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        response.body
+    );
+    assert!(assignments_state(&f.app).await.is_empty());
+}
