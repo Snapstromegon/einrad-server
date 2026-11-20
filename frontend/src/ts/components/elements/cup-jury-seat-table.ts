@@ -1,5 +1,11 @@
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
-import { customElement, property, query, state } from "lit/decorators.js";
+import {
+  customElement,
+  property,
+  query,
+  queryAll,
+  state,
+} from "lit/decorators.js";
 import type { schemas } from "../../apiClient";
 import {
   assignedDeployments,
@@ -321,10 +327,20 @@ export class CupJurySeatTable extends LitElement {
         overflow-wrap: anywhere;
       }
 
-      .seat:hover > .tip,
-      .seat:has(.tab:focus-visible) > .tip,
+      .seat:has(> button.tab:hover) > .tip,
+      .seat:has(> button.tab:focus-visible) > .tip,
       .seat.tip-open > .tip {
         display: block;
+      }
+
+      /* The last row has no room below inside the scroll wrapper (it would add
+         a vertical scrollbar), so its tips open upwards. */
+      @media (min-width: 721px) {
+        .dg:last-child .task-row:last-child .tip {
+          top: auto;
+          bottom: 100%;
+          margin: 0 0 2px;
+        }
       }
 
       .tip div + div {
@@ -543,8 +559,8 @@ export class CupJurySeatTable extends LitElement {
           display: none;
         }
 
-        .seat:hover > .tip,
-        .seat:has(.tab:focus-visible) > .tip {
+        .seat:has(> button.tab:hover) > .tip,
+        .seat:has(> button.tab:focus-visible) > .tip {
           display: none;
         }
 
@@ -604,30 +620,86 @@ export class CupJurySeatTable extends LitElement {
   @state() private summaryOpen = false;
   @state() private query = "";
 
+  /** The seat whose button gets the focus back once the picker is closed. */
+  private returnFocusTo: {
+    sessionId: string;
+    task: JudgeTask;
+    seat: number;
+  } | null = null;
+  /** Whether the pressed seat's picker was open before the press closed it. */
+  private pressedOpenSeat = false;
+  /** The plan changed since the picker closed. */
+  private planSeen = false;
+  /** A press outside the table, which light-dismisses the picker. */
+  private focusMoved = false;
+
   @query(".picker") private picker?: HTMLElement;
+  @queryAll("button.pick") private seatButtons!: NodeListOf<HTMLElement>;
   @query(".seat.picking") private anchorSeat?: HTMLElement;
 
   override connectedCallback() {
     super.connectedCallback?.();
     window.addEventListener("scroll", this.place, true);
     window.addEventListener("resize", this.place);
+    window.addEventListener("pointerdown", this.dropFocusTarget, true);
+    window.addEventListener("keydown", this.dropFocusTarget, true);
   }
 
   override disconnectedCallback() {
     window.removeEventListener("scroll", this.place, true);
     window.removeEventListener("resize", this.place);
+    window.removeEventListener("pointerdown", this.dropFocusTarget, true);
+    window.removeEventListener("keydown", this.dropFocusTarget, true);
     super.disconnectedCallback?.();
   }
 
-  override updated() {
+  override updated(changed: Map<string, unknown>) {
     // The picker is a popover in the top layer, so no overflow clips it.
     const picker = this.picker;
     if (picker && !picker.matches(":popover-open")) {
       picker.showPopover();
       this.place();
       picker.querySelector("input")?.focus();
+      return;
+    }
+    this.restoreFocus(changed.has("plan"));
+  }
+
+  /**
+   * Gives the focus back to the seat the picker was opened from. After a pick
+   * the plan reloads and the seat may be rebuilt, so the target is kept until
+   * the new plan arrived or the user does something else.
+   */
+  private restoreFocus(planChanged: boolean) {
+    const target = this.returnFocusTo;
+    if (!target || this.openSeat) {
+      return;
+    }
+    const button = [...this.seatButtons].find(
+      (b) =>
+        b.dataset.session === target.sessionId &&
+        b.dataset.task === target.task &&
+        b.dataset.seat === String(target.seat),
+    );
+    if (button && this.shadowRoot?.activeElement !== button) {
+      button.focus();
+    }
+    this.planSeen ||= planChanged;
+    // Done once the reloaded plan is shown and the seats are enabled again
+    // (a disabled button cannot take the focus).
+    if (this.planSeen && !this.saving) {
+      this.returnFocusTo = null;
+      this.planSeen = false;
     }
   }
+
+  private dropFocusTarget = (e: Event) => {
+    // The click or key that picks is itself an input; only later ones count.
+    if (!e.composedPath().includes(this)) {
+      this.returnFocusTo = null;
+      this.focusMoved = e.type === "pointerdown";
+    }
+  };
 
   /** Puts the picker under its seat, or on the card's full width on a phone. */
   private place = () => {
@@ -865,6 +937,7 @@ export class CupJurySeatTable extends LitElement {
           data-session=${session.id}
           data-task=${seat.task}
           data-seat=${seat.number}
+          @pointerdown=${this.onSeatPress}
           @click=${this.onSeatClick}
         >
           frei<span class="phone-only"> - antippen zum Besetzen</span>
@@ -905,6 +978,7 @@ export class CupJurySeatTable extends LitElement {
         data-session=${session.id}
           data-task=${seat.task}
           data-seat=${seat.number}
+          @pointerdown=${this.onSeatPress}
           @click=${this.onSeatClick}
       >
         <span class="name"
@@ -914,7 +988,7 @@ export class CupJurySeatTable extends LitElement {
       </button>
       ${
         warned
-          ? html`<div class="tip" id=${tipId} role="status">
+          ? html`<div class="tip" id=${tipId} role="tooltip">
               ${details}
             </div>`
           : nothing
@@ -1048,13 +1122,23 @@ export class CupJurySeatTable extends LitElement {
       (e as ToggleEvent).newState === "closed" &&
       !this.picker?.matches(":popover-open")
     ) {
+      // Closed by a click elsewhere: the focus goes where the user went.
+      if (this.openSeat) {
+        // Dismissed (Escape, click elsewhere), not closed by a pick.
+        this.returnFocusTo = this.focusMoved ? null : this.openSeat;
+        this.planSeen = true;
+      }
+      this.focusMoved = false;
       this.openSeat = null;
       this.query = "";
     }
   }
 
-  private closePicker() {
+  /** `waitForPlan`: a change follows, so the plan will reload. */
+  private closePicker(waitForPlan = false) {
     const picker = this.picker;
+    this.returnFocusTo = this.openSeat;
+    this.planSeen = !waitForPlan;
     if (picker?.matches(":popover-open")) {
       picker.hidePopover();
     }
@@ -1068,7 +1152,7 @@ export class CupJurySeatTable extends LitElement {
       return;
     }
     const judgeId = (e.currentTarget as HTMLElement).dataset.judge!;
-    this.closePicker();
+    this.closePicker(true);
     this.dispatchEvent(
       new CustomEvent<SeatAssignDetail>("seat-assign", {
         detail: {
@@ -1089,7 +1173,7 @@ export class CupJurySeatTable extends LitElement {
       return;
     }
     const judgeId = (e.currentTarget as HTMLElement).dataset.judge!;
-    this.closePicker();
+    this.closePicker(true);
     this.dispatchEvent(
       new CustomEvent<SeatClearDetail>("seat-clear", {
         detail: { judgeId, sessionId: open.sessionId },
@@ -1117,8 +1201,30 @@ export class CupJurySeatTable extends LitElement {
     this.openTip = this.openTip === key ? null : key;
   }
 
+  /** A press on the seat whose picker is open: the click should close it. */
+  private onSeatPress(e: Event) {
+    const { session, task, seat } = (e.currentTarget as HTMLElement).dataset;
+    const open = this.openSeat;
+    this.pressedOpenSeat =
+      !!open &&
+      open.sessionId === session &&
+      open.task === task &&
+      open.seat === Number(seat);
+  }
+
   private onSeatClick(e: Event) {
     const { session, task, seat } = (e.currentTarget as HTMLElement).dataset;
+    // Light dismiss already closed the picker on the press; reopening it on
+    // the click would make the seat impossible to toggle.
+    const wasOpen = this.pressedOpenSeat;
+    this.pressedOpenSeat = false;
+    this.focusMoved = false;
+    if (wasOpen) {
+      if (this.openSeat) {
+        this.closePicker();
+      }
+      return;
+    }
     this.query = "";
     this.openSeat = {
       sessionId: session!,
