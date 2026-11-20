@@ -608,6 +608,8 @@ single = "male"
 # Ride warning: amber, a pair member rides in the block after. He also rides
 # the pair PU25 with Marie, right after "Expert 1 Paar" (PU17, PU21).
 # Picker only: red in "Expert 2 Paar" (his PU25).
+# Ride conflict (#405): his registration for "Expert 2 Paar" is kept and
+# flagged (the starts came later).
 [[clubs.judges]]
 rider = "Leon Lehmann"
 registrations = [
@@ -625,6 +627,8 @@ assignments = [
 # Ride warning: red, in a final that is partly filled. She rides EWU23,
 # which feeds "Finale Expert Einzel Weiblich"; her act isn't placed, but
 # slots are open, so she could still qualify.
+# Ride conflict (#405): her registration for "Expert 2 Paar" is kept and
+# flagged (the starts came later).
 [[clubs.judges]]
 rider = "Marie Lehmann"
 registrations = [
