@@ -1076,6 +1076,9 @@ export default class CupClubStepJury extends LitElement {
     return html`<section class="card">
       <header>
         <h3>Juryplan</h3>
+        <a class="btn small secondary" href="/juryplan"
+          >vollständiger Juryplan</a
+        >
         <span class="hint">Stand ${formatDate(plan.published_at)}</span>
       </header>
       ${

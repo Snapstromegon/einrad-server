@@ -33,6 +33,7 @@ mod list_heats;
 mod list_judges;
 mod list_jury_plan;
 mod list_jury_units;
+mod juryplan;
 mod list_missing_songs;
 mod list_pair_requests;
 mod list_riders;
@@ -85,6 +86,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_club_ride_conflicts::list_club_ride_conflicts))
         .routes(routes!(list_judges::list_judges))
         .routes(routes!(list_jury_plan::list_jury_plan))
+        .routes(routes!(juryplan::juryplan))
         .routes(routes!(list_club_mails::list_club_mails))
         .routes(routes!(get_club_mail_options::get_club_mail_options))
 }

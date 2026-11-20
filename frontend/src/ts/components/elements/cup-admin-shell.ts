@@ -50,6 +50,7 @@ const displayLinks: NavLink[] = [
   { href: "/admin-moderation", label: "Moderation", icon: "campaign" },
   { href: "/info-board", label: "Info-Board", icon: "tv" },
   { href: "/startlist", label: "Startliste", icon: "format_list_numbered" },
+  { href: "/juryplan", label: "Juryplan", icon: "gavel" },
 ];
 
 /** Below this viewport height the bar scrolls away instead of sticking. */

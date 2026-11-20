@@ -1321,6 +1321,10 @@ async fn admins_assign_judges_and_publish_the_plan() {
     // Clubs see nothing before publishing, then only their own judges.
     let own = plan(&app, &owner, Some(club_id)).await;
     assert_eq!(own.body["assignments"], json!([]));
+    assert_eq!(
+        app.get("/api/query/juryplan", None).await.status,
+        StatusCode::FORBIDDEN
+    );
     // The plan is published once the judges are fixed (decided 2026-10-23).
     let early = app
         .post(
@@ -1339,6 +1343,10 @@ async fn admins_assign_judges_and_publish_the_plan() {
         )
         .await;
     assert_eq!(published.status, StatusCode::OK, "{:?}", published.body);
+    let public_plan = app.get("/api/query/juryplan", None).await;
+    assert_eq!(public_plan.status, StatusCode::OK, "{:?}", public_plan.body);
+    assert!(public_plan.body["published_at"].is_string());
+    assert_eq!(public_plan.body["assignments"].as_array().unwrap().len(), 2);
     let own = plan(&app, &owner, Some(club_id)).await;
     assert!(own.body["published_at"].is_string());
     assert_eq!(
