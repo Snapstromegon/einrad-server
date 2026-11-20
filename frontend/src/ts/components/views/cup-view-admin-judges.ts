@@ -42,6 +42,7 @@ import {
   unitName,
 } from "../../jury";
 import { finalInfos, planBlocks, rideIndex } from "../../jury-blocks";
+import { seatOutcomeMessage } from "../../jury-seats";
 import { adminStyles } from "../../styles/admin";
 import type {
   SeatAssignDetail,
@@ -1294,7 +1295,29 @@ export default class CupViewAdminJudges extends LitElement {
   private async onSeatAssign(e: CustomEvent<SeatAssignDetail>) {
     const { judgeId, sessionId, task, seat } = e.detail;
     const body = { judge_id: judgeId, session_id: sessionId, task, seat };
-    await this.change(() => unwrap(client.seatJudge({ body })), "Einteilen");
+    // Who sat there as far as this view knew; the server decides the outcome.
+    const nameOf = (id: string | undefined) => {
+      const judge = this.judges.value?.[0].find((j) => j.id === id);
+      return judge ? `${judge.firstname} ${judge.lastname}` : null;
+    };
+    const occupant = this.judges.value?.[2].assignments.find(
+      (a) => a.session_id === sessionId && a.task === task && a.seat === seat,
+    );
+    const result = await this.change(
+      () => unwrap(client.seatJudge({ body })),
+      "Einteilen",
+    );
+    // Only when somebody else is affected; the picker said the rest before.
+    const message =
+      result &&
+      seatOutcomeMessage(
+        result.outcome,
+        nameOf(judgeId) ?? "JurorIn",
+        nameOf(occupant?.judge_id),
+      );
+    if (message) {
+      this.status = message;
+    }
   }
 
   private async onSeatClear(e: CustomEvent<SeatClearDetail>) {
@@ -1524,6 +1547,8 @@ export default class CupViewAdminJudges extends LitElement {
       return result;
     } catch (error) {
       this.error = `${action} fehlgeschlagen: ${errorMessage(error)}`;
+      // A refusal usually means the view was stale: show the current plan.
+      void Promise.all([this.units.run(), this.judges.run()]);
       // The banner is at the top; the refusal may come from further down.
       void this.updateComplete.then(() =>
         this.errorBanner?.scrollIntoView?.({ block: "nearest" }),

@@ -12,6 +12,7 @@ import {
   seatColumns,
   seatCount,
   seatLabel,
+  seatOutcomeMessage,
   seatRow,
   seatTab,
   warningSummary,
@@ -481,5 +482,36 @@ describe("jury seats: block line", () => {
   test("formatWeekday is the short weekday without a dot", () => {
     assert.equal(formatWeekday("2027-04-03"), "Sa");
     assert.equal(formatWeekday(null), "");
+  });
+
+  test("only outcomes that affect somebody else get a message", () => {
+    const max = "Max Müller";
+    const erika = "Erika Mustermann";
+    for (const quiet of ["assigned", "moved", "unchanged"]) {
+      assert.equal(seatOutcomeMessage(quiet, max, erika), null, quiet);
+    }
+    assert.equal(
+      seatOutcomeMessage("swapped", max, erika),
+      "Max Müller und Erika Mustermann getauscht",
+    );
+    assert.equal(
+      seatOutcomeMessage("replaced", max, erika),
+      "Erika Mustermann wurde entfernt",
+    );
+    assert.equal(
+      seatOutcomeMessage("moved_replaced", max, erika),
+      "Max Müller verschoben, Erika Mustermann wurde entfernt",
+    );
+  });
+
+  test("a stale view without the occupant still says someone was affected", () => {
+    assert.equal(
+      seatOutcomeMessage("replaced", "Max Müller", null),
+      "Eine andere JurorIn wurde entfernt",
+    );
+    assert.equal(
+      seatOutcomeMessage("swapped", "Max Müller", null),
+      "Max Müller und eine andere JurorIn getauscht",
+    );
   });
 });

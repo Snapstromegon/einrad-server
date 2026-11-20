@@ -265,6 +265,30 @@ export const pickerGroups = (args: {
   return groups;
 };
 
+/**
+ * What a seat pick did to somebody else, for the status line; null when
+ * nobody else is affected (the picker already said what would happen, so
+ * assigned, moved and unchanged stay silent). `other` is the occupant of the
+ * clicked seat as the view knew it, null when it did not know one.
+ */
+export const seatOutcomeMessage = (
+  outcome: schemas.SeatOutcome,
+  mover: string,
+  other: string | null,
+): string | null => {
+  const removed = other ?? "Eine andere JurorIn";
+  switch (outcome) {
+    case "swapped":
+      return `${mover} und ${other ?? "eine andere JurorIn"} getauscht`;
+    case "replaced":
+      return `${removed} wurde entfernt`;
+    case "moved_replaced":
+      return `${mover} verschoben, ${removed} wurde entfernt`;
+    default:
+      return null;
+  }
+};
+
 /** "3 Hinweise" / "1 Hinweis"; empty for none. */
 export const warningSummary = (lines: string[]) =>
   lines.length === 0
