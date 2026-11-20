@@ -20,6 +20,7 @@ export type Club = schemas.Club;
 export type ClubJudge = schemas.ClubJudge;
 export type JuryUnit = schemas.JuryUnit;
 export type JuryPlan = schemas.JuryPlan;
+export type RiderRideConflict = schemas.RiderRideConflict;
 /** A rider of any club, as admins list them. */
 export type AnyRider = schemas.Rider & Starts;
 
@@ -37,6 +38,8 @@ export interface ClubData {
   /** With the jury registration: the club's judges and what they can pick. */
   judges?: ClubJudge[];
   juryUnits?: JuryUnit[];
+  /** The heats the club's riders ride in: a judge can't register there (#405). */
+  rideConflicts?: RiderRideConflict[];
   /** The club's judges' assignments, once the Juryplan is published. */
   juryPlan?: JuryPlan;
 }

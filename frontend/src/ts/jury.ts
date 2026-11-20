@@ -380,6 +380,16 @@ export const closedReason = (unit: {
       : "Anmeldung geschlossen";
 
 /**
+ * Why a linked judge can't register for a heat (#405): their rider rides in
+ * one of its categories, as replacement or not. The server says the same.
+ */
+export const rideReason = (conflict: {
+  category: string;
+  replacement: boolean;
+}) =>
+  `fährt in ${conflict.category}${conflict.replacement ? " als Ersatzfahrer" : ""}`;
+
+/**
  * What a jury unit is called, by the readable name of its heat or final: a
  * heat's Vorlauf ("Einzel männlich – Expert 1 (U17–U21) · Vorlauf") or a
  * final ("Finale Einzel männlich Expert"; "KGU15 Finale" if its name doesn't

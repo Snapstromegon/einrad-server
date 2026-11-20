@@ -12,6 +12,7 @@ import {
   obligationTone,
   planWarnings,
   closedReason,
+  rideReason,
   unitName,
   isJudgeRegistrationOpen,
   judgeRegistrationEnd,
@@ -362,5 +363,16 @@ describe("jury", () => {
       "Finale Einzel männlich Expert",
     );
     assert.equal(unitName({ kind: "final", name: "KGU15" }), "KGU15 Finale");
+  });
+
+  test("rideReason names the category and the replacement", () => {
+    assert.equal(
+      rideReason({ category: "EWU13", replacement: false }),
+      "fährt in EWU13",
+    );
+    assert.equal(
+      rideReason({ category: "KGU15", replacement: true }),
+      "fährt in KGU15 als Ersatzfahrer",
+    );
   });
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vite-plus/test";
 import {
+  blockedUnits,
   buildTree,
   groupCount,
   groupDeployments,
@@ -504,5 +505,64 @@ describe("shortUnitNames", () => {
         "Vorlauf 3 (U23 und älter)",
       ],
     );
+  });
+
+  test("a blocked unit stays in the tree", () => {
+    const closed = heat("b", undefined, "single", { registrable: false });
+    const units = [heat("a", undefined), closed];
+    const blocked = new Map([["b", "fährt in EWU13"]]);
+    const ids = (tree) => leavesOf(tree[0]).map((u) => u.id);
+    // Without the reason a closed, unticked unit is hidden.
+    assert.deepEqual(ids(buildTree(units, new Set())), ["a"]);
+    assert.deepEqual(ids(buildTree(units, new Set(), blocked)), ["a", "b"]);
+  });
+
+  test("toggleGroup skips blocked units when ticking and still unticks them", () => {
+    const units = [heat("a", undefined), heat("b", undefined)];
+    const blocked = new Map([["b", "fährt in EWU13"]]);
+    const on = toggleGroup(units, new Set(), "technical", true, blocked);
+    assert.deepEqual([...on], ["a:technical"]);
+    // A blocked unit that is already ticked (a kept conflict) can be unticked.
+    const off = toggleGroup(
+      units,
+      new Set(["a:technical", "b:technical"]),
+      "technical",
+      false,
+      blocked,
+    );
+    assert.deepEqual([...off], []);
+  });
+
+  test("taskState ignores a blocked unticked unit", () => {
+    const units = [heat("a", undefined), heat("b", undefined)];
+    const blocked = new Map([["b", "fährt in EWU13"]]);
+    const ticked = new Set(["a:technical"]);
+    assert.equal(taskState(units, ticked, "technical"), "mixed");
+    assert.equal(taskState(units, ticked, "technical", blocked), "all");
+    // A ticked blocked unit still counts, so it can be unticked.
+    const both = new Set(["a:technical", "b:technical"]);
+    assert.equal(taskState(units, both, "technical", blocked), "all");
+    assert.equal(
+      taskState(units, new Set(["b:technical"]), "technical", blocked),
+      "mixed",
+    );
+  });
+
+  test("blockedUnits maps the units a rider rides in to their reason", () => {
+    const conflicts = [
+      { rider_id: "r1", unit_id: "u1", category: "EWU13", replacement: false },
+      { rider_id: "r1", unit_id: "u2", category: "KGU15", replacement: true },
+      { rider_id: "r2", unit_id: "u3", category: "PU13", replacement: false },
+    ];
+    assert.deepEqual(
+      [...blockedUnits(conflicts, "r1")],
+      [
+        ["u1", "fährt in EWU13"],
+        ["u2", "fährt in KGU15 als Ersatzfahrer"],
+      ],
+    );
+    assert.equal(blockedUnits(conflicts, null).size, 0);
+    assert.equal(blockedUnits(conflicts, undefined).size, 0);
+    assert.equal(blockedUnits(undefined, "r1").size, 0);
   });
 });

@@ -1,6 +1,6 @@
 // The judge form's tree (#350): jury units grouped Disziplin > Finale > units.
 // Pure helpers, so the unit tests can import them without a DOM.
-import { TASKS } from "./jury";
+import { rideReason, TASKS } from "./jury";
 
 type Task = (typeof TASKS)[number];
 
@@ -43,23 +43,54 @@ export const OTHER_DISCIPLINE = "Ohne Disziplin";
 
 export const taskKey = (unitId: string, task: Task) => `${unitId}:${task}`;
 
+/**
+ * The units a linked judge can't be newly registered for, by id, with the
+ * reason shown to the club (#405): the heats their rider rides in. Empty for a
+ * judge without a rider.
+ */
+export const blockedUnits = (
+  conflicts:
+    | readonly {
+        rider_id: string;
+        unit_id: string;
+        category: string;
+        replacement: boolean;
+      }[]
+    | undefined,
+  riderId: string | null | undefined,
+): Map<string, string> =>
+  new Map(
+    riderId
+      ? (conflicts ?? [])
+          .filter((c) => c.rider_id === riderId)
+          .map((c) => [c.unit_id, rideReason(c)])
+      : [],
+  );
+
+/** The units a judge can't tick, by unit id, with the reason. */
+export type Blocked = ReadonlyMap<string, string>;
+
 const hasAny = (unit: TreeUnit, ticked: ReadonlySet<string>) =>
   TASKS.some((task) => ticked.has(taskKey(unit.id, task)));
 
 /**
  * The units a judge sees as a tree. Units that take no registrations show
- * only while the judge has them. A heat sits under the final it feeds, before
+ * only while the judge has them, or while their rider rides in them (`blocked`,
+ * shown as unavailable with the reason). A heat sits under the final it feeds, before
  * the final itself; a heat feeding no final sits directly under its
  * discipline, after the finals. Empty groups don't show.
  */
 export const buildTree = <U extends TreeUnit>(
   units: readonly U[],
   ticked: ReadonlySet<string>,
+  blocked?: Blocked,
 ): TreeGroup<U>[] => {
   const finals = new Map(
     units.filter((u) => u.kind === "final").map((u) => [u.id, u]),
   );
-  const visible = units.filter((u) => u.registrable || hasAny(u, ticked));
+  const visible = units.filter(
+    (u) => u.registrable || hasAny(u, ticked) || blocked?.has(u.id),
+  );
   const disciplineOf = (unit: TreeUnit) =>
     DISCIPLINES.find(([type]) => type === unit.act_type)?.[0] ?? "other";
 
@@ -121,9 +152,18 @@ export const leavesOf = <U extends TreeUnit>(group: TreeGroup<U>): U[] =>
     child.type === "unit" ? [child.unit] : leavesOf(child),
   );
 
-/** A task can be ticked on a unit that takes registrations; a ticked one stays. */
-const eligible = (unit: TreeUnit, task: Task, ticked: ReadonlySet<string>) =>
-  unit.registrable || ticked.has(taskKey(unit.id, task));
+/**
+ * A task can be ticked on a unit that takes registrations and isn't blocked;
+ * a ticked one stays, so it can be unticked.
+ */
+const eligible = (
+  unit: TreeUnit,
+  task: Task,
+  ticked: ReadonlySet<string>,
+  blocked?: Blocked,
+) =>
+  (unit.registrable && !blocked?.has(unit.id)) ||
+  ticked.has(taskKey(unit.id, task));
 
 /**
  * Whether a task is ticked on all, some or none of the units: "all" when
@@ -133,14 +173,15 @@ export const taskState = (
   units: readonly TreeUnit[],
   ticked: ReadonlySet<string>,
   task: Task,
+  blocked?: Blocked,
 ): "all" | "mixed" | "none" => {
-  const cells = units.filter((u) => eligible(u, task, ticked));
+  const cells = units.filter((u) => eligible(u, task, ticked, blocked));
   const on = cells.filter((u) => ticked.has(taskKey(u.id, task))).length;
   return on === 0 ? "none" : on === cells.length ? "all" : "mixed";
 };
 
 /**
- * Ticks a task on every registrable unit, or removes it from every unit,
+ * Ticks a task on every registrable unit that isn't blocked, or removes it from every unit,
  * closed ones included. Returns a new set.
  */
 export const toggleGroup = (
@@ -148,12 +189,13 @@ export const toggleGroup = (
   ticked: ReadonlySet<string>,
   task: Task,
   on: boolean,
+  blocked?: Blocked,
 ): Set<string> => {
   const next = new Set(ticked);
   for (const unit of units) {
     if (!on) {
       next.delete(taskKey(unit.id, task));
-    } else if (unit.registrable) {
+    } else if (unit.registrable && !blocked?.has(unit.id)) {
       next.add(taskKey(unit.id, task));
     }
   }

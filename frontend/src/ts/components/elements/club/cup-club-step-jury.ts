@@ -30,6 +30,7 @@ import {
   unitName,
 } from "../../../jury";
 import {
+  blockedUnits,
   buildTree,
   groupCount,
   groupDeployments,
@@ -498,6 +499,11 @@ export default class CupClubStepJury extends LitElement {
         color: var(--color-text-muted);
       }
 
+      /* A heat the linked rider rides in: unavailable, the reason shows. */
+      table.grid td.category small.blocked {
+        color: var(--color-warning-strong);
+      }
+
       /*
        * The T|P|A switch: three joined segments, each a checkbox in a label.
        * Filled is on, striped is some (groups only), white is off.
@@ -876,6 +882,14 @@ export default class CupClubStepJury extends LitElement {
   /** The heats' Vorlaufs and the finals judges can be registered for. */
   private get units() {
     return this.data.juryUnits ?? [];
+  }
+
+  /**
+   * The heats the draft's rider rides in (#405), by unit id with the reason:
+   * the judge can't be newly registered there. Empty without a linked rider.
+   */
+  private get blocked() {
+    return blockedUnits(this.data.rideConflicts, this.draft.rider_id);
   }
 
   override render() {
@@ -1386,7 +1400,7 @@ export default class CupClubStepJury extends LitElement {
    * people only count dismounts.
    */
   private renderGrid() {
-    const tree = buildTree(this.units, this.draft.registrations);
+    const tree = buildTree(this.units, this.draft.registrations, this.blocked);
     if (tree.length === 0) {
       return html`<p class="muted">Noch keine Vorläufe oder Finals angelegt.</p>`;
     }
@@ -1497,7 +1511,7 @@ export default class CupClubStepJury extends LitElement {
     const wertet = this.renderSwitch({
       name: group.label,
       forAll: true,
-      state: (task) => taskState(units, ticked, task),
+      state: (task) => taskState(units, ticked, task, this.blocked),
       reason: (task) =>
         !this.draft.is_trained && task !== "dismounts"
           ? "Nur für geschulte JurorInnen"
@@ -1587,6 +1601,8 @@ ${
     },
   ) {
     const registrations = this.draft.registrations;
+    // The heat the rider rides in: only what the judge already has stays.
+    const ride = this.blocked.get(category.id);
     const wertet = this.renderSwitch({
       name: unitName(category),
       forAll: false,
@@ -1594,11 +1610,13 @@ ${
         registrations.has(key(category.id, task)) ? "all" : "none",
       // A unit without registrations only keeps what the judge already has.
       reason: (task) =>
-        !category.registrable && !registrations.has(key(category.id, task))
-          ? "Hier werden keine JurorInnen mehr gemeldet"
-          : !this.draft.is_trained && task !== "dismounts"
-            ? "Nur für geschulte JurorInnen"
-            : null,
+        ride && !registrations.has(key(category.id, task))
+          ? `Nicht möglich: ${ride}`
+          : !category.registrable && !registrations.has(key(category.id, task))
+            ? "Hier werden keine JurorInnen mehr gemeldet"
+            : !this.draft.is_trained && task !== "dismounts"
+              ? "Nur für geschulte JurorInnen"
+              : null,
       attrs: (task) => ({ key: key(category.id, task) }),
       onChange: this.onRegistrationChange,
     });
@@ -1614,11 +1632,13 @@ ${
           >${where.shortName ?? shortUnitNames([category], where.discipline)[0]}</span
         >
         ${
-          closedReason(category)
-            ? html`<small>${closedReason(category)}</small>`
-            : category.day
-              ? html`<small class="date">${formatDate(category.day)}</small>`
-              : nothing
+          ride
+            ? html`<small class="blocked">${ride}</small>`
+            : closedReason(category)
+              ? html`<small>${closedReason(category)}</small>`
+              : category.day
+                ? html`<small class="date">${formatDate(category.day)}</small>`
+                : nothing
         }
       </td>
       <td class="count">
@@ -1690,12 +1710,22 @@ ${
 
   /** Links the draft to the rider and takes over name and birthdate. */
   private linkRider(rider: ClubRider) {
+    const blocked = blockedUnits(this.data.rideConflicts, rider.id);
     this.draft = {
       ...this.draft,
       rider_id: rider.id,
       firstname: rider.firstname,
       lastname: rider.lastname,
       birthdate: dateInputValue(rider.birthdate),
+      // A new judge can't keep a tick on a heat their rider rides in.
+      registrations:
+        this.editing === NEW
+          ? new Set(
+              [...this.draft.registrations].filter(
+                (k) => !blocked.has(k.split(":")[0]),
+              ),
+            )
+          : this.draft.registrations,
     };
   }
 
@@ -1731,10 +1761,17 @@ ${
     const task = input.dataset.task as JudgeTask;
     const units = leavesOf(group);
     // Mixed counts as "not all": the click ticks the rest.
-    const on = taskState(units, this.draft.registrations, task) !== "all";
+    const on =
+      taskState(units, this.draft.registrations, task, this.blocked) !== "all";
     this.draft = {
       ...this.draft,
-      registrations: toggleGroup(units, this.draft.registrations, task, on),
+      registrations: toggleGroup(
+        units,
+        this.draft.registrations,
+        task,
+        on,
+        this.blocked,
+      ),
     };
   }
 

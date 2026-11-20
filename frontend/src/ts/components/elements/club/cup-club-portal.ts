@@ -550,6 +550,7 @@ export default class CupClubPortal extends LitElement {
         allRiders,
         judges,
         juryUnits,
+        rideConflicts,
         juryPlan,
       ] = await Promise.all([
         unwrap(client.getClub(query)),
@@ -572,6 +573,9 @@ export default class CupClubPortal extends LitElement {
           ? unwrap(client.listClubJudges(query))
           : Promise.resolve(undefined),
         jury ? unwrap(client.listJuryUnits()) : Promise.resolve(undefined),
+        jury
+          ? unwrap(client.listClubRideConflicts(query))
+          : Promise.resolve(undefined),
         jury ? unwrap(client.listJuryPlan(query)) : Promise.resolve(undefined),
       ]);
       return {
@@ -583,6 +587,7 @@ export default class CupClubPortal extends LitElement {
         allRiders,
         judges,
         juryUnits,
+        rideConflicts,
         juryPlan,
       };
     },
