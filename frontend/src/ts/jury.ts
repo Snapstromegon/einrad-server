@@ -390,6 +390,28 @@ export const rideReason = (conflict: {
   `fährt in ${conflict.category}${conflict.replacement ? " als Ersatzfahrer" : ""}`;
 
 /**
+ * Why a registration needs the jury lead, for the chip and the club's list:
+ * its unit takes none any more (`flagged`; the closed reason, "Anmeldung
+ * geschlossen" without the unit at hand), or the judge's rider rides in the
+ * heat (#405), or both, joined by "; "; null when it needs nothing.
+ */
+export const registrationNote = (
+  registration: {
+    flagged: boolean;
+    conflict?: { category: string; replacement: boolean } | null;
+  },
+  unit?: { registrable: boolean; skipped: boolean },
+): string | null => {
+  const notes = [
+    registration.flagged
+      ? ((unit && closedReason(unit)) ?? "Anmeldung geschlossen")
+      : null,
+    registration.conflict ? rideReason(registration.conflict) : null,
+  ].filter(Boolean);
+  return notes.length > 0 ? notes.join("; ") : null;
+};
+
+/**
  * What a jury unit is called, by the readable name of its heat or final: a
  * heat's Vorlauf ("Einzel männlich – Expert 1 (U17–U21) · Vorlauf") or a
  * final ("Finale Einzel männlich Expert"; "KGU15 Finale" if its name doesn't

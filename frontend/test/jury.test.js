@@ -13,6 +13,7 @@ import {
   planWarnings,
   closedReason,
   rideReason,
+  registrationNote,
   unitName,
   isJudgeRegistrationOpen,
   judgeRegistrationEnd,
@@ -374,5 +375,50 @@ describe("jury", () => {
       rideReason({ category: "KGU15", replacement: true }),
       "fährt in KGU15 als Ersatzfahrer",
     );
+  });
+
+  test("registrationNote says why a registration needs the jury lead", () => {
+    const open = { registrable: true, skipped: false };
+    const skipped = { registrable: false, skipped: true };
+    const ride = { category: "EWU13", replacement: false };
+    // Closed only.
+    assert.equal(
+      registrationNote({ flagged: true, conflict: null }, skipped),
+      "Vorlauf entfällt",
+    );
+    assert.equal(
+      registrationNote(
+        { flagged: true },
+        { registrable: false, skipped: false },
+      ),
+      "Anmeldung geschlossen",
+    );
+    // Ride only.
+    assert.equal(
+      registrationNote({ flagged: false, conflict: ride }, open),
+      "fährt in EWU13",
+    );
+    assert.equal(
+      registrationNote(
+        { flagged: false, conflict: { category: "KGU15", replacement: true } },
+        open,
+      ),
+      "fährt in KGU15 als Ersatzfahrer",
+    );
+    // Both, and a flagged one whose unit is gone.
+    assert.equal(
+      registrationNote({ flagged: true, conflict: ride }, skipped),
+      "Vorlauf entfällt; fährt in EWU13",
+    );
+    assert.equal(
+      registrationNote({ flagged: true, conflict: ride }),
+      "Anmeldung geschlossen; fährt in EWU13",
+    );
+    // Neither.
+    assert.equal(
+      registrationNote({ flagged: false, conflict: null }, open),
+      null,
+    );
+    assert.equal(registrationNote({ flagged: false }), null);
   });
 });

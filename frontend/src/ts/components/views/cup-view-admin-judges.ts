@@ -18,6 +18,7 @@ import {
   showsNeeded,
   coverage,
   closedReason,
+  registrationNote,
   deploymentNote,
   initialKeep,
   judgeRegistrationEnd,
@@ -836,8 +837,17 @@ export default class CupViewAdminJudges extends LitElement {
       }
       return [...tasks].map(([id, labels]) => ({
         id,
-        flagged: judge.registrations.some((r) => r.unit_id === id && r.flagged),
-        reason: byId.get(id) ? closedReason(byId.get(id)!) : null,
+        // Closed, or the rider rides in the heat (#405): both stay and count.
+        note:
+          [
+            ...new Set(
+              judge.registrations
+                .filter((r) => r.unit_id === id)
+                .map((r) => registrationNote(r, byId.get(id))),
+            ),
+          ]
+            .filter(Boolean)
+            .join("; ") || null,
         text: `${byId.get(id) ? unitName(byId.get(id)!) : "?"}: ${labels.join("/")}`,
       }));
     };
@@ -854,11 +864,11 @@ export default class CupViewAdminJudges extends LitElement {
       const age = ageOnStart(judge.birthdate, this.systemStatus?.competition);
       const chips = [
         ...describe(judge).map(
-          ({ id, flagged, reason, text }) =>
+          ({ id, note, text }) =>
             html`<span
-              class="chip ${flagged ? "warn" : ""}"
-              title=${flagged ? `${reason ?? "Anmeldung geschlossen"}: der Einsatz zählt weiter, bitte neu zuteilen` : ""}
-              >${text}${flagged ? html` ${this.renderMovePicker(units, judge, id)}` : nothing}</span
+              class="chip ${note ? "warn" : ""}"
+              title=${note ? `${note}: der Einsatz zählt weiter, bitte neu zuteilen` : ""}
+              >${text}${note ? html` ${this.renderMovePicker(units, judge, id)}` : nothing}</span
             >`,
         ),
         ...judge.unmapped_registrations.map(

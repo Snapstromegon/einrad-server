@@ -22,7 +22,7 @@ import {
   ageOnStart,
   countDeployments,
   closedReason,
-  rideReason,
+  registrationNote,
   deploymentNote,
   obligationTone,
   TASKS,
@@ -1165,15 +1165,9 @@ export default class CupClubStepJury extends LitElement {
     const flagged = new Map<string, string>();
     for (const r of judge.registrations) {
       byCategory.set(r.unit_id, [...(byCategory.get(r.unit_id) ?? []), r.task]);
-      const notes = [
-        r.flagged
-          ? ((units.get(r.unit_id) && closedReason(units.get(r.unit_id)!)) ??
-            "Anmeldung geschlossen")
-          : null,
-        r.conflict ? rideReason(r.conflict) : null,
-      ].filter(Boolean);
-      if (notes.length > 0) {
-        flagged.set(r.unit_id, notes.join("; "));
+      const note = registrationNote(r, units.get(r.unit_id));
+      if (note) {
+        flagged.set(r.unit_id, note);
       }
     }
     return html`<tr>
