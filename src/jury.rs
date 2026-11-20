@@ -672,6 +672,10 @@ pub struct ListedRegistration {
     /// Its unit takes no registrations (a skipped Vorlauf, or switched off):
     /// it still counts, but the jury lead should move it (D7).
     pub flagged: bool,
+    /// The judge is linked to a rider who rides in this heat (#405): it
+    /// still counts, but the jury lead should move it. Computed on every
+    /// listing, so it comes and goes with the acts and categories.
+    pub conflict: Option<RideConflict>,
 }
 
 /// A registration of a migrated jury category that matched no heat or final
@@ -1077,6 +1081,20 @@ pub async fn list_judges(
     conn: &mut sqlx::SqliteConnection,
     club_id: Option<ClubId>,
 ) -> sqlx::Result<Vec<ClubJudge>> {
+    let rides: std::collections::HashMap<(RiderId, HeatId), RideConflict> =
+        heat_rides(conn, club_id, None, None)
+            .await?
+            .into_iter()
+            .map(|ride| {
+                (
+                    (ride.rider_id, ride.heat_id),
+                    RideConflict {
+                        category: ride.category,
+                        replacement: ride.replacement,
+                    },
+                )
+            })
+            .collect();
     let mut registrations: std::collections::HashMap<JudgeId, Vec<ListedRegistration>> =
         std::collections::HashMap::new();
     for row in sqlx::query!(
@@ -1086,6 +1104,7 @@ pub async fn list_judges(
             judge_registration.unit_id as "unit_id!: JuryUnitId",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
             judge_registration.task as "task!: JudgeTask",
+            judge.rider_id as "rider_id: RiderId",
             NOT view_jury_unit.registrable as "flagged!: bool"
         FROM judge_registration
         JOIN judge ON judge.id = judge_registration.judge_id
@@ -1098,6 +1117,12 @@ pub async fn list_judges(
     .fetch_all(&mut *conn)
     .await?
     {
+        let conflict = match (row.unit_kind, row.rider_id) {
+            (JuryUnitKind::Heat, Some(rider_id)) => {
+                rides.get(&(rider_id, HeatId(row.unit_id.0))).cloned()
+            }
+            _ => None,
+        };
         registrations
             .entry(row.judge_id)
             .or_default()
@@ -1106,6 +1131,7 @@ pub async fn list_judges(
                 unit_id: row.unit_id,
                 task: row.task,
                 flagged: row.flagged,
+                conflict,
             });
     }
     let mut unmapped: std::collections::HashMap<JudgeId, Vec<UnmappedRegistration>> =

@@ -416,7 +416,7 @@ async fn clubs_add_edit_and_delete_judges() {
     assert_eq!(anna["note"], Value::Null);
     assert_eq!(
         anna["registrations"],
-        json!([{ "unit_kind": ids[2]["kind"], "unit_id": ids[2]["id"], "task": "dismounts", "flagged": false }])
+        json!([{ "unit_kind": ids[2]["kind"], "unit_id": ids[2]["id"], "task": "dismounts", "flagged": false, "conflict": null }])
     );
 
     let deleted = app

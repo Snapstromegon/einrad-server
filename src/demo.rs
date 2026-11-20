@@ -1289,6 +1289,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn demo_judges_that_ride_in_their_heat_are_flagged() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        let mut conn = db.acquire().await.unwrap();
+        let judges = crate::jury::list_judges(&mut conn, None).await.unwrap();
+        let tom = judges
+            .iter()
+            .find(|judge| judge.lastname == "Schulz" && judge.firstname == "Tom")
+            .unwrap();
+        let heat: JuryUnitId = sqlx::query_scalar(
+            "SELECT id FROM view_jury_unit WHERE name LIKE 'Expert 2 Einzel Männlich%' AND kind = 'heat'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let ride = tom
+            .registrations
+            .iter()
+            .find(|r| r.unit_id == heat)
+            .unwrap();
+        assert!(ride.conflict.is_some(), "{ride:?}");
+        // Kept and counted: the registration is there, the flag is only a note.
+        assert!(!ride.flagged);
+
+        // Karl Richter rides nowhere he is registered.
+        let karl = judges
+            .iter()
+            .find(|judge| judge.lastname == "Richter")
+            .unwrap();
+        assert!(karl.registrations.iter().all(|r| r.conflict.is_none()));
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn a_demo_judge_from_a_rider_has_no_names_of_their_own() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();

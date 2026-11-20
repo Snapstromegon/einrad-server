@@ -354,3 +354,212 @@ async fn a_heat_with_several_categories_names_the_category_the_rider_rides_in() 
     refused(&response, &["fährt in EWU30"]);
     assert!(!response.body.to_string().contains("EWU25"));
 }
+
+// Conflicts that arise later are kept and flagged (computed, nothing stored).
+
+async fn listed(app: &TestApp, cookie: &str, club_id: ClubId) -> Vec<Value> {
+    let response = app
+        .get(
+            &format!("/api/query/list_club_judges?club_id={club_id}"),
+            Some(cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body.as_array().unwrap().clone()
+}
+
+/// The `conflict` of the club's only judge's only registration.
+async fn conflict(app: &TestApp, cookie: &str, club_id: ClubId) -> Value {
+    let judges = listed(app, cookie, club_id).await;
+    assert_eq!(judges.len(), 1);
+    let registrations = judges[0]["registrations"].as_array().unwrap();
+    assert_eq!(registrations.len(), 1, "{registrations:?}");
+    registrations[0]["conflict"].clone()
+}
+
+async fn edit_heat(app: &TestApp, admin: &str, name: &str, categories: &[&str]) {
+    let response = app
+        .post(
+            "/api/command/edit_heat",
+            json!({
+                "id": app.heat_id(name).await,
+                "new_name": name,
+                "description": null,
+                "categories": categories,
+            }),
+            Some(admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+}
+
+/// A judge for the heat "Erwachsene" whose rider has no start yet.
+async fn judge_before_the_act(app: &TestApp, admin: &str, owner: &str, club_id: ClubId) -> RiderId {
+    let max = rider(app, owner, club_id, "Max", false, false, None).await;
+    let heat = unit(app, admin, "Erwachsene").await;
+    ok(&link_and_register(app, owner, club_id, max, &heat).await);
+    assert_eq!(conflict(app, owner, club_id).await, Value::Null);
+    max
+}
+
+#[tokio::test]
+async fn a_conflict_that_appears_later_is_flagged_and_kept() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = judge_before_the_act(&app, &admin, &owner, club_id).await;
+
+    app.start_command(
+        &owner,
+        "set_single",
+        json!({ "rider_id": max, "single": true }),
+    )
+    .await;
+
+    assert_eq!(
+        conflict(&app, &owner, club_id).await,
+        json!({ "category": "EWU23", "replacement": false })
+    );
+    // The Jury lead sees it too.
+    let all = app.get("/api/query/list_judges", Some(&admin)).await;
+    assert_eq!(all.status, StatusCode::OK, "{:?}", all.body);
+    assert_eq!(
+        all.body[0]["registrations"][0]["conflict"],
+        json!({ "category": "EWU23", "replacement": false })
+    );
+    // It is not the closed-unit flag.
+    assert_eq!(
+        listed(&app, &owner, club_id).await[0]["registrations"][0]["flagged"],
+        false
+    );
+}
+
+#[tokio::test]
+async fn a_replacement_added_later_is_flagged_as_replacement() {
+    let (app, admin, owner, club_id) = setup().await;
+    add_heat(&app, &admin, "Gruppen", &["KG15+"]).await;
+    let riders = app.add_riders(&owner, club_id, "Gruppe", 4).await;
+    sqlx::query("UPDATE rider SET birthdate = ?")
+        .bind("2005-01-01T00:00:00Z")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    ok(&app
+        .post(
+            "/api/command/set_heat_skip",
+            json!({ "id": app.heat_id("Gruppen").await, "skip": false }),
+            Some(&admin),
+        )
+        .await);
+    let heat = unit(&app, &admin, "Gruppen").await;
+    ok(&link_and_register(&app, &owner, club_id, riders[3], &heat).await);
+    let group = app.create_group(&owner, club_id, "Wirbel").await;
+    ok(&app
+        .set_group_members(&owner, club_id, group, &riders[..3], &[])
+        .await);
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+
+    ok(&app
+        .set_group_members(&owner, club_id, group, &riders[..3], &riders[3..])
+        .await);
+
+    assert_eq!(
+        conflict(&app, &owner, club_id).await,
+        json!({ "category": "KG15+", "replacement": true })
+    );
+}
+
+#[tokio::test]
+async fn an_act_category_change_is_flagged() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let other = unit(&app, &admin, "Erwachsene").await;
+    // Registered while the rider rides in no heat: 40 is EWU50, in no heat.
+    sqlx::query("UPDATE rider SET birthdate = ? WHERE id = ?")
+        .bind("1987-01-01T00:00:00Z")
+        .bind(max)
+        .execute(&app.db)
+        .await
+        .unwrap();
+    ok(&link_and_register(&app, &owner, club_id, max, &other).await);
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+
+    let edit = |birthdate: &str| {
+        app.post(
+            "/api/command/edit_rider",
+            json!({
+                "rider_id": max,
+                "firstname": "Max",
+                "lastname": "Müller",
+                "birthdate": birthdate,
+            }),
+            Some(&owner),
+        )
+    };
+    ok(&edit(ADULT).await);
+    assert_eq!(
+        conflict(&app, &owner, club_id).await,
+        json!({ "category": "EWU23", "replacement": false })
+    );
+    ok(&edit("1987-01-01T00:00:00.000Z").await);
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+}
+
+#[tokio::test]
+async fn moving_the_category_to_another_heat_changes_the_flag() {
+    let (app, admin, owner, club_id) = setup().await;
+    add_heat(&app, &admin, "Andere", &["EWU25"]).await;
+    let max = judge_before_the_act(&app, &admin, &owner, club_id).await;
+    app.start_command(
+        &owner,
+        "set_single",
+        json!({ "rider_id": max, "single": true }),
+    )
+    .await;
+    assert_ne!(conflict(&app, &owner, club_id).await, Value::Null);
+
+    edit_heat(&app, &admin, "Erwachsene", &[]).await;
+    edit_heat(&app, &admin, "Andere", &["EWU25", "EWU23"]).await;
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+
+    edit_heat(&app, &admin, "Andere", &["EWU25"]).await;
+    edit_heat(&app, &admin, "Erwachsene", &["EWU23"]).await;
+    assert_eq!(conflict(&app, &owner, club_id).await["category"], "EWU23");
+}
+
+#[tokio::test]
+async fn withdrawing_the_act_clears_the_flag() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = judge_before_the_act(&app, &admin, &owner, club_id).await;
+    app.start_command(
+        &owner,
+        "set_single",
+        json!({ "rider_id": max, "single": true }),
+    )
+    .await;
+    assert_ne!(conflict(&app, &owner, club_id).await, Value::Null);
+
+    let act = app.act_of(max).await;
+    ok(&app
+        .post(
+            "/api/command/set_act_withdrawn",
+            json!({ "act_id": act, "withdrawn": true }),
+            Some(&admin),
+        )
+        .await);
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+}
+
+#[tokio::test]
+async fn an_unlinked_judge_is_never_flagged() {
+    let (app, admin, owner, club_id) = setup().await;
+    rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let heat = unit(&app, &admin, "Erwachsene").await;
+    ok(&app
+        .post(
+            "/api/command/add_club_judge",
+            judge_body(club_id, None, &[(&heat, "technical")]),
+            Some(&owner),
+        )
+        .await);
+
+    assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
+}
