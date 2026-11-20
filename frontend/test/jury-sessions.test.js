@@ -9,7 +9,6 @@ import {
   mergeSummary,
   needBody,
   planWarnings,
-  rideSuffix,
   rideWarningLines,
   sessionLabel,
   sessionNumber,
@@ -551,25 +550,5 @@ describe("jury sessions: ride warnings", () => {
       [`EMU23, EMU30: Max Müller fährt in Einzel W Expert 1 (${time})`],
     );
     assert.deepEqual(rideWarningLines(unit, b, assignments, judges, rides), []);
-  });
-
-  test("rideSuffix marks the level", () => {
-    assert.equal(rideSuffix(undefined), "");
-    assert.equal(
-      rideSuffix(conflict("same")),
-      ` – ⛔ fährt in Einzel W Expert 1 (${time})`,
-    );
-    assert.equal(
-      rideSuffix(conflict("adjacent")),
-      ` – ⚠ fährt in Einzel W Expert 1 (${time})`,
-    );
-    assert.ok(
-      rideSuffix(
-        conflict("same", {
-          replacement: true,
-          text: `fährt in Einzel W Expert 1 (${time}) als Ersatzfahrer`,
-        }),
-      ).endsWith(" als Ersatzfahrer"),
-    );
   });
 });

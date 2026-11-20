@@ -30,10 +30,6 @@ import {
   type KeepState,
   type SessionSplitBody,
   neededFor,
-  overMaxWarnings,
-  planWarnings,
-  rideSuffix,
-  rideWarningLines,
   sessionLabel,
   sessionsOf,
   sessionNumber,
@@ -45,12 +41,7 @@ import {
   taskNames,
   unitName,
 } from "../../jury";
-import {
-  finalInfos,
-  judgeConflicts,
-  planBlocks,
-  rideIndex,
-} from "../../jury-blocks";
+import { finalInfos, planBlocks, rideIndex } from "../../jury-blocks";
 import { adminStyles } from "../../styles/admin";
 import type {
   SeatAssignDetail,
@@ -209,15 +200,11 @@ export default class CupViewAdminJudges extends LitElement {
         gap: 0.5rem;
       }
 
-      /* "Juryplan drucken": only the plan, one page per day. */
+      /* "Juryplan drucken": only the plan; the seat table breaks pages per day. */
       @media print {
         .print-plan section:not(.plan-section),
         .print-plan > .toolbar {
           display: none;
-        }
-
-        .print-plan .plan-section h3:not(:first-of-type) {
-          break-before: page;
         }
       }
     `,
@@ -229,8 +216,6 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private saving = false;
   @state() private error: string | null = null;
   @state() private search = "";
-  /** Offer every judge for a task, not only those who registered for it. */
-  @state() private showAll = false;
   /** While printing only the Juryplan. */
   @state() private printingPlan = false;
   /** What applying a remap file did. */
@@ -251,6 +236,7 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private status: string | null = null;
 
   @query(".merge-dialog") private mergeDialog?: HTMLElement;
+  @query(".error-banner") private errorBanner?: HTMLElement;
 
   override updated() {
     // The merge question is a popover: open it once it is rendered.
@@ -307,14 +293,6 @@ export default class CupViewAdminJudges extends LitElement {
       return { blocks, index };
     },
   });
-
-  /** The ride conflicts of the linked judges with one Durchgang. */
-  private ridesOf(unit: JuryUnit, session: JurySession, judges: ClubJudge[]) {
-    const rides = this.rides.value;
-    return rides
-      ? judgeConflicts(judges, unit, session, rides.index, rides.blocks)
-      : new Map();
-  }
 
   override render() {
     return html`<div class="page-pad ${this.printingPlan ? "print-plan" : ""}">
@@ -417,47 +395,10 @@ export default class CupViewAdminJudges extends LitElement {
   }
 
   /**
-   * The Juryplan: per jury unit and task the assigned judges, a picker to
-   * assign more and the unit's warnings; grouped by day for printing.
+   * The Juryplan: the seat table (per Durchgang the seats T, P, A and their
+   * judges), with the publish and print controls.
    */
   private renderPlan(units: JuryUnit[], judges: ClubJudge[], plan: JuryPlan) {
-    const load = assignedDeployments(units, plan.assignments);
-    const byDay = new Map<string, JuryUnit[]>();
-    for (const unit of units) {
-      const day = unit.day ?? "";
-      byDay.set(day, [...(byDay.get(day) ?? []), unit]);
-    }
-    const days = [...byDay].sort(([a], [b]) =>
-      a === "" ? 1 : b === "" ? -1 : a.localeCompare(b),
-    );
-    const headers = TASKS.map((task) => html`<th>${taskNames[task]}</th>`);
-    const groups = days.map(
-      ([day, dayUnits]) =>
-        html`<h3>${day ? formatDate(day) : "Ohne Tag"}</h3>
-          <table class="dense fit plan">
-            <thead>
-              <tr>
-                <th>Vorlauf / Finale</th>
-                ${headers}
-              </tr>
-            </thead>
-            <tbody>
-              ${repeat(
-                dayUnits,
-                (unit) => unit.id,
-                (unit) => this.renderPlanRow(unit, judges, plan, load),
-              )}
-            </tbody>
-          </table>`,
-    );
-    const overMax = overMaxWarnings(plan.assignments, judges, units);
-    const overMaxLines = overMax.map(
-      (line, i) =>
-        html`${i ? html`<br />` : nothing}<small class="text-warn"
-            >${line}</small
-          >`,
-    );
-    const overMaxList = overMax.length ? html`<p>${overMaxLines}</p>` : nothing;
     const published = plan.published_at;
     // Clubs can change their judges until the judge deadline.
     const end = judgeRegistrationEnd(this.systemStatus?.competition);
@@ -473,14 +414,6 @@ export default class CupViewAdminJudges extends LitElement {
           }</span
         >
         <span class="spacer"></span>
-        <label class="no-print"
-          ><input
-            type="checkbox"
-            .checked=${this.showAll}
-            @change=${this.onShowAllChange}
-          />
-          alle zeigen</label
-        >
         <button class="btn small no-print" @click=${this.printPlan}>
           <span class="material-icon">print</span> Juryplan drucken
         </button>
@@ -498,14 +431,11 @@ export default class CupViewAdminJudges extends LitElement {
         </button>
       </div>
       <p class="muted small no-print">
-        Vorgeschlagen werden die JurorInnen, die sich für Vorlauf oder Finale
-        und Aufgabe gemeldet haben; mit „alle zeigen“ auch alle anderen.
-        Veröffentlicht sieht jeder Verein die Einteilung seiner JurorInnen; das
-        geht erst nach dem Ende der Jury-Anmeldung${
-          end ? ` (${formatDate(end)})` : ""
-        }.
+        Ein Klick auf einen Platz öffnet die Auswahl: zuerst die JurorInnen, die
+        sich für Vorlauf oder Finale und Aufgabe gemeldet haben. Veröffentlicht
+        sieht jeder Verein die Einteilung seiner JurorInnen; das geht erst nach
+        dem Ende der Jury-Anmeldung${end ? ` (${formatDate(end)})` : ""}.
       </p>
-      ${overMaxList}
       <cup-jury-seat-table
         .units=${units}
         .judges=${judges}
@@ -516,111 +446,7 @@ export default class CupViewAdminJudges extends LitElement {
         @seat-assign=${this.onSeatAssign}
         @seat-clear=${this.onSeatClear}
       ></cup-jury-seat-table>
-      ${groups}
     </section>`;
-  }
-
-  /** One row per Durchgang; an unsplit unit has one, labelled by nothing. */
-  private renderPlanRow(
-    unit: JuryUnit,
-    judges: ClubJudge[],
-    plan: JuryPlan,
-    load: Map<string, number>,
-  ) {
-    const unitAssigned = plan.assignments.filter((a) => a.unit_id === unit.id);
-    return sessionsOf(unit).map((session, index) =>
-      this.renderSessionRow(
-        unit,
-        session,
-        index === 0,
-        judges,
-        plan,
-        unitAssigned,
-        load,
-      ),
-    );
-  }
-
-  private renderSessionRow(
-    unit: JuryUnit,
-    session: JurySession,
-    first: boolean,
-    judges: ClubJudge[],
-    plan: JuryPlan,
-    unitAssigned: JuryPlan["assignments"],
-    load: Map<string, number>,
-  ) {
-    const competition = this.systemStatus?.competition;
-    const assigned = unitAssigned.filter((a) => a.session_id === session.id);
-    const warnings = planWarnings(
-      unit,
-      session,
-      plan.assignments,
-      judges,
-      competition,
-    );
-    const conflicts = this.ridesOf(unit, session, judges);
-    const rideLines = rideWarningLines(
-      unit,
-      session,
-      plan.assignments,
-      judges,
-      conflicts,
-    ).map(
-      (line) =>
-        html`<br /><small
-            class=${line.level === "same" ? "text-bad" : "text-warn"}
-            >${line.text}</small
-          >`,
-    );
-    const label = sessionLabel(unit, session);
-    const byId = new Map(judges.map((j) => [j.id, j]));
-    const cells = TASKS.map((task) => {
-      const names = assigned
-        .filter((a) => a.task === task)
-        .map((a) => {
-          const judge = byId.get(a.judge_id);
-          const registered = judge?.registrations.some(
-            (r) => r.unit_id === unit.id && r.task === task,
-          );
-          return html`<span
-            class="chip ${registered ? "" : "warn"}"
-            title=${registered ? (judge?.club_name ?? "") : "Nicht dafür gemeldet"}
-            >${judge ? `${judge.firstname} ${judge.lastname}` : "?"}
-            <button
-              class="icon-btn no-print"
-              title="Entfernen"
-              aria-label="Entfernen"
-              data-judge=${a.judge_id}
-              data-session=${session.id}
-              ?disabled=${this.saving}
-              @click=${this.onUnassignClick}
-            >
-              close
-            </button></span
-          >`;
-        });
-      return html`<td>
-        <div class="chips">${names}</div>
-        <small class="muted"
-          >${assigned.filter((a) => a.task === task).length}/${neededFor(session, task)}</small
-        >
-        ${this.renderPicker(unit, session, task, judges, unitAssigned, load)}
-      </td>`;
-    });
-    const warningLines = warnings.map(
-      (warning) => html`<br /><small class="text-warn">${warning}</small>`,
-    );
-    return html`<tr>
-      <td>
-        ${first ? html`<b>${unitName(unit)}</b>` : nothing}
-        ${first && closedReason(unit) ? html`<br /><small class="text-warn">${closedReason(unit)}</small>` : nothing}
-        ${first ? this.renderSplitPanel(unit) : nothing}
-        ${label ? html`<span class="chip">${label}</span>` : nothing}
-        ${warningLines} ${rideLines} ${this.renderNeeded(unit, session)}
-      </td>
-      ${cells}
-    </tr>`;
   }
 
   /**
@@ -656,7 +482,9 @@ export default class CupViewAdminJudges extends LitElement {
           />
         </label>`,
     );
-    return html`<div class="need no-print">${inputs}</div>`;
+    return html`<div class="need no-print">
+      <small class="muted">${label || "Durchgang"}</small> ${inputs}
+    </div>`;
   }
 
   /** "Durchgänge": one select per category to group them. */
@@ -780,69 +608,6 @@ export default class CupViewAdminJudges extends LitElement {
         <button class="btn" @click=${this.closeMerge}>Abbrechen</button>
       </div>
     </div>`;
-  }
-
-  /**
-   * Judges that can be added to a task of a Durchgang; untrained ones only
-   * count dismounts. Registration is per unit, so a judge already in another
-   * Durchgang of the unit stays selectable, tagged with that Durchgang.
-   */
-  private renderPicker(
-    unit: JuryUnit,
-    session: JurySession,
-    task: JudgeTask,
-    judges: ClubJudge[],
-    unitAssigned: JuryPlan["assignments"],
-    load: Map<string, number>,
-  ) {
-    const taken = new Set(
-      unitAssigned
-        .filter((a) => a.session_id === session.id)
-        .map((a) => a.judge_id),
-    );
-    const elsewhere = new Map<string, string>();
-    for (const a of unitAssigned) {
-      const other = sessionsOf(unit).find((s) => s.id === a.session_id);
-      if (other && other.id !== session.id) {
-        elsewhere.set(a.judge_id, sessionLabel(unit, other));
-      }
-    }
-    const conflicts = this.ridesOf(unit, session, judges);
-    const registered = (judge: ClubJudge) =>
-      judge.registrations.some((r) => r.unit_id === unit.id && r.task === task);
-    const options = judges
-      .filter(
-        (judge) =>
-          !taken.has(judge.id) &&
-          (judge.is_trained || task === "dismounts") &&
-          (this.showAll || registered(judge)),
-      )
-      .map((judge) => {
-        const l = assignedLoad(judge, load);
-        const also = elsewhere.get(judge.id);
-        const ride = rideSuffix(conflicts.get(judge.id));
-        return html`<option value=${judge.id}>
-          ${l?.over ? "⚠ " : ""}${judge.lastname}, ${judge.firstname}
-          (${judge.club_name})${registered(judge) ? "" : " – nicht gemeldet"}${
-            l ? ` – ${loadLabel(l)}` : ""
-          }${also ? ` (auch in ${also})` : ""}${ride}
-        </option>`;
-      });
-    if (!options.length) {
-      return nothing;
-    }
-    const label = sessionLabel(unit, session);
-    return html`<select
-      class="no-print"
-      aria-label="${unitName(unit)}${label ? ` (${label})` : ""}: ${taskNames[task]} einteilen"
-      data-session=${session.id}
-      data-task=${task}
-      ?disabled=${this.saving}
-      @change=${this.onAssignChange}
-    >
-      <option value="" selected>+ einteilen</option>
-      ${options}
-    </select>`;
   }
 
   /** Jury unit × task: trained (and untrained) judges against needed. */
@@ -1311,6 +1076,10 @@ export default class CupViewAdminJudges extends LitElement {
 
   private renderRow(unit: JuryUnit) {
     const idle = this.editing === null && !this.saving;
+    // Per Durchgang the needed counts that differ from the unit's.
+    const needed = sessionsOf(unit).map((session) =>
+      this.renderNeeded(unit, session),
+    );
     return html`<tr>
       <td>
         <b>${unitName(unit)}</b>
@@ -1319,6 +1088,7 @@ export default class CupViewAdminJudges extends LitElement {
             ? html`<br /><small class="text-warn">${closedReason(unit)}</small>`
             : nothing
         }
+        ${this.renderSplitPanel(unit)} ${needed}
       </td>
       <td>
         ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
@@ -1409,30 +1179,12 @@ export default class CupViewAdminJudges extends LitElement {
     </tr>`;
   }
 
-  private onShowAllChange(e: Event) {
-    this.showAll = (e.target as HTMLInputElement).checked;
-  }
-
   private async onPublishClick() {
     const published = !this.judges.value?.[2].published_at;
     await this.change(
       () => unwrap(client.setJuryPlanPublished({ body: { published } })),
       published ? "Veröffentlichen" : "Zurückziehen",
     );
-  }
-
-  private async onAssignChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    const judge_id = select.value;
-    if (!judge_id) {
-      return;
-    }
-    const body = {
-      judge_id,
-      session_id: select.dataset.session!,
-      task: select.dataset.task as JudgeTask,
-    };
-    await this.change(() => unwrap(client.assignJudge({ body })), "Einteilen");
   }
 
   private async onSeatAssign(e: CustomEvent<SeatAssignDetail>) {
@@ -1445,18 +1197,6 @@ export default class CupViewAdminJudges extends LitElement {
     const body = {
       judge_id: e.detail.judgeId,
       session_id: e.detail.sessionId,
-    };
-    await this.change(
-      () => unwrap(client.unassignJudge({ body })),
-      "Entfernen",
-    );
-  }
-
-  private async onUnassignClick(e: Event) {
-    const button = e.currentTarget as HTMLElement;
-    const body = {
-      judge_id: button.dataset.judge!,
-      session_id: button.dataset.session!,
     };
     await this.change(
       () => unwrap(client.unassignJudge({ body })),
@@ -1680,6 +1420,10 @@ export default class CupViewAdminJudges extends LitElement {
       return result;
     } catch (error) {
       this.error = `${action} fehlgeschlagen: ${errorMessage(error)}`;
+      // The banner is at the top; the refusal may come from further down.
+      void this.updateComplete.then(() =>
+        this.errorBanner?.scrollIntoView?.({ block: "nearest" }),
+      );
       return undefined;
     } finally {
       this.saving = false;

@@ -236,15 +236,6 @@ export const rideWarningLines = (
 };
 
 /**
- * The ride warning appended to a picker option; the glyph carries the level
- * (red "⛔", amber "⚠") since options can't be coloured reliably.
- */
-export const rideSuffix = (conflict: RideConflict | undefined) =>
-  conflict
-    ? ` – ${conflict.level === "same" ? "⛔" : "⚠"} ${conflict.text}`
-    : "";
-
-/**
  * Deployments each judge is assigned in the Juryplan: every distinct jury
  * unit counts once, however many tasks the judge has there.
  */

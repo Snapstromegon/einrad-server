@@ -1,9 +1,10 @@
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, query, state } from "lit/decorators.js";
 import type { schemas } from "../../apiClient";
 import {
   assignedDeployments,
   closedReason,
+  loadLabel,
   overMaxWarnings,
   planWarnings,
   rideWarningLines,
@@ -23,6 +24,9 @@ import {
 import {
   formatLongDay,
   formatWeekday,
+  pickerGroups,
+  seatLabel,
+  type PickerEntry,
   seatColumns,
   seatCount,
   seatRow,
@@ -370,6 +374,207 @@ export class CupJurySeatTable extends LitElement {
         opacity: 0.5;
       }
 
+
+      .picker {
+        position: fixed;
+        inset: auto;
+        margin: 0;
+        box-sizing: border-box;
+        width: 22rem;
+        max-width: calc(100vw - 16px);
+        padding: 0.5rem;
+        overflow-y: auto;
+        border: 1px solid var(--color-border-strong);
+        border-radius: 0.5rem;
+        background: var(--color-surface);
+        color: var(--color-text);
+        box-shadow: 0 8px 32px var(--color-shadow);
+      }
+
+      .picker input[type="search"] {
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .picker h4 {
+        margin: 0.6rem 0 0.2rem;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .entry {
+        display: block;
+        width: 100%;
+        padding: 0.35rem 0.5rem;
+        border: 0;
+        border-radius: 0.3rem;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        overflow-wrap: anywhere;
+      }
+
+      .entry:hover:not(:disabled) {
+        background: var(--color-hover);
+      }
+
+      .entry:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+
+      .entry.release {
+        color: var(--color-error-strong);
+        font-weight: 600;
+      }
+
+      .entry .meta,
+      .entry .warnline {
+        display: block;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .entry .warnline.amber {
+        color: var(--color-warning-strong);
+      }
+
+      .entry .warnline.red {
+        color: var(--color-error-strong);
+      }
+
+      .picker .none-found {
+        margin: 0.5rem 0.25rem;
+        color: var(--color-text-muted);
+      }
+
+      @media (max-width: 720px) {
+        .summary .phone-only,
+        .free-text .phone-only {
+          display: inline;
+        }
+
+        .summary .colon {
+          display: none;
+        }
+
+        .summary .toggle {
+          width: 100%;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .summary ul {
+          display: none;
+          margin-top: 0.4rem;
+        }
+
+        .summary.open ul {
+          display: block;
+        }
+
+        .summary.open li {
+          display: block;
+        }
+
+        .summary li + li::before {
+          content: none;
+        }
+
+        .head,
+        .legend {
+          display: none;
+        }
+
+        .grid-wrap {
+          overflow-x: visible;
+        }
+
+        h3.day {
+          margin-top: 1rem;
+        }
+
+        .dg {
+          display: block;
+          margin: 0.5rem 0;
+          padding: 0.6rem 0.75rem;
+          border: 1px solid var(--color-border);
+          border-radius: 0.5rem;
+          background: var(--color-surface);
+        }
+
+        .info {
+          margin-bottom: 0.25rem;
+        }
+
+        .info .wd {
+          display: inline;
+        }
+
+        .info .block {
+          display: inline;
+        }
+
+        .info .badge {
+          margin: 0;
+          padding: 0;
+          border-radius: 0;
+          background: none;
+          color: var(--color-text-muted);
+          font-weight: 400;
+          font-size: 12px;
+        }
+
+        .info .badge::before {
+          content: " · ";
+        }
+
+        .task-row {
+          display: block;
+        }
+
+        .letter {
+          display: block;
+          margin: 0.6rem 0 0.25rem;
+          font-size: 12px;
+        }
+
+        .letter .l {
+          display: none;
+        }
+
+        .letter .full {
+          display: inline;
+        }
+
+        .seat {
+          flex-wrap: wrap;
+          margin-bottom: 0.4rem;
+        }
+
+        .seat[data-state="off"] {
+          display: none;
+        }
+
+        .seat:hover > .tip,
+        .seat:has(.tab:focus-visible) > .tip {
+          display: none;
+        }
+
+        .seat.tip-open > .tip {
+          display: block;
+        }
+
+        .tip {
+          position: static;
+          flex-basis: 100%;
+          margin: 0;
+          border-radius: 0 0 0.3rem 0.3rem;
+        }
+      }
+
       @media print {
         .grid-wrap {
           overflow: visible;
@@ -383,7 +588,8 @@ export class CupJurySeatTable extends LitElement {
           break-inside: avoid;
         }
 
-        .tip {
+        .tip,
+        .picker {
           display: none !important;
         }
       }
@@ -411,6 +617,61 @@ export class CupJurySeatTable extends LitElement {
     seat: number;
   } | null = null;
   @state() private summaryOpen = false;
+  @state() private query = "";
+
+  @query(".picker") private picker?: HTMLElement;
+  @query(".seat.picking") private anchorSeat?: HTMLElement;
+
+  override connectedCallback() {
+    super.connectedCallback?.();
+    window.addEventListener("scroll", this.place, true);
+    window.addEventListener("resize", this.place);
+  }
+
+  override disconnectedCallback() {
+    window.removeEventListener("scroll", this.place, true);
+    window.removeEventListener("resize", this.place);
+    super.disconnectedCallback?.();
+  }
+
+  override updated() {
+    // The picker is a popover in the top layer, so no overflow clips it.
+    const picker = this.picker;
+    if (picker && !picker.matches(":popover-open")) {
+      picker.showPopover();
+      this.place();
+      picker.querySelector("input")?.focus();
+    }
+  }
+
+  /** Puts the picker under its seat, or on the card's full width on a phone. */
+  private place = () => {
+    const picker = this.picker;
+    const open = this.openSeat;
+    if (!picker || !open) {
+      return;
+    }
+    const anchor = this.anchorSeat;
+    if (!anchor) {
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const phone = window.matchMedia("(max-width: 720px)").matches;
+    const width = phone ? window.innerWidth - 16 : picker.offsetWidth;
+    const below = window.innerHeight - rect.bottom - 12;
+    const style = picker.style;
+    style.width = phone ? `${width}px` : "";
+    style.left = `${phone ? 8 : Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+    if (below < 200 && rect.top > below) {
+      style.top = "auto";
+      style.bottom = `${window.innerHeight - rect.top + 4}px`;
+      style.maxHeight = `${rect.top - 12}px`;
+    } else {
+      style.bottom = "auto";
+      style.top = `${rect.bottom + 4}px`;
+      style.maxHeight = `${below}px`;
+    }
+  };
 
   /** The ride conflicts of the linked judges with one Durchgang. */
   private conflictsOf(unit: JuryUnit, session: JurySession) {
@@ -521,6 +782,7 @@ export class CupJurySeatTable extends LitElement {
         <span><i class="free"></i> freier Platz</span>
         <span><i class="none"></i> kein Platz</span>
       </div>
+      ${this.renderPicker(load, conflicts)}
     </section>`;
   }
 
@@ -533,7 +795,10 @@ export class CupJurySeatTable extends LitElement {
       (line) =>
         html`<li class=${line.level === "bad" ? "bad" : ""}>${line.text}</li>`,
     );
-    return html`<div class="summary no-print" role="status">
+    return html`<div
+      class="summary no-print ${this.summaryOpen ? "open" : ""}"
+      role="status"
+    >
       <button
         class="toggle"
         aria-expanded=${this.summaryOpen}
@@ -602,7 +867,10 @@ export class CupJurySeatTable extends LitElement {
     }
     const key = `${session.id}:${seat.label}`;
     if (seat.state === "free" || !seat.assignment) {
-      return html`<div class="seat" data-state="free">
+      return html`<div
+        class="seat ${this.isOpen(session.id, seat) ? "picking" : ""}"
+        data-state="free"
+      >
         <span class="tab">${seat.label}</span>
         <button
           class="pick free-text"
@@ -627,7 +895,7 @@ export class CupJurySeatTable extends LitElement {
     const warned = tab.level !== "none";
     const details = tab.details.map((d) => html`<div>${d}</div>`);
     return html`<div
-      class="seat ${seat.extra ? "extra" : ""} ${this.openTip === key ? "tip-open" : ""}"
+      class="seat ${seat.extra ? "extra" : ""} ${this.openTip === key ? "tip-open" : ""} ${this.isOpen(session.id, seat) ? "picking" : ""}"
       data-state="filled"
       title=${seat.extra ? "Über den Bedarf hinaus (alte Einteilung)" : ""}
     >
@@ -670,6 +938,183 @@ export class CupJurySeatTable extends LitElement {
     </div>`;
   }
 
+  /** The picker of the clicked seat: who can take it, and what happens then. */
+  private renderPicker(
+    load: Map<string, number>,
+    conflicts: Map<string, Map<string, RideConflict>>,
+  ) {
+    const open = this.openSeat;
+    const plan = this.plan;
+    const unit = this.units.find((u) =>
+      sessionsOf(u).some((s) => s.id === open?.sessionId),
+    );
+    const session = sessionsOf(unit ?? { sessions: [] }).find(
+      (s) => s.id === open?.sessionId,
+    );
+    if (!open || !plan || !unit || !session) {
+      return nothing;
+    }
+    const groups = pickerGroups({
+      unit,
+      session,
+      task: open.task,
+      seat: open.seat,
+      judges: this.judges,
+      assignments: plan.assignments,
+      load,
+      conflicts: conflicts.get(session.id) ?? new Map(),
+      query: this.query,
+    });
+    const occupant = plan.assignments.find(
+      (a) =>
+        a.session_id === session.id &&
+        a.task === open.task &&
+        a.seat === open.seat,
+    );
+    const letter = taskLabels[open.task];
+    const sections: [string, PickerEntry[]][] = [
+      [
+        unit.kind === "final"
+          ? `Gemeldet für dieses Finale (${letter})`
+          : `Gemeldet für diesen Vorlauf (${letter})`,
+        groups.registered,
+      ],
+      ["Auf anderem Platz", groups.otherSeat],
+      ["Nicht gemeldet", groups.others],
+    ];
+    const lists = sections
+      .filter(([, entries]) => entries.length)
+      .map(([title, entries]) => {
+        const items = entries.map((entry) => this.renderEntry(entry));
+        return html`<h4>${title}</h4>
+          ${items}`;
+      });
+    return html`<div
+      class="picker no-print"
+      popover="auto"
+      role="dialog"
+      aria-label="${seatLabel(open.task, open.seat)} besetzen"
+      @toggle=${this.onPickerToggle}
+    >
+      <input
+        type="search"
+        placeholder="JurorIn suchen..."
+        aria-label="JurorIn suchen"
+        .value=${this.query}
+        @input=${this.onQueryInput}
+      />
+      ${
+        occupant
+          ? html`<button
+              class="entry release"
+              data-judge=${occupant.judge_id}
+              ?disabled=${this.saving}
+              @click=${this.onRelease}
+            >
+              Platz freigeben
+            </button>`
+          : nothing
+      }
+      ${lists}
+      ${
+        lists.length
+          ? nothing
+          : html`<p class="none-found">Keine JurorIn gefunden.</p>`
+      }
+    </div>`;
+  }
+
+  private renderEntry(entry: PickerEntry) {
+    const { judge, tab } = entry;
+    const lines = tab.details.map(
+      (text, i) =>
+        html`<span
+          class="warnline ${tab.level === "red" && i === 0 ? "red" : "amber"}"
+          >${tab.level === "red" && i === 0 ? "● " : "⚠ "}${text}</span
+        >`,
+    );
+    const meta = [
+      entry.seatLabel ? `auf ${entry.seatLabel}` : null,
+      entry.load ? loadLabel(entry.load) : null,
+      entry.elsewhere ? `(auch in ${entry.elsewhere})` : null,
+    ].filter(Boolean);
+    return html`<button
+      class="entry"
+      data-judge=${judge.id}
+      ?disabled=${this.saving || !!entry.blocked}
+      @click=${this.onPick}
+    >
+      <span class="name">${judge.firstname} ${judge.lastname}</span>
+      <span class="club">${judge.club_name}</span>
+      ${meta.length ? html`<span class="meta">${meta.join(" · ")}</span>` : nothing}
+      ${entry.hint ? html`<span class="meta">${entry.hint}</span>` : nothing}
+      ${entry.blocked ? html`<span class="meta">${entry.blocked}</span>` : nothing}
+      ${lines}
+    </button>`;
+  }
+
+  private onQueryInput(e: Event) {
+    this.query = (e.target as HTMLInputElement).value;
+  }
+
+  private onPickerToggle(e: Event) {
+    // A seat clicked while another picker is open closes the old one and
+    // opens the new one; only reset when the picker really is closed.
+    if (
+      (e as ToggleEvent).newState === "closed" &&
+      !this.picker?.matches(":popover-open")
+    ) {
+      this.openSeat = null;
+      this.query = "";
+    }
+  }
+
+  private closePicker() {
+    const picker = this.picker;
+    if (picker?.matches(":popover-open")) {
+      picker.hidePopover();
+    }
+    this.openSeat = null;
+    this.query = "";
+  }
+
+  private onPick(e: Event) {
+    const open = this.openSeat;
+    if (!open) {
+      return;
+    }
+    const judgeId = (e.currentTarget as HTMLElement).dataset.judge!;
+    this.closePicker();
+    this.dispatchEvent(
+      new CustomEvent<SeatAssignDetail>("seat-assign", {
+        detail: {
+          judgeId,
+          sessionId: open.sessionId,
+          task: open.task,
+          seat: open.seat,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  private onRelease(e: Event) {
+    const open = this.openSeat;
+    if (!open) {
+      return;
+    }
+    const judgeId = (e.currentTarget as HTMLElement).dataset.judge!;
+    this.closePicker();
+    this.dispatchEvent(
+      new CustomEvent<SeatClearDetail>("seat-clear", {
+        detail: { judgeId, sessionId: open.sessionId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   private isOpen(sessionId: string, seat: Seat) {
     const open = this.openSeat;
     return (
@@ -690,6 +1135,7 @@ export class CupJurySeatTable extends LitElement {
 
   private onSeatClick(e: Event) {
     const { session, task, seat } = (e.currentTarget as HTMLElement).dataset;
+    this.query = "";
     this.openSeat = {
       sessionId: session!,
       task: task as JudgeTask,
