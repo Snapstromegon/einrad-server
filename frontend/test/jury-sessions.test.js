@@ -9,12 +9,15 @@ import {
   mergeSummary,
   needBody,
   planWarnings,
+  rideSuffix,
+  rideWarningLines,
   sessionLabel,
   sessionNumber,
   sessionsOf,
   splitBody,
   toggleKeep,
 } from "../src/ts/jury.ts";
+import { formatTime } from "../src/ts/utils.ts";
 
 const cat = (name) => ({ id: name, name });
 const session = (id, names, needed = {}) => ({
@@ -466,6 +469,107 @@ describe("jury sessions: Durchgang numbers", () => {
     assert.deepEqual(
       body.sessions.map((s) => s.category_ids),
       [["B"], ["A"]],
+    );
+  });
+});
+
+describe("jury sessions: ride warnings", () => {
+  const at = "+002027-06-05T10:15:00.000000000Z";
+  const time = formatTime(at);
+  const judges = [
+    { id: "j1", birthdate: "1990-01-01", firstname: "Max", lastname: "Müller" },
+    {
+      id: "j2",
+      birthdate: "1990-01-01",
+      firstname: "Erika",
+      lastname: "Mustermann",
+    },
+  ];
+  const conflict = (level, extra = {}) => ({
+    level,
+    blockTitle: "Einzel W Expert 1",
+    blockStart: at,
+    replacement: false,
+    position: 0,
+    text: `fährt in Einzel W Expert 1 (${time})`,
+    ...extra,
+  });
+  const assign = (judge_id, session_id, task = "technical") => ({
+    judge_id,
+    unit_id: "u",
+    session_id,
+    task,
+  });
+  const done = { needed_technical: 1, needed_performance: 0 };
+
+  test("rideWarningLines names the assigned judge with the level", () => {
+    const s = session("s1", ["A"], done);
+    const unit = unitOf(s);
+    const same = new Map([["j1", conflict("same")]]);
+    assert.deepEqual(
+      rideWarningLines(unit, s, [assign("j1", "s1")], judges, same),
+      [
+        {
+          text: `Max Müller fährt in Einzel W Expert 1 (${time})`,
+          level: "same",
+        },
+      ],
+    );
+    const adjacent = new Map([["j1", conflict("adjacent")]]);
+    assert.equal(
+      rideWarningLines(unit, s, [assign("j1", "s1")], judges, adjacent)[0]
+        .level,
+      "adjacent",
+    );
+    assert.deepEqual(
+      rideWarningLines(unit, s, [assign("j2", "s1")], judges, same),
+      [],
+    );
+  });
+
+  test("a judge with two tasks warns once", () => {
+    const s = session("s1", ["A"], done);
+    const rides = new Map([["j1", conflict("same")]]);
+    const lines = rideWarningLines(
+      unitOf(s),
+      s,
+      [assign("j1", "s1"), assign("j1", "s1", "performance")],
+      judges,
+      rides,
+    );
+    assert.equal(lines.length, 1);
+  });
+
+  test("a split unit prefixes the Durchgang label; other Durchgänge give none", () => {
+    const a = session("s1", ["EMU23", "EMU30"], done);
+    const b = session("s2", ["EMU40"], done);
+    const unit = unitOf(a, b);
+    const rides = new Map([["j1", conflict("same")]]);
+    const assignments = [assign("j1", "s1"), assign("j2", "s2")];
+    assert.deepEqual(
+      rideWarningLines(unit, a, assignments, judges, rides).map((l) => l.text),
+      [`EMU23, EMU30: Max Müller fährt in Einzel W Expert 1 (${time})`],
+    );
+    assert.deepEqual(rideWarningLines(unit, b, assignments, judges, rides), []);
+  });
+
+  test("rideSuffix marks the level", () => {
+    assert.equal(rideSuffix(undefined), "");
+    assert.equal(
+      rideSuffix(conflict("same")),
+      ` – ⛔ fährt in Einzel W Expert 1 (${time})`,
+    );
+    assert.equal(
+      rideSuffix(conflict("adjacent")),
+      ` – ⚠ fährt in Einzel W Expert 1 (${time})`,
+    );
+    assert.ok(
+      rideSuffix(
+        conflict("same", {
+          replacement: true,
+          text: `fährt in Einzel W Expert 1 (${time}) als Ersatzfahrer`,
+        }),
+      ).endsWith(" als Ersatzfahrer"),
     );
   });
 });

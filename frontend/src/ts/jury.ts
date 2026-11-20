@@ -1,6 +1,7 @@
 // The jury registration (#225): what clubs and admins see about judges. Pure
 // helpers, so the unit tests can import them without a DOM.
 import type { schemas } from "./apiClient";
+import type { RideConflict, RideLevel } from "./jury-blocks";
 import type { Competition } from "./utils";
 
 export type JurySession = schemas.JurySession;
@@ -198,6 +199,50 @@ export const planWarnings = (
   }
   return warnings;
 };
+
+/**
+ * One line per judge assigned in this Durchgang who rides in or next to its
+ * block ("Max Müller fährt in EMU23 (10:15)"), with the level for colouring
+ * (red "same", amber "adjacent"). Warnings only; they never block.
+ */
+export const rideWarningLines = (
+  unit: { sessions?: unknown[] },
+  session: { id: string; categories: { name: string }[] },
+  assignments: { judge_id: string; session_id: string }[],
+  judges: { id: string; firstname?: string; lastname?: string }[],
+  rides: Map<string, RideConflict>,
+): { text: string; level: RideLevel }[] => {
+  const label = sessionLabel(unit, session);
+  const prefix = label ? `${label}: ` : "";
+  const byId = new Map(judges.map((j) => [j.id, j]));
+  const seen = new Set<string>();
+  const lines: { text: string; level: RideLevel }[] = [];
+  for (const a of assignments) {
+    const conflict = rides.get(a.judge_id);
+    const judge = byId.get(a.judge_id);
+    if (a.session_id !== session.id || seen.has(a.judge_id)) {
+      continue;
+    }
+    seen.add(a.judge_id);
+    if (!conflict || !judge) {
+      continue;
+    }
+    lines.push({
+      text: `${prefix}${judge.firstname} ${judge.lastname} ${conflict.text}`,
+      level: conflict.level,
+    });
+  }
+  return lines;
+};
+
+/**
+ * The ride warning appended to a picker option; the glyph carries the level
+ * (red "⛔", amber "⚠") since options can't be coloured reliably.
+ */
+export const rideSuffix = (conflict: RideConflict | undefined) =>
+  conflict
+    ? ` – ${conflict.level === "same" ? "⛔" : "⚠"} ${conflict.text}`
+    : "";
 
 /**
  * Deployments each judge is assigned in the Juryplan: every distinct jury
