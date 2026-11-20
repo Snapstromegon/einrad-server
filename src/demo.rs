@@ -1079,6 +1079,29 @@ mod tests {
         std::env::temp_dir().join(format!("cup-demo-test-{}", Uuid::new_v4()))
     }
 
+    /// The timeplan has a second day (so the ride warnings can show that
+    /// they stop at a day boundary), and the competition dates match it.
+    #[tokio::test]
+    async fn demo_timeplan_has_a_second_day() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        data.apply(&db, &data_dir()).await.unwrap();
+
+        let days: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT date(earliest_start_time, 'localtime') FROM timeplan WHERE earliest_start_time IS NOT NULL ORDER BY 1",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(days.len(), 2, "days with a fixed start: {days:?}");
+        let (start, end): (String, String) =
+            sqlx::query_as("SELECT start_date, end_date FROM competition")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!((start, end), (days[0].clone(), days[1].clone()));
+    }
+
     #[tokio::test]
     async fn demo_file_fills_every_table() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
@@ -1238,7 +1261,11 @@ mod tests {
     async fn a_demo_judge_from_a_rider_has_no_names_of_their_own() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
-        let judge = data.clubs[0].judges.last_mut().unwrap();
+        let judge = data.clubs[0]
+            .judges
+            .iter_mut()
+            .find(|judge| judge.rider.as_deref() == Some("Hannah Klein"))
+            .unwrap();
         judge.firstname = Some("Anna".into());
         let err = data.apply(&db, &data_dir()).await.unwrap_err();
         assert!(err.contains("Hannah Klein"), "{err}");

@@ -39,8 +39,8 @@
 id = "einrad-demo"
 name = "Einradevent 2027 (Demo)"
 location = "Düsseldorf"
-start_date = 2027-04-01
-end_date = 2027-04-02
+start_date = 2027-06-05
+end_date = 2027-06-06
 determining_day = 2027-06-01
 registration_start = 2026-01-01T00:00:00+01:00
 registration_end = 2027-02-28T23:59:59+01:00
@@ -285,9 +285,10 @@ registrations = [
 # block of their Durchgang, amber if in the block directly before or after it.
 # `registrations` fill the judge picker (with the ride warning behind the
 # name); `assignments` are seats in the Juryplan (/admin-judges), where the
-# warnings show as lines of the Durchgang. The timeplan is one day
-# (2027-06-05) with the Mittagspause and the Jury-Besprechung between
-# EWU50 and PU17, so there is no day boundary to try.
+# warnings show as lines of the Durchgang. The timeplan has two days: the
+# first (2027-06-05) with the Mittagspause and the Jury-Besprechung between
+# EWU50 and PU17, up to "Finale Expert Paar"; the group finals are on the
+# second (2027-06-06).
 #
 # Ride warning: red, in a final nothing is placed in yet. Karl Richter rides
 # EM70+, which feeds "Finale Expert Einzel Männlich", so he could still
@@ -319,6 +320,21 @@ registrations = [
 assignments = [
   { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "performance" },
   { unit = "heat: Expert 1 Paar (U17–U21)", task = "technical" },
+]
+
+# Ride warning: none, across a day. Noah Fischer (untrained, 10) rides the
+# group "Rollende Rebellen", which starts in "Finale Kleingruppe Junior Expert
+# (U15)", the first block of day 2. He sits in "Finale Expert Paar", the last
+# block of day 1: the blocks follow each other in the plan, but the day
+# changes, so nothing warns. His single ride (EMU11) is far away.
+[[clubs.judges]]
+rider = "Noah Fischer"
+trained = false
+registrations = [
+  { unit = "final: Finale Expert Paar (U17 und älter)", task = "dismounts" },
+]
+assignments = [
+  { unit = "final: Finale Expert Paar (U17 und älter)", task = "dismounts" },
 ]
 
 # 20 starts, 300 € due: paid partially. Half of the riders checked in.
@@ -1567,26 +1583,29 @@ final = "JE P"
 [[timeplan]]
 final = "E P"
 
+# The group Vorläufe are skipped; the group finals are on the second day.
 [[timeplan]]
 category = "KGU15"
-
-[[timeplan]]
-final = "KGU15"
 
 [[timeplan]]
 category = "KG15+"
 
 [[timeplan]]
-final = "KG15+"
-
-[[timeplan]]
 category = "GGU15"
 
 [[timeplan]]
-final = "GGU15"
+category = "GG15+"
+
+# Second competition day (Sunday): the group finals start in the morning.
+[[timeplan]]
+final = "KGU15"
+earliest_start = 2027-06-06T09:00:00+02:00
 
 [[timeplan]]
-category = "GG15+"
+final = "KG15+"
+
+[[timeplan]]
+final = "GGU15"
 
 [[timeplan]]
 final = "GG15+"
