@@ -575,6 +575,37 @@ pub async fn ride_conflict(
         }))
 }
 
+/// A rider of a club and a heat they ride in, for the club's jury dialog: it
+/// shows the heat as unavailable for a judge made from this rider (#405).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+pub struct RiderRideConflict {
+    pub rider_id: RiderId,
+    /// The heat's jury unit.
+    pub unit_id: JuryUnitId,
+    /// The category the rider rides in.
+    pub category: String,
+    /// The rider is only a replacement (Ersatzfahrer) there.
+    pub replacement: bool,
+}
+
+/// Every heat the riders of `club_id` ride in: also as members of another
+/// club's group.
+pub async fn list_ride_conflicts(
+    conn: &mut sqlx::SqliteConnection,
+    club_id: ClubId,
+) -> sqlx::Result<Vec<RiderRideConflict>> {
+    Ok(heat_rides(conn, Some(club_id), None, None)
+        .await?
+        .into_iter()
+        .map(|ride| RiderRideConflict {
+            rider_id: ride.rider_id,
+            unit_id: JuryUnitId(ride.heat_id.0),
+            category: ride.category,
+            replacement: ride.replacement,
+        })
+        .collect())
+}
+
 /// The refusal for a new registration of a rider who rides in the heat (German).
 pub fn ride_conflict_message(name: &str, conflict: &RideConflict) -> String {
     format!(

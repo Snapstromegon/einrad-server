@@ -563,3 +563,112 @@ async fn an_unlinked_judge_is_never_flagged() {
 
     assert_eq!(conflict(&app, &owner, club_id).await, Value::Null);
 }
+
+// The club dialog's "unavailable" data: per rider, before any judge exists.
+
+async fn ride_conflicts(app: &TestApp, cookie: &str, club_id: ClubId) -> TestResponse {
+    app.get(
+        &format!("/api/query/list_club_ride_conflicts?club_id={club_id}"),
+        Some(cookie),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn ride_conflicts_list_the_clubs_riders_per_heat() {
+    let (app, admin, owner, club_id) = setup().await;
+    add_heat(&app, &admin, "Paare", &["PU23"]).await;
+    add_heat(&app, &admin, "Gruppen", &["KG15+"]).await;
+    let single = rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let first = rider(&app, &owner, club_id, "Erika", false, true, None).await;
+    let second = rider(&app, &owner, club_id, "Hans", false, true, Some(first)).await;
+    let members = app.add_riders(&owner, club_id, "Gruppe", 4).await;
+    sqlx::query("UPDATE rider SET birthdate = ? WHERE firstname LIKE 'Gruppe%'")
+        .bind("2005-01-01T00:00:00Z")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    let group = app.create_group(&owner, club_id, "Wirbel").await;
+    ok(&app
+        .set_group_members(&owner, club_id, group, &members[..3], &members[3..])
+        .await);
+    let heat = |name: &'static str| {
+        let app = &app;
+        async move { app.heat_id(name).await }
+    };
+    let (adults, pairs, groups) = (
+        heat("Erwachsene").await,
+        heat("Paare").await,
+        heat("Gruppen").await,
+    );
+
+    let response = ride_conflicts(&app, &owner, club_id).await;
+    ok(&response);
+    let rows = response.body.as_array().unwrap();
+    let find = |rider: RiderId| {
+        rows.iter()
+            .filter(|row| row["rider_id"] == json!(rider))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows.len(), 1 + 2 + 4);
+    assert_eq!(
+        find(single),
+        [
+            json!({ "rider_id": single, "unit_id": adults, "category": "EWU23", "replacement": false })
+        ]
+    );
+    for partner in [first, second] {
+        assert_eq!(
+            find(partner),
+            [
+                json!({ "rider_id": partner, "unit_id": pairs, "category": "PU23", "replacement": false })
+            ]
+        );
+    }
+    assert_eq!(find(members[0])[0]["unit_id"], json!(groups));
+    assert_eq!(find(members[0])[0]["replacement"], false);
+    assert_eq!(find(members[3])[0]["category"], "KG15+");
+    assert_eq!(find(members[3])[0]["replacement"], true);
+}
+
+#[tokio::test]
+async fn another_clubs_conflicts_are_not_visible() {
+    let (app, _admin, owner, club_id) = setup().await;
+    let (other, _other_club) = app.create_club_owner("Other", "SSV").await;
+
+    assert_eq!(
+        ride_conflicts(&app, &other, club_id).await.status,
+        StatusCode::FORBIDDEN
+    );
+    ok(&ride_conflicts(&app, &owner, club_id).await);
+}
+
+#[tokio::test]
+async fn a_group_member_of_another_club_shows_up_for_the_own_club() {
+    let (app, admin, owner, club_id) = setup().await;
+    add_heat(&app, &admin, "Gruppen", &["KG15+"]).await;
+    let (other, other_club) = app.create_club_owner("Other", "SSV").await;
+    let mine = app.add_riders(&owner, club_id, "Eigene", 1).await;
+    let theirs = app.add_riders(&other, other_club, "Fremde", 2).await;
+    sqlx::query("UPDATE rider SET birthdate = ?")
+        .bind("2005-01-01T00:00:00Z")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    // The group belongs to the other club; each club sets its own riders.
+    let group = app.create_group(&other, other_club, "Wirbel").await;
+    ok(&app
+        .set_group_members(&other, other_club, group, &theirs, &[])
+        .await);
+    ok(&app
+        .set_group_members(&owner, club_id, group, &mine, &[])
+        .await);
+
+    let response = ride_conflicts(&app, &owner, club_id).await;
+    ok(&response);
+    let rows = response.body.as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["rider_id"], json!(mine[0]));
+    assert_eq!(rows[0]["category"], "KG15+");
+}

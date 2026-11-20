@@ -142,6 +142,7 @@ const QUERIES: &[&str] = &[
     "whoami",
     "list_jury_units",
     "list_club_judges",
+    "list_club_ride_conflicts",
     "list_club_mails",
     "list_judges",
     "list_jury_plan",
