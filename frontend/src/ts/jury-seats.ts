@@ -2,7 +2,16 @@
 // a numbered seat (T1.., P1.., A1..) of its Durchgang. Pure helpers, so the
 // unit tests can import them without a DOM.
 import type { schemas } from "./apiClient";
-import { neededFor, TASKS, taskLabels } from "./jury";
+import {
+  assignedLoad,
+  loadLabel,
+  neededFor,
+  sessionLabel,
+  TASKS,
+  taskLabels,
+} from "./jury";
+import type { RideConflict } from "./jury-blocks";
+import { formatTime } from "./utils";
 
 export type SeatTask = (typeof TASKS)[number];
 
@@ -93,3 +102,179 @@ export const emptySeats = (
   TASKS.flatMap((task) =>
     seatRow(session, task, assignments, 0).filter((s) => s.state === "free"),
   );
+
+export type TabLevel = "none" | "amber" | "red";
+
+export interface SeatTab {
+  level: TabLevel;
+  details: string[];
+}
+
+/** "Fährt im selben Block (Block 4 (13:30))", "... im Nachbarblock ...", "... als Ersatzfahrer". */
+export const rideDetail = (c: RideConflict) =>
+  `Fährt im ${c.level === "same" ? "selben Block" : "Nachbarblock"} (${c.blockTitle} (${formatTime(c.blockStart)}))${
+    c.replacement ? " als Ersatzfahrer" : ""
+  }`;
+
+/**
+ * What a judge's seat tab shows in one Durchgang: a ride in the same block is
+ * red, one next to it and over max. Einsätze are amber; red wins, details list
+ * the ride first. `load` counts a unit once per judge, however many seats.
+ */
+export const seatTab = (
+  judge: { id: string; max_deployments?: number | null },
+  load: Map<string, number>,
+  conflict: RideConflict | undefined,
+): SeatTab => {
+  const details: string[] = [];
+  let level: TabLevel = "none";
+  if (conflict) {
+    details.push(rideDetail(conflict));
+    level = conflict.level === "same" ? "red" : "amber";
+  }
+  const l = assignedLoad(judge, load);
+  if (l?.over) {
+    details.push(`Über max. Einsätze: ${loadLabel(l)}`);
+    level = level === "none" ? "amber" : level;
+  }
+  return { level, details };
+};
+
+type PickerJudge = schemas.ClubJudge;
+
+export interface PickerEntry {
+  judge: PickerJudge;
+  registered: boolean;
+  /** The judge's seat in THIS Durchgang (only in "otherSeat"). */
+  seatLabel: string | null;
+  /** Why the judge can't take the clicked seat (untrained on a non-dismount seat). */
+  blocked: string | null;
+  /** otherSeat only: empty seat -> move; occupant follows -> swap; else the occupant is removed. */
+  outcome: "move" | "swap" | "move_remove" | null;
+  hint: string | null;
+  /** Label of another Durchgang of the unit the judge is seated in (info only). */
+  elsewhere: string | null;
+  tab: SeatTab;
+  load: { assigned: number; max: number; over: boolean } | null;
+}
+
+export interface PickerGroups {
+  /** Not seated in this Durchgang, registered for the unit and task. */
+  registered: PickerEntry[];
+  /** Seated on another seat of this Durchgang; choosing swaps or moves. */
+  otherSeat: PickerEntry[];
+  /** Not seated here, not registered. */
+  others: PickerEntry[];
+}
+
+const UNTRAINED = "Nicht geschulte Personen können nur Abstiege zählen.";
+
+const byName = (a: PickerEntry, b: PickerEntry) =>
+  a.judge.lastname.localeCompare(b.judge.lastname, "de") ||
+  a.judge.firstname.localeCompare(b.judge.firstname, "de");
+
+/**
+ * The judges a seat's picker offers (`seat` is the clicked seat; its
+ * occupant is listed nowhere). Mirrors the backend's seat_judge rules, which
+ * decide in the end: an occupant follows to the judge's old seat when both
+ * seats are of one task, or when it is registered for the old task of this
+ * unit and allowed there (trained, or dismounts).
+ */
+export const pickerGroups = (args: {
+  unit: {
+    id: string;
+    sessions?: (SeatSession & { categories: { name: string }[] })[];
+  };
+  session: SeatSession;
+  task: SeatTask;
+  seat: number;
+  judges: PickerJudge[];
+  assignments: PlanAssignment[];
+  load: Map<string, number>;
+  conflicts: Map<string, RideConflict>;
+  query: string;
+}): PickerGroups => {
+  const { unit, session, task, seat, judges, assignments } = args;
+  const needle = args.query.trim().toLocaleLowerCase("de");
+  const inUnit = assignments.filter((a) => a.unit_id === unit.id);
+  const here = inUnit.filter((a) => a.session_id === session.id);
+  const occupant = here.find((a) => a.task === task && a.seat === seat);
+  const occupantJudge = judges.find((j) => j.id === occupant?.judge_id);
+  const registeredFor = (judge: PickerJudge, forTask: SeatTask) =>
+    judge.registrations.some(
+      (r) => r.unit_id === unit.id && r.task === forTask,
+    );
+  const groups: PickerGroups = { registered: [], otherSeat: [], others: [] };
+  for (const judge of judges) {
+    const text = `${judge.firstname} ${judge.lastname} ${judge.club_name}`;
+    if (
+      judge.id === occupant?.judge_id ||
+      (needle && !text.toLocaleLowerCase("de").includes(needle))
+    ) {
+      continue;
+    }
+    const mine = here.find((a) => a.judge_id === judge.id);
+    const other = inUnit.find(
+      (a) => a.judge_id === judge.id && a.session_id !== session.id,
+    );
+    const otherSession = unit.sessions?.find((s) => s.id === other?.session_id);
+    const registered = registeredFor(judge, task);
+    const entry: PickerEntry = {
+      judge,
+      registered,
+      seatLabel: mine?.seat_label ?? null,
+      blocked: null,
+      outcome: null,
+      hint: null,
+      elsewhere:
+        otherSession && unit.sessions
+          ? sessionLabel({ sessions: unit.sessions }, otherSession)
+          : null,
+      tab: seatTab(judge, args.load, args.conflicts.get(judge.id)),
+      load: assignedLoad(judge, args.load),
+    };
+    if (mine) {
+      if (!judge.is_trained && task !== "dismounts") {
+        entry.blocked = UNTRAINED;
+      } else if (!occupant) {
+        entry.outcome = "move";
+        entry.hint = "verschiebt";
+      } else {
+        const follows =
+          mine.task === task ||
+          (!!occupantJudge &&
+            registeredFor(occupantJudge, mine.task) &&
+            (occupantJudge.is_trained || mine.task === "dismounts"));
+        entry.outcome = follows ? "swap" : "move_remove";
+        entry.hint = follows
+          ? "tauscht"
+          : `verschiebt, ${occupantJudge ? `${occupantJudge.firstname} ${occupantJudge.lastname}` : "die bisherige JurorIn"} wird entfernt`;
+      }
+      groups.otherSeat.push(entry);
+    } else if (judge.is_trained || task === "dismounts") {
+      (registered ? groups.registered : groups.others).push(entry);
+    }
+  }
+  groups.registered.sort(byName);
+  groups.otherSeat.sort(byName);
+  groups.others.sort(byName);
+  return groups;
+};
+
+/** "3 Hinweise" / "1 Hinweis"; empty for none. */
+export const warningSummary = (lines: string[]) =>
+  lines.length === 0
+    ? ""
+    : `${lines.length} ${lines.length === 1 ? "Hinweis" : "Hinweise"}`;
+
+/** "Samstag, 01.04.2027" for a plain date; "Ohne Tag" without one. */
+export const formatLongDay = (day: string | null | undefined) =>
+  day
+    ? new Date(day).toLocaleDateString("de-DE", {
+        weekday: "long",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    : "Ohne Tag";
