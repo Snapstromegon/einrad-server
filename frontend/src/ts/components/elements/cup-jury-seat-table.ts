@@ -107,19 +107,16 @@ export class CupJurySeatTable extends LitElement {
       }
 
       .summary ul {
-        display: inline;
-        margin: 0;
+        display: block;
+        max-height: 7rem;
+        margin: 0.25rem 0 0;
         padding: 0;
+        overflow-y: auto;
         list-style: none;
       }
 
       .summary li {
-        display: inline;
         overflow-wrap: anywhere;
-      }
-
-      .summary li + li::before {
-        content: " · ";
       }
 
       .summary li.bad {
@@ -456,10 +453,6 @@ export class CupJurySeatTable extends LitElement {
           display: inline;
         }
 
-        .summary .colon {
-          display: none;
-        }
-
         .summary .toggle {
           width: 100%;
           text-align: left;
@@ -473,14 +466,6 @@ export class CupJurySeatTable extends LitElement {
 
         .summary.open ul {
           display: block;
-        }
-
-        .summary.open li {
-          display: block;
-        }
-
-        .summary li + li::before {
-          content: none;
         }
 
         .head,
@@ -806,7 +791,6 @@ export class CupJurySeatTable extends LitElement {
       >
         ${summary}<span class="phone-only"> - antippen zum Anzeigen</span>
       </button>
-      <span class="colon">: </span>
       <ul>
         ${items}
       </ul>
