@@ -2,6 +2,8 @@
 
 See ADR 0019, which refines this: a jury unit may be split into jury sessions by age group; registration stays per unit.
 
+A new registration of a linked judge for the Vorlauf of a heat whose categories the rider rides in is refused when the judge is saved, for club, admin and support alike (#405); one that arises later is kept and flagged (the glossary's **Ride conflict**).
+
 See ADR 0017: heats and finals now have a readable name and a short code; where this ADR says "name" for the label that judges and files use, read the readable name for judges and the code for files.
 
 Jury categories are gone (#347, amends ADR 0013 on the deferred HEAT-5). Before, they were free names ("Einzel W – Expert 1 Vorlauf") with deployments and a day, unrelated to the heats and finals of #338, so the jury plan could not follow a skipped Vorlauf (ADR 0014) and every competition file listed them twice. Judges now register for, and the jury plan assigns them to, a **jury unit**: the Vorlauf of a heat, or a final.

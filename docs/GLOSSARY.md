@@ -331,6 +331,9 @@ _Avoid_: Slot, Position
 **Ride warning** (Fahrwarnung):
 A warning in the Jury plan that a linked judge rides in the block of a Durchgang (red) or in the block directly before or after it on the same day (amber); it never blocks the assignment.
 
+**Ride conflict** (Fahrkonflikt):
+A linked judge's rider has an act (also as Ersatzfahrer) in a category of a heat; nobody, Admin and Support included, can newly register that judge for the heat's Vorlauf. A conflict that arises later (new act, changed category, rider added as replacement) is kept, counted and flagged for the Jury lead and in the club's warnings. Distinct from the **Ride warning**, which is about blocks in the Jury plan and never blocks. Finals are not checked yet (#408).
+
 **Jury deployment** (Juryeinsatz):
 One unit of jury work; the Vorlauf of a heat counts 2 by default, a final 1, and the jury lead can change both per jury unit.
 _Avoid_: Einsatz (alone), shift
@@ -375,6 +378,7 @@ An award for each rider of the first three places of a final, and for each group
 - A **Block** runs one **Category** or one **Final**; **Custom entries** and **Breaks** fill the rest of the **Timeplan**.
 - A **Judge** may be a **Linked judge** of one **Rider** of the same club (a rider is linked to at most one judge). A **Judge** registers for **Jury units** (the Vorlauf of a **Heat**, or a **Final**) for **Tasks**; the **Jury plan** assigns each judge at most one task per jury unit.
 - A **Linked judge** gets a **Ride warning** for a **Jury session** that sits in or next to a block the rider rides in.
+- A **Linked judge** can't be registered for the Vorlauf of a **Heat** whose categories the rider rides in (a **Ride conflict**); a conflict that arises later is kept and flagged.
 - A **Booking** is a **Payment** of one **Club**, an **Unassigned booking** or an **Ignored booking**; a club's **Paid** amount is the sum of its payments, set against its **Amount due**.
 - A club's **Credited deployments** below its **Jury obligation** cost a **Jury fee** per missing **Jury deployment**.
 - A **Fee waiver** applies to a **Club**, a **Rider** or an **Act**; it lowers the **Amount due** but never the **Jury obligation**, except for a withdrawn act.
