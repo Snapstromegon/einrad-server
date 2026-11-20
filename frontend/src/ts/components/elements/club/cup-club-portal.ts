@@ -26,6 +26,11 @@ import {
 import { iconStyles, resetStyles } from "../../../styles/base";
 import { clubPortalStyles } from "../../../styles/club-portal";
 import { formatDate, isMusicUploadOpen } from "../../../utils";
+import {
+  FEEDBACK_EMAIL,
+  FEEDBACK_ISSUES_URL,
+  feedbackMailto,
+} from "../../../feedback";
 import { withStarts } from "../../../starts";
 import type { NavigateDetail } from "./events";
 import { loadPref, savePref } from "./prefs";
@@ -340,6 +345,37 @@ export default class CupClubPortal extends LitElement {
         font-weight: 600;
       }
 
+      /* Who to ask, below the cards: the event's contact first, then the
+         feedback on the registration system itself, so event questions
+         don't end up with its developer. */
+      .contact {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.85rem;
+        color: var(--color-text-muted);
+      }
+
+      .contact p {
+        margin: 0;
+      }
+
+      .contact strong {
+        color: var(--color-text);
+      }
+
+      .contact a {
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 0.15em;
+        overflow-wrap: anywhere;
+      }
+
+      .contact a:hover {
+        text-decoration-thickness: 2px;
+      }
+
       .loading {
         padding: 3rem;
         text-align: center;
@@ -424,6 +460,11 @@ export default class CupClubPortal extends LitElement {
 
         main {
           order: 2;
+        }
+
+        .contact {
+          order: 4;
+          padding: 0;
         }
 
         .step {
@@ -671,6 +712,7 @@ export default class CupClubPortal extends LitElement {
           this.renderSteps((id) => summaries[id]),
         )}
         ${this.renderMoney(data)} ${this.renderIssues(issues)}
+        ${this.renderContact()}
       </aside>
       <main><div class="step">${this.renderStep(data)}</div></main>
     </div>`;
@@ -690,7 +732,7 @@ export default class CupClubPortal extends LitElement {
     return html`<div class="layout">
       <aside>
         ${this.renderHead("Neuer Verein", "Noch nicht angelegt", steps)}
-        ${this.renderMoney(null)}
+        ${this.renderMoney(null)} ${this.renderContact()}
       </aside>
       <main><div class="step"><slot></slot></div></main>
     </div>`;
@@ -848,6 +890,29 @@ export default class CupClubPortal extends LitElement {
       ${deadline("Musik bis", competition.music_upload_end)}
       ${deadline("Zahlung bis", competition.payment_deadline)}
     </dl>`;
+  }
+
+  /** The event's contact (if set) and where feedback on the system goes. */
+  renderContact() {
+    const email = this.systemStatus?.competition?.contact_email;
+    return html`<footer class="contact">
+      ${
+        email
+          ? html`<p>
+              <strong>Kontakt:</strong>
+              <a href="mailto:${email}">${email}</a>
+            </p>`
+          : nothing
+      }
+      <p>
+        Feedback zum Anmeldesystem:
+        <a href=${feedbackMailto(location.pathname)}>${FEEDBACK_EMAIL}</a>
+        oder auf
+        <a href=${FEEDBACK_ISSUES_URL} target="_blank" rel="noopener"
+          >GitHub</a
+        >
+      </p>
+    </footer>`;
   }
 
   renderIssues(issues: Issue[]) {
