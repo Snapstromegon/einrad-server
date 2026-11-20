@@ -39,8 +39,8 @@
 id = "einrad-demo"
 name = "Einradevent 2027 (Demo)"
 location = "Düsseldorf"
-start_date = 2027-04-01
-end_date = 2027-04-02
+start_date = 2027-06-05
+end_date = 2027-06-06
 determining_day = 2027-06-01
 registration_start = 2026-01-01T00:00:00+01:00
 registration_end = 2027-02-28T23:59:59+01:00
@@ -280,11 +280,61 @@ registrations = [
   { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "dismounts" },
 ]
 
-# A judge created from one of the club's riders: name and birthdate are the rider's.
+# Judges created from one of the club's riders: name and birthdate are the
+# rider's. A linked judge gets ride warnings (#385): red if they ride in the
+# block of their Durchgang, amber if in the block directly before or after it.
+# `registrations` fill the judge picker (with the ride warning behind the
+# name); `assignments` are seats in the Juryplan (/admin-judges), where the
+# warnings show as lines of the Durchgang. The timeplan has two days: the
+# first (2027-06-05) with the Mittagspause and the Jury-Besprechung between
+# EWU50 and PU17, up to "Finale Expert Paar"; the group finals are on the
+# second (2027-06-06).
+#
+# Ride warning: red, in a final nothing is placed in yet. Karl Richter rides
+# EM70+, which feeds "Finale Expert Einzel Männlich", so he could still
+# qualify. Picker only: amber ("block before") in the heat "Junior Expert
+# Einzel Weiblich", whose first block (EWU11) comes right after Karl's EM70+.
+[[clubs.judges]]
+rider = "Karl Richter"
+registrations = [
+  { unit = "final: Finale Expert Einzel Männlich (U17 und älter)", task = "technical" },
+  { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "performance" },
+]
+assignments = [
+  { unit = "final: Finale Expert Einzel Männlich (U17 und älter)", task = "technical" },
+]
+
+# Ride warning: red, in a final that is partly filled. Hannah Klein is placed
+# in slot 1 of "E EW 2" of "Finale Expert Einzel Weiblich"; that final's
+# other slots are open (only Julia Krüger of the other heat is placed).
+# Ride warning: none, across a custom block. She rides EWU50 right before
+# the Mittagspause and the Jury-Besprechung, "Expert 1 Paar" starts after them.
+# Picker only: red in the heat "Expert 2 Einzel Weiblich" (her own EWU50).
 [[clubs.judges]]
 rider = "Hannah Klein"
 registrations = [
   { unit = "heat: Expert 2 Einzel Weiblich (U23 und älter)", task = "technical" },
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "performance" },
+  { unit = "heat: Expert 1 Paar (U17–U21)", task = "technical" },
+]
+assignments = [
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "performance" },
+  { unit = "heat: Expert 1 Paar (U17–U21)", task = "technical" },
+]
+
+# Ride warning: none, across a day. Noah Fischer (untrained, 10) rides the
+# group "Rollende Rebellen", which starts in "Finale Kleingruppe Junior Expert
+# (U15)", the first block of day 2. He sits in "Finale Expert Paar", the last
+# block of day 1: the blocks follow each other in the plan, but the day
+# changes, so nothing warns. His single ride (EMU11) is far away.
+[[clubs.judges]]
+rider = "Noah Fischer"
+trained = false
+registrations = [
+  { unit = "final: Finale Expert Paar (U17 und älter)", task = "dismounts" },
+]
+assignments = [
+  { unit = "final: Finale Expert Paar (U17 und älter)", task = "dismounts" },
 ]
 
 # 20 starts, 300 € due: paid partially. Half of the riders checked in.
@@ -393,7 +443,85 @@ registrations = [
   { unit = "heat: Junior Expert Einzel Weiblich (U11–U15)", task = "dismounts" },
 ]
 
-# 13 starts, 195 € due: nothing paid. Nobody checked in yet.
+# More linked judges for the ride warnings, explained at Karl Richter's
+# (SSV Nümbrecht).
+#
+# Ride warning: red, rides in the same block (single rider). Tom Schulz rides
+# EMU30, a block of the heat "Expert 2 Einzel Männlich", where he sits.
+# Ride warning: none, two blocks away. In "Expert 1 Einzel Männlich" (EMU17,
+# EMU19) he doesn't warn: EMU25 sits between that heat and his EMU30.
+# Picker only: red in the final "Expert Einzel Männlich" (EMU30 feeds it).
+[[clubs.judges]]
+rider = "Tom Schulz"
+registrations = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "technical" },
+  { unit = "heat: Expert 1 Einzel Männlich (U17–U21)", task = "performance" },
+  { unit = "final: Finale Expert Einzel Männlich (U17 und älter)", task = "technical" },
+]
+assignments = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "technical" },
+  { unit = "heat: Expert 1 Einzel Männlich (U17–U21)", task = "performance" },
+]
+
+# Ride warning: amber, the block before, and through dropped blocks. Max
+# Krüger rides EMU19, the last block of "Expert 1 Einzel Männlich"; EMU21
+# and EMU23 have no acts and are dropped, so the next heat "Expert 2 Einzel
+# Männlich" (first block EMU25) follows right away.
+# Picker only: red in "Expert 1 Einzel Männlich" (his EMU19).
+[[clubs.judges]]
+rider = "Max Krüger"
+registrations = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "performance" },
+  { unit = "heat: Expert 1 Einzel Männlich (U17–U21)", task = "technical" },
+]
+assignments = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "performance" },
+]
+
+# Ride warning: red, group member in a final. Laura Schulz only rides in the
+# group "Einrad-Express", whose Vorlauf is skipped, so it starts in
+# "Finale Großgruppe Expert (15+)".
+# Ride warning: amber, the block after, through dropped blocks. She also sits
+# in "Finale Kleingruppe Junior Expert (U15)", the block before; the skipped
+# Vorläufe and the empty finals in between are dropped.
+[[clubs.judges]]
+rider = "Laura Schulz"
+registrations = [
+  { unit = "final: Finale Großgruppe Expert (15+)", task = "technical" },
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "technical" },
+]
+assignments = [
+  { unit = "final: Finale Großgruppe Expert (15+)", task = "technical" },
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "technical" },
+]
+
+# Ride warning: red "als Ersatzfahrer". Lea Hoffmann (14, so untrained) is
+# only the replacement of the group "Rollende Rebellen", which starts in
+# "Finale Kleingruppe Junior Expert (U15)". Her pair ride (PU17) is far away.
+[[clubs.judges]]
+rider = "Lea Hoffmann"
+trained = false
+registrations = [
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "dismounts" },
+]
+assignments = [
+  { unit = "final: Finale Kleingruppe Junior Expert (U15)", task = "dismounts" },
+]
+
+# Ride warning: red, in a completely filled final. All five slots of
+# "Finale Junior Expert Einzel Männlich" are placed, Finn Meyer (untrained,
+# 11) is in slot 5.
+[[clubs.judges]]
+rider = "Finn Meyer"
+trained = false
+registrations = [
+  { unit = "final: Finale Junior Expert Einzel Männlich (U11–U15)", task = "dismounts" },
+]
+assignments = [
+  { unit = "final: Finale Junior Expert Einzel Männlich (U11–U15)", task = "dismounts" },
+]
+
+# 14 starts, 210 € due: nothing paid. Nobody checked in yet.
 [[clubs]]
 name = "RV Bonn"
 owner = "Lena Schmitz"
@@ -458,6 +586,78 @@ firstname = "Greta"
 lastname = "Vogel"
 birthdate = 2016-07-01
 
+# EMU13, the sixth act for the five slots of the final "JE EM": it isn't
+# placed there (see the ride warnings of the judges below).
+[[clubs.riders]]
+firstname = "Max"
+lastname = "Müller"
+birthdate = 2014-08-15
+single = "male"
+
+# Linked judges for the ride warnings, explained at Karl Richter's (SSV
+# Nümbrecht).
+#
+# Ride warning: amber, the block after (single rider). Leon Lehmann rides
+# EMU25, the block right after "Expert 1 Einzel Männlich" (EMU17, EMU19).
+# Ride warning: amber, a pair member rides in the block after. He also rides
+# the pair PU25 with Marie, right after "Expert 1 Paar" (PU17, PU21).
+# Picker only: red in "Expert 2 Paar" (his PU25).
+[[clubs.judges]]
+rider = "Leon Lehmann"
+registrations = [
+  { unit = "heat: Expert 1 Einzel Männlich (U17–U21)", task = "technical" },
+  { unit = "heat: Expert 1 Paar (U17–U21)", task = "technical" },
+  { unit = "heat: Expert 2 Paar (U23 und älter)", task = "performance" },
+]
+assignments = [
+  { unit = "heat: Expert 1 Einzel Männlich (U17–U21)", task = "technical" },
+  { unit = "heat: Expert 1 Paar (U17–U21)", task = "technical" },
+]
+
+# Ride warning: red, a pair member rides in the same block. Marie Lehmann
+# rides the pair PU25, a block of "Expert 2 Paar", where she sits.
+# Ride warning: red, in a final that is partly filled. She rides EWU23,
+# which feeds "Finale Expert Einzel Weiblich"; her act isn't placed, but
+# slots are open, so she could still qualify.
+[[clubs.judges]]
+rider = "Marie Lehmann"
+registrations = [
+  { unit = "heat: Expert 2 Paar (U23 und älter)", task = "technical" },
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "technical" },
+]
+assignments = [
+  { unit = "heat: Expert 2 Paar (U23 und älter)", task = "technical" },
+  { unit = "final: Finale Expert Einzel Weiblich (U17 und älter)", task = "technical" },
+]
+
+# Ride warning: none, in a completely filled final. Max Müller (untrained, 12)
+# rides EMU13, but isn't one of the five placed acts of "Finale Junior Expert
+# Einzel Männlich"; with every slot filled he can't qualify any more.
+[[clubs.judges]]
+rider = "Max Müller"
+trained = false
+registrations = [
+  { unit = "final: Finale Junior Expert Einzel Männlich (U11–U15)", task = "dismounts" },
+]
+assignments = [
+  { unit = "final: Finale Junior Expert Einzel Männlich (U11–U15)", task = "dismounts" },
+]
+
+# Ride warning: none, an unlinked judge. This Peter Lange is not the rider
+# Peter Lange of SSV Nümbrecht (EMU70, in the heat "Expert 2 Einzel Männlich"
+# where he sits), the judge has no rider link, so nothing warns.
+[[clubs.judges]]
+firstname = "Peter"
+lastname = "Lange"
+birthdate = 1980-02-02
+note = "Nicht der Fahrer Peter Lange (kein Fahrer-Link): keine Fahrwarnung"
+registrations = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "dismounts" },
+]
+assignments = [
+  { unit = "heat: Expert 2 Einzel Männlich (U23 und älter)", task = "dismounts" },
+]
+
 # No riders, but paid: overpaid.
 [[clubs]]
 name = "Einrad-Freunde Aachen"
@@ -519,7 +719,9 @@ members = ["Felix Braun", "Leon Lehmann"]
 # every group; each entry selects one by a participant (rider) and act_type,
 # or a group by its name (group). Optional: name, description, song (file name
 # shown; a short tone is generated unless song_source points to an audio file
-# relative to this file), song_url, song_checked, order, started_at, ended_at.
+# relative to this file), song_url, song_checked, order, started_at, ended_at,
+# final_slot (the slot of a final the act is placed in, by the final's code and
+# the slot number in the act's heat).
 #
 # The songs are by TheFatRat (https://www.thefatrat.com/downloads), used under
 # their terms (https://www.thefatrat.com/terms-and-conditions). Those don't
@@ -545,6 +747,7 @@ song_checked = true
 order = 1
 started_at = 2027-06-05T10:10:00+02:00
 ended_at = 2027-06-05T10:13:00+02:00
+final_slot = { final = "JE EM", number = 1 }
 
 [[acts]]
 rider = "Noah Fischer"
@@ -557,6 +760,7 @@ song_checked = true
 order = 2
 started_at = 2027-06-05T10:17:00+02:00
 ended_at = 2027-06-05T10:20:00+02:00
+final_slot = { final = "JE EM", number = 2 }
 
 [[acts]]
 rider = "Luca Weber"
@@ -568,6 +772,7 @@ song_checked = true
 order = 1
 started_at = 2027-06-05T10:30:00+02:00
 ended_at = 2027-06-05T10:33:00+02:00
+final_slot = { final = "JE EM", number = 3 }
 
 [[acts]]
 rider = "Elias Weber"
@@ -577,6 +782,7 @@ song = "TheFatRat - Monkeys.mp3"
 song_url = "https://static.wixstatic.com/mp3/80cc5d_7dc0d272543749f391104f1b53fd624d.mp3"
 order = 2
 started_at = 2027-06-05T10:37:00+02:00
+final_slot = { final = "JE EM", number = 4 }
 
 # Song uploaded, not checked yet.
 [[acts]]
@@ -586,6 +792,7 @@ name = "Feuerwehr"
 song = "TheFatRat - Fire.mp3"
 song_url = "https://static.wixstatic.com/mp3/80cc5d_cc85cc2cf99640a79886bba86b51b53a.mp3"
 order = 3
+final_slot = { final = "JE EM", number = 5 }
 
 [[acts]]
 rider = "Mia Schneider"
@@ -610,6 +817,7 @@ description = "Klassisch, mit Tutu."
 song = "TheFatRat - Elegy.mp3"
 song_url = "https://static.wixstatic.com/mp3/80cc5d_b27bcee24e8243c5bb04b08d16309c63.mp3"
 song_checked = true
+final_slot = { final = "E EW", number = 1 }
 
 [[acts]]
 rider = "Karl Richter"
@@ -624,6 +832,13 @@ act_type = "pair"
 name = "Geschwister"
 song = "TheFatRat - Never Be Alone.mp3"
 song_url = "https://static.wixstatic.com/mp3/80cc5d_0e46a274e15e471d81e0a52b219f1e9c.mp3"
+
+# Placed in the final "E EW" (slot 1 of the heat "E EW 1"), like Hannah Klein's
+# single above in slot 1 of "E EW 2". See the ride warning cases of the judges.
+[[acts]]
+rider = "Julia Krüger"
+act_type = "single"
+final_slot = { final = "E EW", number = 1 }
 
 [[acts]]
 group = "Rollende Rebellen"
@@ -1368,26 +1583,29 @@ final = "JE P"
 [[timeplan]]
 final = "E P"
 
+# The group Vorläufe are skipped; the group finals are on the second day.
 [[timeplan]]
 category = "KGU15"
-
-[[timeplan]]
-final = "KGU15"
 
 [[timeplan]]
 category = "KG15+"
 
 [[timeplan]]
-final = "KG15+"
-
-[[timeplan]]
 category = "GGU15"
 
 [[timeplan]]
-final = "GGU15"
+category = "GG15+"
+
+# Second competition day (Sunday): the group finals start in the morning.
+[[timeplan]]
+final = "KGU15"
+earliest_start = 2027-06-06T09:00:00+02:00
 
 [[timeplan]]
-category = "GG15+"
+final = "KG15+"
+
+[[timeplan]]
+final = "GGU15"
 
 [[timeplan]]
 final = "GG15+"
@@ -1400,4 +1618,6 @@ show_photos = false
 
 # The demo judges register for the Vorlauf of the heats ("heat: <name>") and
 # for the finals ("final: <name>"); see competition.example.toml for the jury
-# settings of heats and finals.
+# settings of heats and finals. Judges can also sit in the Juryplan
+# (assignments, same unit and task as a registration); the linked judges
+# above show the cases of the ride warnings.

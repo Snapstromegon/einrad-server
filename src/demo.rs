@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::ids::{ActId, BookingId, ClubId, JudgeId, JuryUnitId, RiderId};
+use crate::ids::{ActId, BookingId, ClubId, FinalSlotId, HeatId, JudgeId, JuryUnitId, RiderId};
 use password_auth::generate_hash;
 use serde::Deserialize;
 use time::{Date, OffsetDateTime, UtcOffset};
@@ -126,11 +126,25 @@ pub struct DemoJudge {
     /// Jury units (`heat: <name>` or `final: <name>`) and tasks.
     #[serde(default)]
     pub registrations: Vec<DemoJudgeRegistration>,
+    /// Seats in the Juryplan: the judge sits in the unit's first Durchgang
+    /// with this task, like after `assign_judge`. Independent of the
+    /// registrations.
+    #[serde(default)]
+    pub assignments: Vec<DemoJudgeAssignment>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DemoJudgeRegistration {
+    pub unit: String,
+    pub task: crate::jury::JudgeTask,
+}
+
+/// A seat in the Juryplan.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoJudgeAssignment {
+    /// `heat: <name>` or `final: <name>`.
     pub unit: String,
     pub task: crate::jury::JudgeTask,
 }
@@ -223,6 +237,19 @@ pub struct DemoAct {
     pub started_at: Option<OffsetDateTime>,
     #[serde(default, deserialize_with = "toml_datetime_option")]
     pub ended_at: Option<OffsetDateTime>,
+    /// Places the act in a slot of a final, as `set_final_placement` does.
+    pub final_slot: Option<DemoFinalSlot>,
+}
+
+/// A slot of a final, named by the final's code and the slot's number in
+/// the heat of the act ("2. Finalist (E EW 2)" is number 2 for an act of
+/// that heat).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoFinalSlot {
+    #[serde(rename = "final")]
+    pub final_code: String,
+    pub number: i64,
 }
 
 impl DemoData {
@@ -595,6 +622,21 @@ impl DemoData {
                 crate::jury::save_judge(&mut conn, judge_id, club_id, rider_id, &identity, &fields)
                     .await
                     .map_err(|e| format!("Judge {name}: {e:?}"))?;
+
+                for seat in &judge.assignments {
+                    let (_, unit_id) = units.get(&seat.unit).ok_or_else(|| {
+                        format!("Judge {name}: unknown jury unit {:?}", seat.unit)
+                    })?;
+                    let session = crate::jury_sessions::first_session(&mut conn, *unit_id)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .ok_or_else(|| {
+                            format!("Judge {name}: {:?} has no Durchgang.", seat.unit)
+                        })?;
+                    crate::jury_sessions::assign(&mut conn, judge_id, session, seat.task)
+                        .await
+                        .map_err(|e| format!("Judge {name}, {}: {e}", seat.unit))?;
+                }
             }
         }
         Ok(())
@@ -856,8 +898,72 @@ impl DemoData {
             .execute(db)
             .await
             .map_err(|e| format!("Couldn't update the {label}: {e}"))?;
+
+            if let Some(slot) = &act.final_slot {
+                self.place_act(db, act_id, &label, slot).await?;
+            }
         }
         Ok(())
+    }
+
+    /// Places an act in a slot of a final with the rules of
+    /// `set_final_placement`: the slot belongs to the heat of the act's
+    /// category, and an act takes one slot of a final.
+    async fn place_act(
+        &self,
+        db: &sqlx::SqlitePool,
+        act_id: ActId,
+        label: &str,
+        slot: &DemoFinalSlot,
+    ) -> Result<(), String> {
+        let db_error = |e: sqlx::Error| format!("Couldn't place the {label}: {e}");
+        let slot_row = sqlx::query!(
+            r#"
+            SELECT
+                final_slots.id as "id!: FinalSlotId",
+                final_slots.heat_id as "heat_id!: HeatId",
+                heats.code as "heat!"
+            FROM final_slots
+            JOIN finals ON finals.id = final_slots.final_id
+            JOIN heats ON heats.id = final_slots.heat_id
+            WHERE finals.code = ? AND final_slots.number = ?
+            AND final_slots.heat_id = (
+                SELECT categories.heat_id FROM categories
+                JOIN view_act ON view_act.category = categories.name
+                WHERE view_act.id = ?
+            )
+            "#,
+            slot.final_code,
+            slot.number,
+            act_id
+        )
+        .fetch_optional(db)
+        .await
+        .map_err(db_error)?;
+        let Some(slot_row) = slot_row else {
+            return Err(format!(
+                "[[acts]]: the {label} can't go to slot {} of final {:?}: the final or the slot doesn't exist, or the act's category isn't of a heat feeding it.",
+                slot.number, slot.final_code
+            ));
+        };
+        let label_of_slot = crate::finals::finalist_label(slot.number, &slot_row.heat);
+        let result = sqlx::query!(
+            "UPDATE final_slots SET act_id = ? WHERE id = ? AND act_id IS NULL",
+            act_id,
+            slot_row.id
+        )
+        .execute(db)
+        .await;
+        match result {
+            Ok(done) if done.rows_affected() == 1 => Ok(()),
+            Ok(_) => Err(format!(
+                "[[acts]]: the {label} can't take „{label_of_slot}“: another act sits there already."
+            )),
+            Err(e) => Err(format!(
+                "[[acts]]: the {label} already has a slot in final {:?}, not „{label_of_slot}“ too ({e})",
+                slot.final_code
+            )),
+        }
     }
 }
 
@@ -971,6 +1077,29 @@ mod tests {
 
     fn data_dir() -> PathBuf {
         std::env::temp_dir().join(format!("cup-demo-test-{}", Uuid::new_v4()))
+    }
+
+    /// The timeplan has a second day (so the ride warnings can show that
+    /// they stop at a day boundary), and the competition dates match it.
+    #[tokio::test]
+    async fn demo_timeplan_has_a_second_day() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        data.apply(&db, &data_dir()).await.unwrap();
+
+        let days: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT date(earliest_start_time, 'localtime') FROM timeplan WHERE earliest_start_time IS NOT NULL ORDER BY 1",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(days.len(), 2, "days with a fixed start: {days:?}");
+        let (start, end): (String, String) =
+            sqlx::query_as("SELECT start_date, end_date FROM competition")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!((start, end), (days[0].clone(), days[1].clone()));
     }
 
     #[tokio::test]
@@ -1117,7 +1246,7 @@ mod tests {
         data.apply(&db, &data_path).await.unwrap();
 
         let (rider_id, name, birthdate): (Option<RiderId>, String, String) = sqlx::query_as(
-            "SELECT rider_id, firstname || ' ' || lastname, date(birthdate) FROM view_judge WHERE rider_id IS NOT NULL",
+            "SELECT rider_id, firstname || ' ' || lastname, date(birthdate) FROM view_judge WHERE rider_id IS NOT NULL AND lastname = 'Klein'",
         )
         .fetch_one(&db)
         .await
@@ -1132,10 +1261,171 @@ mod tests {
     async fn a_demo_judge_from_a_rider_has_no_names_of_their_own() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
         let mut data = DemoData::parse(DEMO).unwrap();
-        let judge = data.clubs[0].judges.last_mut().unwrap();
+        let judge = data.clubs[0]
+            .judges
+            .iter_mut()
+            .find(|judge| judge.rider.as_deref() == Some("Hannah Klein"))
+            .unwrap();
         judge.firstname = Some("Anna".into());
         let err = data.apply(&db, &data_dir()).await.unwrap_err();
         assert!(err.contains("Hannah Klein"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_demo_judge_can_sit_in_the_jury_plan() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        // Petra Wagner has no seat in "E EW 1" in the demo file.
+        data.clubs
+            .iter_mut()
+            .flat_map(|club| &mut club.judges)
+            .find(|judge| judge.firstname.as_deref() == Some("Petra"))
+            .unwrap()
+            .assignments
+            .push(DemoJudgeAssignment {
+                unit: "heat: Expert 1 Einzel Weiblich (U17–U21)".into(),
+                task: crate::jury::JudgeTask::Performance,
+            });
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        let seats: Vec<(String, String)> = sqlx::query_as(
+            r#"SELECT judge.firstname, jury_assignments.task FROM jury_assignments
+            JOIN judge ON judge.id = jury_assignments.judge_id
+            JOIN jury_sessions ON jury_sessions.id = jury_assignments.session_id
+            JOIN heats ON heats.id = jury_sessions.heat_id
+            WHERE heats.code = 'E EW 1' AND judge.firstname = 'Petra'"#,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(seats, [("Petra".to_string(), "performance".to_string())]);
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_demo_judge_cannot_sit_in_an_unknown_unit() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        data.clubs[0].judges[0]
+            .assignments
+            .push(DemoJudgeAssignment {
+                unit: "heat: Gibt es nicht".into(),
+                task: crate::jury::JudgeTask::Technical,
+            });
+        let err = data.apply(&db, &data_dir()).await.unwrap_err();
+        assert!(err.contains("Gibt es nicht"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_demo_judge_sits_by_the_api_rules() {
+        // The same judge only once per Durchgang.
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        let judge = &mut data.clubs[0].judges[0];
+        let unit = judge.registrations[0].unit.clone();
+        for task in [
+            crate::jury::JudgeTask::Technical,
+            crate::jury::JudgeTask::Performance,
+        ] {
+            judge.assignments.push(DemoJudgeAssignment {
+                unit: unit.clone(),
+                task,
+            });
+        }
+        let err = data.apply(&db, &data_dir()).await.unwrap_err();
+        assert!(err.contains("schon eingeteilt"), "{err}");
+
+        // Untrained people only count dismounts.
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        data.clubs
+            .iter_mut()
+            .flat_map(|club| &mut club.judges)
+            .find(|judge| !judge.trained)
+            .unwrap()
+            .assignments
+            .push(DemoJudgeAssignment {
+                unit,
+                task: crate::jury::JudgeTask::Technical,
+            });
+        let err = data.apply(&db, &data_dir()).await.unwrap_err();
+        assert!(err.contains("Nicht geschulte"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_demo_act_can_fill_a_final_slot() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        // Hannah Klein rides EWU50 (heat "E EW 2"); the demo file doesn't
+        // place her in slot 2.
+        data.acts
+            .iter_mut()
+            .find(|act| act.rider.as_deref() == Some("Hannah Klein"))
+            .unwrap()
+            .final_slot = Some(DemoFinalSlot {
+            final_code: "E EW".into(),
+            number: 2,
+        });
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        let placed: Vec<(String, i64, String)> = sqlx::query_as(
+            r#"SELECT heats.code, final_slots.number, view_act.category
+            FROM final_slots
+            JOIN heats ON heats.id = final_slots.heat_id
+            JOIN finals ON finals.id = final_slots.final_id
+            JOIN view_act ON view_act.id = final_slots.act_id
+            WHERE finals.code = 'E EW' AND view_act.name = 'Schwanensee'"#,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(placed, [("E EW 2".to_string(), 2, "EWU50".to_string())]);
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_final_slot_follows_the_placement_rules() {
+        for (rider, final_code, number, expected) in [
+            ("Hannah Klein", "Gibt es nicht", 1, "Gibt es nicht"),
+            // Hannah's heat has no 9th slot in the final.
+            ("Hannah Klein", "E EW", 9, "can't go to slot 9"),
+            // Karl Richter rides EM70+, a heat of the men's final only.
+            ("Karl Richter", "E EW", 1, "can't go to slot 1"),
+        ] {
+            let db = crate::reloadable_sqlite::in_memory_migrated().await;
+            let mut data = DemoData::parse(DEMO).unwrap();
+            data.acts
+                .iter_mut()
+                .find(|act| act.rider.as_deref() == Some(rider))
+                .unwrap()
+                .final_slot = Some(DemoFinalSlot {
+                final_code: final_code.into(),
+                number,
+            });
+            let err = data.apply(&db, &data_dir()).await.unwrap_err();
+            assert!(err.contains(expected), "{expected}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_final_slot_takes_only_one_act() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let mut data = DemoData::parse(DEMO).unwrap();
+        // Two acts in the same slot.
+        for rider in ["Luca Weber", "Elias Weber"] {
+            data.acts
+                .iter_mut()
+                .find(|act| act.rider.as_deref() == Some(rider))
+                .unwrap()
+                .final_slot = Some(DemoFinalSlot {
+                final_code: "JE EM".into(),
+                number: 1,
+            });
+        }
+        let err = data.apply(&db, &data_dir()).await.unwrap_err();
+        assert!(err.contains("1. Finalist (JE EM)"), "{err}");
     }
 
     #[tokio::test]
