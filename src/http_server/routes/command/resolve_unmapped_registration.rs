@@ -70,6 +70,8 @@ pub async fn resolve_unmapped_registration(
             Some(false) => return Err(jury::not_registrable()),
             Some(true) => {}
         }
+        jury::ensure_no_ride_conflict(&mut transaction, unmapped.judge_id, unit.kind, unit.id)
+            .await?;
         let (heat_id, final_id) = jury::unit_columns(unit.kind, unit.id);
         sqlx::query!(
             "INSERT OR IGNORE INTO judge_registration (judge_id, heat_id, final_id, task) VALUES (?, ?, ?, ?)",

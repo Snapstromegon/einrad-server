@@ -672,3 +672,135 @@ async fn a_group_member_of_another_club_shows_up_for_the_own_club() {
     assert_eq!(rows[0]["rider_id"], json!(mine[0]));
     assert_eq!(rows[0]["category"], "KG15+");
 }
+
+// Moving and resolving by the Jury lead follow the rule; a remap keeps.
+
+/// A linked judge (the rider rides in "Erwachsene") registered for a heat
+/// "Andere" and a registration waiting in the unmapped list.
+async fn judge_elsewhere(
+    app: &TestApp,
+    admin: &str,
+    owner: &str,
+    club_id: ClubId,
+    rider_id: Option<RiderId>,
+) -> (Value, Value) {
+    add_heat(app, admin, "Andere", &["EWU25"]).await;
+    let other = unit(app, admin, "Andere").await;
+    let added = app
+        .post(
+            "/api/command/add_club_judge",
+            judge_body(club_id, rider_id, &[(&other, "technical")]),
+            Some(owner),
+        )
+        .await;
+    ok(&added);
+    (added.body["judge_id"].clone(), other)
+}
+
+#[tokio::test]
+async fn the_jury_lead_cannot_move_a_registration_into_a_heat_the_rider_rides_in() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let (judge_id, other) = judge_elsewhere(&app, &admin, &owner, club_id, Some(max)).await;
+    let heat = unit(&app, &admin, "Erwachsene").await;
+    let body = json!({
+        "judge_id": judge_id, "from_kind": other["kind"], "from_id": other["id"],
+        "to_kind": heat["kind"], "to_id": heat["id"],
+    });
+
+    let response = app
+        .post("/api/command/move_judge_registrations", body, Some(&admin))
+        .await;
+    refused(&response, &["Max Müller fährt in EWU23"]);
+    // Nothing moved.
+    assert_eq!(
+        listed(&app, &owner, club_id).await[0]["registrations"][0]["unit_id"],
+        other["id"]
+    );
+}
+
+#[tokio::test]
+async fn an_unlinked_judge_can_be_moved_into_any_heat() {
+    let (app, admin, owner, club_id) = setup().await;
+    rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let (judge_id, other) = judge_elsewhere(&app, &admin, &owner, club_id, None).await;
+    let heat = unit(&app, &admin, "Erwachsene").await;
+
+    ok(&app
+        .post(
+            "/api/command/move_judge_registrations",
+            json!({
+                "judge_id": judge_id, "from_kind": other["kind"], "from_id": other["id"],
+                "to_kind": heat["kind"], "to_id": heat["id"],
+            }),
+            Some(&admin),
+        )
+        .await);
+}
+
+#[tokio::test]
+async fn an_unmapped_registration_cannot_be_resolved_into_a_heat_the_rider_rides_in() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let linked = judge_elsewhere(&app, &admin, &owner, club_id, Some(max))
+        .await
+        .0;
+    let heat = unit(&app, &admin, "Erwachsene").await;
+    sqlx::query(
+        "INSERT INTO judge_registration_unmapped (judge_id, old_unit, task) VALUES (?, 'Alt', 'performance')",
+    )
+    .bind(uuid::Uuid::parse_str(linked.as_str().unwrap()).unwrap())
+    .execute(&app.db)
+    .await
+    .unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM judge_registration_unmapped")
+        .fetch_one(&app.db)
+        .await
+        .unwrap();
+
+    let response = app
+        .post(
+            "/api/command/resolve_unmapped_registration",
+            json!({ "id": id, "unit": { "kind": "heat", "id": heat["id"] } }),
+            Some(&admin),
+        )
+        .await;
+    refused(&response, &["Max Müller fährt in EWU23"]);
+    // Dropping it is still fine.
+    ok(&app
+        .post(
+            "/api/command/resolve_unmapped_registration",
+            json!({ "id": id, "unit": null }),
+            Some(&admin),
+        )
+        .await);
+}
+
+#[tokio::test]
+async fn a_remap_keeps_the_registration_and_it_shows_as_a_conflict() {
+    let (app, admin, owner, club_id) = setup().await;
+    let max = rider(&app, &owner, club_id, "Max", true, false, None).await;
+    let added = app
+        .post(
+            "/api/command/add_club_judge",
+            judge_body(club_id, Some(max), &[]),
+            Some(&owner),
+        )
+        .await;
+    ok(&added);
+
+    let file = "[[jury_registrations]]\nclub = \"RSV\"\nfirstname = \"Max\"\nlastname = \"Müller\"\ntask = \"technical\"\nold_jury_unit = \"Alt\"\njury_unit = \"heat: Erwachsene\"\n";
+    let response = app
+        .post(
+            "/api/command/apply_jury_remap",
+            json!({ "file": file }),
+            Some(&admin),
+        )
+        .await;
+    ok(&response);
+    assert_eq!(response.body["registered"], 1, "{:?}", response.body);
+    assert_eq!(
+        conflict(&app, &owner, club_id).await,
+        json!({ "category": "EWU23", "replacement": false })
+    );
+}

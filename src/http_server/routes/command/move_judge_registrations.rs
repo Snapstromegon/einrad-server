@@ -53,6 +53,10 @@ pub async fn move_judge_registrations(
         Some(false) if body.from_id != body.to_id => return Err(jury::not_registrable()),
         Some(_) => {}
     }
+    if body.from_id != body.to_id {
+        jury::ensure_no_ride_conflict(&mut transaction, body.judge_id, body.to_kind, body.to_id)
+            .await?;
+    }
     let (to_heat, to_final) = jury::unit_columns(body.to_kind, body.to_id);
     info!(
         "Moving the registrations of judge {} from {:?} {} to {:?} {}",

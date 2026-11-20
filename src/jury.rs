@@ -606,6 +606,40 @@ pub async fn list_ride_conflicts(
         .collect())
 }
 
+/// Refuses (German message) to register the judge for the unit when they are
+/// linked to a rider who rides in it (#405): for the Jury lead moving or
+/// resolving a registration. Finals and unlinked judges pass.
+pub async fn ensure_no_ride_conflict(
+    conn: &mut sqlx::SqliteConnection,
+    judge_id: JudgeId,
+    kind: JuryUnitKind,
+    unit_id: JuryUnitId,
+) -> Result<(), HttpError> {
+    if kind != JuryUnitKind::Heat {
+        return Ok(());
+    }
+    let judge = sqlx::query!(
+        r#"
+        SELECT rider_id as "rider_id: RiderId", firstname as "firstname!: String",
+            lastname as "lastname!: String"
+        FROM view_judge WHERE id = ?
+        "#,
+        judge_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((judge, rider_id)) = judge.and_then(|j| j.rider_id.map(|r| (j, r))) else {
+        return Ok(());
+    };
+    match ride_conflict(conn, rider_id, HeatId(unit_id.0)).await? {
+        Some(conflict) => Err(HttpError::ErrorMessages(ride_conflict_message(
+            &format!("{} {}", judge.firstname, judge.lastname),
+            &conflict,
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// The refusal for a new registration of a rider who rides in the heat (German).
 pub fn ride_conflict_message(name: &str, conflict: &RideConflict) -> String {
     format!(
