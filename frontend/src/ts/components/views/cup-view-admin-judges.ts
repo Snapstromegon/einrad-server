@@ -200,6 +200,97 @@ export default class CupViewAdminJudges extends LitElement {
         gap: 0.5rem;
       }
 
+      /* Phone (the seat table's breakpoint): the dense tables become cards,
+         one per row, each cell labelled by its column's name. */
+      @media (max-width: 720px) {
+        table.cards,
+        table.cards tbody,
+        table.cards tr,
+        table.cards td {
+          display: block;
+        }
+
+        table.cards.fit {
+          width: 100%;
+        }
+
+        /* The header row stays for screen readers only. */
+        table.cards thead {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip-path: inset(50%);
+        }
+
+        table.cards tbody tr {
+          margin-bottom: 0.5rem;
+          padding: 0.25rem 0.5rem;
+          border: 1px solid var(--color-border);
+          border-radius: 0.5rem;
+          background: var(--color-surface);
+        }
+
+        table.dense.cards tbody tr > td {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.25rem 0.75rem;
+          min-width: 0;
+          border-bottom: 1px solid var(--color-border);
+          background: transparent;
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+
+        table.dense.cards tbody tr > td:last-child {
+          border-bottom: 0;
+        }
+
+        table.cards td[data-label]::before {
+          content: attr(data-label);
+          flex: none;
+          color: var(--color-text-muted);
+          font-weight: 600;
+        }
+
+        table.dense.cards tbody tr > td.head {
+          display: block;
+          font-size: 1.1em;
+        }
+
+        table.dense.cards tbody tr > td.actions {
+          width: auto;
+          justify-content: flex-end;
+        }
+
+        table.cards .chips {
+          display: flex;
+          max-width: 100%;
+          min-width: 0;
+        }
+
+        table.cards .chip {
+          max-width: 100%;
+          white-space: normal;
+          border-radius: 0.75em;
+        }
+
+        table.cards select {
+          max-width: 100%;
+        }
+
+        table.dense.cards tbody tr > td.empty {
+          display: block;
+        }
+
+        table.cards td input[type="number"] {
+          width: 4.5em;
+          min-width: 0;
+        }
+      }
+
       /* "Juryplan drucken": only the plan; the seat table breaks pages per day. */
       @media print {
         .print-plan section:not(.plan-section),
@@ -627,15 +718,19 @@ export default class CupViewAdminJudges extends LitElement {
         const tone = available < needed(unit, task) ? "text-bad" : "text-ok";
         return html`<td
           class="num ${tone}"
+          data-label=${taskNames[task]}
           title="${trained} geschult${untrained ? `, ${untrained} nicht geschult` : ""} · benötigt ${needed(unit, task)}"
         >
           ${available}/${needed(unit, task)}
         </td>`;
       });
       return html`<tr>
-        <td>${unitName(unit)}</td>
+        <td class="head wrap">${unitName(unit)}</td>
         ${cells}
-        <td class="num ${count.fifteen > 3 ? "fifteen" : ""}">
+        <td
+          class="num ${count.fifteen > 3 ? "fifteen" : ""}"
+          data-label="15-jährig"
+        >
           ${count.fifteen || ""}
         </td>
       </tr>`;
@@ -647,7 +742,7 @@ export default class CupViewAdminJudges extends LitElement {
         für Abstiege zählen auch nicht geschulte. „15“: davon 15-jährig (höchstens
         drei je Wertungsklasse).
       </p>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Vorlauf / Finale</th>
@@ -669,11 +764,11 @@ export default class CupViewAdminJudges extends LitElement {
       .map((club) => {
         const jury = club.jury!;
         return html`<tr>
-          <td>${club.name}</td>
-          <td class="num">${jury.acts}</td>
-          <td class="num">${jury.required}</td>
-          <td class="num">${jury.registered}</td>
-          <td class="num">
+          <td class="head wrap">${club.name}</td>
+          <td class="num" data-label="Küren">${jury.acts}</td>
+          <td class="num" data-label="Pflicht">${jury.required}</td>
+          <td class="num" data-label="Gemeldet">${jury.registered}</td>
+          <td class="num" data-label="Korrektur">
             <input
               class="override"
               type="number"
@@ -688,15 +783,18 @@ export default class CupViewAdminJudges extends LitElement {
               @change=${this.onOverrideChange}
             />
           </td>
-          <td class="num ${jury.missing ? "text-bad" : "text-ok"}">
+          <td
+            class="num ${jury.missing ? "text-bad" : "text-ok"}"
+            data-label="Fehlend"
+          >
             ${jury.missing}
           </td>
-          <td class="num">${jury.fee ? formatMoney(jury.fee) : ""}</td>
+          <td class="num" data-label="Jurygebühr">${jury.fee ? formatMoney(jury.fee) : ""}</td>
         </tr>`;
       });
     return html`<section>
       <h2>Pflicht je Verein</h2>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Verein</th>
@@ -774,8 +872,8 @@ export default class CupViewAdminJudges extends LitElement {
       ];
       const l = assignedLoad(judge, load);
       return html`<tr>
-        <td>${judge.club_name}</td>
-        <td>
+        <td class="wrap" data-label="Verein">${judge.club_name}</td>
+        <td class="head wrap">
           ${judge.lastname}, ${judge.firstname}${
             isLinked(judge)
               ? html` <span
@@ -786,7 +884,9 @@ export default class CupViewAdminJudges extends LitElement {
               : nothing
           }
         </td>
-        <td class="num ${age === 15 ? "fifteen" : ""}">${age ?? ""}</td>
+        <td class="num ${age === 15 ? "fifteen" : ""}" data-label="Alter">
+          ${age ?? ""}
+        </td>
         <td>
           ${
             judge.is_trained
@@ -794,8 +894,12 @@ export default class CupViewAdminJudges extends LitElement {
               : html`<span class="chip warn">AbstiegszählerIn</span>`
           }
         </td>
-        <td><div class="chips">${chips}</div></td>
-        <td class="num" title=${deploymentNote(judge)}>
+        <td class="wrap" data-label="Wertet"><div class="chips">${chips}</div></td>
+        <td
+          class="num"
+          data-label="Einsätze"
+          title=${deploymentNote(judge)}
+        >
           ${judge.counted_deployments}${
             deploymentNote(judge)
               ? html`<br /><small class="muted">${deploymentNote(judge)}</small>`
@@ -810,7 +914,7 @@ export default class CupViewAdminJudges extends LitElement {
               : nothing
           }
         </td>
-        <td>${judge.note ?? ""}</td>
+        <td data-label="Notiz">${judge.note ?? ""}</td>
       </tr>`;
     });
     return html`<section>
@@ -826,7 +930,7 @@ export default class CupViewAdminJudges extends LitElement {
           @input=${this.onSearchInput}
         />
       </div>
-      <table class="dense">
+      <table class="dense cards">
         <thead>
           <tr>
             <th>Verein</th>
@@ -1036,7 +1140,7 @@ export default class CupViewAdminJudges extends LitElement {
         Abstiege. Entfällt ein Vorlauf, nimmt er keine Anmeldungen mehr an; die
         schon gemeldeten zählen weiter.
       </p>
-      <table class="dense fit">
+      <table class="dense fit cards">
         <thead>
           <tr>
             <th>Vorlauf / Finale</th>
@@ -1081,7 +1185,7 @@ export default class CupViewAdminJudges extends LitElement {
       this.renderNeeded(unit, session),
     );
     return html`<tr>
-      <td>
+      <td class="head wrap">
         <b>${unitName(unit)}</b>
         ${
           closedReason(unit)
@@ -1090,10 +1194,10 @@ export default class CupViewAdminJudges extends LitElement {
         }
         ${this.renderSplitPanel(unit)} ${needed}
       </td>
-      <td>
+      <td data-label="Tag">
         ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
       </td>
-      <td>
+      <td data-label="Anmeldung">
         ${
           unit.registrable
             ? "offen"
@@ -1102,11 +1206,11 @@ export default class CupViewAdminJudges extends LitElement {
               >`
         }
       </td>
-      <td class="num">${unit.deployments}</td>
-      <td class="num">${unit.needed_technical}</td>
-      <td class="num">${unit.needed_performance}</td>
-      <td class="num">${unit.needed_dismounts}</td>
-      <td class="nowrap">
+      <td class="num" data-label="Einsätze">${unit.deployments}</td>
+      <td class="num" data-label="Technik">${unit.needed_technical}</td>
+      <td class="num" data-label="Performance">${unit.needed_performance}</td>
+      <td class="num" data-label="Abstiege">${unit.needed_dismounts}</td>
+      <td class="nowrap actions">
         <button
           class="icon-btn"
           title="Bearbeiten"
@@ -1123,8 +1227,8 @@ export default class CupViewAdminJudges extends LitElement {
 
   private renderForm(unit: JuryUnit) {
     const draft = this.draft!;
-    const number = (key: NumberField, label: string) =>
-      html`<td class="num">
+    const number = (key: NumberField, label: string, short: string) =>
+      html`<td class="num" data-label=${short}>
         <input
           type="number"
           min="0"
@@ -1137,11 +1241,11 @@ export default class CupViewAdminJudges extends LitElement {
         />
       </td>`;
     return html`<tr class="editing">
-      <td><b>${unitName(unit)}</b></td>
-      <td>
+      <td class="head wrap"><b>${unitName(unit)}</b></td>
+      <td data-label="Tag">
         ${unit.day ? formatDate(unit.day) : html`<span class="muted">–</span>`}
       </td>
-      <td>
+      <td data-label="Anmeldung">
         <label>
           <input
             type="checkbox"
@@ -1152,11 +1256,11 @@ export default class CupViewAdminJudges extends LitElement {
           möglich
         </label>
       </td>
-      ${number("deployments", "Einsätze")}
-      ${number("needed_technical", "Benötigte JurorInnen Technik")}
-      ${number("needed_performance", "Benötigte JurorInnen Performance")}
-      ${number("needed_dismounts", "Benötigte AbstiegszählerInnen")}
-      <td class="nowrap">
+      ${number("deployments", "Einsätze", "Einsätze")}
+      ${number("needed_technical", "Benötigte JurorInnen Technik", "Technik")}
+      ${number("needed_performance", "Benötigte JurorInnen Performance", "Performance")}
+      ${number("needed_dismounts", "Benötigte AbstiegszählerInnen", "Abstiege")}
+      <td class="nowrap actions">
         <button
           class="icon-btn primary"
           title="Speichern"
