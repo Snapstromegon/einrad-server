@@ -350,8 +350,11 @@ impl DemoData {
 
         let users = self.insert_users(db).await?;
         let riders = self.insert_clubs(db, &users).await?;
-        self.register_starts(db, &riders).await?;
+        // Judges first, like a club that registers its judges before its
+        // riders' starts: a judge who then rides in their heat is a kept
+        // conflict, flagged for the jury lead (#405).
         self.insert_judges(db).await?;
+        self.register_starts(db, &riders).await?;
 
         let group_ids = self.insert_groups(db, &riders).await?;
         self.update_acts(db, &riders, &group_ids, data_path).await?;
@@ -524,7 +527,10 @@ impl DemoData {
         Ok(riders)
     }
 
-    /// Registers the clubs' judges with the same rules as the API.
+    /// Registers the clubs' judges with the same rules as the API. This runs
+    /// before the starts, so a linked judge who rides in a heat they are
+    /// registered for is a later conflict: kept and flagged (#405). Judges
+    /// need the riders, not their starts.
     async fn insert_judges(&self, db: &sqlx::SqlitePool) -> Result<(), String> {
         let competition = crate::competition::Competition::current(db)
             .await
@@ -1254,6 +1260,31 @@ mod tests {
         assert!(rider_id.is_some());
         assert_eq!(name, "Hannah Klein");
         assert_eq!(birthdate, "1990-05-05");
+        std::fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn demo_judges_that_ride_in_their_heat_still_seed() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        let data = DemoData::parse(DEMO).unwrap();
+        let data_path = data_dir();
+        data.apply(&db, &data_path).await.unwrap();
+
+        let registered: Vec<String> = sqlx::query_scalar(
+            "SELECT u.name FROM judge_registration r \
+             JOIN view_judge j ON j.id = r.judge_id \
+             JOIN view_jury_unit u ON u.id = r.unit_id \
+             WHERE j.firstname = 'Tom' AND j.lastname = 'Schulz'",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert!(
+            registered
+                .iter()
+                .any(|name| name.contains("Expert 2 Einzel Männlich")),
+            "{registered:?}"
+        );
         std::fs::remove_dir_all(data_path).unwrap();
     }
 

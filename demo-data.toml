@@ -310,6 +310,8 @@ assignments = [
 # Ride warning: none, across a custom block. She rides EWU50 right before
 # the Mittagspause and the Jury-Besprechung, "Expert 1 Paar" starts after them.
 # Picker only: red in the heat "Expert 2 Einzel Weiblich" (her own EWU50).
+# Ride conflict (#405): her registration for that heat is kept and flagged;
+# the judges are seeded before the starts, so the conflict came later.
 [[clubs.judges]]
 rider = "Hannah Klein"
 registrations = [
@@ -451,6 +453,8 @@ registrations = [
 # Ride warning: none, two blocks away. In "Expert 1 Einzel Männlich" (EMU17,
 # EMU19) he doesn't warn: EMU25 sits between that heat and his EMU30.
 # Picker only: red in the final "Expert Einzel Männlich" (EMU30 feeds it).
+# Ride conflict (#405): his registration for "Expert 2 Einzel Männlich" is
+# kept and flagged (the starts came later).
 [[clubs.judges]]
 rider = "Tom Schulz"
 registrations = [
@@ -468,6 +472,8 @@ assignments = [
 # and EMU23 have no acts and are dropped, so the next heat "Expert 2 Einzel
 # Männlich" (first block EMU25) follows right away.
 # Picker only: red in "Expert 1 Einzel Männlich" (his EMU19).
+# Ride conflict (#405): his registration for that heat is kept and flagged
+# (the starts came later).
 [[clubs.judges]]
 rider = "Max Krüger"
 registrations = [
