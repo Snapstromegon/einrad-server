@@ -1398,7 +1398,7 @@ export default class CupClubStepJury extends LitElement {
    * people only count dismounts.
    */
   private renderGrid() {
-    const tree = buildTree(this.units, this.draft.registrations, this.blocked);
+    const tree = buildTree(this.units, this.draft.registrations);
     if (tree.length === 0) {
       return html`<p class="muted">Noch keine Vorläufe oder Finals angelegt.</p>`;
     }
@@ -1600,7 +1600,10 @@ ${
   ) {
     const registrations = this.draft.registrations;
     // The heat the rider rides in: only what the judge already has stays.
-    const ride = this.blocked.get(category.id);
+    // Units that take no registrations keep their own reason.
+    const ride = category.registrable
+      ? this.blocked.get(category.id)
+      : undefined;
     const wertet = this.renderSwitch({
       name: unitName(category),
       forAll: false,

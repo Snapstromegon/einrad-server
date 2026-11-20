@@ -507,14 +507,16 @@ describe("shortUnitNames", () => {
     );
   });
 
-  test("a blocked unit stays in the tree", () => {
+  test("a blocked unit is as visible as any other: closed ones stay hidden", () => {
     const closed = heat("b", undefined, "single", { registrable: false });
-    const units = [heat("a", undefined), closed];
-    const blocked = new Map([["b", "fährt in EWU13"]]);
+    const units = [heat("a", undefined), heat("c", undefined), closed];
     const ids = (tree) => leavesOf(tree[0]).map((u) => u.id);
-    // Without the reason a closed, unticked unit is hidden.
-    assert.deepEqual(ids(buildTree(units, new Set())), ["a"]);
-    assert.deepEqual(ids(buildTree(units, new Set(), blocked)), ["a", "b"]);
+    assert.deepEqual(ids(buildTree(units, new Set())), ["a", "c"]);
+    assert.deepEqual(ids(buildTree(units, new Set(["b:technical"]))), [
+      "a",
+      "c",
+      "b",
+    ]);
   });
 
   test("toggleGroup skips blocked units when ticking and still unticks them", () => {

@@ -75,22 +75,18 @@ const hasAny = (unit: TreeUnit, ticked: ReadonlySet<string>) =>
 
 /**
  * The units a judge sees as a tree. Units that take no registrations show
- * only while the judge has them, or while their rider rides in them (`blocked`,
- * shown as unavailable with the reason). A heat sits under the final it feeds, before
+ * only while the judge has them. A heat sits under the final it feeds, before
  * the final itself; a heat feeding no final sits directly under its
  * discipline, after the finals. Empty groups don't show.
  */
 export const buildTree = <U extends TreeUnit>(
   units: readonly U[],
   ticked: ReadonlySet<string>,
-  blocked?: Blocked,
 ): TreeGroup<U>[] => {
   const finals = new Map(
     units.filter((u) => u.kind === "final").map((u) => [u.id, u]),
   );
-  const visible = units.filter(
-    (u) => u.registrable || hasAny(u, ticked) || blocked?.has(u.id),
-  );
+  const visible = units.filter((u) => u.registrable || hasAny(u, ticked));
   const disciplineOf = (unit: TreeUnit) =>
     DISCIPLINES.find(([type]) => type === unit.act_type)?.[0] ?? "other";
 
