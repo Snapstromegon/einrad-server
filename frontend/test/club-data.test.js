@@ -12,6 +12,7 @@ import {
   responsibleIsContact,
   visibleSteps,
   stepSummaries,
+  juryPlanGroups,
 } from "../src/ts/club-data.ts";
 
 const CLUB = "club-1";
@@ -242,6 +243,72 @@ describe("club data", () => {
     assert.ok(issues.some((i) => i.target === "b" && i.step === "kueren"));
     assert.ok(issues.some((i) => /ohne Musik/.test(i.text)));
     assert.ok(issues.some((i) => i.step === "startgeld"));
+  });
+
+  test("clubIssues announces a published jury plan on the jury step", () => {
+    const d = data({
+      juryPlan: { published_at: "2027-06-01T10:00:00Z", assignments: [] },
+    });
+    const issues = clubIssues(d);
+    assert.deepEqual(
+      issues.find((issue) => issue.step === "jury"),
+      {
+        level: "info",
+        step: "jury",
+        text: "Juryplan veröffentlicht.",
+      },
+    );
+    assert.match(
+      stepSummaries(d, issues).jury.summary,
+      /Juryplan veröffentlicht/,
+    );
+  });
+
+  test("juryPlanGroups groups entries by judge and sorts by time", () => {
+    const judge = (id, firstname) => ({
+      id,
+      firstname,
+      lastname: "Muster",
+      registrations: [],
+    });
+    const assignment = (id, judge_id, starts_at, fields = {}) => ({
+      id,
+      judge_id,
+      session_id: `session-${id}`,
+      unit_kind: "heat",
+      unit_id: `unit-${id}`,
+      unit_name: `Heat ${id}`,
+      session_label: "",
+      task: "performance",
+      seat: 1,
+      seat_label: "P1",
+      block_title: `Block ${id} (10:00)`,
+      day: "2027-06-01",
+      starts_at,
+      ...fields,
+    });
+    const plan = {
+      published_at: "2027-06-01T10:00:00Z",
+      assignments: [
+        assignment("late", "j2", "2027-06-01T12:00:00Z", { seat_label: "P2" }),
+        assignment("early", "j1", "2027-06-01T09:00:00Z"),
+        assignment("middle", "j1", "2027-06-01T11:00:00Z"),
+      ],
+    };
+    const groups = juryPlanGroups(plan, [
+      judge("j1", "Anna"),
+      judge("j2", "Berta"),
+    ]);
+    assert.deepEqual(
+      groups.map((group) => [
+        group.name,
+        group.entries.map((entry) => entry.id),
+      ]),
+      [
+        ["Anna Muster", ["early", "middle"]],
+        ["Berta Muster", ["late"]],
+      ],
+    );
   });
 
   describe("kept ride conflicts (#405)", () => {

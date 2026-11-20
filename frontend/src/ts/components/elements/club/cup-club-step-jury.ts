@@ -11,6 +11,7 @@ import {
   type ClubJudge,
   type ClubRider,
   type JuryUnit,
+  juryPlanGroups,
   riderName,
 } from "../../../club-data";
 import {
@@ -53,6 +54,7 @@ import {
   dateInputValue,
   formatDate,
   formatMoney,
+  formatTime,
 } from "../../../utils";
 import { dataChanged, navigateTo } from "./events";
 
@@ -234,6 +236,73 @@ export default class CupClubStepJury extends LitElement {
 
       table.list .unit {
         display: none;
+      }
+
+      .jury-plan-groups {
+        display: grid;
+        gap: 0.75rem;
+        min-width: 0;
+      }
+
+      .jury-plan-group {
+        min-width: 0;
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        overflow: hidden;
+      }
+
+      .jury-plan-group h4 {
+        margin: 0;
+        padding: 0.625rem 0.75rem;
+        background: var(--color-surface-2);
+        border-bottom: 1px solid var(--color-border);
+        color: var(--color-primary-strong);
+      }
+
+      .jury-plan-entries {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .jury-plan-entry {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.25rem 0.75rem;
+        align-items: start;
+        padding: 0.625rem 0.75rem;
+      }
+
+      .jury-plan-entry + .jury-plan-entry {
+        border-top: 1px solid var(--color-border);
+      }
+
+      .jury-plan-entry strong {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .jury-plan-entry-meta {
+        grid-column: 1 / -1;
+        color: var(--color-text-muted);
+        font-size: 0.875rem;
+        line-height: 1.35;
+      }
+
+      .jury-plan-seat {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.25rem;
+        min-height: 1.75rem;
+        padding: 0.125rem 0.5rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.375rem;
+        background: var(--color-surface-2);
+        color: var(--color-primary-strong);
+        font-weight: 700;
+        white-space: nowrap;
       }
 
       /* Phones: each judge as a small card, like the riders. */
@@ -1003,43 +1072,52 @@ export default class CupClubStepJury extends LitElement {
     if (!plan?.published_at) {
       return nothing;
     }
-    const units = new Map(this.units.map((c) => [c.id, c]));
-    const judges = new Map(this.judges.map((j) => [j.id, j]));
-    const rows = plan.assignments.map((a) => {
-      const category = units.get(a.unit_id);
-      const judge = judges.get(a.judge_id);
-      return html`<tr>
-        <td>${judge ? riderName(judge) : "?"}</td>
-        <td>
-          ${category ? unitName(category) : "?"}
-          ${
-            category?.day
-              ? html`<span class="muted">(${formatDate(category.day)})</span>`
-              : nothing
-          }
-        </td>
-        <td>${taskNames[a.task]}</td>
-      </tr>`;
-    });
+    const groups = juryPlanGroups(plan, this.judges);
     return html`<section class="card">
       <header>
         <h3>Juryplan</h3>
         <span class="hint">Stand ${formatDate(plan.published_at)}</span>
       </header>
       ${
-        rows.length
-          ? html`<table class="list">
-              <thead>
-                <tr>
-                  <th>JurorIn</th>
-                  <th>Vorlauf / Finale</th>
-                  <th>Aufgabe</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows}
-              </tbody>
-            </table>`
+        groups.length
+          ? html`<div class="jury-plan-groups">
+              ${repeat(
+                groups,
+                (group) => group.judgeId,
+                (group) => html`<section class="jury-plan-group">
+                  <h4>${group.name}</h4>
+                  <ul class="jury-plan-entries">
+                    ${repeat(
+                      group.entries,
+                      (entry) => entry.id,
+                      (entry) => {
+                        const session = entry.session_label
+                          ? html`<span> · ${entry.session_label}</span>`
+                          : nothing;
+                        const block = entry.block_title
+                          ? html`<span>${entry.block_title}</span>`
+                          : html`<span>Block noch nicht geplant</span>`;
+                        const time = entry.starts_at
+                          ? html`<span> · ${formatTime(entry.starts_at)} Uhr</span>`
+                          : nothing;
+                        return html`<li class="jury-plan-entry">
+                          <strong>${entry.unit_name}${session}</strong>
+                          <span
+                            class="jury-plan-seat"
+                            title="Sitzplatz ${entry.seat_label}"
+                            >${entry.seat_label}</span
+                          >
+                          <span class="jury-plan-entry-meta">
+                            ${entry.day ? formatDate(entry.day) : "Tag noch offen"}
+                            · ${block}${time}
+                          </span>
+                        </li>`;
+                      },
+                    )}
+                  </ul>
+                </section>`,
+              )}
+            </div>`
           : html`<p class="muted">Eure JurorInnen sind nicht eingeteilt.</p>`
       }
       <p class="muted small">
