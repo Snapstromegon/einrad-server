@@ -2,6 +2,7 @@
 // state of each registration step and the open issues. Only type imports and
 // pure helpers, so the unit tests can import it without a DOM.
 import type { schemas } from "./apiClient";
+import { rideReason, unitName } from "./jury";
 import type { Starts } from "./starts";
 import {
   type ActType,
@@ -253,6 +254,23 @@ export const clubIssues = (
           : `${withoutTitle.length} Küren ohne Titel.`,
       target: withoutTitle.length === 1 ? withoutTitle[0].id : undefined,
     });
+  }
+  // Registrations that ride in their heat came later and are kept (#405).
+  const units = new Map((data.juryUnits ?? []).map((u) => [u.id, u]));
+  for (const judge of data.judges ?? []) {
+    const seen = new Set<string>();
+    for (const registration of judge.registrations) {
+      const unit = units.get(registration.unit_id);
+      if (!registration.conflict || !unit || seen.has(unit.id)) {
+        continue;
+      }
+      seen.add(unit.id);
+      issues.push({
+        level: "warn",
+        step: "jury",
+        text: `${riderName(judge)} ${rideReason(registration.conflict)} und ist trotzdem für „${unitName(unit)}“ gemeldet. Die Juryleitung teilt neu zu. Der Einsatz zählt weiter.`,
+      });
+    }
   }
   const { open, juryFee } = paymentState(data);
   if (open >= 0.01) {

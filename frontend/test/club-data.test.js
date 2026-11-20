@@ -244,6 +244,56 @@ describe("club data", () => {
     assert.ok(issues.some((i) => i.step === "startgeld"));
   });
 
+  describe("kept ride conflicts (#405)", () => {
+    const unit = { id: "u1", kind: "heat", name: "Einzel weiblich (U13)" };
+    const judge = (conflict, fields = {}) => ({
+      id: "j1",
+      firstname: "Max",
+      lastname: "Müller",
+      registrations: [
+        {
+          unit_kind: "heat",
+          unit_id: "u1",
+          task: "technical",
+          flagged: false,
+          conflict,
+        },
+        {
+          unit_kind: "heat",
+          unit_id: "u1",
+          task: "performance",
+          flagged: false,
+          conflict,
+        },
+      ],
+      ...fields,
+    });
+    const issuesOf = (conflict) =>
+      clubIssues(data({ judges: [judge(conflict)], juryUnits: [unit] })).filter(
+        (i) => i.step === "jury",
+      );
+
+    test("a kept ride conflict is a warning on the jury step", () => {
+      const issues = issuesOf({ category: "EWU13", replacement: false });
+      // One per judge and unit, the tasks merged.
+      assert.equal(issues.length, 1);
+      assert.equal(issues[0].level, "warn");
+      assert.match(issues[0].text, /Max Müller fährt in EWU13 und/);
+      assert.match(issues[0].text, /Einzel weiblich \(U13\) · Vorlauf/);
+      assert.doesNotMatch(issues[0].text, /Ersatzfahrer/);
+    });
+
+    test("a replacement conflict says als Ersatzfahrer", () => {
+      const issues = issuesOf({ category: "KGU15", replacement: true });
+      assert.match(issues[0].text, /fährt in KGU15 als Ersatzfahrer/);
+    });
+
+    test("no conflict, no issue", () => {
+      assert.deepEqual(issuesOf(null), []);
+      assert.deepEqual(issuesOf(undefined), []);
+    });
+  });
+
   test("clubIssues skips missing music once uploads are closed", () => {
     const d = data({
       riders: [rider("a", { single_female: true })],
