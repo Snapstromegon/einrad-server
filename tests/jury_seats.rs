@@ -1470,11 +1470,21 @@ async fn entries_are_sorted_by_time_and_a_club_sees_only_its_own_once_published(
     let second = f.split_in_two().await;
     let emu17 = f.app.category_id("EMU17").await;
     let emu23 = f.app.category_id("EMU23").await;
-    f.set_timeplan(vec![category_block(emu17), pause(), category_block(emu23)])
-        .await;
+    let finale = unit_named(&f.app, &f.admin, "Finale EW").await;
+    let finale_session = finale["sessions"][0]["id"].clone();
+    // The final runs last, although "Finale EW" sorts before "Neu".
+    f.set_timeplan(vec![
+        category_block(emu17),
+        pause(),
+        category_block(emu23),
+        pause(),
+        final_block(&finale["id"]),
+    ])
+    .await;
     let (guest_cookie, guest_club) = f.app.create_club_owner("Owner Gast", "RSV Gast").await;
     let max = f.judge("Max", "Müller", true).await;
     let anna = f.judge("Anna", "Beispiel", true).await;
+    let lena = f.judge("Lena", "Kurz", true).await;
     let jonas = add_judge(
         &f.app,
         &guest_cookie,
@@ -1492,6 +1502,12 @@ async fn entries_are_sorted_by_time_and_a_club_sees_only_its_own_once_published(
     );
     f.assign_ok(&jonas, "technical", Some(2)).await;
     f.assign_ok(&anna, "technical", Some(1)).await;
+    assert_eq!(
+        f.assign(&lena, &finale_session, "performance", None)
+            .await
+            .status,
+        StatusCode::OK
+    );
 
     let times = |rows: &[Value]| -> Vec<(OffsetDateTime, i64)> {
         rows.iter()
@@ -1499,10 +1515,13 @@ async fn entries_are_sorted_by_time_and_a_club_sees_only_its_own_once_published(
             .collect()
     };
     let all = plan(&f.app, &f.admin).await;
-    assert_eq!(all.len(), 3);
+    assert_eq!(all.len(), 4);
     let mut sorted = times(&all);
     sorted.sort();
     assert_eq!(times(&all), sorted);
+    // Time beats the unit name: the final comes last.
+    assert_eq!(all[3]["unit_name"], "Finale EW");
+    assert_eq!(all[0]["unit_name"], "Neu");
 
     // Before publishing a club sees nothing.
     let club_plan = |cookie: &str, club: ClubId| {
@@ -1528,9 +1547,10 @@ async fn entries_are_sorted_by_time_and_a_club_sees_only_its_own_once_published(
         .await;
     assert_eq!(published.status, StatusCode::OK, "{:?}", published.body);
     let own = club_plan(&f.club.0, f.club.1).await;
-    assert_eq!(own.len(), 2);
+    assert_eq!(own.len(), 3);
     let own_judges: Vec<&Value> = own.iter().map(|a| &a["judge_id"]).collect();
     assert!(own_judges.contains(&&max) && own_judges.contains(&&anna));
+    assert!(own_judges.contains(&&lena));
     let mut sorted = times(&own);
     sorted.sort();
     assert_eq!(times(&own), sorted);
