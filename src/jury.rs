@@ -1205,4 +1205,8 @@ pub struct JuryAssignment {
     /// The heat's or the final's id.
     pub unit_id: JuryUnitId,
     pub task: JudgeTask,
+    /// The seat number within the Durchgang and task (1-based, ADR 0020).
+    pub seat: i64,
+    /// The seat's name: T, P or A (by task), then the number, e.g. "T3".
+    pub seat_label: String,
 }

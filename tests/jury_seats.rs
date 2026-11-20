@@ -3,6 +3,10 @@
 
 mod common;
 
+use axum::http::StatusCode;
+use common::TestApp;
+use einrad_server::ids::{CategoryId, ClubId};
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
 const BEFORE: i64 = 20261122120000;
@@ -228,4 +232,358 @@ async fn the_rebuild_keeps_the_cascade_to_judge() {
     migrator.run(&db).await.unwrap();
     exec(&db, "DELETE FROM judge WHERE id = x'20'").await;
     assert_eq!(count(&db, "SELECT COUNT(*) FROM jury_assignments").await, 0);
+}
+
+// ---------- Seat rules (HTTP) ----------
+
+/// The German text of an `ErrorMessages` refusal (the API answers 500 with
+/// the message Debug-quoted) or a `Conflict` (409, plain).
+fn message(response: &common::TestResponse) -> String {
+    response.body["message"]
+        .as_str()
+        .unwrap()
+        .trim_matches('"')
+        .to_string()
+}
+
+async fn texts(db: &SqlitePool, sql: &'static str) -> Vec<String> {
+    sqlx::query_scalar(sql).fetch_all(db).await.unwrap()
+}
+
+/// Everything about the assignments, to see that a refusal changed nothing.
+async fn assignments_state(app: &TestApp) -> Vec<String> {
+    texts(
+        &app.db,
+        "SELECT hex(id) || hex(judge_id) || hex(session_id) || task || seat FROM jury_assignments ORDER BY 1",
+    )
+    .await
+}
+
+async fn unit_named(app: &TestApp, cookie: &str, name: &str) -> Value {
+    let response = app.get("/api/query/list_jury_units", Some(cookie)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["name"] == name)
+        .unwrap_or_else(|| panic!("no unit {name}"))
+        .clone()
+}
+
+async fn new_heat(app: &TestApp, admin: &str, name: &str, categories: &[&str]) -> Value {
+    let mut ids: Vec<CategoryId> = vec![];
+    for category in categories {
+        ids.push(app.category_id(category).await);
+    }
+    let response = app
+        .post(
+            "/api/command/add_heat",
+            json!({ "name": name, "description": null, "category_ids": ids }),
+            Some(admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    unit_named(app, admin, name).await
+}
+
+async fn add_judge(
+    app: &TestApp,
+    cookie: &str,
+    club_id: ClubId,
+    first: &str,
+    last: &str,
+    trained: bool,
+    registrations: Value,
+) -> Value {
+    let response = app
+        .post(
+            "/api/command/add_club_judge",
+            json!({
+                "club_id": club_id, "firstname": first, "lastname": last,
+                "birthdate": "1997-01-01T00:00:00.000Z", "is_trained": trained,
+                "max_deployments": null, "note": null, "registrations": registrations,
+            }),
+            Some(cookie),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body["judge_id"].clone()
+}
+
+async fn plan(app: &TestApp, admin: &str) -> Vec<Value> {
+    let response = app.get("/api/query/list_jury_plan", Some(admin)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body["assignments"].as_array().unwrap().clone()
+}
+
+/// A heat "Neu" (EMU17, EMU23) with T3, P2, A2, an admin and a club.
+struct Fixture {
+    app: TestApp,
+    admin: String,
+    unit: Value,
+    session: Value,
+    club: (String, ClubId),
+}
+
+impl Fixture {
+    async fn new() -> Self {
+        let app = TestApp::new(common::in_memory_migrated().await).await;
+        let admin = app.create_admin().await;
+        let club = app.create_club_owner("Owner RSV", "RSV").await;
+        let unit = new_heat(&app, &admin, "Neu", &["EMU17", "EMU23"]).await;
+        let session = unit["sessions"][0]["id"].clone();
+        let f = Fixture {
+            app,
+            admin,
+            unit,
+            session,
+            club,
+        };
+        f.set_unit_needed(3, 2, 2, true).await;
+        f
+    }
+
+    async fn reload_unit(&mut self) {
+        self.unit = unit_named(&self.app, &self.admin, "Neu").await;
+    }
+
+    async fn edit_unit(
+        &self,
+        technical: i64,
+        performance: i64,
+        dismounts: i64,
+        deployments: i64,
+    ) -> common::TestResponse {
+        self.app
+            .post(
+                "/api/command/edit_jury_unit",
+                json!({
+                    "kind": self.unit["kind"], "id": self.unit["id"], "registrable": true,
+                    "deployments": deployments, "needed_technical": technical,
+                    "needed_performance": performance, "needed_dismounts": dismounts,
+                }),
+                Some(&self.admin),
+            )
+            .await
+    }
+
+    async fn set_unit_needed(&self, technical: i64, performance: i64, dismounts: i64, ok: bool) {
+        let response = self.edit_unit(technical, performance, dismounts, 2).await;
+        if ok {
+            assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+        }
+    }
+
+    async fn judge(&self, first: &str, last: &str, trained: bool) -> Value {
+        add_judge(
+            &self.app,
+            &self.club.0,
+            self.club.1,
+            first,
+            last,
+            trained,
+            json!([]),
+        )
+        .await
+    }
+
+    async fn assign(
+        &self,
+        judge: &Value,
+        session: &Value,
+        task: &str,
+        seat: Option<i64>,
+    ) -> common::TestResponse {
+        let mut body = json!({ "judge_id": judge, "session_id": session, "task": task });
+        if let Some(seat) = seat {
+            body["seat"] = json!(seat);
+        }
+        self.app
+            .post("/api/command/assign_judge", body, Some(&self.admin))
+            .await
+    }
+
+    async fn assign_ok(&self, judge: &Value, task: &str, seat: Option<i64>) {
+        let response = self.assign(judge, &self.session, task, seat).await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+
+    async fn unassign(&self, judge: &Value, session: &Value) {
+        let response = self
+            .app
+            .post(
+                "/api/command/unassign_judge",
+                json!({ "judge_id": judge, "session_id": session }),
+                Some(&self.admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+
+    /// The seat label of `judge` in `session`, if seated.
+    async fn seat_of(&self, judge: &Value, session: &Value) -> Option<String> {
+        plan(&self.app, &self.admin)
+            .await
+            .into_iter()
+            .find(|a| &a["judge_id"] == judge && &a["session_id"] == session)
+            .map(|a| a["seat_label"].as_str().unwrap().to_string())
+    }
+}
+
+const REFUSED: StatusCode = StatusCode::INTERNAL_SERVER_ERROR;
+
+#[tokio::test]
+async fn assigning_without_a_seat_takes_the_first_free_one() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    for judge in [&max, &erika, &anna] {
+        f.assign_ok(judge, "technical", None).await;
+    }
+    let rows = plan(&f.app, &f.admin).await;
+    let seats: Vec<(i64, &str)> = rows
+        .iter()
+        .map(|a| {
+            (
+                a["seat"].as_i64().unwrap(),
+                a["seat_label"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(seats, [(1, "T1"), (2, "T2"), (3, "T3")]);
+    assert_eq!(rows[0]["judge_id"], max);
+
+    // The gap of an unassigned seat is reused.
+    f.unassign(&erika, &f.session).await;
+    let jonas = f.judge("Jonas", "Becker", true).await;
+    f.assign_ok(&jonas, "technical", None).await;
+    assert_eq!(f.seat_of(&jonas, &f.session).await.as_deref(), Some("T2"));
+}
+
+#[tokio::test]
+async fn assigning_to_an_explicit_seat() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(3)).await;
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T3"));
+}
+
+#[tokio::test]
+async fn a_taken_seat_is_refused() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    f.assign_ok(&max, "technical", Some(3)).await;
+    let before = assignments_state(&f.app).await;
+    let response = f.assign(&erika, &f.session, "technical", Some(3)).await;
+    assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
+    assert_eq!(message(&response), "Platz T3 ist schon besetzt.");
+    assert_eq!(assignments_state(&f.app).await, before);
+}
+
+#[tokio::test]
+async fn a_seat_beyond_the_count_is_refused() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    for (seat, label) in [(4, "T4"), (0, "T0")] {
+        let response = f.assign(&max, &f.session, "technical", Some(seat)).await;
+        assert_eq!(response.status, REFUSED, "{:?}", response.body);
+        assert_eq!(
+            message(&response),
+            format!("Platz {label} gibt es in diesem Durchgang nicht.")
+        );
+    }
+    assert!(assignments_state(&f.app).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_full_task_refuses_another_judge() {
+    let f = Fixture::new().await;
+    f.set_unit_needed(2, 2, 0, true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign_ok(&max, "technical", None).await;
+    f.assign_ok(&erika, "technical", None).await;
+    let before = assignments_state(&f.app).await;
+    let response = f.assign(&anna, &f.session, "technical", None).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(message(&response), "Alle Plätze für Technik sind besetzt.");
+    // Needed 0: the same for the task.
+    let response = f.assign(&anna, &f.session, "dismounts", None).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(message(&response), "Alle Plätze für Abstiege sind besetzt.");
+    assert_eq!(assignments_state(&f.app).await, before);
+}
+
+#[tokio::test]
+async fn seats_are_numbered_per_task_and_per_session() {
+    let mut f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    f.assign_ok(&max, "technical", None).await;
+    f.assign_ok(&erika, "performance", None).await;
+    assert_eq!(f.seat_of(&max, &f.session).await.as_deref(), Some("T1"));
+    assert_eq!(f.seat_of(&erika, &f.session).await.as_deref(), Some("P1"));
+
+    // A second Durchgang: seat 1 is free again for Max.
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    let response = f
+        .app
+        .post(
+            "/api/command/set_jury_sessions",
+            json!({
+                "kind": f.unit["kind"], "id": f.unit["id"],
+                "sessions": [
+                    { "id": f.session, "category_ids": [emu17] },
+                    { "id": null, "category_ids": [emu23] },
+                ],
+            }),
+            Some(&f.admin),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    f.reload_unit().await;
+    let second = f.unit["sessions"][1]["id"].clone();
+    let response = f.assign(&max, &second, "technical", Some(1)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(f.seat_of(&max, &second).await.as_deref(), Some("T1"));
+}
+
+#[tokio::test]
+async fn an_untrained_judge_can_sit_on_a_dismount_seat() {
+    let f = Fixture::new().await;
+    let anna = f.judge("Anna", "Beispiel", false).await;
+    f.assign_ok(&anna, "dismounts", Some(1)).await;
+    assert_eq!(f.seat_of(&anna, &f.session).await.as_deref(), Some("A1"));
+    let jonas = f.judge("Jonas", "Becker", false).await;
+    let response = f.assign(&jonas, &f.session, "technical", Some(1)).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(
+        message(&response),
+        "Nicht geschulte Personen können nur Abstiege zählen."
+    );
+}
+
+#[tokio::test]
+async fn unknown_judge_or_session_and_duplicates_keep_their_answers() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    let ghost = json!("00000000-0000-7000-8000-000000000000");
+    assert_eq!(
+        f.assign(&ghost, &f.session, "technical", None).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        f.assign(&max, &ghost, "technical", None).await.status,
+        StatusCode::NOT_FOUND
+    );
+    f.assign_ok(&max, "technical", None).await;
+    let response = f.assign(&max, &f.session, "performance", None).await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    assert_eq!(message(&response), "Die JurorIn ist hier schon eingeteilt.");
 }

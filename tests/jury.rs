@@ -1243,9 +1243,16 @@ fn assignment(judge: &Value, unit: &Value, task: &str) -> Value {
 
 /// An assignment as `list_jury_plan` shows it, without its id.
 fn planned(judge: &Value, unit: &Value, task: &str) -> Value {
+    // The first judge of a task sits on its seat 1.
+    let letter = match task {
+        "technical" => "T",
+        "performance" => "P",
+        _ => "A",
+    };
     json!({
         "judge_id": judge, "session_id": unit["sessions"][0]["id"],
         "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task,
+        "seat": 1, "seat_label": format!("{letter}1"),
     })
 }
 

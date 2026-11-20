@@ -324,6 +324,10 @@ _Avoid_: Jury category (gone), Category (without "Jury-"), Wertungsklasse
 The set of a jury unit's categories that one jury judges; a unit has one by default and only the Jury lead splits it. Registration stays per unit. (ADR 0019)
 _Avoid_: Jury unit (the whole heat or final), Jury category (gone)
 
+**Seat** (Platz):
+A numbered place of a task in a Durchgang (T1.., P1.., A1..) at the physical jury table; every assignment occupies exactly one, and a seat can be empty. (ADR 0020)
+_Avoid_: Slot, Position
+
 **Ride warning** (Fahrwarnung):
 A warning in the Jury plan that a linked judge rides in the block of a Durchgang (red) or in the block directly before or after it on the same day (amber); it never blocks the assignment.
 

@@ -10,6 +10,7 @@ use crate::{
         extractor::auth::{Auth, Granted},
     },
     jury::{JudgeTask, JuryAssignment, JuryEnabled, JuryUnitKind},
+    jury_sessions,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
@@ -70,8 +71,7 @@ pub async fn list_jury_plan(
             assignments: vec![],
         }));
     }
-    let assignments = sqlx::query_as!(
-        JuryAssignment,
+    let assignments = sqlx::query!(
         r#"
         SELECT
             jury_assignments.id as "id!: JuryAssignmentId",
@@ -79,17 +79,30 @@ pub async fn list_jury_plan(
             jury_assignments.judge_id as "judge_id!: JudgeId",
             view_jury_unit.kind as "unit_kind!: JuryUnitKind",
             jury_assignments.unit_id as "unit_id!: JuryUnitId",
-            jury_assignments.task as "task!: JudgeTask"
+            jury_assignments.task as "task!: JudgeTask",
+            jury_assignments.seat as "seat!: i64"
         FROM jury_assignments
         JOIN view_judge judge ON judge.id = jury_assignments.judge_id
         JOIN view_jury_unit ON view_jury_unit.id = jury_assignments.unit_id
         WHERE ?1 IS NULL OR judge.club_id = ?1
-        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.session_id, jury_assignments.task, judge.lastname, judge.firstname
+        ORDER BY view_jury_unit.kind DESC, view_jury_unit.name, jury_assignments.session_id, jury_assignments.task, jury_assignments.seat, judge.lastname, judge.firstname
         "#,
         query.club_id
     )
     .fetch_all(&mut *conn)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|row| JuryAssignment {
+        id: row.id,
+        session_id: row.session_id,
+        judge_id: row.judge_id,
+        unit_kind: row.unit_kind,
+        unit_id: row.unit_id,
+        task: row.task,
+        seat: row.seat,
+        seat_label: jury_sessions::seat_label(row.task, row.seat),
+    })
+    .collect();
     Ok(Json(JuryPlan {
         published_at,
         assignments,
