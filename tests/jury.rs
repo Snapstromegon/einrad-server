@@ -1253,14 +1253,18 @@ fn planned(judge: &Value, unit: &Value, task: &str) -> Value {
         "judge_id": judge, "session_id": unit["sessions"][0]["id"],
         "unit_kind": unit["kind"], "unit_id": unit["id"], "task": task,
         "seat": 1, "seat_label": format!("{letter}1"),
+        "unit_name": unit["name"], "session_label": "",
     })
 }
 
-/// The plan's assignments without their ids.
+/// The plan's assignments without their ids and the block data (day, block
+/// title, start), which `tests/jury_seats.rs` covers.
 fn without_ids(assignments: &Value) -> Value {
     let mut assignments = assignments.clone();
     for assignment in assignments.as_array_mut().unwrap() {
-        assignment.as_object_mut().unwrap().remove("id");
+        for field in ["id", "day", "block_title", "starts_at"] {
+            assignment.as_object_mut().unwrap().remove(field);
+        }
     }
     assignments
 }

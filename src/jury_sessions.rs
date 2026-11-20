@@ -11,7 +11,7 @@ use crate::{
     config::JurySessionConfig,
     http_server::HttpError,
     ids::{CategoryId, JudgeId, JuryAssignmentId, JurySessionId, JuryUnitId},
-    jury::{self, JudgeTask, JuryAssignment, JuryUnitKind},
+    jury::{self, JudgeTask, JuryUnitKind},
 };
 
 /// A category of a jury unit: a heat's own, or one of the heats feeding a
@@ -922,7 +922,7 @@ pub async fn assign(
     session: JurySessionId,
     task: JudgeTask,
     seat: Option<i64>,
-) -> Result<JuryAssignment, HttpError> {
+) -> Result<JuryAssignmentId, HttpError> {
     let is_trained = sqlx::query_scalar!("SELECT is_trained FROM judge WHERE id = ?", judge)
         .fetch_optional(&mut *conn)
         .await?
@@ -974,16 +974,7 @@ pub async fn assign(
     .execute(conn)
     .await;
     match result {
-        Ok(_) => Ok(JuryAssignment {
-            id,
-            judge_id: judge,
-            session_id: session,
-            unit_kind,
-            unit_id,
-            task,
-            seat,
-            seat_label: seat_label(task, seat),
-        }),
+        Ok(_) => Ok(id),
         Err(e) if jury::is_unique_violation(&e) => {
             Err(refuse("Die JurorIn ist hier schon eingeteilt."))
         }

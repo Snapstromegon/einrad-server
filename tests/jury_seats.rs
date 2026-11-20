@@ -8,6 +8,10 @@ use common::TestApp;
 use einrad_server::ids::{CategoryId, ClubId};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use time::{
+    OffsetDateTime,
+    format_description::well_known::{Iso8601, Rfc3339},
+};
 
 const BEFORE: i64 = 20261122120000;
 
@@ -1258,4 +1262,279 @@ async fn moved_seats_follow_the_target_of_each_assignment() {
     assert_eq!(f.seat_of(&max, &second).await.as_deref(), Some("T2"));
     assert_eq!(f.seat_of(&erika, &second).await.as_deref(), Some("T1"));
     no_duplicate_seats(&f.app).await;
+}
+
+// ---------- Published plan data: seat, day, block and time ----------
+
+fn parse_iso(value: &Value) -> OffsetDateTime {
+    OffsetDateTime::parse(value.as_str().unwrap(), &Iso8601::DEFAULT).unwrap()
+}
+
+fn parse_rfc3339(value: &Value) -> OffsetDateTime {
+    OffsetDateTime::parse(value.as_str().unwrap(), &Rfc3339).unwrap()
+}
+
+/// The predicted blocks that run one of these categories (a heat) or the
+/// final, in plan order.
+async fn blocks_of(
+    app: &TestApp,
+    categories: &[CategoryId],
+    final_id: Option<&Value>,
+) -> Vec<Value> {
+    let response = app.get("/api/query/predict_timeplan", None).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    response.body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| {
+            let acts = &item["timeplan_entry"]["Acts"];
+            match final_id {
+                Some(id) => &acts["final_id"] == id,
+                None => categories
+                    .iter()
+                    .any(|c| acts["home_category_id"] == json!(c)),
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+impl Fixture {
+    /// Replaces the seeded timeplan with a greeting, then these entries.
+    async fn set_timeplan(&self, entries: Vec<Value>) {
+        let existing = self.app.get("/api/query/list_timeplan", None).await;
+        for entry in existing.body.as_array().unwrap() {
+            let response = self
+                .app
+                .post(
+                    "/api/command/delete_timeplan_entry",
+                    json!({ "id": entry["id"] }),
+                    Some(&self.admin),
+                )
+                .await;
+            assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+        }
+        let greeting = json!({
+            "earliest_start_time": "2027-04-01T09:30:00Z", "duration_seconds": 600,
+            "label": "Begrüßung",
+        });
+        for entry in std::iter::once(greeting).chain(entries) {
+            let response = self
+                .app
+                .post("/api/command/add_timeplan_entry", entry, Some(&self.admin))
+                .await;
+            assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+        }
+    }
+}
+
+fn category_block(id: CategoryId) -> Value {
+    json!({ "earliest_start_time": null, "duration_seconds": null, "label": null, "category_id": id })
+}
+
+fn final_block(id: &Value) -> Value {
+    json!({ "earliest_start_time": null, "duration_seconds": null, "label": null, "final_id": id })
+}
+
+fn pause() -> Value {
+    json!({ "earliest_start_time": null, "duration_seconds": 1800, "label": "Pause" })
+}
+
+/// What the plan must say for an assignment run in this predicted block.
+fn assert_block(assignment: &Value, block: &Value) {
+    let start = parse_iso(&block["planned_start"]);
+    assert_eq!(
+        parse_rfc3339(&assignment["starts_at"]),
+        start,
+        "{assignment}"
+    );
+    assert_eq!(
+        assignment["day"],
+        json!(format!(
+            "{:04}-{:02}-{:02}",
+            start.year(),
+            u8::from(start.month()),
+            start.day()
+        )),
+        "{assignment}"
+    );
+    assert_eq!(
+        assignment["block_title"], block["timeplan_entry"]["Acts"]["description"],
+        "{assignment}"
+    );
+}
+
+#[tokio::test]
+async fn the_plan_carries_seat_day_block_and_time() {
+    let f = Fixture::new().await;
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", Some(2)).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    let blocks = blocks_of(&f.app, &[emu17, emu23], None).await;
+    let first = blocks.first().expect("the heat is in the timeplan");
+
+    let rows = plan(&f.app, &f.admin).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row["seat"], 2);
+    assert_eq!(row["seat_label"], "T2");
+    assert_eq!(row["unit_name"], "Neu");
+    assert_eq!(row["session_label"], "");
+    assert_block(row, first);
+}
+
+#[tokio::test]
+async fn a_split_units_durchgang_uses_its_own_blocks() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    f.set_timeplan(vec![category_block(emu17), pause(), category_block(emu23)])
+        .await;
+    let max = f.judge("Max", "Müller", true).await;
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    f.assign_ok(&max, "technical", Some(1)).await;
+    assert_eq!(
+        f.assign(&erika, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+
+    let block_17 = blocks_of(&f.app, &[emu17], None).await.remove(0);
+    let block_23 = blocks_of(&f.app, &[emu23], None).await.remove(0);
+    assert_ne!(block_17["planned_start"], block_23["planned_start"]);
+    let rows = plan(&f.app, &f.admin).await;
+    let of = |judge: &Value| {
+        rows.iter()
+            .find(|a| &a["judge_id"] == judge)
+            .unwrap()
+            .clone()
+    };
+    assert_block(&of(&max), &block_17);
+    assert_eq!(of(&max)["session_label"], "EMU17");
+    assert_block(&of(&erika), &block_23);
+    assert_eq!(of(&erika)["session_label"], "EMU23");
+}
+
+#[tokio::test]
+async fn a_final_uses_its_own_block() {
+    let f = Fixture::new().await;
+    let unit = unit_named(&f.app, &f.admin, "Finale EW").await;
+    let session = unit["sessions"][0]["id"].clone();
+    f.set_timeplan(vec![pause(), final_block(&unit["id"])])
+        .await;
+    let max = f.judge("Max", "Müller", true).await;
+    assert_eq!(
+        f.assign(&max, &session, "performance", None).await.status,
+        StatusCode::OK
+    );
+    let blocks = blocks_of(&f.app, &[], Some(&unit["id"])).await;
+    let block = blocks.first().expect("the final is in the timeplan");
+
+    let rows = plan(&f.app, &f.admin).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["unit_name"], "Finale EW");
+    assert_eq!(rows[0]["seat_label"], "P1");
+    assert_block(&rows[0], block);
+}
+
+#[tokio::test]
+async fn a_unit_outside_the_timeplan_has_no_day_block_or_time() {
+    let f = Fixture::new().await;
+    let entries = f.app.get("/api/query/list_timeplan", None).await;
+    for entry in entries.body.as_array().unwrap() {
+        let response = f
+            .app
+            .post(
+                "/api/command/delete_timeplan_entry",
+                json!({ "id": entry["id"] }),
+                Some(&f.admin),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    }
+    let max = f.judge("Max", "Müller", true).await;
+    f.assign_ok(&max, "technical", None).await;
+    let rows = plan(&f.app, &f.admin).await;
+    assert_eq!(rows.len(), 1);
+    for field in ["day", "block_title", "starts_at"] {
+        assert_eq!(rows[0][field], Value::Null, "{field}");
+    }
+    assert_eq!(rows[0]["unit_name"], "Neu");
+}
+
+#[tokio::test]
+async fn entries_are_sorted_by_time_and_a_club_sees_only_its_own_once_published() {
+    let mut f = Fixture::new().await;
+    let second = f.split_in_two().await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    f.set_timeplan(vec![category_block(emu17), pause(), category_block(emu23)])
+        .await;
+    let (guest_cookie, guest_club) = f.app.create_club_owner("Owner Gast", "RSV Gast").await;
+    let max = f.judge("Max", "Müller", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    let jonas = add_judge(
+        &f.app,
+        &guest_cookie,
+        guest_club,
+        "Jonas",
+        "Becker",
+        true,
+        json!([]),
+    )
+    .await;
+    // Entered in an order that is neither the time nor the seat order.
+    assert_eq!(
+        f.assign(&max, &second, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    f.assign_ok(&jonas, "technical", Some(2)).await;
+    f.assign_ok(&anna, "technical", Some(1)).await;
+
+    let times = |rows: &[Value]| -> Vec<(OffsetDateTime, i64)> {
+        rows.iter()
+            .map(|a| (parse_rfc3339(&a["starts_at"]), a["seat"].as_i64().unwrap()))
+            .collect()
+    };
+    let all = plan(&f.app, &f.admin).await;
+    assert_eq!(all.len(), 3);
+    let mut sorted = times(&all);
+    sorted.sort();
+    assert_eq!(times(&all), sorted);
+
+    // Before publishing a club sees nothing.
+    let club_plan = |cookie: &str, club: ClubId| {
+        let app = &f.app;
+        let uri = format!("/api/query/list_jury_plan?club_id={club}");
+        let cookie = cookie.to_string();
+        async move {
+            let response = app.get(&uri, Some(&cookie)).await;
+            assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+            response.body["assignments"].as_array().unwrap().clone()
+        }
+    };
+    assert!(club_plan(&f.club.0, f.club.1).await.is_empty());
+
+    f.app.close_registration().await;
+    let published = f
+        .app
+        .post(
+            "/api/command/set_jury_plan_published",
+            json!({ "published": true }),
+            Some(&f.admin),
+        )
+        .await;
+    assert_eq!(published.status, StatusCode::OK, "{:?}", published.body);
+    let own = club_plan(&f.club.0, f.club.1).await;
+    assert_eq!(own.len(), 2);
+    let own_judges: Vec<&Value> = own.iter().map(|a| &a["judge_id"]).collect();
+    assert!(own_judges.contains(&&max) && own_judges.contains(&&anna));
+    let mut sorted = times(&own);
+    sorted.sort();
+    assert_eq!(times(&own), sorted);
+    let guest = club_plan(&guest_cookie, guest_club).await;
+    assert_eq!(guest.len(), 1);
+    assert_eq!(guest[0]["judge_id"], jonas);
 }
