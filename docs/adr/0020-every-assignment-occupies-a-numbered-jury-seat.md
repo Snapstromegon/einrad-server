@@ -12,7 +12,7 @@ This refines ADR 0019. The jury table of a Durchgang has numbered places: Techni
 
 **Lowering a needed count never strands a judge.** Lowering the unit's count or a Durchgang's override (or clearing an override) is refused while a seat above the new count is occupied; the jury lead clears the seat first. Only a real lowering counts: saving other fields of a unit whose migrated seats already exceed its count still works.
 
-**Re-merging** gives every kept assignment of a removed Durchgang its old seat in the target if that is free, else the lowest free one; if that is beyond the target's count the save is refused.
+**Re-merging** gives every kept assignment of a removed Durchgang its old seat in the target if that is free and within the target's count, else the lowest free one; if that is beyond the target's count the save is refused.
 
 **Migration.** The migration numbers the existing assignments per Durchgang and task by assignment id (UUIDv7, so in the order they were assigned). The old rules allowed more judges than needed; those get seats beyond the count, which the seat table shows as extra seats and which new assignments cannot create. The down migration drops the seat column and keeps the assignments.
 

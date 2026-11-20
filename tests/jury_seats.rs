@@ -983,7 +983,7 @@ async fn a_durchgang_without_override_follows_the_unit_count() {
 
 #[tokio::test]
 async fn lowering_or_clearing_a_durchgang_override_is_checked() {
-    let f = Fixture::new().await;
+    let mut f = Fixture::new().await;
     assert_eq!(
         f.edit_session(&f.session, Some(5)).await.status,
         StatusCode::OK
@@ -996,6 +996,9 @@ async fn lowering_or_clearing_a_durchgang_override_is_checked() {
         assert_eq!(response.status, StatusCode::CONFLICT, "{:?}", response.body);
         assert!(message(&response).starts_with("Platz T5 ist noch besetzt (Anna Beispiel)."));
     }
+    // The refusals rolled back: the override is still 5.
+    f.reload_unit().await;
+    assert_eq!(f.unit["sessions"][0]["override_technical"], 5);
     assert_eq!(
         f.edit_session(&f.session, Some(5)).await.status,
         StatusCode::OK
@@ -1212,6 +1215,56 @@ async fn a_merge_that_leaves_no_free_seat_is_refused() {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(f.seat_of(&anna, &f.session).await, None);
     assert_eq!(plan(&f.app, &f.admin).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_refused_merge_names_the_categories_of_a_split_target() {
+    let mut f = Fixture::with_categories(&["EMU17", "EMU19", "EMU23"]).await;
+    f.set_unit_needed(2, 2, 2, true).await;
+    let emu17 = f.app.category_id("EMU17").await;
+    let emu19 = f.app.category_id("EMU19").await;
+    let emu23 = f.app.category_id("EMU23").await;
+    let d1 = f.session.clone();
+    let response = f
+        .save_split(
+            json!([
+                { "id": d1, "category_ids": [emu17] },
+                { "id": null, "category_ids": [emu19] },
+                { "id": null, "category_ids": [emu23] },
+            ]),
+            vec![],
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    f.reload_unit().await;
+    let d2 = f.unit["sessions"][1]["id"].clone();
+    let erika = f.judge("Erika", "Mustermann", true).await;
+    let max = f.judge("Max", "Müller", true).await;
+    let anna = f.judge("Anna", "Beispiel", true).await;
+    f.assign_ok(&erika, "technical", Some(1)).await;
+    f.assign_ok(&max, "technical", Some(2)).await;
+    assert_eq!(
+        f.assign(&anna, &d2, "technical", Some(1)).await.status,
+        StatusCode::OK
+    );
+    let id = f.id_of(&anna, &d2).await;
+    let before = assignments_state(&f.app).await;
+
+    // EMU19 joins EMU17, which has no free technical seat; EMU23 stays apart.
+    let response = f
+        .save_split(
+            json!([
+                { "id": d1, "category_ids": [emu17, emu19] },
+                { "id": null, "category_ids": [emu23] },
+            ]),
+            vec![id],
+        )
+        .await;
+    assert_eq!(response.status, REFUSED, "{:?}", response.body);
+    let text = message(&response);
+    assert!(text.contains("Im Durchgang EMU17, EMU19 "), "{text}");
+    assert!(text.contains("Anna Beispiel bekommt keinen Platz"), "{text}");
+    assert_eq!(assignments_state(&f.app).await, before);
 }
 
 #[tokio::test]
