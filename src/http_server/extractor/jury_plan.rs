@@ -19,11 +19,10 @@ use crate::{
 pub struct JuryPlanAccess;
 
 async fn visible<S: Send + Sync>(parts: &mut Parts, state: &S) -> Result<bool, HttpError> {
-    let staff =
-        <Granted<permit::ManageJury> as OptionalFromRequestParts<S>>::from_request_parts(
-            parts, state,
-        )
-        .await;
+    let staff = <Granted<permit::ManageJury> as OptionalFromRequestParts<S>>::from_request_parts(
+        parts, state,
+    )
+    .await;
     match staff {
         Ok(Some(_)) => return Ok(true),
         Err(Error::Database) => return Err(HttpError::InternalServerError),

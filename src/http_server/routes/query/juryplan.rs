@@ -2,10 +2,7 @@ use axum::{Extension, Json};
 use tracing::instrument;
 
 use crate::{
-    http_server::{
-        ClientError, HttpError,
-        extractor::jury_plan::JuryPlanAccess,
-    },
+    http_server::{ClientError, HttpError, extractor::jury_plan::JuryPlanAccess},
     jury::{self, JuryAssignment},
     reloadable_sqlite::ReloadableSqlite,
 };
@@ -68,7 +65,12 @@ pub async fn juryplan(
             let split = unit.sessions.len() > 1;
             unit.sessions.into_iter().map(move |session| {
                 let session_label = if split {
-                    session.categories.iter().map(|category| category.name.as_str()).collect::<Vec<_>>().join(", ")
+                    session
+                        .categories
+                        .iter()
+                        .map(|category| category.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 } else {
                     String::new()
                 };
