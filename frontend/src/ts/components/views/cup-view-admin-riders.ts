@@ -101,18 +101,18 @@ export default class CupViewAdminRiders extends LitElement {
         min-width: 20em;
       }
 
+      .rider-club .dense thead th {
+        position: static;
+      }
+
       .rider-club .withdrawn {
         text-decoration: line-through;
       }
 
-      /*
-       * Narrow screens: tables scroll sideways on their own instead of the
-       * page. Sticky headers then stick inside the table only.
-       */
+      /* Narrow screens: tables scroll sideways on their own instead of the page. */
       @media (max-width: 1100px) {
         .table-wrap {
           overflow-x: auto;
-          --admin-sticky-top: 0px;
         }
       }
     `,
