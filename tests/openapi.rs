@@ -146,6 +146,7 @@ const QUERIES: &[&str] = &[
     "list_club_mails",
     "list_judges",
     "list_jury_plan",
+    "juryplan",
 ];
 
 #[test]
