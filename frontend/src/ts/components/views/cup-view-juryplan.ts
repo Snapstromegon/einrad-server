@@ -3,11 +3,21 @@ import { customElement } from "lit/decorators.js";
 import { consume } from "@lit/context";
 import { repeat } from "lit/directives/repeat.js";
 import { Task } from "@lit/task";
-import { unwrap } from "../../api";
+import { ApiError, errorMessage, unwrap } from "../../api";
 import { client, type schemas } from "../../apiClient";
 import { systemStatusContext } from "../../contexts/systemStatus";
 import { iconStyles, resetStyles } from "../../styles/base";
-import { competitionName, formatDate, formatTime } from "../../utils";
+import {
+  competitionLogo,
+  competitionName,
+  formatDate,
+  formatDateRange,
+  formatTime,
+} from "../../utils";
+import {
+  juryPlanUnavailableText,
+  publicJuryPlanSections,
+} from "../../public-juryplan";
 
 type PublicJuryPlan = schemas.PublicJuryPlan;
 
@@ -22,78 +32,137 @@ export default class CupViewJuryplan extends LitElement {
     css`
       header {
         display: grid;
-        grid-template-columns: 1fr 2fr;
-        align-items: center;
-        gap: 1rem;
-        padding: 2rem;
         background: var(--color-primary);
+        padding: 2rem 0;
         color: var(--color-on-primary);
+        grid-template-columns: 1fr 2fr;
+        grid-template-rows: auto auto auto;
+        grid-template-areas: "img h1" "img date" "img location";
+        place-items: center start;
       }
       header img {
+        grid-area: img;
         width: 100%;
+        min-height: 0;
+        height: 7rem;
         max-height: 7rem;
         object-fit: contain;
       }
       header h1 {
+        grid-area: h1;
         margin: 0;
+        font-size: 2rem;
         text-align: center;
+      }
+      header .date {
+        grid-area: date;
+        text-align: right;
+      }
+      header .location {
+        grid-area: location;
+        text-align: right;
       }
       main {
-        max-width: 70rem;
+        max-width: 1800px;
         margin: 0 auto;
-        padding: 2rem 1rem;
-      }
-      .groups {
-        display: grid;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
         gap: 1rem;
       }
-      .group {
-        border: 1px solid var(--color-border);
-        border-radius: 0.75rem;
-        overflow: hidden;
-        background: var(--color-surface);
+      main nav a {
+        display: inline-block;
+        padding: 0.5rem;
       }
-      .group h2 {
-        margin: 0;
-        padding: 0.75rem 1rem;
+      h2.day {
+        border-bottom: 2px solid currentColor;
+      }
+      .category {
+        min-width: 0;
+      }
+      .category h3 {
+        margin-bottom: 0.5rem;
+      }
+      .plan-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+      }
+      .plan-table th,
+      .plan-table td {
+        padding: 0.5rem;
         border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+      }
+      .plan-table tbody tr:nth-child(odd) td,
+      .plan-table tbody tr:nth-child(odd) th {
         background: var(--color-surface-2);
       }
-      .entries {
-        list-style: none;
-        margin: 0;
-        padding: 0;
+      .task-name {
+        width: 11rem;
+        text-align: left;
       }
-      .entry {
+      .seat-list {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 0.25rem 0.75rem;
-        padding: 0.75rem 1rem;
-      }
-      .entry + .entry {
-        border-top: 1px solid var(--color-border);
-      }
-      .entry strong {
-        min-width: 0;
-        overflow-wrap: anywhere;
+        grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+        gap: 0.375rem;
       }
       .seat {
-        min-width: 2.25rem;
-        text-align: center;
-        padding: 0.125rem 0.5rem;
+        display: flex;
+        align-items: center;
+        min-width: 0;
         border: 1px solid var(--color-border);
         border-radius: 0.375rem;
         background: var(--color-surface-2);
-        color: var(--color-primary-strong);
+        overflow: hidden;
+      }
+      .seat-label {
+        align-self: stretch;
+        display: inline-grid;
+        place-items: center;
+        min-width: 2rem;
+        padding: 0.25rem;
+        background: var(--color-primary-strong);
+        color: var(--color-on-primary-strong);
+        font-size: 0.75rem;
         font-weight: 700;
       }
-      .meta {
-        grid-column: 1 / -1;
+      .judge-name {
+        min-width: 0;
+        padding: 0.25rem 0.5rem;
+        overflow-wrap: anywhere;
+      }
+      .muted {
         color: var(--color-text-muted);
-        font-size: 0.875rem;
       }
       .error {
         color: var(--color-error-strong);
+      }
+      @media (max-width: 720px) {
+        header {
+          padding: 1.25rem 0.75rem;
+        }
+        main {
+          padding: 1rem 0.75rem;
+        }
+        .plan-table,
+        .plan-table tbody,
+        .plan-table tr,
+        .plan-table th,
+        .plan-table td {
+          display: block;
+          width: 100%;
+        }
+        .plan-table tr {
+          border-bottom: 1px solid var(--color-border);
+        }
+        .plan-table th,
+        .plan-table td {
+          border-bottom: 0;
+        }
+        .task-name {
+          width: auto;
+        }
       }
     `,
   ];
@@ -105,12 +174,33 @@ export default class CupViewJuryplan extends LitElement {
 
   override render() {
     const competition = this.systemStatus?.competition;
-    return html`
-      <header><h1>${competitionName(competition)} · Juryplan</h1></header>
+    return html`<header>
+        <img src=${competitionLogo()} />
+        <h1>Juryplan ${competitionName(competition)}</h1>
+        <span class="date"
+          >${
+            competition
+              ? formatDateRange(competition.start_date, competition.end_date)
+              : nothing
+          }</span
+        >
+        <span class="location">${competition?.location}</span>
+      </header>
       <main>
+        <nav>
+          <a href="/">Zurück zum Anmeldetool</a>
+          <a href="https://freestyle-cup.nrw/"
+            >Zurück zur Veranstaltungsseite</a
+          >
+        </nav>
         ${this.plan.render({
           pending: () => html`<p>Lädt…</p>`,
-          error: () => html`<p class="error">Juryplan nicht verfügbar.</p>`,
+          error: (error) =>
+            error instanceof ApiError && error.status === 403
+              ? html`<p>${juryPlanUnavailableText}</p>`
+              : html`<p class="error">
+                  Juryplan konnte nicht geladen werden: ${errorMessage(error)}
+                </p>`,
           complete: (plan) => this.renderPlan(plan),
         })}
       </main>
@@ -118,67 +208,75 @@ export default class CupViewJuryplan extends LitElement {
   }
 
   private renderPlan(plan: PublicJuryPlan) {
-    const groups = new Map<
-      string,
-      { name: string; entries: schemas.PublicJuryAssignment[] }
-    >();
-    for (const entry of plan.assignments) {
-      const group = groups.get(entry.judge_name);
-      if (group) {
-        group.entries.push(entry);
-      } else {
-        groups.set(entry.judge_name, {
-          name: entry.judge_name,
-          entries: [entry],
-        });
-      }
+    const sections = publicJuryPlanSections(plan.assignments);
+    const days = new Map<string, typeof sections>();
+    for (const section of sections) {
+      const day = section.day ?? "";
+      const items = days.get(day) ?? [];
+      items.push(section);
+      days.set(day, items);
     }
-    return html`
-      ${
-        groups.size
-          ? html`<div class="groups">
+    return html`${
+      sections.length
+        ? repeat(
+            [...days.entries()],
+            ([day]) => day,
+            ([day, items]) => html`
+              ${day ? html`<h2 class="day">${formatDate(day)}</h2>` : nothing}
               ${repeat(
-                [...groups.values()],
-                (group) => group.name,
-                (group) => html`<section class="group">
-                  <h2>${group.name}</h2>
-                  <ul class="entries">
-                    ${repeat(
-                      group.entries,
-                      (entry) => entry.assignment.id,
-                      (entry) => {
-                        const assignment = entry.assignment;
-                        return html`<li class="entry">
-                          <strong>
-                            ${assignment.unit_name}${
-                              assignment.session_label
-                                ? html` · ${assignment.session_label}`
-                                : nothing
-                            }
-                          </strong>
-                          <span class="seat">${assignment.seat_label}</span>
-                          <span class="meta">
+                items,
+                (section) => section.key,
+                (section) => html`<section class="category">
+                  <h3>
+                    ${section.name}${
+                      section.sessionLabel
+                        ? html` · ${section.sessionLabel}`
+                        : nothing
+                    }
+                  </h3>
+                  ${
+                    section.blockTitle
+                      ? html`<p class="muted">
+                        ${section.blockTitle}${
+                          section.startsAt
+                            ? html` · ${formatTime(section.startsAt)} Uhr`
+                            : nothing
+                        }
+                      </p>`
+                      : nothing
+                  }
+                  <table class="plan-table">
+                    <tbody>
+                      ${repeat(
+                        section.tasks,
+                        (task) => task.key,
+                        (task) => html`<tr>
+                          <th class="task-name">${task.name}</th>
+                          <td>
                             ${
-                              assignment.day
-                                ? formatDate(assignment.day)
-                                : "Tag noch offen"
+                              task.seats.length
+                                ? html`<div class="seat-list">
+                                    ${repeat(
+                                      task.seats,
+                                      (seat) => seat.label,
+                                      (seat) => html`<div class="seat">
+                                        <span class="seat-label">${seat.label}</span>
+                                        <span class="judge-name">${seat.judgeName}</span>
+                                      </div>`,
+                                    )}
+                                  </div>`
+                                : html`<span class="muted">—</span>`
                             }
-                            · ${assignment.block_title ?? "Block noch nicht geplant"}
-                            ${
-                              assignment.starts_at
-                                ? html` · ${formatTime(assignment.starts_at)} Uhr`
-                                : nothing
-                            }
-                          </span>
-                        </li>`;
-                      },
-                    )}
-                  </ul>
+                          </td>
+                        </tr>`,
+                      )}
+                    </tbody>
+                  </table>
                 </section>`,
               )}
-            </div>`
-          : html`<p>Keine Einteilungen veröffentlicht.</p>`
-      }
-    `;
+            `,
+          )
+        : html`<p>Keine Einteilungen veröffentlicht.</p>`
+    }`;
   }
 }
