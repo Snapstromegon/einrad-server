@@ -23,8 +23,18 @@ export interface PublicJuryPlanEntry {
 
 export interface PublicJuryPlanSeat {
   label: string;
-  judgeName: string;
+  judgeName: string | null;
   seat: number;
+}
+
+export interface PublicJuryPlanSession {
+  unit_id: string;
+  session_id: string;
+  unit_name: string;
+  session_label: string;
+  needed_technical: number;
+  needed_performance: number;
+  needed_dismounts: number;
 }
 
 export interface PublicJuryPlanTask {
@@ -51,6 +61,7 @@ const taskNames: PublicJuryPlanTask["name"][] = [
 
 export const publicJuryPlanSections = (
   entries: PublicJuryPlanEntry[],
+  sessions: PublicJuryPlanSession[] = [],
 ): PublicJuryPlanSection[] => {
   const sections = new Map<
     string,
@@ -64,6 +75,22 @@ export const publicJuryPlanSections = (
       seats: Map<PublicJuryPlanTask["key"], Map<number, PublicJuryPlanSeat>>;
     }
   >();
+  for (const session of sessions) {
+    const key = `${session.unit_id}:${session.session_id}`;
+    sections.set(key, {
+      key,
+      name: session.unit_name,
+      sessionLabel: session.session_label,
+      day: null,
+      blockTitle: null,
+      startsAt: null,
+      seats: new Map([
+        ["technical", new Map()],
+        ["performance", new Map()],
+        ["dismounts", new Map()],
+      ]),
+    });
+  }
   for (const entry of entries) {
     const assignment = entry.assignment;
     const key = `${assignment.unit_id}:${assignment.session_id}`;
@@ -102,21 +129,47 @@ export const publicJuryPlanSections = (
     "dismounts",
   ];
   return [...sections.values()]
-    .map((section) => ({
-      key: section.key,
-      name: section.name,
-      sessionLabel: section.sessionLabel,
-      day: section.day,
-      blockTitle: section.blockTitle,
-      startsAt: section.startsAt,
-      tasks: keys.map((key, index) => ({
-        key,
-        name: taskNames[index],
-        seats: [...section.seats.get(key)!.values()].sort(
-          (a, b) => a.seat - b.seat,
-        ),
-      })),
-    }))
+    .map((section) => {
+      const [unitId, sessionId] = section.key.split(":");
+      const session = sessions.find(
+        (candidate) =>
+          candidate.unit_id === unitId && candidate.session_id === sessionId,
+      );
+      return {
+        key: section.key,
+        name: section.name,
+        sessionLabel: section.sessionLabel,
+        day: section.day,
+        blockTitle: section.blockTitle,
+        startsAt: section.startsAt,
+        tasks: keys.map((key, index) => {
+          const occupied = section.seats.get(key)!;
+          const needed =
+            key === "technical"
+              ? (session?.needed_technical ?? 0)
+              : key === "performance"
+                ? (session?.needed_performance ?? 0)
+                : (session?.needed_dismounts ?? 0);
+          const highest = occupied.size ? Math.max(...occupied.keys()) : 0;
+          const length = Math.max(needed, highest);
+          const seats = Array.from({ length }, (_, i) => {
+            const seat = i + 1;
+            return (
+              occupied.get(seat) ?? {
+                label: `${key === "technical" ? "T" : key === "performance" ? "P" : "A"}${seat}`,
+                judgeName: null,
+                seat,
+              }
+            );
+          });
+          return {
+            key,
+            name: taskNames[index],
+            seats,
+          };
+        }),
+      };
+    })
     .sort(
       (a, b) =>
         (a.startsAt ? Date.parse(a.startsAt) : Number.POSITIVE_INFINITY) -

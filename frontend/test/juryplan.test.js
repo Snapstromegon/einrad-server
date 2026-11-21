@@ -70,6 +70,34 @@ describe("public jury plan", () => {
     );
   });
 
+  test("shows free seats up to each task's needed count", () => {
+    const sections = publicJuryPlanSections(
+      [entry("p1")],
+      [
+        {
+          unit_id: "unit-1",
+          session_id: "session-1",
+          unit_name: "Einzel weiblich U13",
+          session_label: "",
+          needed_technical: 1,
+          needed_performance: 3,
+          needed_dismounts: 2,
+        },
+      ],
+    );
+    const performance = sections[0].tasks.find(
+      (task) => task.key === "performance",
+    );
+    assert.deepEqual(
+      performance.seats.map((seat) => [seat.label, seat.judgeName]),
+      [
+        ["P1", "Anna Muster"],
+        ["P2", null],
+        ["P3", null],
+      ],
+    );
+  });
+
   test("keeps categories/sessions separate and sorts their sections", () => {
     const sections = publicJuryPlanSections([
       entry("late", {

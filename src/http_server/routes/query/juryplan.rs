@@ -21,6 +21,18 @@ pub struct PublicJuryPlan {
     #[serde(with = "time::serde::rfc3339::option")]
     pub published_at: Option<time::OffsetDateTime>,
     pub assignments: Vec<PublicJuryAssignment>,
+    pub sessions: Vec<PublicJurySession>,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct PublicJurySession {
+    pub unit_id: crate::ids::JuryUnitId,
+    pub session_id: crate::ids::JurySessionId,
+    pub unit_name: String,
+    pub session_label: String,
+    pub needed_technical: i64,
+    pub needed_performance: i64,
+    pub needed_dismounts: i64,
 }
 
 /// The public, complete Juryplan.
@@ -46,6 +58,32 @@ pub async fn juryplan(
     let judges = jury::list_judges(&mut conn, None).await?;
     drop(conn);
     let assignments = jury::plan_assignments(&db, None).await?;
+    let blocks = jury::predicted_blocks(&db).await;
+    let units = jury::list_units_in(&db, &blocks).await?;
+    let sessions = units
+        .into_iter()
+        .flat_map(|unit| {
+            let unit_id = unit.id;
+            let unit_name = unit.name;
+            let split = unit.sessions.len() > 1;
+            unit.sessions.into_iter().map(move |session| {
+                let session_label = if split {
+                    session.categories.iter().map(|category| category.name.as_str()).collect::<Vec<_>>().join(", ")
+                } else {
+                    String::new()
+                };
+                PublicJurySession {
+                    unit_id,
+                    session_id: session.id,
+                    unit_name: unit_name.clone(),
+                    session_label,
+                    needed_technical: session.needed_technical,
+                    needed_performance: session.needed_performance,
+                    needed_dismounts: session.needed_dismounts,
+                }
+            })
+        })
+        .collect();
     let names = judges
         .into_iter()
         .map(|judge| (judge.id, format!("{} {}", judge.firstname, judge.lastname)))
@@ -63,5 +101,6 @@ pub async fn juryplan(
     Ok(Json(PublicJuryPlan {
         published_at,
         assignments,
+        sessions,
     }))
 }

@@ -265,7 +265,7 @@ pub async fn list_units(db: &sqlx::SqlitePool) -> Result<Vec<JuryUnit>, HttpErro
 
 /// The blocks of the predicted timeplan; none while it can't be predicted
 /// (logged), so the jury pages still work without a timeplan.
-async fn predicted_blocks(db: &sqlx::SqlitePool) -> Vec<predict_timeplan::TimeplanItem> {
+pub(crate) async fn predicted_blocks(db: &sqlx::SqlitePool) -> Vec<predict_timeplan::TimeplanItem> {
     match predict_timeplan::predict(db, Audience::OrganizerTeam).await {
         Ok(plan) => plan.items,
         Err(e) => {
@@ -286,7 +286,7 @@ fn runs_final(entry: &TimeplanEntry, wanted: FinalId) -> bool {
 }
 
 /// [`list_units`] with the predicted timeplan blocks at hand.
-async fn list_units_in(
+pub(crate) async fn list_units_in(
     db: &sqlx::SqlitePool,
     blocks: &[predict_timeplan::TimeplanItem],
 ) -> Result<Vec<JuryUnit>, HttpError> {

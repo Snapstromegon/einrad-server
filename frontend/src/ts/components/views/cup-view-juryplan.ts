@@ -208,7 +208,7 @@ export default class CupViewJuryplan extends LitElement {
   }
 
   private renderPlan(plan: PublicJuryPlan) {
-    const sections = publicJuryPlanSections(plan.assignments);
+    const sections = publicJuryPlanSections(plan.assignments, plan.sessions);
     const days = new Map<string, typeof sections>();
     for (const section of sections) {
       const day = section.day ?? "";
@@ -261,7 +261,9 @@ export default class CupViewJuryplan extends LitElement {
                                       (seat) => seat.label,
                                       (seat) => html`<div class="seat">
                                         <span class="seat-label">${seat.label}</span>
-                                        <span class="judge-name">${seat.judgeName}</span>
+                                        <span class="judge-name"
+                                          >${seat.judgeName ?? "frei"}</span
+                                        >
                                       </div>`,
                                     )}
                                   </div>`
