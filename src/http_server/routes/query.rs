@@ -13,6 +13,7 @@ mod get_rider_delete_impact;
 mod get_startlist_csv;
 mod get_structure;
 mod get_system_status;
+mod juryplan;
 mod list_acts;
 mod list_booking_log;
 mod list_bookings;
@@ -85,6 +86,7 @@ pub fn get_query_router() -> OpenApiRouter {
         .routes(routes!(list_club_ride_conflicts::list_club_ride_conflicts))
         .routes(routes!(list_judges::list_judges))
         .routes(routes!(list_jury_plan::list_jury_plan))
+        .routes(routes!(juryplan::juryplan))
         .routes(routes!(list_club_mails::list_club_mails))
         .routes(routes!(get_club_mail_options::get_club_mail_options))
 }

@@ -25,6 +25,51 @@ export type RiderRideConflict = schemas.RiderRideConflict;
 /** A rider of any club, as admins list them. */
 export type AnyRider = schemas.Rider & Starts;
 
+export interface JuryPlanGroup {
+  judgeId: string;
+  name: string;
+  entries: JuryPlan["assignments"];
+}
+
+/** Group a published plan by judge and put every judge's entries in time order. */
+export const juryPlanGroups = (
+  plan: JuryPlan,
+  judges: Pick<ClubJudge, "id" | "firstname" | "lastname">[],
+): JuryPlanGroup[] => {
+  const names = new Map(judges.map((judge) => [judge.id, riderName(judge)]));
+  const groups = new Map<
+    string,
+    { judgeId: string; name: string; entries: JuryPlan["assignments"] }
+  >();
+  for (const entry of plan.assignments) {
+    const group = groups.get(entry.judge_id);
+    if (group) {
+      group.entries.push(entry);
+    } else {
+      groups.set(entry.judge_id, {
+        judgeId: entry.judge_id,
+        name: names.get(entry.judge_id) ?? "?",
+        entries: [entry],
+      });
+    }
+  }
+  const timestamp = (entry: JuryPlan["assignments"][number]) =>
+    entry.starts_at ? Date.parse(entry.starts_at) : Number.POSITIVE_INFINITY;
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      entries: [...group.entries].sort(
+        (a, b) =>
+          timestamp(a) - timestamp(b) ||
+          (a.day ?? "").localeCompare(b.day ?? "") ||
+          a.unit_name.localeCompare(b.unit_name, "de") ||
+          a.session_label.localeCompare(b.session_label, "de") ||
+          a.seat_label.localeCompare(b.seat_label, "de"),
+      ),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+};
+
 /** Everything the portal loads for a club. */
 export interface ClubData {
   club: Club;
@@ -272,6 +317,13 @@ export const clubIssues = (
       });
     }
   }
+  if (data.juryPlan?.published_at) {
+    issues.push({
+      level: "info",
+      step: "jury",
+      text: "Juryplan veröffentlicht.",
+    });
+  }
   const { open, juryFee } = paymentState(data);
   if (open >= 0.01) {
     issues.push({
@@ -334,6 +386,7 @@ export const stepSummaries = (
             ? "1 Einsatz fehlt"
             : `${missing} Einsätze fehlen`
           : "",
+        data.juryPlan?.published_at ? "Juryplan veröffentlicht" : "",
       ].filter(Boolean);
       return {
         state: missing ? "open" : judges ? "done" : "todo",
