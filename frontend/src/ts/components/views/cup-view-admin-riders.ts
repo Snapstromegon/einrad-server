@@ -6,13 +6,10 @@ import { client, type schemas } from "../../apiClient";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
 import {
-  actSizeWarning,
-  type ActType,
   actTypeLabels,
   actTypeShort,
   type CheckInMap,
   checkInMap,
-  checkInStats,
   countStarts,
   describeGroup,
   formatAge,
@@ -20,34 +17,21 @@ import {
   formatTime,
   isGroupActType,
   MIN_GROUP_SIZE,
-  participantName,
-  countRiders,
 } from "../../utils";
 import { type Starts, withStarts } from "../../starts";
+import {
+  groupRidersByClub,
+  riderAdminMarkers,
+  riderAdminRiderMatches,
+  type RiderAdminClub,
+  type RiderAdminEntry,
+} from "../../rider-admin-view";
 
 type Act = schemas.Act;
 type Category = schemas.Category;
 type Rider = schemas.Rider & Starts;
 
-/** One rider in one section of the rider table. */
-interface Row {
-  rider: Rider;
-  /** The act this row is about; `null` for riders without such an act. */
-  act: Act | null;
-  /** The act type a row without act is about (e.g. a pair without partner). */
-  actType: ActType | null;
-  isReplacement: boolean;
-  /** Why the row has no category. */
-  note?: string;
-}
-
-interface Section {
-  key: string;
-  category: Category | null;
-  rows: Row[];
-}
-
-type SortKey = "name" | "club" | "age";
+type SortKey = "name" | "age";
 
 const NO_CATEGORY = "none";
 
@@ -87,36 +71,48 @@ export default class CupViewAdminRiders extends LitElement {
         gap: 0.125rem 1rem;
       }
 
-      .chip.current {
-        background: var(--color-primary-strong);
-        border-color: var(--color-primary-strong);
-        color: var(--color-on-primary-strong);
-      }
-
-      .dense tbody tr.group-head > th .chip.current {
-        font-weight: 600;
-      }
-
-      h2 {
-        margin-top: 0.75rem;
-      }
-
-      .empty-categories {
-        margin: 0.25rem 0;
-      }
-
       .toolbar input[type="search"].inline {
         width: 18em;
       }
 
-      /*
-       * Narrow screens: tables scroll sideways on their own instead of the
-       * page. Sticky headers then stick inside the table only.
-       */
+      .rider-club {
+        overflow: hidden;
+      }
+
+      .rider-club > .table-wrap {
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+      }
+
+      .rider-club .club-name {
+        font-weight: 600;
+      }
+
+      .rider-club .club-count {
+        color: var(--color-text-muted);
+      }
+
+      .rider-club .club-checkin {
+        margin-left: auto;
+      }
+
+      .rider-club .starts {
+        min-width: 20em;
+      }
+
+      .rider-club .dense thead th {
+        position: static;
+      }
+
+      .rider-club .withdrawn {
+        text-decoration: line-through;
+      }
+
+      /* Narrow screens: tables scroll sideways on their own instead of the page. */
       @media (max-width: 1100px) {
         .table-wrap {
           overflow-x: auto;
-          --admin-sticky-top: 0px;
         }
       }
     `,
@@ -190,72 +186,6 @@ export default class CupViewAdminRiders extends LitElement {
 
   // ---------- Derived data ----------
 
-  private actsByRider() {
-    const map = new Map<string, Act[]>();
-    for (const act of this.acts) {
-      for (const p of act.participants) {
-        map.set(p.id, [...(map.get(p.id) ?? []), act]);
-      }
-    }
-    return map;
-  }
-
-  /** One section per category (in category order), then "Ohne Kategorie". */
-  private sections(actsByRider: Map<string, Act[]>): Section[] {
-    const riderById = new Map(this.riders.map((s) => [s.id, s]));
-    const rowsOf = (act: Act, note?: string): Row[] =>
-      act.participants.flatMap((p) => {
-        const rider = riderById.get(p.id);
-        return rider
-          ? [
-              {
-                rider,
-                act,
-                actType: act.act_type,
-                isReplacement: p.is_replacement,
-                note,
-              },
-            ]
-          : [];
-      });
-
-    const sections: Section[] = this.categories.map((category) => ({
-      key: category.name,
-      category,
-      rows: this.acts
-        .filter((act) => act.category === category.name)
-        .flatMap((act) => rowsOf(act)),
-    }));
-
-    const uncategorized: Row[] = this.acts
-      .filter((act) => !act.category)
-      .flatMap((act) => rowsOf(act, this.uncategorizedReason(act)));
-    for (const rider of this.riders) {
-      const acts = actsByRider.get(rider.id) ?? [];
-      if (rider.pair && !acts.some((act) => act.act_type === "pair")) {
-        uncategorized.push({
-          rider,
-          act: null,
-          actType: "pair",
-          isReplacement: false,
-          note: rider.partner_name
-            ? `Paarpartner „${rider.partner_name}“ nicht zugeordnet`
-            : "Paarpartner fehlt",
-        });
-      } else if (acts.length === 0) {
-        uncategorized.push({
-          rider,
-          act: null,
-          actType: null,
-          isReplacement: false,
-          note: "keine Starts",
-        });
-      }
-    }
-    sections.push({ key: NO_CATEGORY, category: null, rows: uncategorized });
-    return sections;
-  }
-
   /** Why an act didn't get a category. */
   private uncategorizedReason(act: Act) {
     if (act.type_conflict) {
@@ -277,70 +207,19 @@ export default class CupViewAdminRiders extends LitElement {
     return `keine passende Kategorie (${label}, Alter ${formatAge(act.max_age)})`;
   }
 
-  private sectionVisible(section: Section) {
-    if (!this.filter) {
-      return true;
-    }
-    if (this.filter === NO_CATEGORY) {
-      return section.category === null;
-    }
-    if (this.filter.startsWith("cat:")) {
-      return section.category?.name === this.filter.slice(4);
-    }
-    // type:… — categories of that type, and the matching rows without one.
-    return (
-      section.category === null ||
-      section.category.act_type === this.filter.slice(5)
-    );
-  }
-
-  private rowVisible(row: Row) {
-    if (
-      this.filter.startsWith("type:") &&
-      row.actType !== this.filter.slice(5)
-    ) {
-      return false;
-    }
-    if (this.onlyMissingCheckIn && this.checkIns.get(row.rider.id)) {
-      return false;
-    }
-    const needle = this.search.trim().toLocaleLowerCase("de");
-    if (!needle) {
-      return true;
-    }
-    return [
-      `${row.rider.firstname} ${row.rider.lastname}`,
-      row.rider.club_name,
-      row.act?.group_name ?? "",
-    ].some((text) => text.toLocaleLowerCase("de").includes(needle));
-  }
-
-  private sortRows(rows: Row[]) {
+  private sortRiders(rows: RiderAdminEntry[]) {
     const { key, desc } = this.sort;
-    const byName = (a: Row, b: Row) =>
+    const byName = (a: RiderAdminEntry, b: RiderAdminEntry) =>
       compareText(a.rider.lastname, b.rider.lastname) ||
       compareText(a.rider.firstname, b.rider.firstname);
-    const compare = (a: Row, b: Row) => {
-      switch (key) {
-        case "name":
-          return byName(a, b);
-        case "club":
-          return compareText(a.rider.club_name, b.rider.club_name);
-        case "age":
-          return (
+    const compare =
+      key === "name"
+        ? byName
+        : (a: RiderAdminEntry, b: RiderAdminEntry) =>
             (a.rider.age_on_competition ?? 0) -
-            (b.rider.age_on_competition ?? 0)
-          );
-      }
-    };
+            (b.rider.age_on_competition ?? 0);
     return [...rows].sort(
       (a, b) => (desc ? -compare(a, b) : compare(a, b)) || byName(a, b),
-    );
-  }
-
-  private get isFiltering() {
-    return (
-      this.filter !== "" || this.onlyMissingCheckIn || this.search.trim() !== ""
     );
   }
 
@@ -360,10 +239,9 @@ export default class CupViewAdminRiders extends LitElement {
         }
       </div>`;
     }
-    const actsByRider = this.actsByRider();
-    const sections = this.sections(actsByRider);
+    const clubs = groupRidersByClub(this.riders, this.acts);
     return html`<div class="page-pad">
-      ${this.renderHead(sections)}
+      ${this.renderHead(clubs)}
       ${
         this.error
           ? html`<div class="error-banner" role="alert">
@@ -379,49 +257,35 @@ export default class CupViewAdminRiders extends LitElement {
           </div>`
           : nothing
       }
-      ${this.renderToolbar(sections)}
-      ${this.renderRiders(sections, actsByRider)}
-      ${this.renderGroups()}
+      ${this.renderToolbar(clubs)}
+      ${this.renderRiders(clubs)}
     </div>`;
   }
 
-  private renderHead(sections: Section[]) {
+  private renderHead(clubs: RiderAdminClub[]) {
     const riders = this.riders;
-    const clubs = new Set(riders.map((s) => s.club_id)).size;
-    const groupRiders = (type: ActType) =>
-      this.acts
-        .filter((act) => act.act_type === type)
-        .reduce((sum, act) => sum + act.participants.length, 0);
     const starts = riders.reduce((sum, s) => sum + countStarts(s), 0);
     const checkedIn = riders.filter((s) => this.checkIns.get(s.id)).length;
-    const uncategorized =
-      sections.find((s) => s.category === null)?.rows.length ?? 0;
-    const groups = this.acts.filter((act) => isGroupActType(act.act_type));
-    const incompleteGroups = groups.filter((act) => !act.category).length;
+    const entries = clubs.flatMap((club) => club.riders);
+    const uncategorized = entries.reduce(
+      (count, entry) =>
+        count +
+        riderAdminMarkers(entry).filter(
+          (marker) =>
+            marker.status === "uncategorized" ||
+            marker.status === "pair-request" ||
+            marker.status === "no-starts",
+        ).length,
+      0,
+    );
 
     return html`<div class="head">
       <h1>FahrerInnen</h1>
       <div class="kpis">
         <span class="kpi"><b>${riders.length}</b> FahrerInnen</span>
-        <span class="kpi"><b>${clubs}</b> Vereine</span>
-        <span class="kpi" title="Starts, Gruppen inklusive Ersatzfahrer"
-          ><b>${starts}</b> Starts
-          <span class="small"
-            >(EM ${riders.filter((s) => s.single_male).length} · EW
-            ${riders.filter((s) => s.single_female).length} · P
-            ${riders.filter((s) => s.pair).length} · KG
-            ${groupRiders("group_small")} · GG
-            ${groupRiders("group_large")})</span
-          ></span
-        >
-        <span class="kpi ${incompleteGroups ? "warn" : ""}"
-          ><b>${groups.length}</b> Gruppen${
-            incompleteGroups
-              ? html` <span class="text-warn"
-                  >(ohne Kategorie ${incompleteGroups})</span
-                >`
-              : nothing
-          }</span
+        <span class="kpi"><b>${clubs.length}</b> Vereine</span>
+        <span class="kpi" title="Starts, Ersatzstarts inklusive"
+          ><b>${starts}</b> Starts</span
         >
         <span
           class="kpi ${checkedIn === riders.length ? "ok" : ""}"
@@ -429,10 +293,10 @@ export default class CupViewAdminRiders extends LitElement {
           >Eingecheckt <b>${checkedIn}/${riders.length}</b></span
         >
         ${
-          uncategorized
+          uncategorized > 0
             ? html`<span
               class="kpi warn"
-              title="Einträge ohne Kategorie: unvollständige Gruppen, Alter außerhalb aller Kategorien, Paare ohne Partner, FahrerInnen ohne Starts"
+              title="Starts ohne Kategorie, offene Paaranmeldungen und FahrerInnen ohne Starts"
               >ohne Kategorie <b>${uncategorized}</b></span
             >`
             : nothing
@@ -441,10 +305,14 @@ export default class CupViewAdminRiders extends LitElement {
     </div>`;
   }
 
-  private renderToolbar(sections: Section[]) {
-    // Only categories with riders can be filtered for.
+  private renderToolbar(clubs: RiderAdminClub[]) {
+    const entries = clubs.flatMap((club) => club.riders);
     const withRiders = new Set(
-      sections.filter((s) => s.rows.length > 0).map((s) => s.key),
+      entries.flatMap((entry) =>
+        riderAdminMarkers(entry)
+          .map((marker) => marker.act?.category)
+          .filter((name): name is string => !!name),
+      ),
     );
     const types = [...new Set(this.categories.map((c) => c.act_type))];
     return html`<div class="toolbar">
@@ -517,58 +385,76 @@ export default class CupViewAdminRiders extends LitElement {
     </div>`;
   }
 
-  private renderRiders(sections: Section[], actsByRider: Map<string, Act[]>) {
-    const visible = sections
-      .filter((section) => this.sectionVisible(section))
-      .map((section) => ({
-        section,
-        rows: this.sortRows(section.rows.filter((row) => this.rowVisible(row))),
+  private renderRiders(clubs: RiderAdminClub[]) {
+    const filter = {
+      filter: this.filter,
+      search: this.search,
+      onlyMissingCheckIn: this.onlyMissingCheckIn,
+    };
+    const visible = clubs
+      .map((club) => ({
+        club,
+        riders: this.sortRiders(
+          club.riders.filter((entry) =>
+            riderAdminRiderMatches(
+              entry,
+              filter,
+              !!this.checkIns.get(entry.rider.id),
+            ),
+          ),
+        ),
       }))
-      .filter(({ rows }) => rows.length > 0);
-    // Empty categories only get one line together, not a group head each.
-    const emptyNames = sections
-      .filter((section) => section.category && section.rows.length === 0)
-      .map((section) => section.key)
-      .join(", ");
-    const emptyLine =
-      emptyNames && !this.isFiltering
-        ? html`<p class="empty-categories small muted">
-          Kategorien ohne FahrerInnen: ${emptyNames}
-        </p>`
-        : nothing;
+      .filter(({ riders }) => riders.length > 0);
     if (visible.length === 0) {
-      return html`<p class="empty">Keine FahrerInnen für diesen Filter.</p>
-        ${emptyLine}`;
+      return html`<p class="empty">Keine FahrerInnen für diesen Filter.</p>`;
     }
-    return html`<div class="table-wrap">
-      <table class="dense">
-        <thead>
-          <tr>
-            <th class="num">#</th>
-            ${this.renderSortHeader("name", "Name")}
-            ${this.renderSortHeader("club", "Verein")}
-            <th class="num">Geb.</th>
-            ${this.renderSortHeader("age", "Alter", "num")}
-            <th>Starts</th>
-            <th>Partner / Gruppe</th>
-            <th class="c" title="Eingecheckt">CI</th>
-          </tr>
-        </thead>
-        ${repeat(
-          visible,
-          ({ section }) => section.key,
-          ({ section, rows }) => html`<tbody>
-            ${this.renderSectionHead(section, rows.length)}
+    return html`${repeat(
+      visible,
+      ({ club }) => club.id,
+      ({ club, riders }) => this.renderClub(club, riders),
+    )}`;
+  }
+
+  private renderClub(club: RiderAdminClub, riders: RiderAdminEntry[]) {
+    const checkedIn = club.riders.filter((entry) =>
+      this.checkIns.get(entry.rider.id),
+    ).length;
+    return html`<details class="block rider-club" open>
+      <summary>
+        <span class="club-name">${club.name}</span>
+        <span class="club-count">${club.riders.length} FahrerInnen</span>
+        <span class="club-checkin"
+          >Eingecheckt ${checkedIn}/${club.riders.length}</span
+        >
+        ${
+          riders.length !== club.riders.length
+            ? html`<span class="muted small"
+                >· ${riders.length} angezeigt</span
+              >`
+            : nothing
+        }
+      </summary>
+      <div class="table-wrap">
+        <table class="dense">
+          <thead>
+            <tr>
+              ${this.renderSortHeader("name", "Name")}
+              <th class="num">Geb.</th>
+              ${this.renderSortHeader("age", "Alter", "num")}
+              <th>Eigene Starts / Kategorien</th>
+              <th class="c" title="Eingecheckt">CI</th>
+            </tr>
+          </thead>
+          <tbody>
             ${repeat(
-              rows,
-              (row) => `${row.rider.id}/${row.act?.id ?? row.actType}`,
-              (row, i) => this.renderRow(row, i, actsByRider),
+              riders,
+              (entry) => entry.rider.id,
+              (entry) => this.renderRider(entry),
             )}
-          </tbody>`,
-        )}
-      </table>
-    </div>
-    ${emptyLine}`;
+          </tbody>
+        </table>
+      </div>
+    </details>`;
   }
 
   private renderSortHeader(key: SortKey, label: string, cls = "") {
@@ -584,58 +470,14 @@ export default class CupViewAdminRiders extends LitElement {
     </th>`;
   }
 
-  private renderSectionHead(section: Section, visibleRows: number) {
-    const all = section.rows;
-    const acts = new Set(all.map((row) => row.act?.id ?? row.rider.id)).size;
-    const checkedIn = all.filter((row) =>
-      this.checkIns.get(row.rider.id),
-    ).length;
-    const category = section.category;
-    const size =
-      category && category.act_type !== "single"
-        ? `${acts} ${
-            isGroupActType(category.act_type)
-              ? acts === 1
-                ? "Gruppe"
-                : "Gruppen"
-              : acts === 1
-                ? "Paar"
-                : "Paare"
-          } · ${countRiders(all.length)}`
-        : countRiders(all.length);
-    return html`<tr class="group-head">
-      <th colspan="8">
-        ${
-          category
-            ? html`${category.name}
-                <span class="muted"
-                  >· ${category.description || actTypeLabels[category.act_type]}</span
-                >`
-            : html`<span class="text-warn">Ohne Kategorie</span>
-                <span class="muted"
-                  >· erscheinen nicht in Startliste und Zeitplan</span
-                >`
-        }
-        <span class="muted"
-          >· ${size} · CI ${checkedIn}/${all.length}${
-            visibleRows !== all.length ? ` · ${visibleRows} Treffer` : ""
-          }</span
-        >
-      </th>
-    </tr>`;
-  }
-
-  private renderRow(row: Row, i: number, actsByRider: Map<string, Act[]>) {
-    const s = row.rider;
-    const checkedInAt = this.checkIns.get(s.id);
-    return html`<tr class=${row.note ? "warn" : ""}>
-      <td class="num muted">${i + 1}</td>
-      <td>${s.lastname}, ${s.firstname}</td>
-      <td class="trunc" title=${s.club_name}>${s.club_name}</td>
-      <td class="num">${s.birthdate ? formatDate(s.birthdate) : "–"}</td>
-      <td class="num">${formatAge(s.age_on_competition)}</td>
-      <td>${this.renderStarts(s, row.act, actsByRider.get(s.id) ?? [])}</td>
-      <td class="trunc">${this.renderPartner(row)}</td>
+  private renderRider(entry: RiderAdminEntry) {
+    const { rider } = entry;
+    const checkedInAt = this.checkIns.get(rider.id);
+    return html`<tr>
+      <td>${rider.firstname} ${rider.lastname}</td>
+      <td class="num">${rider.birthdate ? formatDate(rider.birthdate) : "–"}</td>
+      <td class="num">${formatAge(rider.age_on_competition)}</td>
+      <td class="starts">${this.renderStarts(entry)}</td>
       <td class="c">
         <span
           class="ci ${checkedInAt ? "yes" : "no"}"
@@ -649,274 +491,58 @@ export default class CupViewAdminRiders extends LitElement {
     </tr>`;
   }
 
-  /** EM/EW/P/KG/GG chips of all starts; the row's own start is highlighted. */
-  private renderStarts(rider: Rider, current: Act | null, acts: Act[]) {
-    const chips: {
-      key: string;
-      label: string;
-      title: string;
-      tone: string;
-    }[] = [];
-    const tone = (act: Act | undefined, problem: boolean) =>
-      act && act === current ? "current" : problem ? "warn" : "";
-
-    if (rider.single_male || rider.single_female) {
-      const act = acts.find((a) => a.act_type === "single");
-      chips.push({
-        key: "single",
-        label: singleLabel(rider),
-        title: rider.single_male ? "Einzel männlich" : "Einzel weiblich",
-        tone: tone(act, !act?.category),
-      });
-    }
-    if (rider.pair) {
-      const act = acts.find((a) => a.act_type === "pair");
-      const partners = act?.participants.filter((p) => p.id !== rider.id);
-      chips.push({
-        key: "pair",
-        label: act ? "P" : "P ⚠",
-        title: partners?.length
-          ? `Paar mit ${partners.map(participantName).join(", ")}`
-          : "Paarpartner nicht zugeordnet",
-        tone: tone(act, !act?.category),
-      });
-    }
-    for (const act of acts.filter((a) => isGroupActType(a.act_type))) {
-      const replacement = act.participants.find(
-        (p) => p.id === rider.id,
-      )?.is_replacement;
-      chips.push({
-        key: act.id,
-        label: `${actTypeShort[act.act_type]}${replacement ? "·E" : ""}`,
-        title: `${actTypeLabels[act.act_type]} „${act.group_name ?? ""}“${
-          replacement ? " (Ersatz)" : ""
-        }${
-          act.category
-            ? ""
-            : act.type_conflict
-              ? " – Doppelstart"
-              : " – unvollständig"
-        }`,
-        tone: tone(act, !act.category),
-      });
-    }
+  private renderStarts(entry: RiderAdminEntry) {
     return html`<span class="chips">
       ${repeat(
-        chips,
-        (chip) => chip.key,
-        (chip) =>
-          html`<span class="chip ${chip.tone}" title=${chip.title}
-            >${chip.label}</span
-          >`,
+        riderAdminMarkers(entry),
+        (marker) => marker.key,
+        (marker) => {
+          const act = marker.act;
+          const label =
+            marker.status === "withdrawn"
+              ? "Zurückgezogen"
+              : marker.status === "pair-request"
+                ? "Paarzuordnung offen"
+                : marker.status === "no-starts"
+                  ? "Keine Starts"
+                  : marker.status === "uncategorized"
+                    ? "Ohne Kategorie"
+                    : (act?.category ?? "");
+          const title = act
+            ? marker.status === "withdrawn"
+              ? `${actTypeLabels[act.act_type]} „${act.group_name ?? act.name}“ – zurückgezogen`
+              : marker.status === "uncategorized"
+                ? `${actTypeLabels[act.act_type]} „${act.group_name ?? act.name}“ – ${this.uncategorizedReason(act)}`
+                : `${actTypeLabels[act.act_type]} „${act.group_name ?? act.name}“`
+            : marker.status === "pair-request"
+              ? "Eigene Paaranmeldung ohne zugeordneten Paarstart"
+              : "Für diese FahrerIn ist kein eigener Start zugeordnet";
+          const tone =
+            marker.status === "uncategorized" ||
+            marker.status === "pair-request" ||
+            marker.status === "no-starts"
+              ? "warn"
+              : marker.status === "withdrawn"
+                ? "muted withdrawn"
+                : "";
+          const typeLabel =
+            marker.actType === "single"
+              ? singleLabel(entry.rider)
+              : marker.actType
+                ? actTypeShort[marker.actType]
+                : "";
+          return html`<span class="chip ${tone}" title=${title}>
+            ${typeLabel ? html`<span>${typeLabel}</span>` : nothing}
+            ${label}
+            ${
+              marker.isReplacement
+                ? html`<span class="chip muted">Ersatz</span>`
+                : nothing
+            }
+          </span>`;
+        },
       )}
     </span>`;
-  }
-
-  private renderPartner(row: Row) {
-    const { act, rider } = row;
-    if (!act) {
-      return html`<span class="chip warn">⚠ ${row.note}</span>`;
-    }
-    if (isGroupActType(act.act_type)) {
-      return html`<span title=${row.note ?? ""}
-        >${act.group_name}${
-          row.isReplacement
-            ? html` <span class="chip muted">Ersatz</span>`
-            : nothing
-        }${row.note ? html` <span class="chip warn">⚠ ${row.note}</span>` : nothing}</span
-      >`;
-    }
-    const others = act.participants.filter((p) => p.id !== rider.id);
-    const names = others
-      .map((p) =>
-        p.club_id === rider.club_id
-          ? participantName(p)
-          : `${participantName(p)} (${p.club_name})`,
-      )
-      .join(", ");
-    return html`${names}${
-      row.note ? html` <span class="chip warn">⚠ ${row.note}</span>` : nothing
-    }`;
-  }
-
-  private renderGroups() {
-    // Filtered to singles or pairs: no groups to show.
-    const filterType = this.filter.startsWith("type:")
-      ? this.filter.slice(5)
-      : this.categories.find((c) => `cat:${c.name}` === this.filter)?.act_type;
-    if (filterType && !isGroupActType(filterType as ActType)) {
-      return nothing;
-    }
-    const groups = this.acts
-      .filter((act) => isGroupActType(act.act_type))
-      .sort((a, b) => compareText(a.group_name ?? "", b.group_name ?? ""));
-    const needle = this.search.trim().toLocaleLowerCase("de");
-    const visible = groups.filter((act) => {
-      if (this.filter === NO_CATEGORY && act.category) {
-        return false;
-      }
-      if (
-        this.filter.startsWith("type:") &&
-        act.act_type !== this.filter.slice(5)
-      ) {
-        return false;
-      }
-      if (
-        this.filter.startsWith("cat:") &&
-        act.category !== this.filter.slice(4)
-      ) {
-        return false;
-      }
-      if (
-        this.onlyMissingCheckIn &&
-        checkInStats(act.participants, this.checkIns).missing.length === 0
-      ) {
-        return false;
-      }
-      return (
-        !needle ||
-        [
-          act.group_name ?? "",
-          ...act.participants.map(participantName),
-          ...act.participants.map((p) => p.club_name),
-        ].some((text) => text.toLocaleLowerCase("de").includes(needle))
-      );
-    });
-
-    return html`<h2>
-        Gruppen
-        <span class="muted small"
-          >${groups.length}${
-            visible.length !== groups.length
-              ? ` · ${visible.length} Treffer`
-              : ""
-          }</span
-        >
-      </h2>
-      ${
-        visible.length === 0
-          ? html`<p class="empty">
-            ${groups.length ? "Keine Gruppen für diesen Filter." : "Noch keine Gruppen angemeldet."}
-          </p>`
-          : html`<div class="table-wrap">
-              <table class="dense">
-                <thead>
-                  <tr>
-                    <th>Gruppe</th>
-                    <th>Typ</th>
-                    <th>Kategorie</th>
-                    <th class="num">FahrerInnen</th>
-                    <th>Vereine</th>
-                    <th class="num" title="Alter der Ältesten (inkl. Ersatz)">
-                      ältester
-                    </th>
-                    <th class="c">Musik</th>
-                    <th class="c" title="Eingecheckt">CI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${repeat(
-                    visible,
-                    (act) => act.id,
-                    (act) => this.renderGroupRow(act),
-                  )}
-                </tbody>
-              </table>
-            </div>`
-      }`;
-  }
-
-  private renderGroupRow(act: Act) {
-    const regular = act.participants.filter((p) => !p.is_replacement).length;
-    const replacements = act.participants.length - regular;
-    const sizeWarning = actSizeWarning(act);
-    const clubs = [...new Set(act.participants.map((p) => p.club_name))]
-      .sort(compareText)
-      .join(", ");
-    const members = act.participants
-      .map(
-        (p) =>
-          `${participantName(p)} (${p.club_name})${p.is_replacement ? " – Ersatz" : ""}`,
-      )
-      .join("\n");
-    const stats = checkInStats(act.participants, this.checkIns);
-    const regularMissing = stats.missing.some((p) => !p.is_replacement);
-    const ciTone =
-      stats.total === 0
-        ? "muted"
-        : stats.missing.length === 0
-          ? "ok"
-          : regularMissing
-            ? "bad"
-            : "warn";
-    return html`<tr class=${act.category ? "" : "warn"}>
-      <td class="trunc" title=${members || "Keine FahrerInnen"}>
-        <b>${act.group_name}</b>
-      </td>
-      <td>
-        <span class="chip" title=${actTypeLabels[act.act_type]}
-          >${actTypeShort[act.act_type]}</span
-        >
-      </td>
-      <td>
-        ${
-          act.category
-            ? html`${act.category}${
-                sizeWarning
-                  ? html` <span class="chip warn" title=${sizeWarning}
-                      >Größe</span
-                    >`
-                  : nothing
-              }`
-            : act.type_conflict
-              ? html`<span
-                  class="chip warn"
-                  title=${conflictReason(act, this.acts)}
-                  >Doppelstart</span
-                >`
-              : html`<span
-                  class="chip warn"
-                  title=${describeGroup(act.act_type, regular, replacements, null)}
-                  >unvollständig</span
-                >`
-        }
-      </td>
-      <td class="num">
-        ${regular}${
-          replacements
-            ? html` <span class="muted">(+${replacements} Ersatz)</span>`
-            : nothing
-        }
-      </td>
-      <td class="trunc" title=${clubs}>${clubs}</td>
-      <td class="num">${formatAge(act.max_age)}</td>
-      <td class="c">
-        ${
-          !act.song_file
-            ? html`<span class="chip bad">fehlt</span>`
-            : act.song_checked
-              ? html`<span class="chip ok" title=${act.song_file_name ?? ""}
-                  >geprüft</span
-                >`
-              : html`<span class="chip warn" title=${act.song_file_name ?? ""}
-                  >ungeprüft</span
-                >`
-        }
-      </td>
-      <td class="c">
-        <span
-          class="chip ${ciTone}"
-          title=${
-            stats.missingNames.length
-              ? `Nicht eingecheckt: ${stats.missingNames.join(", ")}`
-              : stats.total
-                ? "Alle eingecheckt"
-                : "Keine FahrerInnen"
-          }
-          >${stats.checkedIn}/${stats.total}</span
-        >
-      </td>
-    </tr>`;
   }
 
   // ---------- Events ----------
