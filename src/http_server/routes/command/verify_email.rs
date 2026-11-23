@@ -19,9 +19,17 @@ pub struct VerifyMailResponse {
     user_id: UserId,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct VerifyMailBody {
     token: Uuid,
+}
+
+impl std::fmt::Debug for VerifyMailBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifyMailBody")
+            .field("token", &crate::redacted::Redacted(&self.token))
+            .finish()
+    }
 }
 
 /// VerifyMail a new user.

@@ -1,4 +1,5 @@
 use crate::ids::UserId;
+use crate::redacted::Redacted;
 use std::sync::Arc;
 
 use axum::{Extension, Json};
@@ -15,10 +16,19 @@ pub struct LoginResponse {
     user_id: UserId,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct LoginBody {
     password: String,
     email: String,
+}
+
+impl std::fmt::Debug for LoginBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginBody")
+            .field("password", &Redacted(&self.password))
+            .field("email", &self.email)
+            .finish()
+    }
 }
 
 /// Login a new user.

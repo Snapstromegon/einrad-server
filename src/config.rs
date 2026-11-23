@@ -24,6 +24,7 @@ use crate::{
     images::{self, ImageUrl},
     logo::SvgLogo,
     photos::PhotosSettings,
+    redacted::Redacted,
     timeplan::EntryKind,
 };
 
@@ -36,7 +37,7 @@ pub const DEFAULT_DATA_PATH: &str = "./data";
 
 /// CLI flags and environment variables. Every value is optional here, so that
 /// the config file can fill in what's missing.
-#[derive(Debug, Default, Clone, clap::Parser)]
+#[derive(Default, Clone, clap::Parser)]
 pub struct CliArgs {
     /// Path to the TOML config file. Defaults to `./config.toml` if it exists.
     #[clap(long, env = "CONFIG")]
@@ -80,6 +81,29 @@ pub struct CliArgs {
     /// card (remote playback). Needs a build with the `local-audio` feature.
     #[clap(long, env = "LOCAL_PLAYER")]
     pub local_player: Option<String>,
+}
+
+impl std::fmt::Debug for CliArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CliArgs")
+            .field("config", &self.config)
+            .field("competition", &self.competition)
+            .field("replace_competition", &self.replace_competition)
+            .field("base_url", &self.base_url)
+            .field("http_address", &self.http_address)
+            .field("smtp_server", &self.smtp_server)
+            .field("smtp_username", &self.smtp_username)
+            .field("smtp_password", &Redacted(&self.smtp_password))
+            .field("db", &self.db)
+            .field("data", &self.data)
+            .field("jwt_secret", &Redacted(&self.jwt_secret))
+            .field("admin", &self.admin)
+            .field("insecure_cookies", &self.insecure_cookies)
+            .field("reload_db_token", &Redacted(&self.reload_db_token))
+            .field("metrics_token", &Redacted(&self.metrics_token))
+            .field("local_player", &self.local_player)
+            .finish()
+    }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -419,7 +443,7 @@ impl CompetitionFile {
     }
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
     pub base_url: Option<Url>,
@@ -431,13 +455,27 @@ pub struct ServerConfig {
     pub local_player: Option<String>,
 }
 
+impl std::fmt::Debug for ServerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerConfig")
+            .field("base_url", &self.base_url)
+            .field("http_address", &self.http_address)
+            .field("data_path", &self.data_path)
+            .field("insecure_cookies", &self.insecure_cookies)
+            .field("reload_db_token", &Redacted(&self.reload_db_token))
+            .field("metrics_token", &Redacted(&self.metrics_token))
+            .field("local_player", &self.local_player)
+            .finish()
+    }
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SmtpConfig {
     pub server: Option<String>,
@@ -445,18 +483,46 @@ pub struct SmtpConfig {
     pub password: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+impl std::fmt::Debug for SmtpConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmtpConfig")
+            .field("server", &self.server)
+            .field("user", &self.user)
+            .field("password", &Redacted(&self.password))
+            .finish()
+    }
+}
+
+#[derive(Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
     pub jwt_secret: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+impl std::fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("jwt_secret", &Redacted(&self.jwt_secret))
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdminConfig {
     pub name: String,
     pub email: String,
     pub password: String,
+}
+
+impl std::fmt::Debug for AdminConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminConfig")
+            .field("name", &self.name)
+            .field("email", &self.email)
+            .field("password", &Redacted(&self.password))
+            .finish()
+    }
 }
 
 impl FromStr for AdminConfig {
@@ -1082,7 +1148,6 @@ fn datetime_option_to_toml<S: Serializer>(
 }
 
 /// Fully resolved settings the server runs with.
-#[derive(Debug)]
 pub struct Settings {
     pub base_url: Url,
     pub http_address: String,
@@ -1104,6 +1169,29 @@ pub struct Settings {
     pub replace_competition: bool,
     /// Problems that don't stop the server, e.g. insecure defaults.
     pub warnings: Vec<String>,
+}
+
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("base_url", &self.base_url)
+            .field("http_address", &self.http_address)
+            .field("smtp_server", &self.smtp_server)
+            .field("smtp_username", &self.smtp_username)
+            .field("smtp_password", &Redacted(&self.smtp_password))
+            .field("database_url", &self.database_url)
+            .field("data_path", &self.data_path)
+            .field("jwt_secret", &Redacted(&self.jwt_secret))
+            .field("admin", &self.admin)
+            .field("insecure_cookies", &self.insecure_cookies)
+            .field("reload_db_token", &Redacted(&self.reload_db_token))
+            .field("metrics_token", &Redacted(&self.metrics_token))
+            .field("local_player", &self.local_player)
+            .field("competition_file", &self.competition_file)
+            .field("replace_competition", &self.replace_competition)
+            .field("warnings", &self.warnings)
+            .finish()
+    }
 }
 
 /// What the server needs before it knows whether the system config is

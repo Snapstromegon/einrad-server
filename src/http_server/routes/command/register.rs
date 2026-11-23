@@ -28,11 +28,21 @@ pub struct RegisterResponse {
     user_id: UserId,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct RegisterBody {
     name: String,
     password: String,
     email: String,
+}
+
+impl std::fmt::Debug for RegisterBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterBody")
+            .field("name", &self.name)
+            .field("password", &crate::redacted::Redacted(&self.password))
+            .field("email", &self.email)
+            .finish()
+    }
 }
 
 /// Register a new user.

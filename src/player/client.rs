@@ -41,7 +41,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// How the player connects.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Options {
     /// The registration server, e.g. `https://anmeldung.example.org`.
     pub server: Url,
@@ -52,6 +52,18 @@ pub struct Options {
     pub name: String,
     /// The same for every connection, so a reconnect keeps the active status.
     pub id: PlayerId,
+}
+
+impl std::fmt::Debug for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("server", &self.server)
+            .field("email", &self.email)
+            .field("password", &crate::redacted::Redacted(&self.password))
+            .field("name", &self.name)
+            .field("id", &self.id)
+            .finish()
+    }
 }
 
 /// The songs in memory, by file: the cued one and the ones coming up. A

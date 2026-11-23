@@ -18,9 +18,17 @@ use crate::{
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReloadDBResponse {}
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct ReloadDBQuery {
     pub token: Option<String>,
+}
+
+impl std::fmt::Debug for ReloadDBQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReloadDBQuery")
+            .field("token", &crate::redacted::Redacted(&self.token))
+            .finish()
+    }
 }
 
 #[derive(ToSchema, Debug)]

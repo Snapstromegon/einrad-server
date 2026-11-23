@@ -14,10 +14,22 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PasswordResetResponse {}
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub struct PasswordResetBody {
     token: Uuid,
     new_password: String,
+}
+
+impl std::fmt::Debug for PasswordResetBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PasswordResetBody")
+            .field("token", &crate::redacted::Redacted(&self.token))
+            .field(
+                "new_password",
+                &crate::redacted::Redacted(&self.new_password),
+            )
+            .finish()
+    }
 }
 
 /// PasswordReset a new user.
