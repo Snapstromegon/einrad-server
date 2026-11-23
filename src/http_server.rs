@@ -109,7 +109,7 @@ impl IntoResponse for ClientError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpServerOptions {
     pub bind_address: String,
     pub base_url: String,
@@ -121,6 +121,25 @@ pub struct HttpServerOptions {
     pub metrics_token: Option<String>,
     /// The competition id in the competition file the server started with.
     pub competition_file_id: Option<String>,
+}
+
+impl std::fmt::Debug for HttpServerOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpServerOptions")
+            .field("bind_address", &self.bind_address)
+            .field("base_url", &self.base_url)
+            .field("data_path", &self.data_path)
+            .field(
+                "reload_db_token",
+                &crate::redacted::Redacted(&self.reload_db_token),
+            )
+            .field(
+                "metrics_token",
+                &crate::redacted::Redacted(&self.metrics_token),
+            )
+            .field("competition_file_id", &self.competition_file_id)
+            .finish()
+    }
 }
 
 pub struct HttpServer {

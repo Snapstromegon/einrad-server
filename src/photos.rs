@@ -59,7 +59,7 @@ const PROPFIND_BODY: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// Where the photos come from, as the competition sets it
 /// (`[competition.photos]`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PhotosSettings {
     /// A WebDAV URL, a Nextcloud share link or a local folder.
@@ -71,6 +71,16 @@ pub struct PhotosSettings {
     /// password.
     #[serde(default)]
     pub password: Option<String>,
+}
+
+impl std::fmt::Debug for PhotosSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PhotosSettings")
+            .field("source", &self.source)
+            .field("user", &self.user)
+            .field("password", &crate::redacted::Redacted(&self.password))
+            .finish()
+    }
 }
 
 impl PhotosSettings {

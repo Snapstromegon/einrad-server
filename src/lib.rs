@@ -29,6 +29,7 @@ pub mod normalize;
 pub mod people;
 pub mod photos;
 pub mod player;
+pub mod redacted;
 pub mod reloadable_sqlite;
 pub mod rider_registration;
 pub mod roles;
