@@ -471,15 +471,12 @@ impl TestApp {
     }
 
     /// Serves the app on a free local port, e.g. for websocket tests, with
-    /// the songs at `/songs` like the real server. The server stops with the
-    /// test.
+    /// the songs at `/songs` like the real server (the API router has them).
+    /// The server stops with the test.
     pub async fn serve(&self) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let router = self.router.clone().nest_service(
-            "/songs",
-            tower_http::services::ServeDir::new(self.data_path()),
-        );
+        let router = self.router.clone();
         tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });

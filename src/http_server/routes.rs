@@ -6,6 +6,7 @@ pub mod http_types;
 mod logo;
 mod photos;
 pub mod query;
+mod songs;
 
 use axum::{Extension, Router, extract::Request, http::HeaderName, middleware, routing::get};
 use axum_embed::{FallbackBehavior, ServeEmbed};
@@ -14,7 +15,6 @@ use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
-    services::ServeDir,
     trace::TraceLayer,
 };
 use tracing::{error, info_span};
@@ -146,6 +146,7 @@ pub fn get_api_router(
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))
+        .route("/songs/{file}", get(songs::song))
         .route_layer(middleware::from_fn(metrics::track_http))
         .route("/metrics", get(metrics::metrics_handler))
         .merge(SwaggerUi::new("/swagger").url("/openapi.json", openapi))
@@ -207,7 +208,6 @@ pub fn get_router(
 
     Router::new()
         .fallback_service(serve_assets)
-        .nest_service("/songs", ServeDir::new(http_options.data_path.clone()))
         .merge(get_api_router(
             http_options,
             db,

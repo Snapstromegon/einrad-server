@@ -1,0 +1,87 @@
+//! `/songs/<file>`: the music files of the data folder, for logged-in users.
+//!
+//! The data folder holds more than songs, so only file names that look like
+//! a song are served: `<act-uuid>.mp3` (an upload), `<act-uuid>.wav` (the
+//! demo's tone) and `<act-uuid>.<uuid>.normalized.mp3` (the loudness-
+//! normalized copy). Everything else is 404, also in subfolders.
+
+use std::{path::PathBuf, sync::Arc};
+
+use axum::{
+    Extension,
+    body::Body,
+    extract::{Path, Request},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
+use uuid::Uuid;
+
+use crate::http_server::{HttpServerOptions, extractor::auth::Auth};
+
+/// A hyphenated UUID, the form the file names use.
+fn is_uuid(part: &str) -> bool {
+    part.len() == 36 && Uuid::parse_str(part).is_ok()
+}
+
+/// Whether `name` is a song file name (see the module docs).
+fn is_song_file_name(name: &str) -> bool {
+    let parts: Vec<&str> = name.split('.').collect();
+    match parts.as_slice() {
+        [act, "mp3" | "wav"] => is_uuid(act),
+        [act, version, "normalized", "mp3"] => is_uuid(act) && is_uuid(version),
+        _ => false,
+    }
+}
+
+/// Serves a song with range, conditional and content type handling.
+pub async fn song(
+    _: Auth,
+    Extension(options): Extension<Arc<HttpServerOptions>>,
+    Path(file): Path<String>,
+    request: Request,
+) -> Response {
+    if !is_song_file_name(&file) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let path: PathBuf = options.data_path.join(&file);
+    match ServeFile::new(path).oneshot(request).await {
+        Ok(response) => response.map(Body::new),
+        Err(never) => match never {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_song_file_name;
+
+    const ACT: &str = "01a20a43-bdf4-7319-8cbc-59970d8653c6";
+    const VERSION: &str = "01a20a43-bdf5-7000-8000-000000000001";
+
+    #[test]
+    fn only_song_names_pass() {
+        for ok in [
+            format!("{ACT}.mp3"),
+            format!("{ACT}.wav"),
+            format!("{ACT}.{VERSION}.normalized.mp3"),
+        ] {
+            assert!(is_song_file_name(&ok), "{ok}");
+        }
+        for bad in [
+            "x.toml".to_string(),
+            "remap".to_string(),
+            "..".to_string(),
+            format!("{ACT}.toml"),
+            format!("{ACT}.mp3.bak"),
+            format!("{ACT}.{VERSION}.normalized.wav"),
+            format!("{ACT}.{VERSION}.mp3"),
+            format!(".{ACT}.mp3"),
+            format!("{}.mp3", ACT.replace('-', "")),
+            format!("{{{ACT}}}.mp3"),
+            String::new(),
+        ] {
+            assert!(!is_song_file_name(&bad), "{bad}");
+        }
+    }
+}
