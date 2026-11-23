@@ -16,12 +16,6 @@ import { iconStyles, resetStyles } from "../../styles/base";
 
 type Preview = schemas.Preview;
 
-/** The remap file as a link to download. */
-const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
-  name,
-  url: URL.createObjectURL(new Blob([content], { type: "application/toml" })),
-});
-
 /**
  * The competition itself (Admin, ADR 0005): editing it ("Wettkampf
  * bearbeiten", see `cup-competition-form`), its images (logo, break image, sponsors; see
@@ -30,8 +24,8 @@ const remapDownload = ({ name, content }: schemas.RemapFileDownload) => ({
  * Without a competition (setup mode) a valid file is imported right away;
  * over an existing one the page first shows what the file replaces and
  * drops and imports after a confirmation. Afterwards the page reloads into
- * the new competition, unless dropped judge registrations are offered as a
- * remap file to download first.
+ * the new competition, unless judge registrations were dropped: their count
+ * is shown first, with the pointer to the unmapped list of the judges view.
  */
 @customElement("cup-view-admin-competition")
 export default class CupViewAdminCompetition extends LitElement {
@@ -70,8 +64,8 @@ export default class CupViewAdminCompetition extends LitElement {
   @state() private file = "";
   /** What the chosen file would replace, waiting for the confirmation. */
   @state() private preview: Preview | null = null;
-  /** Dropped judge registrations of the import, to download. */
-  @state() private remapFile: { name: string; url: string } | null = null;
+  /** Judge registrations the import put on the unmapped list. */
+  @state() private droppedRegistrations = 0;
 
   override render() {
     const competition = this.systemStatus?.competition;
@@ -152,7 +146,7 @@ export default class CupViewAdminCompetition extends LitElement {
               : html`Sie legt den Wettkampf an.`
           }
         </p>
-        ${this.remapFile ? this.renderRemapFile(this.remapFile) : this.renderImport()}
+        ${this.droppedRegistrations ? this.renderDropped() : this.renderImport()}
       </section>`;
   }
 
@@ -204,10 +198,11 @@ export default class CupViewAdminCompetition extends LitElement {
               : nothing
           }
           ${
-            preview.dropped.judge_registrations.length
+            preview.dropped.judge_registrations
               ? html`<p>
-                  Die Jury-Anmeldungen ohne passenden Vorlauf oder Finale gibt es
-                  nach dem Import als Datei zum Nachtragen.
+                  Die Jury-Anmeldungen ohne passenden Vorlauf oder Finale kommen
+                  nach dem Import auf die Liste in der Jury-Ansicht, dort
+                  trägst du sie nach.
                 </p>`
               : nothing
           }
@@ -227,23 +222,26 @@ export default class CupViewAdminCompetition extends LitElement {
       </div>`;
   }
 
-  private renderRemapFile(remapFile: { name: string; url: string }) {
+  private renderDropped() {
+    const count = this.droppedRegistrations;
     return html`<div class="ok-banner" role="status">
         <div>
           <p>Wettkampf importiert.</p>
           <p>
-            Einige Jury-Anmeldungen haben keinen passenden Vorlauf oder kein
-            passendes Finale mehr. Trag in der Datei bei jeder Anmeldung den
-            neuen Vorlauf oder das neue Finale ein (<code>jury_unit</code>,
-            z. B. <code>heat: E EW</code> oder <code>final: Finale EW</code>).
+            ${
+              count === 1
+                ? "Eine Jury-Anmeldung hat"
+                : `${count} Jury-Anmeldungen haben`
+            }
+            keinen passenden Vorlauf oder kein passendes Finale mehr. Sie
+            stehen auf der Liste in der Jury-Ansicht ("Jury"); dort meldest du
+            die Jurorinnen und Juroren für den neuen Vorlauf oder das neue
+            Finale an oder verwirfst die Anmeldung.
           </p>
         </div>
       </div>
       <div class="toolbar">
-        <a class="btn primary" href=${remapFile.url} download=${remapFile.name}
-          >${remapFile.name} herunterladen</a
-        >
-        <button class="btn" @click=${this.reload}>Weiter</button>
+        <button class="btn primary" @click=${this.reload}>Weiter</button>
       </div>`;
   }
 
@@ -288,8 +286,8 @@ export default class CupViewAdminCompetition extends LitElement {
         client.importCompetition({ body: { file: this.file } }),
       );
       this.preview = null;
-      if (result.remap_file) {
-        this.remapFile = remapDownload(result.remap_file);
+      if (result.dropped.judge_registrations) {
+        this.droppedRegistrations = result.dropped.judge_registrations;
       } else {
         this.reload();
       }

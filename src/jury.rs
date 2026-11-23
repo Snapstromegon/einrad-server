@@ -74,7 +74,7 @@ pub enum JuryUnitKind {
 }
 
 impl JuryUnitKind {
-    /// How the remap file names the kind.
+    /// How the unmapped list names the kind.
     fn label(self) -> &'static str {
         match self {
             JuryUnitKind::Heat => "heat",
@@ -83,20 +83,10 @@ impl JuryUnitKind {
     }
 }
 
-/// How a remap file names a jury unit: `heat: E EW` or `final: Finale EW`.
+/// How the unmapped list names the jury unit a registration had: `heat: E EW`
+/// or `final: Finale EW`.
 pub fn unit_label(kind: JuryUnitKind, name: &str) -> String {
     format!("{}: {name}", kind.label())
-}
-
-/// The kind and name of a unit label (see [`unit_label`]).
-pub fn parse_unit_label(label: &str) -> Option<(JuryUnitKind, &str)> {
-    let (kind, name) = label.trim().split_once(':')?;
-    let kind = match kind.trim() {
-        "heat" => JuryUnitKind::Heat,
-        "final" => JuryUnitKind::Final,
-        _ => return None,
-    };
-    Some((kind, name.trim())).filter(|(_, name)| !name.is_empty())
 }
 
 /// What judges register for and get assigned to: the Vorlauf of a heat or a

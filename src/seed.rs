@@ -9,10 +9,10 @@
 use crate::ids::{CategoryId, FinalId, HeatId, JudgeId, JuryUnitId};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
-use time::{Date, Month, OffsetDateTime, macros::format_description};
+use time::{Date, Month};
 use tracing::{info, warn};
 
 use crate::{
@@ -832,11 +832,8 @@ pub struct Dropped {
     pub jury_assignments: i64,
     pub jury_plan_published: bool,
     /// Judge registrations whose jury unit (heat or final) has no namesake in
-    /// the file.
-    pub judge_registrations: Vec<RemapRegistration>,
-    /// Where they were written, to fill in `jury_unit` and apply again.
-    #[serde(skip)]
-    pub remap_file: Option<PathBuf>,
+    /// the file. They went on the unmapped list of the admin judges view.
+    pub judge_registrations: i64,
 }
 
 impl Dropped {
@@ -868,7 +865,7 @@ impl Dropped {
             self.jury_plan_published
                 .then(|| "the published jury plan".to_string()),
             counted(
-                self.judge_registrations.len() as i64,
+                self.judge_registrations,
                 "judge registration without a matching heat or final",
                 "judge registrations without a matching heat or final",
             ),
@@ -877,26 +874,6 @@ impl Dropped {
         .flatten()
         .collect()
     }
-}
-
-/// A judge registration a replace dropped, as in the remap file. Filling in
-/// `jury_unit` (`heat: <name>` or `final: <name>`) says which new heat's
-/// Vorlauf or final the judge belongs to.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub struct RemapRegistration {
-    pub club: String,
-    pub firstname: String,
-    pub lastname: String,
-    pub task: JudgeTask,
-    pub old_jury_unit: String,
-    /// Empty until filled in.
-    pub jury_unit: String,
-}
-
-/// The remap file of dropped judge registrations.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RemapFile {
-    pub jury_registrations: Vec<RemapRegistration>,
 }
 
 /// The outcome of [`apply`]. The warnings are logged as well.
@@ -917,7 +894,6 @@ pub async fn apply(
     db: &sqlx::SqlitePool,
     file: Option<&CompetitionFile>,
     replace: bool,
-    data_path: &Path,
 ) -> Result<Report, String> {
     let mut warnings = Vec::new();
     let Some(file) = file else {
@@ -928,11 +904,9 @@ pub async fn apply(
         });
     };
     let mut tx = begin_write(db).await.map_err(db_error)?;
-    let mut dropped_registrations = Vec::new();
     let applied = match Competition::current(&mut *tx).await.map_err(db_error)? {
         None => {
-            let dropped = write(&mut tx, file, &file.competition.id).await?;
-            dropped_registrations = dropped.judge_registrations;
+            write(&mut tx, file, &file.competition.id).await?;
             info!(
                 "Created competition {} from the competition file",
                 file.competition.id
@@ -990,7 +964,6 @@ pub async fn apply(
                         describe(&differences),
                         current.id
                     );
-                    dropped_registrations = dropped.judge_registrations.clone();
                     Applied::Replaced(dropped)
                 }
             }
@@ -998,31 +971,8 @@ pub async fn apply(
     };
     tx.commit().await.map_err(db_error)?;
 
-    // Written after the commit, so it only lists registrations that are
-    // really gone.
-    let remap_file = if dropped_registrations.is_empty() {
-        None
-    } else {
-        let remap = RemapFile {
-            jury_registrations: dropped_registrations,
-        };
-        match write_remap_file(data_path, &remap) {
-            Ok(path) => Some(path),
-            Err(e) => {
-                warnings.push(format!(
-                    "{e}. The dropped judge registrations were:\n{}",
-                    toml::to_string(&remap).unwrap_or_default()
-                ));
-                None
-            }
-        }
-    };
     let applied = match applied {
         Applied::Replaced(dropped) => {
-            let dropped = Dropped {
-                remap_file,
-                ..dropped
-            };
             warnings.extend(dropped_warning(&dropped));
             Applied::Replaced(dropped)
         }
@@ -1136,13 +1086,7 @@ pub async fn apply_settings(db: &sqlx::SqlitePool, settings: &Settings) -> Resul
         .as_deref()
         .map(CompetitionFile::load)
         .transpose()?;
-    apply(
-        db,
-        file.as_ref(),
-        settings.replace_competition,
-        &settings.data_path,
-    )
-    .await
+    apply(db, file.as_ref(), settings.replace_competition).await
 }
 
 /// Checks a competition file the way the start applies it: it's loaded and
@@ -1154,12 +1098,7 @@ pub async fn apply_settings(db: &sqlx::SqlitePool, settings: &Settings) -> Resul
 pub async fn check_file(path: &Path) -> Result<(), String> {
     let file = CompetitionFile::load(path)?;
     let db = crate::reloadable_sqlite::in_memory_migrated().await;
-    // A scratch dir of its own for anything the apply writes, never the
-    // system temp dir itself; removed again.
-    let scratch = std::env::temp_dir().join(format!("einrad-check-{}", uuid::Uuid::new_v4()));
-    let result = apply(&db, Some(&file), false, &scratch).await.map(|_| ());
-    let _ = std::fs::remove_dir_all(&scratch);
-    result
+    apply(&db, Some(&file), false).await.map(|_| ())
 }
 
 fn db_error(e: sqlx::Error) -> String {
@@ -1277,18 +1216,14 @@ fn dropped_warning(dropped: &Dropped) -> Option<String> {
     if summary.is_empty() {
         return None;
     }
-    let remap = dropped
-        .remap_file
-        .as_ref()
-        .map(|path| {
-            format!(
-                " They are listed in {}, with an empty jury_unit to fill in.",
-                path.display()
-            )
-        })
-        .unwrap_or_default();
+    let unmapped = if dropped.judge_registrations > 0 {
+        " The dropped judge registrations are on the unmapped list of the admin judges \
+         view (\"Jury\"), to register for the new heats and finals or to drop."
+    } else {
+        ""
+    };
     Some(format!(
-        "Applying the competition file dropped {}.{remap}",
+        "Applying the competition file dropped {}.{unmapped}",
         summary.join(", ")
     ))
 }
@@ -1296,8 +1231,8 @@ fn dropped_warning(dropped: &Dropped) -> Option<String> {
 /// Writes the file's competition with `id`, its categories, heats, finals
 /// and timeplan, replacing what the database has (ADR 0005): the planning
 /// that depends on them is dropped, club data is kept. Judge registrations
-/// follow their heat or final by name; the others are returned for the remap
-/// file.
+/// follow their heat or final by name; the others go on the unmapped list
+/// (`judge_registration_unmapped`) in the same transaction.
 async fn write(
     conn: &mut sqlx::SqliteConnection,
     file: &CompetitionFile,
@@ -1673,17 +1608,28 @@ async fn write(
                 .await
                 .map_err(db_error)?;
             }
-            None => dropped.judge_registrations.push(RemapRegistration {
-                club: registration.club,
-                firstname: registration.firstname,
-                lastname: registration.lastname,
-                task: registration.task,
-                old_jury_unit: crate::jury::unit_label(
-                    registration.unit_kind,
-                    &registration.unit_name,
-                ),
-                jury_unit: String::new(),
-            }),
+            None => {
+                let old_unit =
+                    crate::jury::unit_label(registration.unit_kind, &registration.unit_name);
+                // Once per judge, unit and task, however often it's dropped.
+                sqlx::query!(
+                    r#"
+                    INSERT INTO judge_registration_unmapped (judge_id, old_unit, task)
+                    SELECT ?1, ?2, ?3
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM judge_registration_unmapped
+                        WHERE judge_id = ?1 AND old_unit = ?2 AND task = ?3
+                    )
+                    "#,
+                    registration.judge_id,
+                    old_unit,
+                    registration.task,
+                )
+                .execute(&mut *conn)
+                .await
+                .map_err(db_error)?;
+                dropped.judge_registrations += 1;
+            }
         }
     }
     Ok(dropped)
@@ -1821,33 +1767,6 @@ async fn write_sponsors(
         images::remove(&mut *conn, Slot::Sponsor(gone.id)).await?;
     }
     Ok(())
-}
-
-/// The remap file's content, with how to fill it in.
-pub fn remap_content(remap: &RemapFile) -> Result<String, String> {
-    Ok(format!(
-        "# Judge registrations whose heat or final the competition file dropped.\n\
-         # Fill in jury_unit with the heat's Vorlauf (\"heat: E EW\") or the final\n\
-         # (\"final: Finale EW\") of the new competition each judge belongs to.\n\n{}",
-        toml::to_string(remap).map_err(|e| e.to_string())?
-    ))
-}
-
-/// Writes `remap` to `data_path/remap/jury-registrations-<timestamp>.toml`.
-fn write_remap_file(data_path: &Path, remap: &RemapFile) -> Result<PathBuf, String> {
-    let directory = data_path.join("remap");
-    std::fs::create_dir_all(&directory)
-        .map_err(|e| format!("Couldn't create {}: {e}", directory.display()))?;
-    let timestamp = OffsetDateTime::now_utc()
-        .format(format_description!(
-            "[year][month][day]T[hour][minute][second]Z"
-        ))
-        .expect("valid format");
-    let path = directory.join(format!("jury-registrations-{timestamp}.toml"));
-    let content = remap_content(remap)?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
-    Ok(path)
 }
 
 #[cfg(test)]
@@ -2124,36 +2043,17 @@ mod tests {
         category = "15+"
     "#;
 
-    /// Directory removed again when dropped.
-    struct TempDir(std::path::PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            let path = std::env::temp_dir().join(format!("cup-seed-{}", uuid::Uuid::new_v4()));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
     async fn apply_file(
         db: &sqlx::SqlitePool,
         toml: &str,
         replace: bool,
-        data_path: &Path,
     ) -> Result<Report, String> {
         let file = CompetitionFile::parse(toml).unwrap();
-        apply(db, Some(&file), replace, data_path).await
+        apply(db, Some(&file), replace).await
     }
 
     async fn seed_file(db: &sqlx::SqlitePool, toml: &str) -> Result<(), String> {
-        let data = TempDir::new();
-        apply_file(db, toml, false, &data.0).await.map(|_| ())
+        apply_file(db, toml, false).await.map(|_| ())
     }
 
     async fn count(db: &sqlx::SqlitePool, table: &str) -> i64 {
@@ -2182,17 +2082,16 @@ mod tests {
     #[tokio::test]
     async fn a_changed_file_on_the_next_start_changes_nothing_and_warns() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        let created = apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        let created = apply_file(&db, COMPETITION, false).await.unwrap();
         assert_eq!(created.applied, Applied::Created);
         assert!(created.warnings.is_empty(), "{:?}", created.warnings);
 
-        let unchanged = apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        let unchanged = apply_file(&db, COMPETITION, false).await.unwrap();
         assert_eq!(unchanged.applied, Applied::Unchanged);
         assert!(unchanged.warnings.is_empty(), "{:?}", unchanged.warnings);
 
         let changed = COMPETITION.replace("name = \"Cup\"", "name = \"Cup 2\"");
-        let report = apply_file(&db, &changed, false, &data.0).await.unwrap();
+        let report = apply_file(&db, &changed, false).await.unwrap();
         assert_eq!(report.applied, Applied::Ignored);
         assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
         assert!(
@@ -2214,8 +2113,7 @@ mod tests {
     #[tokio::test]
     async fn any_changed_detail_counts_as_a_difference() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, &planned_competition(), false, &data.0)
+        apply_file(&db, &planned_competition(), false)
             .await
             .unwrap();
         let cases = [
@@ -2239,7 +2137,7 @@ mod tests {
         ];
         for (from, to, expected) in cases {
             let changed = planned_competition().replace(from, to);
-            let report = apply_file(&db, &changed, false, &data.0).await.unwrap();
+            let report = apply_file(&db, &changed, false).await.unwrap();
             assert_eq!(report.applied, Applied::Ignored, "{to}");
             assert!(
                 report.warnings.len() == 1 && report.warnings[0].contains(expected),
@@ -2252,11 +2150,10 @@ mod tests {
     #[tokio::test]
     async fn an_invalid_file_on_the_next_start_is_ignored_with_a_warning() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        apply_file(&db, COMPETITION, false).await.unwrap();
 
         let invalid = COMPETITION.replace("category = \"15+\"", "category = \"missing\"");
-        let report = apply_file(&db, &invalid, false, &data.0).await.unwrap();
+        let report = apply_file(&db, &invalid, false).await.unwrap();
         assert_eq!(report.applied, Applied::Ignored);
         assert!(
             report.warnings.len() == 1 && report.warnings[0].contains("missing"),
@@ -2269,15 +2166,12 @@ mod tests {
     #[tokio::test]
     async fn replacing_with_an_unchanged_file_keeps_the_planning() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, &planned_competition(), false, &data.0)
+        apply_file(&db, &planned_competition(), false)
             .await
             .unwrap();
         add_club_data_and_planning(&db).await;
 
-        let report = apply_file(&db, &planned_competition(), true, &data.0)
-            .await
-            .unwrap();
+        let report = apply_file(&db, &planned_competition(), true).await.unwrap();
         assert_eq!(report.applied, Applied::Unchanged);
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
         assert_eq!(count(&db, "timeplan_slots").await, 1);
@@ -2287,11 +2181,10 @@ mod tests {
     #[tokio::test]
     async fn a_file_with_another_id_is_ignored_with_a_warning() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        apply_file(&db, COMPETITION, false).await.unwrap();
 
         let renamed = COMPETITION.replace(r#"id = "cup""#, r#"id = "cup-2""#);
-        let report = apply_file(&db, &renamed, false, &data.0).await.unwrap();
+        let report = apply_file(&db, &renamed, false).await.unwrap();
         assert_eq!(report.applied, Applied::Ignored);
         assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
         assert!(
@@ -2393,8 +2286,7 @@ mod tests {
     #[tokio::test]
     async fn replace_keeps_club_data_and_drops_the_planning() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, &planned_competition(), false, &data.0)
+        apply_file(&db, &planned_competition(), false)
             .await
             .unwrap();
         add_club_data_and_planning(&db).await;
@@ -2402,7 +2294,7 @@ mod tests {
         let replacement = planned_competition()
             .replace("name = \"Cup\"", "name = \"Cup 2\"")
             .replace("Finale", "Endlauf");
-        let report = apply_file(&db, &replacement, true, &data.0).await.unwrap();
+        let report = apply_file(&db, &replacement, true).await.unwrap();
 
         let Applied::Replaced(dropped) = report.applied else {
             panic!("{:?}", report.applied);
@@ -2412,44 +2304,27 @@ mod tests {
         assert_eq!(dropped.finals_placements, 1);
         assert_eq!(dropped.jury_assignments, 1);
         assert!(dropped.jury_plan_published);
-        let unmatched = vec![RemapRegistration {
-            club: "Club A".into(),
-            firstname: "Max".into(),
-            lastname: "Müller".into(),
-            task: JudgeTask::Performance,
-            old_jury_unit: "final: Finale".into(),
-            jury_unit: String::new(),
-        }];
-        assert_eq!(dropped.judge_registrations, unmatched);
-        let remap_file = dropped.remap_file.expect("a remap file");
-        assert!(
-            remap_file.starts_with(data.0.join("remap")),
-            "{remap_file:?}"
-        );
-        let name = remap_file.file_name().unwrap().to_str().unwrap();
-        assert!(
-            name.starts_with("jury-registrations-") && name.ends_with(".toml"),
-            "{name}"
-        );
-        let written: RemapFile =
-            toml::from_str(&std::fs::read_to_string(&remap_file).unwrap()).unwrap();
-        assert_eq!(written.jury_registrations, unmatched);
+        assert_eq!(dropped.judge_registrations, 1);
         assert!(
             report.warnings.iter().any(|w| w.contains("1 timeplan slot")
                 && w.contains("the progress of 1 act")
                 && w.contains("1 finals placement")
                 && w.contains("the published jury plan")
-                && w.contains("1 judge registration")),
+                && w.contains("1 judge registration")
+                && w.contains("Jury")),
             "{:?}",
             report.warnings
         );
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|w| w.contains(&remap_file.display().to_string())),
-            "{:?}",
-            report.warnings
+        // The dropped registration waits on the unmapped list, with the unit
+        // it had; nothing is written into the data folder.
+        let unmapped: Vec<(String, String)> =
+            sqlx::query_as("SELECT old_unit, task FROM judge_registration_unmapped")
+                .fetch_all(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            unmapped,
+            vec![("final: Finale".to_string(), "performance".to_string())]
         );
 
         let competition = Competition::current(&db).await.unwrap().unwrap();
@@ -2501,13 +2376,12 @@ mod tests {
     #[tokio::test]
     async fn replace_keeps_the_database_id_and_warns() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, COMPETITION, false, &data.0).await.unwrap();
+        apply_file(&db, COMPETITION, false).await.unwrap();
 
         let renamed = COMPETITION
             .replace(r#"id = "cup""#, r#"id = "cup-2""#)
             .replace("name = \"Cup\"", "name = \"Cup 2\"");
-        let report = apply_file(&db, &renamed, true, &data.0).await.unwrap();
+        let report = apply_file(&db, &renamed, true).await.unwrap();
         assert_eq!(report.applied, Applied::Replaced(Dropped::default()));
         assert!(
             report
@@ -2526,10 +2400,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_registration_dropped_twice_is_listed_once() {
+        let db = crate::reloadable_sqlite::in_memory_migrated().await;
+        apply_file(&db, &planned_competition(), false)
+            .await
+            .unwrap();
+        add_club_data_and_planning(&db).await;
+        let renamed = planned_competition().replace("Finale", "Endlauf");
+
+        async fn register_for_final(db: &sqlx::SqlitePool, name: &str) {
+            sqlx::query(
+                "INSERT INTO judge_registration (judge_id, final_id, task)
+                 SELECT (SELECT id FROM judge), id, 'performance' FROM finals WHERE name = ?",
+            )
+            .bind(name)
+            .execute(db)
+            .await
+            .unwrap();
+        }
+
+        // "Finale" is dropped; then "Endlauf" is; then "Finale" again.
+        apply_file(&db, &renamed, true).await.unwrap();
+        assert_eq!(count(&db, "judge_registration_unmapped").await, 1);
+        register_for_final(&db, "Endlauf").await;
+        apply_file(&db, &planned_competition(), true).await.unwrap();
+        assert_eq!(count(&db, "judge_registration_unmapped").await, 2);
+        register_for_final(&db, "Finale").await;
+        let report = apply_file(&db, &renamed, true).await.unwrap();
+        assert_eq!(count(&db, "judge_registration_unmapped").await, 2);
+        // Counts the dropped registrations, also those the list already has.
+        let Applied::Replaced(dropped) = report.applied else {
+            panic!("{:?}", report.applied);
+        };
+        assert_eq!(dropped.judge_registrations, 1);
+    }
+
+    #[tokio::test]
     async fn an_invalid_replacement_changes_nothing() {
         let db = crate::reloadable_sqlite::in_memory_migrated().await;
-        let data = TempDir::new();
-        apply_file(&db, &planned_competition(), false, &data.0)
+        apply_file(&db, &planned_competition(), false)
             .await
             .unwrap();
         add_club_data_and_planning(&db).await;
@@ -2537,12 +2446,12 @@ mod tests {
         let invalid = planned_competition()
             .replace("Finale", "Endlauf")
             .replace("category = \"15+\"", "category = \"missing\"");
-        let err = apply_file(&db, &invalid, true, &data.0).await.unwrap_err();
+        let err = apply_file(&db, &invalid, true).await.unwrap_err();
         assert!(err.contains("missing"), "{err}");
         assert_eq!(count(&db, "timeplan_slots").await, 1);
         assert_eq!(count(&db, "jury_assignments").await, 1);
         assert_eq!(count(&db, "judge_registration").await, 2);
-        assert!(!data.0.join("remap").exists());
+        assert_eq!(count(&db, "judge_registration_unmapped").await, 0);
     }
 
     #[tokio::test]

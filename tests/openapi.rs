@@ -10,7 +10,6 @@ const COMMANDS: &[&str] = &[
     "add_rider",
     "add_sponsor",
     "add_timeplan_entry",
-    "apply_jury_remap",
     "create_booking",
     "create_club",
     "create_competition",

@@ -9,8 +9,8 @@
 #   Club data (clubs, riders, acts with music, judges, bookings, …) is kept;
 #   timeplan slots and progress, finals placements and the jury plan are
 #   dropped. Judge registrations are matched to the new heats and finals by
-#   name; the others are written to data_path/remap/ to fill in. A file that
-#   changes nothing replaces nothing.
+#   name; the others go on the unmapped list of the admin judges view ("Jury")
+#   to register again or drop. A file that changes nothing replaces nothing.
 # - The logo, break image, sponsors and colors are the exception (ADR 0009,
 #   ADR 0010): a replace keeps them unless the file sets logo_svg/logo_url,
 #   break_image_svg/break_image_url, sponsors, primary_color or

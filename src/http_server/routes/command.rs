@@ -8,7 +8,6 @@ mod add_heat;
 mod add_rider;
 mod add_sponsor;
 mod add_timeplan_entry;
-mod apply_jury_remap;
 mod assign_judge;
 mod clear_act_song;
 mod create_booking;
@@ -187,7 +186,6 @@ pub fn get_command_router() -> OpenApiRouter {
         .routes(routes!(update_sponsor::update_sponsor))
         .routes(routes!(remove_sponsor::remove_sponsor))
         .routes(routes!(reorder_sponsors::reorder_sponsors))
-        .routes(routes!(apply_jury_remap::apply_jury_remap))
         .routes(routes!(add_club_judge::add_club_judge))
         .routes(routes!(delete_club_judge::delete_club_judge))
         .routes(routes!(edit_club_judge::edit_club_judge))
