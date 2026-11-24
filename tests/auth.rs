@@ -74,7 +74,7 @@ async fn register_reports_mail_delivery_failure() {
         response.body["message"]
             .as_str()
             .unwrap()
-            .starts_with("Mail error"),
+            .starts_with("Die E-Mail konnte nicht gesendet werden"),
         "{:?}",
         response.body
     );

@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{Json, response::IntoResponse};
 use serde::Serialize;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     jwt::JWTConfig, mailer::Mailer, photos::Photos, player::PlayerHub,
@@ -45,6 +45,14 @@ pub enum HttpError {
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> axum::response::Response {
+        // The cause stays in the server log (inside the request span, so the
+        // line carries the request id); the client only gets a generic body.
+        match &self {
+            HttpError::TemplateError(e) => error!("Template error: {e:?}"),
+            HttpError::DBError(e) => error!("Database error: {e:?}"),
+            HttpError::MailError(e) => error!("Mail error: {e:?}"),
+            _ => {}
+        }
         ClientError::from(self).into_response()
     }
 }
@@ -76,13 +84,17 @@ pub enum ClientError {
 impl From<HttpError> for ClientError {
     fn from(e: HttpError) -> Self {
         match e {
-            HttpError::TemplateError(e) => ClientError::Generic(format!("Template error: {:?}", e)),
+            // Internal causes are logged in `HttpError::into_response`, never sent.
+            HttpError::TemplateError(_) => ClientError::InternalServerError,
             HttpError::NotFound => ClientError::NotFound,
             HttpError::NotFoundMessage(e) => ClientError::NotFoundMessage(e),
             HttpError::ForbiddenMessage(e) => ClientError::ForbiddenMessage(e),
             HttpError::InternalServerError => ClientError::InternalServerError,
-            HttpError::DBError(e) => ClientError::Generic(format!("Database error: {:?}", e)),
-            HttpError::MailError(e) => ClientError::Generic(format!("Mail error: {:?}", e)),
+            HttpError::DBError(_) => ClientError::InternalServerError,
+            HttpError::MailError(_) => ClientError::Generic(
+                "Die E-Mail konnte nicht gesendet werden. Bitte später erneut versuchen."
+                    .to_string(),
+            ),
             HttpError::ErrorMessages(e) => ClientError::Generic(format!("{e:?}")),
             HttpError::Conflict(e) => ClientError::Conflict(e),
             HttpError::InvalidCredentials => ClientError::InvalidCredentials,
@@ -260,15 +272,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn database_errors_become_generic_500() {
-        let (status, body) = response_parts(HttpError::DBError(sqlx::Error::RowNotFound)).await;
+    async fn database_errors_become_plain_500_without_details() {
+        let (status, body) = response_parts(HttpError::DBError(sqlx::Error::Protocol(
+            "no such column players.secret_col (constraint uq_players_email)".into(),
+        )))
+        .await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body["type"], "Generic");
-        assert!(
-            body["message"]
-                .as_str()
-                .unwrap()
-                .starts_with("Database error:")
+        assert_eq!(body, serde_json::json!({ "type": "InternalServerError" }));
+    }
+
+    #[tokio::test]
+    async fn template_errors_become_plain_500_without_details() {
+        let (status, body) = response_parts(HttpError::TemplateError(askama::Error::Custom(
+            "secret".into(),
+        )))
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, serde_json::json!({ "type": "InternalServerError" }));
+    }
+
+    #[tokio::test]
+    async fn mail_errors_become_500_with_german_message_without_details() {
+        let (status, body) = response_parts(HttpError::MailError(
+            crate::mailer::MailError::FromAddress("smtp-secret.internal".into()),
+        ))
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "type": "Generic",
+                "message": "Die E-Mail konnte nicht gesendet werden. Bitte später erneut versuchen."
+            })
         );
     }
 }
