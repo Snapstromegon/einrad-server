@@ -173,3 +173,65 @@ async fn a_withdrawn_act_counts_in_no_category() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn metrics_show_the_deadlines() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    sqlx::query(
+        "UPDATE competition SET registration_start = '2026-09-20T00:00:00Z', \
+         registration_end = '2027-04-30T21:59:59Z', music_upload_end = '2027-01-20T23:59:59Z'",
+    )
+    .execute(&app.db)
+    .await
+    .unwrap();
+
+    let body = scrape(&app).await;
+
+    assert!(
+        has_line(
+            &body,
+            "einrad_server_registration_start_timestamp_seconds 1789862400"
+        ),
+        "{body}"
+    );
+    assert!(
+        has_line(
+            &body,
+            "einrad_server_music_upload_end_timestamp_seconds 1800489599"
+        ),
+        "{body}"
+    );
+    // The fixture's payment deadline 2027-05-15 ends with that day (in the
+    // server's local offset, UTC in tests).
+    assert!(
+        has_line(
+            &body,
+            "einrad_server_payment_deadline_timestamp_seconds 1810425600"
+        ),
+        "{body}"
+    );
+    // Without a deadline of its own, the jury registration ends with the
+    // registration.
+    assert!(
+        has_line(
+            &body,
+            "einrad_server_judge_registration_end_timestamp_seconds 1809122399"
+        ),
+        "{body}"
+    );
+
+    sqlx::query("UPDATE competition SET jury_registration_end = '2027-04-15T18:00:00Z'")
+        .execute(&app.db)
+        .await
+        .unwrap();
+    let body = scrape(&app).await;
+
+    assert!(
+        has_line(
+            &body,
+            "einrad_server_judge_registration_end_timestamp_seconds 1807812000"
+        ),
+        "{body}"
+    );
+}
