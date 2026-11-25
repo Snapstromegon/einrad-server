@@ -44,5 +44,8 @@ Depends: Q2–Q5. Regenerate the client once per batch; not during a running eve
 - [ ] **Tags**: one singular aggregate tag per endpoint. Not breaking for the client; can go first. → [06](06-naming.md)
 - [ ] **Response types own their names**: wrap `PreparedMails`, `SentClubMail`, `SplitResult`, `Preview` in `<Handler>Response`. → [02](02-handler-anatomy.md)
 - [ ] **`whoami` through the generated client** in `cup-context-user.ts` and `cup-view-setup.ts`.
-- [ ] **Photo redirects**: document or replace. Depends: Q5.
+- [ ] **Songs into a file query**: `get_song` with login and a song-name allowlist. In #433; tick when merged.
+- [ ] **Competition images and CSS into file queries**: `get_competition_logo`, `get_break_image`, `get_sponsor_image`, `get_competition_colors_css`. Keep the ETags and `Cache-Control`; add a frontend URL helper each; update the info board, the admin views and the `<link>` in `index.html`. → [01](01-cqrs-api.md), [07](07-non-cqrs-surfaces.md)
+- [ ] **Photos into file queries**: `get_photo?photo_id=…`, plus newest/random in the shape Q5 picks. Depends: Q5.
+- [ ] **Backup download into a file query**: `export_db_backup?filename=…`, admin only, as today.
 - [ ] **ADR for the CQRS rule.** Depends: Q2.

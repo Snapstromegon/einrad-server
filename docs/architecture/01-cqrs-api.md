@@ -4,8 +4,9 @@
 
 1. **Command** = `POST /api/command/<verb>_<noun>`. Takes a JSON body (or `multipart/form-data` for a file upload). Changes state. Answers with an *acknowledgement*: `{}`, the ID of an entity it created, warnings that didn't stop the save, or an outcome enum that says which branch ran. It doesn't answer with a read model; the client re-queries.
 2. **Query** = `GET /api/query/<get|list>_<noun>`. Takes query-string params only. Changes nothing (no SQL writes, no file writes, no outbound calls with side effects). May be called any number of times.
-3. **No third kind** under `/api`. Everything else is a websocket or an asset (see [07](07-non-cqrs-surfaces.md)).
-4. Every command and query is in the OpenAPI document, so the frontend calls it through the generated client (`frontend/src/ts/gen`), never through a hand-written `fetch`.
+3. **A file from state is a query.** Anything uploaded, generated or stored at runtime (songs, logos, sponsor images, photos, the competition CSS, CSV exports, backups) is served by a query, `GET /api/query/get_<noun>?…` or `export_<noun>`, that answers with the file's bytes and content type instead of JSON. It keeps what a file needs: Range requests, caching headers (`ETag`, `Cache-Control`), conditional requests. A login check or permission is an extractor, as on any query. Precedents: `get_song` (#433), `get_startlist_csv`, `export_competition`.
+4. **No third kind** under `/api`. Everything else is a websocket or a **static asset**, a file that is part of the build (the embedded frontend). The one documented exception is `GET /metrics`: Prometheus sets its path and format, and only the scraper calls it (Q7). See [07](07-non-cqrs-surfaces.md).
+5. Every command and query is in the OpenAPI document, so the frontend calls it through the generated client (`frontend/src/ts/gen`), never through a hand-written `fetch`. File queries are the exception in how they're *called*: an `<audio src>`, `<img src>`, CSS `<link>` or download link needs a URL. The frontend builds those URLs in one helper per file query (like `songUrl(file)`), never as string literals in components.
 
 ## Where the API stands
 
@@ -51,18 +52,31 @@ Commands that return a server-minted ID (`add_rider`, `create_club`, `create_boo
 | `save_act_song` | Takes `act_id` as a **query param** next to the multipart body. The other uploads (`set_competition_logo`, `upload_sponsor_image`, …) put everything in the multipart form. |
 | `login` | Declares `401` with `body=String`, but answers with `ClientError` like everyone else. |
 
-### Read-only routes outside `/api/query`
+### Files from state outside `/api/query`
 
-These return data that changes with state, so they're queries in substance, not assets:
+Under rule 3 these are queries. They sit outside only because they answer with bytes instead of JSON, and rule 3 allows that. Proposed names follow [06](06-naming.md):
+
+| Route today | File | Proposed query | Access |
+|---|---|---|---|
+| `GET /api/competition/logo` | `routes/logo.rs` | `get_competition_logo` | public |
+| `GET /api/competition/break-image` | `routes/logo.rs` | `get_break_image` | public |
+| `GET /api/competition/sponsors/{id}/image` | `routes/logo.rs` | `get_sponsor_image?sponsor_id=…` | public |
+| `GET /api/competition/colors.css` | `routes/colors.rs` | `get_competition_colors_css` | public |
+| `GET /api/photos/{id}` | `routes/photos.rs` | `get_photo?photo_id=…` | public (info board) |
+| `GET /api/photos/newest`, `/api/photos/random` | `routes/photos.rs` | see open question Q5 | public |
+| `GET /api/db-backups/{filename}` | `routes/db_backups.rs` | `export_db_backup?filename=…` | admin |
+| ~~`GET /songs/{file}`~~ | | `get_song?file=…` | logged in (done in #433) |
+
+Keep the ETag and `Cache-Control` behaviour these routes have today (`routes/etag.rs`). A cache-busting version param, like the sponsor image's `?v=`, stays a query param.
+
+### Setup outside `/api/command` and `/api/query`
 
 | Route | File | What it is |
 |---|---|---|
-| `GET /api/photos/newest`, `/api/photos/random` | `routes/photos.rs` | Redirect to the current photo; the choice depends on state |
-| `GET /api/db-backups/{filename}` | `routes/db_backups.rs` | Authenticated download of a backup file |
 | `GET /api/setup/session`, `/api/setup/status` | `src/setup.rs:587` | Setup state machine, not in OpenAPI |
 | `POST /api/setup/session`, `/api/setup/test-mail`, `/api/setup/complete` | `src/setup.rs:587` | Setup commands, REST-style (`GET` + `POST` on one path), hand-written `fetch` in `cup-setup*.ts` |
 
-The photo redirects and the backup download produce **binary responses**, which the JSON query handlers don't. That is the real reason they sit outside. The cleanest rule: binary downloads are *assets*, addressed by an immutable ID (`/api/photos/{id}`, `/api/db-backups/{filename}`), and the *choice* of which one ("newest", "random") is a query that returns the ID. See [07](07-non-cqrs-surfaces.md) for setup.
+See [07](07-non-cqrs-surfaces.md) for setup.
 
 ## Audit commands
 

@@ -1,20 +1,33 @@
 # 07 · Surfaces outside commands and queries
 
-Allowed by the target: **websockets** and **static or statically linked assets**. Everything registered in `src/http_server/routes.rs` and `src/setup.rs` outside `/api/command` and `/api/query`:
+Allowed by the target: **websockets** and **static assets**, files that are part of the build. A file that comes from state (uploaded, generated or stored at runtime) is **not** an asset. It's a query for a file ([01](01-cqrs-api.md), rule 3), even when it's binary, cacheable or loaded by an `<img>`/`<audio>`/`<link>`.
+
+The test: if the bytes can change without a new release, it's a query.
+
+Everything registered in `src/http_server/routes.rs` and `src/setup.rs` outside `/api/command` and `/api/query`:
 
 | Route | Kind | Verdict |
 |---|---|---|
-| `/` fallback, `ServeEmbed<StaticAssets>` | Embedded frontend | ✅ static asset |
+| `/` fallback, `ServeEmbed<StaticAssets>` | Embedded frontend build | ✅ static asset |
+| `GET /swagger`, `/openapi.json` | API docs, generated from the code at startup | ✅ static (changes only with a release) |
 | `GET /api/ws/player` | Websocket (remote playback) | ✅ websocket. Its message types are in the OpenAPI components (`ControllerMessage`, `ToPlayer`, …), so the frontend gets typed messages. |
-| `GET /api/competition/logo`, `/break-image`, `/sponsors/{id}/image` | Images with ETag | ✅ asset |
-| `GET /api/competition/colors.css` | Generated CSS with ETag | ✅ asset (derived from state, but cacheable and addressed like a file) |
-| `GET /api/photos/{id}` | Image, immutable | ✅ asset |
-| `GET /api/photos/newest`, `/api/photos/random` | 302 to `/api/photos/{id}`, `no-store` | ⚠️ a query in disguise: the choice depends on state. Acceptable as an `<img src>` convenience for the info board; document it as the one exception, or replace with `query/get_photo` returning the ID. |
-| `GET /api/db-backups/{filename}` | Authenticated binary download | ⚠️ an asset behind auth. Fine, but it's the only asset with a permission check; write that down. |
-| `/songs/*` → `ServeDir(data_path)` | Song files | ⚠️ serves the **whole data directory without authentication**: songs (named by act UUID), normalized copies, and anything else written there, e.g. `data_path/remap/jury-registrations-<timestamp>.toml` from `seed.rs:1836` (judge registrations, a guessable file name; check whether a running server ever writes it there). Restrict to song files, or move other files out of `data_path`. Also: not under `/api` and not using the ETag helper the other assets use. |
-| `GET /metrics` | Prometheus, bearer token | ✅ operational endpoint; Prometheus defines its shape. |
-| `GET /swagger`, `/openapi.json` | API docs | ✅ static (generated at startup) |
+| `GET /api/competition/logo`, `/break-image`, `/sponsors/{id}/image` | Images from the database, with ETag | ❌ file from state, becomes a query (see the table in [01](01-cqrs-api.md)) |
+| `GET /api/competition/colors.css` | CSS generated from the competition's colors, with ETag | ❌ file from state, becomes a query |
+| `GET /api/photos/{id}` | Photo from the photo source | ❌ file from state, becomes a query |
+| `GET /api/photos/newest`, `/api/photos/random` | 302 to `/api/photos/{id}`, `no-store` | ❌ file from state; the shape is open question Q5 |
+| `GET /api/db-backups/{filename}` | Admin download of a backup file | ❌ file from state, becomes `export_db_backup` |
+| ~~`/songs/*` → `ServeDir(data_path)`~~ | Song files | ✅ moved to `get_song` with login and a song-name allowlist (#433) |
+| `GET /metrics` | Prometheus text, bearer token | ✅ the one documented exception (Q7): derived from state, but Prometheus sets its path and format, and only the scraper calls it. |
 | `/api/setup/session` (GET+POST), `/status`, `/test-mail`, `/complete` | First-run setup (ADR 0011), own router state, own `SetupAuth` | ❌ REST-style, not in OpenAPI, called with hand-written `fetch` in `cup-setup.ts` and `cup-setup-wizard.ts`. |
+
+## Files from state as queries
+
+What a file query keeps compared to a JSON query:
+
+- **Bytes and content type**, declared in OpenAPI as a binary body per content type (`get_song` declares `audio/mpeg` and `audio/wav`).
+- **HTTP file semantics**: `ServeFile` for files on disk (Range/206, `Last-Modified`, conditional requests); the existing ETag helper (`routes/etag.rs`) for bytes from the database.
+- **Caching**: `Cache-Control` as today. The response header doesn't care whether the path says `query`.
+- **A URL helper in the frontend** per file query (`songUrl(file)`), because `<img src>`, `<audio src>` and `<link href>` need a URL, not a client call.
 
 ## Setup
 

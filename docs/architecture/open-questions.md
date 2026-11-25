@@ -26,8 +26,16 @@ Strict (`{}` only, client-minted UUIDv7 IDs as ADR 0018 allows) or pragmatic (cr
 
 ## Q5 · `/api/photos/newest|random`
 
-Keep as the documented asset-redirect exception for the info board, or turn into a query returning the photo ID?
+Decided 2026-11-25 that files from state are queries ([01](01-cqrs-api.md), rule 3), so these become queries too. Open: their shape.
+
+- **A.** File queries that redirect: `get_newest_photo` / `get_random_photo` answer 302 to `get_photo?photo_id=…`, as today. The info board keeps one `<img src>` URL. *Recommended*: least change for the info board, and `get_photo` stays cacheable.
+- **B.** JSON queries returning the photo ID; the info board then sets `src` to `get_photo?photo_id=…` itself.
+- **C.** One query, `get_photo?pick=newest|random|<id>`.
 
 ## Q6 · Error status for validation
 
 `400` or `422` for invalid input? The frontend already has messages for both (`frontend/src/ts/api.ts`).
+
+## Q7 · `/metrics` · ✅ decided 2026-11-25
+
+`GET /metrics` stays **the one documented exception** to rule 3. Prometheus scrapes a fixed path and format with a bearer token, and nothing in the app calls it.
