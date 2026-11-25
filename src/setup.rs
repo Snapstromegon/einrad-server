@@ -416,7 +416,7 @@ fn pending() -> Response {
 /// 503 for every other API route.
 async fn gate(method: Method, uri: Uri) -> Response {
     let path = uri.path();
-    let is_api = ["/api", "/metrics", "/songs", "/swagger", "/openapi.json"]
+    let is_api = ["/api", "/metrics", "/swagger", "/openapi.json"]
         .iter()
         .any(|prefix| {
             path.strip_prefix(prefix)

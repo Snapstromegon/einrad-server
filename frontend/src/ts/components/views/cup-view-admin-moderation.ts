@@ -20,6 +20,7 @@ import {
   isFinalist,
   isGroupActType,
   songFile,
+  songUrl,
 } from "../../utils";
 import { displayColors } from "../../styles/theme";
 import "../elements/cup-act-participants.js";
@@ -461,7 +462,7 @@ export default class CupViewAdminModeration extends LitElement {
     }
     return html`<cup-waveform
       readonly
-      .src=${`/songs/${file}`}
+      .src=${songUrl(file)}
       .position=${playback.position}
       .playing=${playback.state === "playing"}
       .duration=${playback.duration ?? 0}

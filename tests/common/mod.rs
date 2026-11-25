@@ -127,8 +127,7 @@ pub fn closed_registration() -> StatusOptions {
 /// competition to `status`.
 pub async fn seed_db(db: &SqlitePool, status: &StatusOptions) {
     let file = CompetitionFile::parse(include_str!("../fixtures/competition.toml")).unwrap();
-    let data = TempDir::new();
-    seed::apply(db, Some(&file), false, &data.0).await.unwrap();
+    seed::apply(db, Some(&file), false).await.unwrap();
     set_registration_status(db, status).await;
     // Tests read the startlist unless they are about its publication.
     set_startlist_published(db, true).await;
@@ -470,16 +469,12 @@ impl TestApp {
         }
     }
 
-    /// Serves the app on a free local port, e.g. for websocket tests, with
-    /// the songs at `/songs` like the real server. The server stops with the
-    /// test.
+    /// Serves the app on a free local port, e.g. for websocket tests. The server
+    /// stops with the test.
     pub async fn serve(&self) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let router = self.router.clone().nest_service(
-            "/songs",
-            tower_http::services::ServeDir::new(self.data_path()),
-        );
+        let router = self.router.clone();
         tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });

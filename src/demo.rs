@@ -327,7 +327,7 @@ impl DemoData {
             finals: self.finals.clone(),
             timeplan,
         };
-        seed::apply(db, Some(&file), false, data_path).await?;
+        seed::apply(db, Some(&file), false).await?;
 
         let timeplan_ids: Vec<i64> =
             sqlx::query_scalar!(r#"SELECT id as "id!" FROM timeplan ORDER BY position, id"#)

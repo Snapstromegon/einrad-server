@@ -311,8 +311,6 @@ export default class CupViewAdminJudges extends LitElement {
   @state() private search = "";
   /** While printing only the Juryplan. */
   @state() private printingPlan = false;
-  /** What applying a remap file did. */
-  @state() private remapResult: schemas.ApplyJuryRemapResponse | null = null;
   /** Id of the unit whose Durchgänge panel is open, or null. */
   @state() private splitting: string | null = null;
   /** The panel's choice: group number (1-based) per category id. */
@@ -435,7 +433,7 @@ export default class CupViewAdminJudges extends LitElement {
         "Vorläufe und Finals",
         (units) =>
           html`${this.renderJudgeSections(units)}
-          ${this.renderUnits(units)} ${this.renderRemap()}`,
+          ${this.renderUnits(units)}`,
       )}
     </div>`;
   }
@@ -875,7 +873,7 @@ export default class CupViewAdminJudges extends LitElement {
           (r) =>
             html`<span
               class="chip warn"
-              title="Aus einer alten Jury-Kategorie ohne passenden Vorlauf oder Finale; zählt erst, wenn sie zugeordnet ist"
+              title="Aus einer alten Jury-Kategorie oder einem Vorlauf oder Finale, das es nicht mehr gibt; zählt erst, wenn sie zugeordnet ist"
               >${r.old_unit}: ${taskLabels[r.task]}
               ${this.renderResolvePicker(units, r.id)}</span
             >`,
@@ -1049,93 +1047,6 @@ export default class CupViewAdminJudges extends LitElement {
       () => unwrap(client.resolveUnmappedRegistration({ body })),
       "Zuordnen",
     );
-  }
-
-  /**
-   * Applying a remap file: the judge registrations a competition import
-   * dropped, with their new heat or final filled in.
-   */
-  private renderRemap() {
-    const result = this.remapResult;
-    const name = (r: schemas.RemapRegistration) =>
-      `${r.firstname} ${r.lastname} (${r.club}, ${taskNames[r.task]})`;
-    const unfilled = (result?.unfilled ?? []).map(
-      (r) =>
-        html`<li>${name(r)}: keinen Vorlauf oder kein Finale eingetragen</li>`,
-    );
-    const notFound = (result?.not_found ?? []).map(
-      ({ registration: r, problem }) =>
-        html`<li>
-          ${name(r)}:
-          ${
-            problem === "judge_not_found"
-              ? "JurorIn nicht gefunden"
-              : `„${r.jury_unit}“ nicht gefunden (heat: … oder final: …)`
-          }
-        </li>`,
-    );
-    return html`<section class="no-print">
-      <h2>Remap-Datei anwenden</h2>
-      <p class="muted">
-        Hat ein Import Vorlaufklassen oder Finals umbenannt oder entfernt, gibt es
-        die Jury-Anmeldungen ohne passenden Vorlauf oder Finale als Datei. Trag
-        dort bei jeder Anmeldung den neuen Vorlauf oder das neue Finale ein
-        (<code>jury_unit = "heat: E EW"</code> oder
-        <code>jury_unit = "final: Finale EW"</code>) und lade sie hier hoch: Die
-        JurorInnen werden wieder angemeldet.
-      </p>
-      <input
-        type="file"
-        accept=".toml,text/plain"
-        aria-label="Remap-Datei"
-        ?disabled=${this.saving}
-        @change=${this.applyRemap}
-      />
-      ${
-        result
-          ? html`<div class="ok-banner" role="status">
-              ${result.registered}
-              ${result.registered === 1 ? "Anmeldung" : "Anmeldungen"}
-              eingetragen.
-            </div>`
-          : nothing
-      }
-      ${
-        unfilled.length || notFound.length
-          ? html`<div class="warn-banner" role="status">
-              <div>
-                Nicht eingetragen:
-                <ul>
-                  ${unfilled} ${notFound}
-                </ul>
-              </div>
-            </div>`
-          : nothing
-      }
-    </section>`;
-  }
-
-  private async applyRemap(event: Event) {
-    const input = event.target as HTMLInputElement;
-    const chosen = input.files?.[0];
-    input.value = "";
-    if (!chosen) {
-      return;
-    }
-    this.saving = true;
-    this.error = null;
-    this.remapResult = null;
-    try {
-      const file = await chosen.text();
-      this.remapResult = await unwrap(
-        client.applyJuryRemap({ body: { file } }),
-      );
-      void this.judges.run();
-    } catch (error) {
-      this.error = `Fehler beim Anwenden der Remap-Datei: ${errorMessage(error)}`;
-    } finally {
-      this.saving = false;
-    }
   }
 
   private renderUnits(units: JuryUnit[]) {

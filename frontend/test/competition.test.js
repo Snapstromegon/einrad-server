@@ -14,7 +14,7 @@ const nothingDropped = {
   finals_placements: 0,
   jury_assignments: 0,
   jury_plan_published: false,
-  judge_registrations: [],
+  judge_registrations: 0,
 };
 
 describe("droppedItems", () => {
@@ -29,7 +29,7 @@ describe("droppedItems", () => {
         timeplan_slots: 12,
         finals_placements: 1,
         jury_plan_published: true,
-        judge_registrations: [{}, {}, {}, {}],
+        judge_registrations: 4,
       }),
       [
         "12 Slots im Zeitplan",

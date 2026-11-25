@@ -29,8 +29,11 @@ pub struct UnitRef {
     id: JuryUnitId,
 }
 
-/// Resolve a registration the migration to jury units could not map (JURY-5):
-/// register the judge for a heat's Vorlauf or a final, or drop it. Jury lead.
+/// Resolve a registration on the unmapped list (JURY-5): register the judge for
+/// a heat's Vorlauf or a final, or drop it. Jury lead. The list is filled by the
+/// migration to jury units (registrations of categories that matched no unit)
+/// and by a competition replace (registrations whose heat or final has no
+/// namesake in the new file).
 #[utoipa::path(
     post,
     tags=["command", "jury"],

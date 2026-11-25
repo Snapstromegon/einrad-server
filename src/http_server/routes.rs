@@ -14,7 +14,6 @@ use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
-    services::ServeDir,
     trace::TraceLayer,
 };
 use tracing::{error, info_span};
@@ -207,7 +206,6 @@ pub fn get_router(
 
     Router::new()
         .fallback_service(serve_assets)
-        .nest_service("/songs", ServeDir::new(http_options.data_path.clone()))
         .merge(get_api_router(
             http_options,
             db,

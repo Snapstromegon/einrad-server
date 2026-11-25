@@ -88,7 +88,7 @@ pub struct Song {
     pub act_id: ActId,
     /// The file in the data directory.
     pub file: String,
-    /// Where web players load it from, e.g. `/songs/<file>`.
+    /// Where web players load it from, e.g. `/api/query/get_song?file=<file>`.
     pub url: String,
     /// The act, e.g. "Sternenstaub – Anna Muster".
     pub label: String,
@@ -1119,7 +1119,7 @@ impl PlayerHub {
         };
         Ok(Some(Song {
             act_id,
-            url: format!("/songs/{file}"),
+            url: format!("/api/query/get_song?file={file}"),
             file,
             label,
             original,
@@ -1192,7 +1192,7 @@ mod tests {
         Song {
             act_id: ActId(Uuid::from_u128(act)),
             file: format!("{act}.mp3"),
-            url: format!("/songs/{act}.mp3"),
+            url: format!("/api/query/get_song?file={act}.mp3"),
             label: "Kür".into(),
             original: false,
         }
@@ -1706,7 +1706,7 @@ mod tests {
         drain(&mut a_rx);
         let original = Song {
             file: "2-original.mp3".into(),
-            url: "/songs/2-original.mp3".into(),
+            url: "/api/query/get_song?file=2-original.mp3".into(),
             original: true,
             ..song(2)
         };

@@ -313,19 +313,6 @@ async fn a_combined_config_stops_the_start() {
     assert_eq!(Competition::current(&db).await.unwrap(), None);
 }
 
-#[tokio::test]
-async fn checking_a_file_at_startup_never_writes_into_the_system_temp_dir() {
-    // check_file applies the file to a throwaway database; whatever it would
-    // write (e.g. a remap file) goes into a scratch dir of its own that is
-    // removed again, never into the system temp dir itself.
-    let remap = std::env::temp_dir().join("remap");
-    let existed = remap.exists();
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/competition.toml");
-    einrad_server::seed::check_file(&path).await.unwrap();
-    assert_eq!(remap.exists(), existed);
-}
-
 // Jury sessions in the file (#386, ADR 0019).
 
 /// The fixture with `heat_extra` after the heat "JE EW" (categories EWU11,

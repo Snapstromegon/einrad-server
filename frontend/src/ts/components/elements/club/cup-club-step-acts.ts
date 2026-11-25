@@ -32,6 +32,7 @@ import {
   MIN_GROUP_SIZE,
   normalizationLabel,
   countRiders,
+  songUrl,
 } from "../../../utils";
 import {
   checkSong,
@@ -1600,7 +1601,7 @@ export default class CupClubStepActs extends LitElement {
                 <audio
                   preload="none"
                   controls
-                  src="/songs/${act.song_file_normalized}"
+                  src=${songUrl(act.song_file_normalized)}
                 ></audio>
                 <p class="hint">Original:</p>`
               : act.normalization_status
@@ -1609,7 +1610,7 @@ export default class CupClubStepActs extends LitElement {
                 </p>`
                 : nothing
           }
-          <audio preload="none" controls src="/songs/${act.song_file}"></audio>`
+          <audio preload="none" controls src=${songUrl(act.song_file)}></audio>`
         : html`<p class="muted">Noch keine Musik.</p>`
     }
     ${

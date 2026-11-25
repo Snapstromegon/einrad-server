@@ -46,7 +46,7 @@ export const droppedItems = (dropped: Dropped): string[] =>
     ),
     dropped.jury_plan_published ? "die Veröffentlichung des Juryplans" : null,
     counted(
-      dropped.judge_registrations.length,
+      dropped.judge_registrations,
       "Jury-Anmeldung ohne passenden Vorlauf oder Finale",
       "Jury-Anmeldungen ohne passenden Vorlauf oder Finale",
     ),

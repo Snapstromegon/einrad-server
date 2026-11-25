@@ -66,9 +66,11 @@ the competition file only an import:
   and roles. Timeplan slots and progress (also the acts' started and ended
   times), finals placements and the jury plan with its publication are dropped,
   with a warning listing them. Judge registrations are matched to the new heats
-  and finals by name; the others are written to
-  `data_path/remap/jury-registrations-<timestamp>.toml`, with an empty
-  `jury_unit` (`heat: <name>` or `final: <name>`) to fill in. A file that doesn't change anything replaces
+  and finals by name; the others go on the unmapped list of the admin judges
+  screen ("Jury"), in the same transaction, labelled with the unit they had
+  (`heat: <name>` or `final: <name>`), and the startup warning counts them.
+  There the jury lead registers each judge for a heat's Vorlauf or a final,
+  or drops the registration. A file that doesn't change anything replaces
   nothing, so leaving the flag set doesn't drop the planning on every start.
 - "Wettkampf bearbeiten" in the admin UI ("Wettkampf", Admin only) changes the
   competition while the server runs, also while the registration is open:
@@ -78,8 +80,9 @@ the competition file only an import:
 - The admin UI imports a competition file too ("Wettkampf", Admin only):
   without a competition directly, over an existing one like
   `--replace-competition`, after a preview of what it replaces and drops and a
-  confirmation. Dropped judge registrations are offered as the remap file to
-  download. The new settings apply without a restart.
+  confirmation. Dropped judge registrations go on the unmapped list of the
+  judges screen, the preview and the result count them. The new settings
+  apply without a restart.
 - The export ("Wettkampf", Admin only) downloads the competition as a
   competition file that the import and `--competition` take unchanged, e.g. to
   save a test instance's settings: the settings with the id, the features it
@@ -88,10 +91,6 @@ the competition file only an import:
   next season), the heats and finals (with their jury settings that differ
   from the defaults) and the timeplan. Nothing clubs entered, no bookings, fee
   waivers, users, act order, progress, placements or jury plan.
-- A filled-in remap file is applied on the admin judges screen ("Jury",
-  "Remap-Datei anwenden"): entries with an existing `jury_unit` (`heat: <name>`
-  or `final: <name>`) register their judge for it and the task again; entries
-  whose judge or jury unit isn't found are listed.
 - **Setup mode:** without a competition in the database and without a
   competition file, the server starts anyway if there is an admin (`[admin]`
   / `ADMIN`, or one in the database). Admins see the import, everyone else a

@@ -673,7 +673,7 @@ async fn a_group_member_of_another_club_shows_up_for_the_own_club() {
     assert_eq!(rows[0]["category"], "KG15+");
 }
 
-// Moving and resolving by the Jury lead follow the rule; a remap keeps.
+// Moving and resolving by the Jury lead follow the rule.
 
 /// A linked judge (the rider rides in "Erwachsene") registered for a heat
 /// "Andere" and a registration waiting in the unmapped list.
@@ -774,33 +774,4 @@ async fn an_unmapped_registration_cannot_be_resolved_into_a_heat_the_rider_rides
             Some(&admin),
         )
         .await);
-}
-
-#[tokio::test]
-async fn a_remap_keeps_the_registration_and_it_shows_as_a_conflict() {
-    let (app, admin, owner, club_id) = setup().await;
-    let max = rider(&app, &owner, club_id, "Max", true, false, None).await;
-    let added = app
-        .post(
-            "/api/command/add_club_judge",
-            judge_body(club_id, Some(max), &[]),
-            Some(&owner),
-        )
-        .await;
-    ok(&added);
-
-    let file = "[[jury_registrations]]\nclub = \"RSV\"\nfirstname = \"Max\"\nlastname = \"Müller\"\ntask = \"technical\"\nold_jury_unit = \"Alt\"\njury_unit = \"heat: Erwachsene\"\n";
-    let response = app
-        .post(
-            "/api/command/apply_jury_remap",
-            json!({ "file": file }),
-            Some(&admin),
-        )
-        .await;
-    ok(&response);
-    assert_eq!(response.body["registered"], 1, "{:?}", response.body);
-    assert_eq!(
-        conflict(&app, &owner, club_id).await,
-        json!({ "category": "EWU23", "replacement": false })
-    );
 }

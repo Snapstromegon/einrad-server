@@ -52,7 +52,7 @@ async fn in_setup_mode_the_import_creates_the_competition() {
     let response = import(&app, &admin, COMPETITION).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(response.body["outcome"], "created");
-    assert_eq!(response.body["remap_file"], Value::Null);
+    assert_eq!(response.body["dropped"]["judge_registrations"], 0);
     assert_eq!(
         system_status(&app).await["competition"]["name"],
         "Einradevent 2027 (Demo)"
@@ -120,8 +120,35 @@ async fn an_invalid_file_changes_nothing_and_says_why() {
     assert_eq!(Competition::current(&app.db).await.unwrap(), before);
 }
 
+/// The registrations on the unmapped list, as the admin judges view reads them.
+async fn unmapped(app: &TestApp, cookie: &str) -> Value {
+    let response = app.get("/api/query/list_judges", Some(cookie)).await;
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    Value::Array(
+        response
+            .body
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|judge| {
+                judge["unmapped_registrations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|r| {
+                        json!({
+                            "lastname": judge["lastname"],
+                            "old_unit": r["old_unit"],
+                            "task": r["task"],
+                        })
+                    })
+            })
+            .collect(),
+    )
+}
+
 #[tokio::test]
-async fn a_replace_is_previewed_and_offers_the_remap_file() {
+async fn a_replace_is_previewed_and_lists_dropped_judge_registrations() {
     let db = common::in_memory_migrated().await;
     let app = TestApp::new(db).await;
     let admin = app.create_admin().await;
@@ -171,9 +198,12 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(response.body["current_id"], before.id);
     assert_eq!(response.body["changes"], json!(["settings", "finals"]));
-    let dropped = &response.body["dropped"]["judge_registrations"];
-    assert_eq!(dropped.as_array().unwrap().len(), 1, "{dropped:?}");
-    assert_eq!(dropped[0]["old_jury_unit"], "final: Finale EW");
+    assert_eq!(response.body["dropped"]["judge_registrations"], 1);
+    assert_eq!(
+        unmapped(&app, &admin).await,
+        json!([]),
+        "a preview lists nothing"
+    );
     assert_eq!(
         Competition::current(&app.db).await.unwrap().unwrap(),
         before,
@@ -183,17 +213,19 @@ async fn a_replace_is_previewed_and_offers_the_remap_file() {
     let response = import(&app, &admin, &file).await;
     assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
     assert_eq!(response.body["outcome"], "replaced");
-    let remap = &response.body["remap_file"];
+    assert_eq!(response.body["dropped"]["judge_registrations"], 1);
     assert!(
-        remap["name"]
-            .as_str()
-            .unwrap()
-            .starts_with("jury-registrations-"),
-        "{remap:?}"
+        response.body.get("remap_file").is_none(),
+        "{:?}",
+        response.body
     );
-    let content = remap["content"].as_str().unwrap();
-    assert!(content.contains("Müller"), "{content}");
-    assert!(content.contains("jury_unit = \"\""), "{content}");
+    // The registration waits on the unmapped list of the judges view; no
+    // file is written into the data folder.
+    assert_eq!(
+        unmapped(&app, &admin).await,
+        json!([{ "lastname": "Müller", "old_unit": "final: Finale EW", "task": "technical" }])
+    );
+    assert_eq!(std::fs::read_dir(app.data_path()).unwrap().count(), 0);
     let after = Competition::current(&app.db).await.unwrap().unwrap();
     assert_eq!(after.fee_per_start, 20.0);
     assert_eq!(after.id, before.id);

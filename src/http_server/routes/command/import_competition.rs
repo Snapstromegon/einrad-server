@@ -8,12 +8,12 @@ use utoipa::ToSchema;
 use super::preview_competition_import::{CompetitionFileBody, parse};
 use crate::{
     competition::Competition,
-    http_server::{ClientError, HttpError, HttpServerOptions, extractor::auth::Granted},
+    http_server::{ClientError, HttpError, extractor::auth::Granted},
     image_fetch::ImageFetcher,
     photos::Photos,
     reloadable_sqlite::ReloadableSqlite,
     roles::permit,
-    seed::{self, Applied, Dropped, RemapFile},
+    seed::{self, Applied, Dropped},
 };
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -30,17 +30,9 @@ pub enum ImportOutcome {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ImportCompetitionResponse {
     pub outcome: ImportOutcome,
-    /// What the replace dropped.
+    /// What the replace dropped. The dropped judge registrations are on the
+    /// unmapped list of the judges view, to resolve there.
     pub dropped: Dropped,
-    /// The remap file of the dropped judge registrations, to download, fill
-    /// in and apply on the judges screen; `None` without any.
-    pub remap_file: Option<RemapFileDownload>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RemapFileDownload {
-    pub name: String,
-    pub content: String,
 }
 
 /// Imports a competition file: creates the competition in setup mode, or
@@ -58,11 +50,10 @@ pub struct RemapFileDownload {
         (status=500, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(db, http_options, photos, body))]
+#[instrument(skip(db, photos, body))]
 #[axum::debug_handler]
 pub async fn import_competition(
     Extension(db): Extension<ReloadableSqlite>,
-    Extension(http_options): Extension<Arc<HttpServerOptions>>,
     Extension(photos): Extension<Arc<Photos>>,
     _: Granted<permit::ManageCompetition>,
     Json(body): Json<CompetitionFileBody>,
@@ -70,7 +61,7 @@ pub async fn import_competition(
     let file = parse(&body)?;
     let reloadable = db.clone();
     let db = db.get().await.clone();
-    let report = seed::apply(&db, Some(&file), true, &http_options.data_path)
+    let report = seed::apply(&db, Some(&file), true)
         .await
         .map_err(HttpError::ErrorMessages)?;
     let (outcome, dropped) = match report.applied {
@@ -90,26 +81,5 @@ pub async fn import_competition(
     let competition = Competition::current(&db).await?;
     photos.configure(competition.and_then(|c| c.photos).as_ref());
 
-    let remap_file = if dropped.judge_registrations.is_empty() {
-        None
-    } else {
-        let content = seed::remap_content(&RemapFile {
-            jury_registrations: dropped.judge_registrations.clone(),
-        })
-        .map_err(HttpError::ErrorMessages)?;
-        let name = dropped
-            .remap_file
-            .as_ref()
-            .and_then(|path| path.file_name())
-            .map_or_else(
-                || "jury-registrations.toml".to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-        Some(RemapFileDownload { name, content })
-    };
-    Ok(Json(ImportCompetitionResponse {
-        outcome,
-        dropped,
-        remap_file,
-    }))
+    Ok(Json(ImportCompetitionResponse { outcome, dropped }))
 }

@@ -45,6 +45,7 @@ import {
   slotAct,
   slotItem,
   songFile,
+  songUrl,
 } from "../../utils";
 import {
   actPosition,
@@ -1410,7 +1411,7 @@ export default class CupViewAdminMusicControl extends LitElement {
               ><audio
                 controls
                 preload="auto"
-                src="/songs/${file}"
+                src=${songUrl(file)}
                 data-act=${act.id}
                 data-original=${this.originalSongs.has(act.id) ? "true" : "false"}
                 @playing=${this.onLocalPlaying}

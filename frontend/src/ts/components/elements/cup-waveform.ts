@@ -65,7 +65,7 @@ const loadPeaks = (url: string) => {
  * Its height is `--wave-height` (4rem by default).
  *
  * Wrap an `<audio>` element to follow and control it:
- * `<cup-waveform><audio src="/songs/x.mp3" controls></audio></cup-waveform>`.
+ * `<cup-waveform><audio src="/api/query/get_song?file=x.mp3" controls></audio></cup-waveform>`.
  * Without one, set `src` and `position`; seeking then fires a `seek` event
  * with the position in seconds. With `playing`, the playhead moves on from
  * `position` in real time, e.g. for a song playing on a remote player.

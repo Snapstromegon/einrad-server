@@ -59,8 +59,8 @@ _Avoid_: Setup password, invite code
 **Setup mode**:
 The server running without a competition, until an admin imports a competition file or creates a competition from scratch in the admin UI; everyone else sees "noch nicht eröffnet".
 
-**Remap file**:
-The list of judge registrations a replace dropped because their jury unit has no namesake heat or final in the new competition file, with an empty jury unit to fill in. The migration to jury units (ADR 0016) leaves the registrations it could not map on the same kind of list, in the admin judges view.
+**Unmapped list**:
+The judge registrations whose jury unit has no namesake heat or final any more, shown in the admin judges view ("Jury") for the jury lead to register for a heat's Vorlauf or a final, or to drop. A competition replace puts the registrations it drops there, and the migration to jury units (ADR 0016) those it could not map.
 
 **Determining day** (Stichtag):
 The day ages are counted on for categories: 1 June of the season, for every act type.

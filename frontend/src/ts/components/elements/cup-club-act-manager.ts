@@ -22,6 +22,7 @@ import {
   MIN_GROUP_SIZE,
   normalizationLabel,
   countRiders,
+  songUrl,
 } from "../../utils";
 
 type Act = schemas.ClubAct;
@@ -361,7 +362,7 @@ export default class CupClubActManager extends LitElement {
                         ><br /><audio
                           preload="none"
                           controls
-                          src="/songs/${act.song_file_normalized}"
+                          src=${songUrl(act.song_file_normalized)}
                         ></audio
                         ><br /><small>Original:</small><br />`
                     : act.normalization_status
@@ -372,7 +373,7 @@ export default class CupClubActManager extends LitElement {
                 }<audio
                   preload="none"
                   controls
-                  src="/songs/${act.song_file}"
+                  src=${songUrl(act.song_file)}
                 ></audio>`
             : "❌"
         }

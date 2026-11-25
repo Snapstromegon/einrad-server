@@ -519,6 +519,10 @@ export const songFile = (
   original = false,
 ) => (original ? act.song_file : (act.song_file_normalized ?? act.song_file));
 
+/** Where a song file is downloaded from (the `get_song` query, logged in). */
+export const songUrl = (file: string) =>
+  `/api/query/get_song?file=${encodeURIComponent(file)}`;
+
 /** A short German note on the normalized copy of a song, if there is one. */
 export const normalizationLabel = (status: string | null | undefined) =>
   status === "pending"

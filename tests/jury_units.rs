@@ -107,7 +107,7 @@ async fn the_migration_maps_jury_categories_only_where_the_match_is_unambiguous(
         .await,
         ["final Finale EW performance", "heat JE EW technical"]
     );
-    // The rest is on the remap list.
+    // The rest is on the unmapped list.
     assert_eq!(
         texts(
             &db,
