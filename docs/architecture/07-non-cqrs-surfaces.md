@@ -17,7 +17,7 @@ Everything registered in `src/http_server/routes.rs` and `src/setup.rs` outside 
 | `GET /api/photos/newest`, `/api/photos/random` | 302 to `/api/photos/{id}`, `no-store` | ❌ file from state; the shape is open question Q5 |
 | `GET /api/db-backups/{filename}` | Admin download of a backup file | ❌ file from state, becomes `export_db_backup` |
 | ~~`/songs/*` → `ServeDir(data_path)`~~ | Song files | ✅ moved to `get_song` with login and a song-name allowlist (#433) |
-| `GET /metrics` | Prometheus text, bearer token | ⚠️ derived from state, but its path and format are set by Prometheus. Proposed as the one documented exception, see open question Q7. |
+| `GET /metrics` | Prometheus text, bearer token | ✅ the one documented exception (Q7): derived from state, but Prometheus sets its path and format, and only the scraper calls it. |
 | `/api/setup/session` (GET+POST), `/status`, `/test-mail`, `/complete` | First-run setup (ADR 0011), own router state, own `SetupAuth` | ❌ REST-style, not in OpenAPI, called with hand-written `fetch` in `cup-setup.ts` and `cup-setup-wizard.ts`. |
 
 ## Files from state as queries

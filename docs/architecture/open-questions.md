@@ -36,6 +36,6 @@ Decided 2026-11-25 that files from state are queries ([01](01-cqrs-api.md), rule
 
 `400` or `422` for invalid input? The frontend already has messages for both (`frontend/src/ts/api.ts`).
 
-## Q7 · `/metrics`
+## Q7 · `/metrics` · ✅ decided 2026-11-25
 
-`GET /metrics` is derived from state, so rule 3 would make it a query. But Prometheus scrapes a fixed path and format with a bearer token, and nothing in the app calls it. Keep it as the one documented exception (*recommended*), or move it to `/api/query/get_metrics` and point the scrape config there (`deploy/`)?
+`GET /metrics` stays **the one documented exception** to rule 3. Prometheus scrapes a fixed path and format with a bearer token, and nothing in the app calls it.
