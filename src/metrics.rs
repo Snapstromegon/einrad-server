@@ -67,7 +67,11 @@ pub struct Metrics {
     riders_checked_in: Gauge,
     registration_open: Gauge,
     music_upload_open: Gauge,
+    registration_start: Gauge,
     registration_end: Gauge,
+    music_upload_end: Gauge,
+    judge_registration_end: Gauge,
+    payment_deadline: Gauge,
     // Acts and music
     acts: GaugeFamily,
     acts_by_category: GaugeFamily,
@@ -102,7 +106,11 @@ impl Metrics {
             riders_checked_in: Gauge::default(),
             registration_open: Gauge::default(),
             music_upload_open: Gauge::default(),
+            registration_start: Gauge::default(),
             registration_end: Gauge::default(),
+            music_upload_end: Gauge::default(),
+            judge_registration_end: Gauge::default(),
+            payment_deadline: Gauge::default(),
             acts: GaugeFamily::default(),
             acts_by_category: GaugeFamily::default(),
             group_riders: GaugeFamily::default(),
@@ -151,9 +159,29 @@ impl Metrics {
             m.music_upload_open.clone(),
         );
         registry.register(
+            "registration_start_timestamp_seconds",
+            "Start of the registration as a Unix timestamp",
+            m.registration_start.clone(),
+        );
+        registry.register(
             "registration_end_timestamp_seconds",
             "End of the registration (Meldeschluss) as a Unix timestamp",
             m.registration_end.clone(),
+        );
+        registry.register(
+            "music_upload_end_timestamp_seconds",
+            "End of the music upload as a Unix timestamp",
+            m.music_upload_end.clone(),
+        );
+        registry.register(
+            "judge_registration_end_timestamp_seconds",
+            "End of the judge registration (the jury's own deadline, else the registration's end) as a Unix timestamp",
+            m.judge_registration_end.clone(),
+        );
+        registry.register(
+            "payment_deadline_timestamp_seconds",
+            "End of the payment deadline's day (server-local) as a Unix timestamp; 0 without one",
+            m.payment_deadline.clone(),
         );
         registry.register(
             "acts",
@@ -320,11 +348,24 @@ impl Metrics {
         );
         self.music_upload_open
             .set(capabilities.is_some_and(|c| c.can_upload_music).into());
-        self.registration_end.set(
-            competition
-                .as_ref()
-                .map_or(0, |c| c.registration_end.unix_timestamp()),
-        );
+        let timestamp = |f: fn(&Competition) -> i64| competition.as_ref().map_or(0, f);
+        self.registration_start
+            .set(timestamp(|c| c.registration_start.unix_timestamp()));
+        self.registration_end
+            .set(timestamp(|c| c.registration_end.unix_timestamp()));
+        self.music_upload_end
+            .set(timestamp(|c| c.music_upload_end.unix_timestamp()));
+        self.judge_registration_end
+            .set(timestamp(|c| c.judge_registration_end().unix_timestamp()));
+        self.payment_deadline.set(timestamp(|c| {
+            c.payment_deadline
+                .and_then(|day| day.next_day())
+                .map_or(0, |end| {
+                    end.midnight()
+                        .assume_offset(crate::db_backup::local_offset())
+                        .unix_timestamp()
+                })
+        }));
 
         let acts = sqlx::query!(
             r#"

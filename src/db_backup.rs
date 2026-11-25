@@ -47,10 +47,15 @@ pub fn init_local_offset() -> Result<UtcOffset, time::error::IndeterminateOffset
     Ok(*LOCAL_OFFSET.get_or_init(|| offset))
 }
 
+/// The offset found by [`init_local_offset`], UTC if there is none.
+pub fn local_offset() -> UtcOffset {
+    LOCAL_OFFSET.get().copied().unwrap_or(UtcOffset::UTC)
+}
+
 /// `now` in the offset found by [`init_local_offset`] (UTC if there is none),
 /// without sub-seconds.
 fn local_time(now: OffsetDateTime) -> PrimitiveDateTime {
-    let now = now.to_offset(LOCAL_OFFSET.get().copied().unwrap_or(UtcOffset::UTC));
+    let now = now.to_offset(local_offset());
     PrimitiveDateTime::new(now.date(), now.time().replace_nanosecond(0).unwrap())
 }
 
