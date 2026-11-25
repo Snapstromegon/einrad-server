@@ -39,10 +39,10 @@
     "typescript": "^7.0.2",
     "unplugin-kubb": "^5.24.0",
     "urlpattern-polyfill": "^10.0.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000",
     "vite-plus": "1.7.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000"
   }
 }
