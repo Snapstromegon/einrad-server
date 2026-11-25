@@ -10,6 +10,7 @@ mod get_competition_settings;
 mod get_photos;
 mod get_playback;
 mod get_rider_delete_impact;
+mod get_song;
 mod get_startlist_csv;
 mod get_structure;
 mod get_system_status;
@@ -47,6 +48,7 @@ mod whoami;
 pub fn get_query_router() -> OpenApiRouter {
     OpenApiRouter::new()
         .routes(routes!(get_act::get_act))
+        .routes(routes!(get_song::get_song))
         .routes(routes!(get_club::get_club))
         .routes(routes!(get_competition_images::get_competition_images))
         .routes(routes!(get_competition_settings::get_competition_settings))

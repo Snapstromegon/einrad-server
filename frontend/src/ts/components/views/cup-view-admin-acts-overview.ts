@@ -24,6 +24,7 @@ import {
   MIN_GROUP_SIZE,
   normalizationLabel,
   songFile,
+  songUrl,
 } from "../../utils";
 import "../elements/cup-waveform.js";
 import "../elements/cup-act-participants.js";
@@ -1530,7 +1531,7 @@ export default class CupViewAdminActsOverview extends LitElement {
       source: act.song_file,
       name: act.song_file_name ?? act.song_file,
     };
-    audio.src = `/songs/${file}`;
+    audio.src = songUrl(file);
     this.play(audio);
   }
 

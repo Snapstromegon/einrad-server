@@ -311,7 +311,7 @@ async fn every_other_api_answers_503() {
         (Method::POST, "/api/command/reload_db"),
         (Method::GET, "/api/ws/player"),
         (Method::GET, "/metrics"),
-        (Method::GET, "/songs/a.mp3"),
+        (Method::GET, "/api/query/get_song?file=a.mp3"),
         (Method::GET, "/openapi.json"),
         (Method::GET, "/swagger/"),
         (Method::GET, "/api/setup/unknown"),

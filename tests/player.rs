@@ -267,7 +267,7 @@ fn original_song(act_id: ActId, firstname: &str) -> Value {
     json!({
         "act_id": act_id,
         "file": format!("{act_id}.mp3"),
-        "url": format!("/songs/{act_id}.mp3"),
+        "url": format!("/api/query/get_song?file={act_id}.mp3"),
         "label": format!("{firstname} Muster"),
         "original": true,
     })
@@ -370,7 +370,7 @@ fn normalized_song(act_id: ActId, firstname: &str, file: &str) -> Value {
     json!({
         "act_id": act_id,
         "file": file,
-        "url": format!("/songs/{file}"),
+        "url": format!("/api/query/get_song?file={file}"),
         "label": format!("{firstname} Muster"),
         "original": false,
     })

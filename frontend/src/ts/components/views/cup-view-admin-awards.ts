@@ -20,7 +20,12 @@ import {
 } from "../../player";
 import { adminStyles } from "../../styles/admin";
 import { iconStyles, resetStyles } from "../../styles/base";
-import { actMatchesSearch, actParticipantsLabel, songFile } from "../../utils";
+import {
+  actMatchesSearch,
+  actParticipantsLabel,
+  songFile,
+  songUrl,
+} from "../../utils";
 import "../elements/cup-waveform.js";
 
 type Act = schemas.Act;
@@ -512,7 +517,7 @@ export default class CupViewAdminAwards extends LitElement {
       ${keyed(
         `${this.playingHere.id}|${this.playingHere.start}`,
         html`<cup-waveform
-          ><audio controls autoplay src="/songs/${file}"></audio
+          ><audio controls autoplay src=${songUrl(file)}></audio
         ></cup-waveform>`,
       )}
     </div>`;

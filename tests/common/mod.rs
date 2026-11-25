@@ -469,9 +469,8 @@ impl TestApp {
         }
     }
 
-    /// Serves the app on a free local port, e.g. for websocket tests, with
-    /// the songs at `/songs` like the real server (the API router has them).
-    /// The server stops with the test.
+    /// Serves the app on a free local port, e.g. for websocket tests. The server
+    /// stops with the test.
     pub async fn serve(&self) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

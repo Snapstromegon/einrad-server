@@ -1,24 +1,39 @@
-//! `/songs/<file>`: the music files of the data folder, for logged-in users.
+//! `GET /api/query/get_song?file=<name>`: the music files of the data folder,
+//! for logged-in users.
 //!
 //! The data folder holds more than songs, so only file names that look like
 //! a song are served: `<act-uuid>.mp3` (an upload), `<act-uuid>.wav` (the
 //! demo's tone) and `<act-uuid>.<uuid>.normalized.mp3` (the loudness-
-//! normalized copy). Everything else is 404, also in subfolders.
+//! normalized copy). Everything else is 404.
 
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Extension,
     body::Body,
-    extract::{Path, Request},
+    extract::{Query, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
+use tracing::instrument;
 use uuid::Uuid;
 
-use crate::http_server::{HttpServerOptions, extractor::auth::Auth};
+use crate::http_server::{ClientError, HttpServerOptions, extractor::auth::Auth};
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct GetSongQuery {
+    /// The song's file name, e.g. `<act-id>.mp3` (an act's `song_file` or
+    /// `song_file_normalized`).
+    file: String,
+}
+
+/// The song's bytes, for the OpenAPI spec.
+#[derive(utoipa::ToSchema)]
+#[schema(value_type = String, format = Binary)]
+#[allow(dead_code)]
+pub struct SongBytes(Vec<u8>);
 
 /// A hyphenated UUID, the form the file names use.
 fn is_uuid(part: &str) -> bool {
@@ -35,17 +50,32 @@ fn is_song_file_name(name: &str) -> bool {
     }
 }
 
-/// Serves a song with range, conditional and content type handling.
-pub async fn song(
+/// Download a song file. Logged in users.
+///
+/// Supports range requests (seeking) and conditional requests.
+#[utoipa::path(
+    get,
+    tags=["query", "act"],
+    path="/get_song",
+    params(GetSongQuery),
+    responses(
+        (status=200, content((SongBytes = "audio/mpeg"), (SongBytes = "audio/wav"))),
+        (status=206, content((SongBytes = "audio/mpeg"), (SongBytes = "audio/wav"))),
+        (status=401, content_type="application/json", body=ClientError),
+        (status=404, content_type="application/json", body=ClientError),
+    ),
+)]
+#[instrument(skip(options, request))]
+pub async fn get_song(
     _: Auth,
     Extension(options): Extension<Arc<HttpServerOptions>>,
-    Path(file): Path<String>,
+    Query(query): Query<GetSongQuery>,
     request: Request,
 ) -> Response {
-    if !is_song_file_name(&file) {
+    if !is_song_file_name(&query.file) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let path: PathBuf = options.data_path.join(&file);
+    let path: PathBuf = options.data_path.join(&query.file);
     match ServeFile::new(path).oneshot(request).await {
         Ok(response) => response.map(Body::new),
         Err(never) => match never {},

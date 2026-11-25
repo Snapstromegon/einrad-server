@@ -113,6 +113,7 @@ const QUERIES: &[&str] = &[
     "get_photos",
     "get_playback",
     "get_rider_delete_impact",
+    "get_song",
     "get_startlist_csv",
     "get_structure",
     "get_system_status",

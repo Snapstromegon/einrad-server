@@ -6,7 +6,6 @@ pub mod http_types;
 mod logo;
 mod photos;
 pub mod query;
-mod songs;
 
 use axum::{Extension, Router, extract::Request, http::HeaderName, middleware, routing::get};
 use axum_embed::{FallbackBehavior, ServeEmbed};
@@ -146,7 +145,6 @@ pub fn get_api_router(
         .route("/api/photos/newest", get(photos::newest))
         .route("/api/photos/random", get(photos::random))
         .route("/api/photos/{id}", get(photos::image))
-        .route("/songs/{file}", get(songs::song))
         .route_layer(middleware::from_fn(metrics::track_http))
         .route("/metrics", get(metrics::metrics_handler))
         .merge(SwaggerUi::new("/swagger").url("/openapi.json", openapi))

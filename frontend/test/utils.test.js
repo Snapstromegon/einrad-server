@@ -51,6 +51,7 @@ import {
   TimeplanStatus,
   timeplanStatus,
   songFile,
+  songUrl,
 } from "../src/ts/utils.ts";
 
 // Pin the time zone, so date assertions don't depend on the machine. Nothing
@@ -1250,6 +1251,19 @@ describe("songFile", () => {
   test("plays the original when asked or without a copy", () => {
     assert.equal(songFile(act, true), "a.mp3");
     assert.equal(songFile({ ...act, song_file_normalized: null }), "a.mp3");
+  });
+});
+
+describe("songUrl", () => {
+  test("is the get_song query for the file", () => {
+    assert.equal(songUrl("a.mp3"), "/api/query/get_song?file=a.mp3");
+  });
+
+  test("encodes the file name", () => {
+    assert.equal(
+      songUrl("a b&c.mp3"),
+      "/api/query/get_song?file=a%20b%26c.mp3",
+    );
   });
 });
 

@@ -215,16 +215,23 @@ describe("SongCache", () => {
 
   test("loads the songs into object URLs", async () => {
     const { cache, requests, answer } = fakeCache();
-    cache.prefetch(["/songs/a", "/songs/b", "/songs/c"]);
-    assert.deepEqual([...requests.keys()], ["/songs/a", "/songs/b"]);
-    assert.equal(cache.get("/songs/a"), undefined);
-    await answer("/songs/a");
-    assert.equal(cache.get("/songs/a"), "blob:1");
+    cache.prefetch([
+      "/api/query/get_song?file=a",
+      "/api/query/get_song?file=b",
+      "/api/query/get_song?file=c",
+    ]);
+    assert.deepEqual(
+      [...requests.keys()],
+      ["/api/query/get_song?file=a", "/api/query/get_song?file=b"],
+    );
+    assert.equal(cache.get("/api/query/get_song?file=a"), undefined);
+    await answer("/api/query/get_song?file=a");
+    assert.equal(cache.get("/api/query/get_song?file=a"), "blob:1");
     assert.deepEqual(
       cache.list().map(({ url, state, size }) => [url, state, size]),
       [
-        ["/songs/a", "ready", 4],
-        ["/songs/b", "loading", undefined],
+        ["/api/query/get_song?file=a", "ready", 4],
+        ["/api/query/get_song?file=b", "loading", undefined],
       ],
     );
   });
