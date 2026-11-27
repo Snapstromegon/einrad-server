@@ -106,6 +106,10 @@ _Avoid_: Helpdesk, Club admin
 Every user holding at least one role.
 _Avoid_: Staff, Helfer (as a term in the tool)
 
+**Fotograf** (Fotograf, Fotografin):
+The organizer role for the person taking photos at the event: sees the internal timeplan, the acts and the live act, and links Kürfotos to acts.
+_Avoid_: Photographer (as a role name)
+
 ### Clubs and riders
 
 **Club** (Verein):
@@ -363,6 +367,10 @@ An award with a sticker for each regular rider of the first three acts of a cate
 
 **Trophy** (Pokal):
 An award for each rider of the first three places of a final, and for each group act on the podium.
+
+**Kürfoto** (Kürfoto):
+A photo linked to one act, shown on the info board during the award ceremonies.
+_Avoid_: Act photo, Bild
 
 ## Relationships
 
