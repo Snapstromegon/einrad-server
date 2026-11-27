@@ -143,6 +143,8 @@ permissions! {
     MailClubs,
     /// The photos of the acts.
     ManageActPhotos,
+    /// Hide photos from the info board, or show them again.
+    HidePhotos,
 }
 
 impl Role {
@@ -189,6 +191,7 @@ impl Role {
                 P::ViewInternalEntries,
                 P::ViewUnpublishedStartlist,
                 P::ManageActPhotos,
+                P::HidePhotos,
             ],
             Role::Moderation => &[
                 P::ViewModeration,
@@ -202,6 +205,7 @@ impl Role {
                 P::ViewInternalEntries,
                 P::ViewUnpublishedStartlist,
                 P::ManageActPhotos,
+                P::HidePhotos,
             ],
             // Enters registrations for clubs, also after the Meldeschluss.
             Role::Support => &[
@@ -310,6 +314,7 @@ mod tests {
                     P::ViewInternalEntries,
                     P::ViewUnpublishedStartlist,
                     P::ManageActPhotos,
+                    P::HidePhotos,
                 ],
             ),
             (
@@ -328,6 +333,7 @@ mod tests {
                     P::ViewInternalEntries,
                     P::ViewUnpublishedStartlist,
                     P::ManageActPhotos,
+                    P::HidePhotos,
                 ],
             ),
             (
@@ -408,7 +414,8 @@ mod tests {
                 P::ViewModeration,
                 P::ViewInternalEntries,
                 P::ViewUnpublishedStartlist,
-                P::ManageActPhotos
+                P::ManageActPhotos,
+                P::HidePhotos
             ]
         );
     }
@@ -430,6 +437,28 @@ mod tests {
             assert_eq!(
                 role.permissions().contains(&P::ManageActPhotos),
                 manages,
+                "{role:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn admins_music_control_and_the_photographer_hide_photos() {
+        let roles = [
+            (Role::Admin, true),
+            (Role::MusicControl, true),
+            (Role::Photographer, true),
+            (Role::Support, false),
+            (Role::JuryLead, false),
+            (Role::Treasurer, false),
+            (Role::CheckIn, false),
+            (Role::Moderation, false),
+            (Role::MusicCheck, false),
+        ];
+        for (role, hides) in roles {
+            assert_eq!(
+                role.permissions().contains(&P::HidePhotos),
+                hides,
                 "{role:?}"
             );
         }

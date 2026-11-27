@@ -629,6 +629,7 @@ async fn whoami_lists_the_permissions_of_the_photographer() {
     assert_eq!(
         strings(&response.body["permissions"]),
         [
+            "hide_photos",
             "manage_act_photos",
             "view_internal_entries",
             "view_moderation",

@@ -244,6 +244,7 @@ struct State {
     generation: u64,
     /// Newest first.
     photos: Vec<Photo>,
+    /// Locations of the hidden photos; kept in the database.
     hidden: HashSet<String>,
     images: VecDeque<(String, Image)>,
     error: Option<String>,
@@ -330,8 +331,39 @@ impl Photos {
         let competition = Competition::current(db)
             .await
             .map_err(|e| format!("Couldn't read the photo settings: {e}"))?;
-        self.configure(competition.and_then(|c| c.photos).as_ref());
+        let settings = competition.and_then(|c| c.photos);
+        self.configure(settings.as_ref());
+        self.load_hidden(db, settings.as_ref().map(|s| s.source.as_str()))
+            .await
+            .map_err(|e| format!("Couldn't read the hidden photos: {e}"))?;
         self.refresh().await
+    }
+
+    /// Takes the hidden photos of `source` from the database; those of
+    /// another source are dropped there.
+    async fn load_hidden(
+        &self,
+        db: &sqlx::SqlitePool,
+        source: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM hidden_photos WHERE source IS NOT ?")
+            .bind(source)
+            .execute(db)
+            .await?;
+        let locations: Vec<String> = match source {
+            Some(source) => {
+                sqlx::query_scalar("SELECT location FROM hidden_photos WHERE source = ?")
+                    .bind(source)
+                    .fetch_all(db)
+                    .await?
+            }
+            None => Vec::new(),
+        };
+        let mut state = self.lock();
+        if state.settings.as_ref().map(|s| s.source.as_str()) == source {
+            state.hidden = locations.into_iter().collect();
+        }
+        Ok(())
     }
 
     /// Lists the source once.
@@ -384,7 +416,7 @@ impl Photos {
         state
             .photos
             .iter()
-            .find(|photo| !state.hidden.contains(&photo.id))
+            .find(|photo| !state.hidden.contains(&photo.location))
             .map(Photo::info)
     }
 
@@ -394,7 +426,7 @@ impl Photos {
         state
             .photos
             .iter()
-            .filter(|photo| !state.hidden.contains(&photo.id))
+            .filter(|photo| !state.hidden.contains(&photo.location))
             .take(RECENT)
             .map(Photo::info)
             .collect()
@@ -405,26 +437,57 @@ impl Photos {
         self.lock().error.clone()
     }
 
-    /// Hides a photo from the info board, or shows it again. False for an
-    /// unknown photo.
-    pub fn set_hidden(&self, id: &str, hidden: bool) -> bool {
-        let mut state = self.lock();
-        if !state.photos.iter().any(|photo| photo.id == id) {
-            return false;
-        }
+    /// Hides a photo from the info board, or shows it again, and keeps that
+    /// in `db`. False for an unknown photo.
+    pub async fn set_hidden(
+        &self,
+        db: &sqlx::SqlitePool,
+        id: &str,
+        hidden: bool,
+    ) -> Result<bool, sqlx::Error> {
+        let (location, source) = {
+            let state = self.lock();
+            match (
+                state.photos.iter().find(|photo| photo.id == id),
+                &state.settings,
+            ) {
+                (Some(photo), Some(settings)) => (photo.location.clone(), settings.source.clone()),
+                _ => return Ok(false),
+            }
+        };
         if hidden {
-            state.hidden.insert(id.to_owned());
+            sqlx::query("INSERT OR IGNORE INTO hidden_photos (source, location) VALUES (?, ?)")
+                .bind(&source)
+                .bind(&location)
+                .execute(db)
+                .await?;
         } else {
-            state.hidden.remove(id);
+            sqlx::query("DELETE FROM hidden_photos WHERE source = ? AND location = ?")
+                .bind(&source)
+                .bind(&location)
+                .execute(db)
+                .await?;
         }
-        true
+        let mut state = self.lock();
+        if state.settings.as_ref().map(|s| &s.source) == Some(&source) {
+            if hidden {
+                state.hidden.insert(location);
+            } else {
+                state.hidden.remove(&location);
+            }
+        }
+        Ok(true)
     }
 
     /// A photo's image, unless it's unknown or hidden.
     pub async fn image(&self, id: &str) -> Result<Option<Image>, String> {
         let (photo, source, generation) = {
             let state = self.lock();
-            if state.hidden.contains(id) {
+            if state
+                .photos
+                .iter()
+                .any(|photo| photo.id == id && state.hidden.contains(&photo.location))
+            {
                 return Ok(None);
             }
             if let Some((_, image)) = state.images.iter().find(|(cached, _)| cached == id) {
