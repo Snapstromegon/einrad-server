@@ -615,3 +615,24 @@ async fn support_registers_for_another_club_also_after_the_meldeschluss() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn whoami_lists_the_permissions_of_the_photographer() {
+    let db = common::in_memory_migrated().await;
+    let app = TestApp::new(db).await;
+    let photographer = member(&app, "Fotograf", &["photographer"]).await;
+
+    let response = app.get("/api/query/whoami", Some(&photographer)).await;
+
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.body);
+    assert_eq!(strings(&response.body["roles"]), ["photographer"]);
+    assert_eq!(
+        strings(&response.body["permissions"]),
+        [
+            "manage_act_photos",
+            "view_internal_entries",
+            "view_moderation",
+            "view_unpublished_startlist"
+        ]
+    );
+}
