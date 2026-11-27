@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 use crate::{
     http_server::{ClientError, HttpError, extractor::auth::Granted},
     photos::Photos,
+    reloadable_sqlite::ReloadableSqlite,
     roles::permit,
 };
 
@@ -21,7 +22,7 @@ pub struct PhotoHiddenBody {
 }
 
 /// Hides a photo from the info board (e.g. a blurry one), so the next newest
-/// shows instead, or shows it again. Kept until the server restarts.
+/// shows instead, or shows it again. Kept in the database, until the photo source changes.
 #[utoipa::path(
     post,
     tags=["command", "photos"],
@@ -32,14 +33,16 @@ pub struct PhotoHiddenBody {
         (status=404, content_type="application/json", body=ClientError),
     ),
 )]
-#[instrument(skip(photos))]
+#[instrument(skip(photos, db))]
 #[axum::debug_handler]
 pub async fn set_photo_hidden(
     Extension(photos): Extension<Arc<Photos>>,
-    _: Granted<permit::ControlMusic>,
+    Extension(db): Extension<ReloadableSqlite>,
+    _: Granted<permit::HidePhotos>,
     Json(body): Json<PhotoHiddenBody>,
 ) -> Result<Json<SetPhotoHiddenResponse>, HttpError> {
-    if !photos.set_hidden(&body.id, body.hidden) {
+    let db = db.get().await.clone();
+    if !photos.set_hidden(&db, &body.id, body.hidden).await? {
         return Err(HttpError::StatusCode(StatusCode::NOT_FOUND));
     }
     info!("Photo {} hidden: {}", body.id, body.hidden);

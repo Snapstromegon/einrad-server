@@ -372,3 +372,69 @@ async fn follow_id(app: &TestApp, url: &str) -> (String, StatusCode) {
         image.status,
     )
 }
+
+#[tokio::test]
+async fn the_photographer_hides_photos_and_the_announcer_cannot() {
+    let db = common::in_memory_migrated().await;
+    let folder = Folder::new();
+    folder.write("a.jpg", "photo", 1);
+    let app = TestApp::with_photos(db, local(&folder)).await;
+    app.sync_photos().await.unwrap();
+    let id = app.get("/api/query/get_photos", None).await.body["newest"]["id"].clone();
+    let body = json!({ "id": id, "hidden": true });
+    let photographer = app
+        .create_user_with_roles("Fotograf", &["photographer"])
+        .await;
+    let announcer = app
+        .create_user_with_roles("Sprecher", &["moderation"])
+        .await;
+    let (photographer, announcer) = (app.cookie_for(photographer), app.cookie_for(announcer));
+
+    let denied = app
+        .post(
+            "/api/command/set_photo_hidden",
+            body.clone(),
+            Some(&announcer),
+        )
+        .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    let hidden = app
+        .post("/api/command/set_photo_hidden", body, Some(&photographer))
+        .await;
+    assert_eq!(hidden.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn hidden_photos_survive_a_restart_but_not_a_new_source() {
+    let db = common::in_memory_migrated().await;
+    let folder = Folder::new();
+    folder.write("a.jpg", "older", 10);
+    folder.write("b.jpg", "newest", 1);
+    let app = TestApp::with_photos(db, local(&folder)).await;
+    let admin = app.create_admin().await;
+    app.sync_photos().await.unwrap();
+    let newest = app.photos.newest().unwrap();
+    let hidden = app
+        .post(
+            "/api/command/set_photo_hidden",
+            json!({ "id": newest.id, "hidden": true }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(hidden.status, StatusCode::OK);
+
+    // A restart: a fresh `Photos` over the same database.
+    let restarted = einrad_server::photos::Photos::new().unwrap();
+    restarted.sync(&app.db).await.unwrap();
+    assert_ne!(restarted.newest().unwrap().id, newest.id);
+    assert_eq!(restarted.recent().len(), 1);
+
+    // Another source drops them for good, also when the old one returns.
+    let other = Folder::new();
+    other.write("c.jpg", "other", 1);
+    common::set_photos(&app.db, Some(&local(&other))).await;
+    restarted.sync(&app.db).await.unwrap();
+    common::set_photos(&app.db, Some(&local(&folder))).await;
+    restarted.sync(&app.db).await.unwrap();
+    assert_eq!(restarted.recent().len(), 2);
+}
