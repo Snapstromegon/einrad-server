@@ -79,6 +79,8 @@ pub async fn build(
     // Songs uploaded while the server was down or before normalization existed.
     normalize::resume(&db, &settings.data_path).await?;
 
+    ensure_data_folders(&settings.data_path)?;
+
     let photos = Photos::new().map_err(|e| eyre!(e))?;
     let player_hub = PlayerHub::new(db.clone());
     if let Some(name) = settings.local_player {
@@ -117,4 +119,30 @@ fn start_local_player(_hub: &Arc<PlayerHub>, _data_path: &std::path::Path, name:
     warn!(
         "LOCAL_PLAYER is set to {name:?}, but this server was built without the local-audio feature; the server player is off."
     );
+}
+
+/// Folders for Kürfotos under `data_path` (ADR 0026). Created if missing, so
+/// a fresh or older data folder needs no manual step.
+fn ensure_data_folders(data_path: &std::path::Path) -> eyre::Result<()> {
+    for folder in ["photos/original", "photos/resized"] {
+        let path = data_path.join(folder);
+        std::fs::create_dir_all(&path)
+            .map_err(|e| eyre!("cannot create data folder {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creates_photo_folders_and_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("data-folders-{}", uuid::Uuid::new_v4()));
+        ensure_data_folders(&dir).unwrap();
+        ensure_data_folders(&dir).unwrap();
+        assert!(dir.join("photos/original").is_dir());
+        assert!(dir.join("photos/resized").is_dir());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
