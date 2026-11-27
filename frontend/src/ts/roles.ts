@@ -15,6 +15,7 @@ export const ROLES: readonly Role[] = [
   "music_control",
   "moderation",
   "music_check",
+  "photographer",
 ];
 
 export const roleNames: Record<Role, string> = {
@@ -26,6 +27,7 @@ export const roleNames: Record<Role, string> = {
   music_control: "Musiksteuerung",
   moderation: "Moderation",
   music_check: "Musikprüfung",
+  photographer: "Fotograf",
 };
 
 /** `roles` with `role` granted (`on`) or revoked, in the table's order. */

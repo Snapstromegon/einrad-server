@@ -45,6 +45,9 @@ pub enum Role {
     Moderation,
     /// Musikprüfung: marks songs as checked.
     MusicCheck,
+    /// Fotograf: sees the event like the moderation and manages the photos
+    /// of the acts.
+    Photographer,
 }
 
 pub trait Permit {
@@ -138,6 +141,8 @@ permissions! {
     CheckSongs,
     /// Send club mails (Rundmail) and read the ones sent.
     MailClubs,
+    /// The photos of the acts.
+    ManageActPhotos,
 }
 
 impl Role {
@@ -183,6 +188,7 @@ impl Role {
                 P::ViewModeration,
                 P::ViewInternalEntries,
                 P::ViewUnpublishedStartlist,
+                P::ManageActPhotos,
             ],
             Role::Moderation => &[
                 P::ViewModeration,
@@ -190,6 +196,13 @@ impl Role {
                 P::ViewUnpublishedStartlist,
             ],
             Role::MusicCheck => &[P::CheckSongs],
+            // Photographs the acts; no write access besides their photos.
+            Role::Photographer => &[
+                P::ViewModeration,
+                P::ViewInternalEntries,
+                P::ViewUnpublishedStartlist,
+                P::ManageActPhotos,
+            ],
             // Enters registrations for clubs, also after the Meldeschluss.
             Role::Support => &[
                 P::ManageRegistrations,
@@ -296,6 +309,7 @@ mod tests {
                     P::ViewModeration,
                     P::ViewInternalEntries,
                     P::ViewUnpublishedStartlist,
+                    P::ManageActPhotos,
                 ],
             ),
             (
@@ -307,6 +321,15 @@ mod tests {
                 ],
             ),
             (Role::MusicCheck, vec![P::CheckSongs]),
+            (
+                Role::Photographer,
+                vec![
+                    P::ViewModeration,
+                    P::ViewInternalEntries,
+                    P::ViewUnpublishedStartlist,
+                    P::ManageActPhotos,
+                ],
+            ),
             (
                 Role::Support,
                 vec![
@@ -334,6 +357,7 @@ mod tests {
             Role::MusicControl,
             Role::Moderation,
             Role::MusicCheck,
+            Role::Photographer,
         ];
         for role in roles {
             let admin_only = [
@@ -362,6 +386,7 @@ mod tests {
             (Role::MusicControl, false),
             (Role::Moderation, false),
             (Role::MusicCheck, false),
+            (Role::Photographer, false),
             (Role::Support, false),
         ];
         for (role, mails) in roles {
@@ -382,8 +407,55 @@ mod tests {
                 P::ControlMusic,
                 P::ViewModeration,
                 P::ViewInternalEntries,
-                P::ViewUnpublishedStartlist
+                P::ViewUnpublishedStartlist,
+                P::ManageActPhotos
             ]
         );
+    }
+
+    #[test]
+    fn admins_music_control_and_the_photographer_manage_act_photos() {
+        let roles = [
+            (Role::Admin, true),
+            (Role::MusicControl, true),
+            (Role::Photographer, true),
+            (Role::Support, false),
+            (Role::JuryLead, false),
+            (Role::Treasurer, false),
+            (Role::CheckIn, false),
+            (Role::Moderation, false),
+            (Role::MusicCheck, false),
+        ];
+        for (role, manages) in roles {
+            assert_eq!(
+                role.permissions().contains(&P::ManageActPhotos),
+                manages,
+                "{role:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_photographer_writes_nothing_but_act_photos() {
+        let writes = [
+            P::ManageUsers,
+            P::ManageBackups,
+            P::PlanCompetition,
+            P::ManageCompetition,
+            P::ManageRegistrations,
+            P::ManagePayments,
+            P::ManageJury,
+            P::ManageResults,
+            P::CheckIn,
+            P::ControlMusic,
+            P::CheckSongs,
+            P::MailClubs,
+        ];
+        for permission in writes {
+            assert!(
+                !Role::Photographer.permissions().contains(&permission),
+                "{permission:?}"
+            );
+        }
     }
 }
