@@ -1,6 +1,102 @@
-# Freestyle Cup Registration System
+# Einrad Server (Unicycling Server)
 
-This project contains the registration system for the freestyle unicycling cup NRW.
+This project contains the registration system for german unicycling events as used by SSV Nümbrecht.
+
+## Getting Started
+
+### German Version
+
+Ihr habt dieses System auf einem unserer Wettbewerbe gesehen und wollt euch das ganze mal genauer ansehen
+oder seid auf der Suche nach einem neuen Anmeldesystem?
+
+Dieses Tool sollte euch hoffentlich helfen und lässt sich relativ einfach 
+auf gängigen Linux Servern hosten. Solltet ihr hier Unterstützung benütigen
+meldet euch gerne direkt hier als Issue oder bei mir per mail unter
+[raphael@hoeser.dev](mailto:raphael@hoeser.dev).
+Ich stelle auch gerne eine Demoinstanz zur Verfügung.
+
+Feedback ist per Mail oder Issue erwünscht.
+
+Das system soll sich am deutschen Konzept für gemeinsame Wettkämpfe orientieren.
+
+#### Folgende Funktionen bietet das System bereits:
+
+- Anmeldeverwaltung als Verein
+- Vereinsübergreifende Paare/Gruppen
+- Kategorienplanung
+- Zeitplanverwaltung
+- Musikverwaltung
+- FahrerInnen Check-In am Event
+- Live-Startlisten
+- Live-Anzeigen für die Halle
+- Live-Infos für Moderation und Juryleitung
+- Musik abspielen
+- Juryplanung
+- Zahlungsverwaltung
+- Rabatte/Gutscheine
+- Strafzahlungen für fehlende Jurymeldungen
+- Visuelle Anpassung des Systems für die eigene Veranstaltung
+
+#### Geplante Funktionen:
+
+- PostgreSQL Support
+- Videokür Meldung
+- Videokür abspielen
+- Veranstaltungsübergreifende Vereinsmeldungen
+- "Qualifikation" von Küren ohne erneute Meldung
+- Unterstützung für mehrere Events
+- Einladung von NutzerInnen außerhalb des Meldezeitraums
+- Live-Anzeigenverwaltung
+
+#### Langfristige Ideen
+
+- Auswertungen
+- Andere Einrad-Kategorien
+
+### English Version
+
+You saw this system at one of our competitions and would like to take a closer look, or are you searching for a new registration system?
+
+This tool should hopefully help you and can be hosted quite easily on common Linux servers. If you need any assistance, feel free to open an issue here or contact me directly via email at raphael@hoeser.dev.
+I can provide demo instances if needed.
+
+Feedback is welcome via email or issue.
+
+The system is designed to follow the German concept for joint competitions.
+
+#### The system already provides the following features:
+
+- Registration management for clubs
+- Cross-club pairs/groups
+- Category planning
+- Schedule management
+- Music management
+- Rider check-in at the event
+- Live start lists
+- Live displays for the venue
+- Live information for announcers and head judges
+- Music playback
+- Jury planning
+- Payment management
+- Discounts/coupons
+- Penalty fees for missing jury nominations
+- Visual customization of the system for your own event
+
+#### Planned Features:
+
+- PostgreSQL support
+- Video routine registration
+- Video routine playback
+- Cross-event club registrations
+- Qualification of routines without requiring re-registration
+- Support for multiple events
+- Invitation of users outside the registration period
+- Live display management
+
+#### Long-Term Ideas
+
+- Analytics and reporting
+- Additional unicycle disciplines/categories
 
 ## Requirements
 
@@ -156,7 +252,7 @@ metrics start with `einrad_server_`.
 
 ```yaml
 scrape_configs:
-  - job_name: freestyle-cup
+  - job_name: einrad_server
     scheme: https
     scrape_interval: 30s
     authorization:
